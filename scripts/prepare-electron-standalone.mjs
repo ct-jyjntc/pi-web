@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
  * After `next build` (output: "standalone"), assemble the folder Electron packages:
- *   .next/standalone  +  .next/static  +  public  + agent runtime assets/deps
+ *   .next/standalone  +  .next/static  +  public  + complete pi agent packages
+ *
+ * Next file tracing only keeps statically-reachable JS. pi-coding-agent dynamically
+ * imports modules like pi-ai/dist/oauth.js at runtime, which causes HTTP 500 in the
+ * packaged app unless we overlay full package dist trees.
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { join, basename } from "path";
@@ -45,13 +49,6 @@ function ensureDir(p) {
   mkdirSync(p, { recursive: true });
 }
 
-function copyIfExists(src, dest) {
-  if (!existsSync(src)) return false;
-  ensureDir(join(dest, ".."));
-  cpSync(src, dest, { recursive: true });
-  return true;
-}
-
 function shouldSkipBloat(src) {
   const name = basename(src);
   if (name === "README.md" || name === "CHANGELOG.md" || name === "LICENSE" || name === "LICENSE.md") return true;
@@ -77,52 +74,67 @@ function copyFiltered(src, dest) {
   cpSync(src, dest);
 }
 
-const agentRoot = join(root, "node_modules/@earendil-works/pi-coding-agent");
-const agentDest = join(standalone, "node_modules/@earendil-works/pi-coding-agent");
 const standaloneNm = join(standalone, "node_modules");
+const earendilRoot = join(root, "node_modules/@earendil-works");
+const earendilDest = join(standaloneNm, "@earendil-works");
 
-// Drop package docs/examples; keep a clean slate for nested deps we re-copy selectively.
-for (const junk of ["docs", "examples", "CHANGELOG.md", "README.md", "npm-shrinkwrap.json"]) {
-  rmSync(join(agentDest, junk), { recursive: true, force: true });
-}
-rmSync(join(agentDest, "node_modules"), { recursive: true, force: true });
+// Overlay full runtime trees for every @earendil-works package Next may have
+// partially traced. Dynamic imports (oauth, themes, export-html, …) need this.
+const piPackages = existsSync(earendilRoot)
+  ? readdirSync(earendilRoot).filter((name) => {
+      const p = join(earendilRoot, name);
+      return statSync(p).isDirectory() && existsSync(join(p, "package.json"));
+    })
+  : [];
 
-// Theme + export-html assets required at agent runtime (Next tracing drops non-JS files).
-const assetCopies = [
-  ["dist/modes/interactive/theme", "dist/modes/interactive/theme"],
-  ["dist/modes/interactive/assets", "dist/modes/interactive/assets"],
-  ["dist/core/export-html", "dist/core/export-html"],
-];
-for (const [relSrc, relDest] of assetCopies) {
-  const src = join(agentRoot, relSrc);
-  const dest = join(agentDest, relDest);
-  if (copyIfExists(src, dest)) {
-    console.log(`Copied agent assets: ${relSrc}`);
-  } else {
-    console.warn(`Warning: missing agent assets ${relSrc}`);
+for (const name of piPackages) {
+  const srcPkg = join(earendilRoot, name);
+  const destPkg = join(earendilDest, name);
+  ensureDir(destPkg);
+
+  // package.json is required for resolution
+  cpSync(join(srcPkg, "package.json"), join(destPkg, "package.json"));
+
+  // Full dist (minus maps/types)
+  if (existsSync(join(srcPkg, "dist"))) {
+    rmSync(join(destPkg, "dist"), { recursive: true, force: true });
+    copyFiltered(join(srcPkg, "dist"), join(destPkg, "dist"));
   }
+
+  // Drop package-level junk if a previous fat copy left them
+  for (const junk of ["docs", "examples", "CHANGELOG.md", "README.md", "npm-shrinkwrap.json"]) {
+    rmSync(join(destPkg, junk), { recursive: true, force: true });
+  }
+
+  console.log(`Overlaid @earendil-works/${name} dist`);
 }
 
-// Nested deps that Next tracing did not hoist. Must stay under the agent package so
-// version pins (e.g. glob@13) win over unrelated root packages.
+// Nested deps under pi-coding-agent: Next often misses version-pinned ones
+// (glob@13) and optional runtime packages.
+const agentRoot = join(earendilRoot, "pi-coding-agent");
+const agentDest = join(earendilDest, "pi-coding-agent");
 const nestedSrc = join(agentRoot, "node_modules");
 const nestedDest = join(agentDest, "node_modules");
+
+rmSync(nestedDest, { recursive: true, force: true });
+
 let copiedNested = 0;
 let skippedHoisted = 0;
 if (existsSync(nestedSrc)) {
   for (const entry of readdirSync(nestedSrc)) {
     if (entry === ".bin" || entry === "@types") continue;
     const srcPath = join(nestedSrc, entry);
-    // Scoped packages: @scope/*
+
     if (entry.startsWith("@")) {
       for (const scoped of readdirSync(srcPath)) {
+        // Never nest another full @earendil-works tree (already overlaid top-level)
+        if (entry === "@earendil-works") {
+          skippedHoisted++;
+          continue;
+        }
         const pkgSrc = join(srcPath, scoped);
         const topLevel = join(standaloneNm, entry, scoped);
-        // Always keep agent-local copy for packages that pin different majors than
-        // anything that might resolve from parent walks (notably glob).
-        // Prefer nested only when not already present at standalone top-level,
-        // except force-copy known version-sensitive deps.
-        const forceLocal = entry === "glob" || `${entry}/${scoped}` === "glob";
+        const forceLocal = entry === "glob";
         if (!forceLocal && existsSync(topLevel)) {
           skippedHoisted++;
           continue;
@@ -132,6 +144,7 @@ if (existsSync(nestedSrc)) {
       }
       continue;
     }
+
     const topLevel = join(standaloneNm, entry);
     const forceLocal = entry === "glob";
     if (!forceLocal && existsSync(topLevel)) {
@@ -141,6 +154,7 @@ if (existsSync(nestedSrc)) {
     copyFiltered(srcPath, join(nestedDest, entry));
     copiedNested++;
   }
+
   // Always force glob@13 under the agent package (project root may have glob@7).
   const globSrc = join(nestedSrc, "glob");
   if (existsSync(globSrc)) {
@@ -152,9 +166,15 @@ if (existsSync(nestedSrc)) {
 
 console.log(`Nested agent deps: copied ${copiedNested}, skipped hoisted ${skippedHoisted}`);
 
+// Critical asset checks
 const darkTheme = join(agentDest, "dist/modes/interactive/theme/dark.json");
+const oauthJs = join(earendilDest, "pi-ai/dist/oauth.js");
 if (!existsSync(darkTheme)) {
   console.error("Missing pi-coding-agent dark.json after package copy — aborting.");
+  process.exit(1);
+}
+if (!existsSync(oauthJs)) {
+  console.error("Missing pi-ai oauth.js after package copy — aborting.");
   process.exit(1);
 }
 

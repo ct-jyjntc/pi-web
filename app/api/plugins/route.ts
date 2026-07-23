@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
-import { existsSync, readFileSync, statSync } from "fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { basename, dirname, extname, join, relative } from "path";
+import { createRequire } from "module";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const requireFromHere = createRequire(import.meta.url);
 import {
   DefaultPackageManager,
   getAgentDir,
@@ -18,7 +23,9 @@ import type {
   PluginScope,
   PluginsResponse,
 } from "@/lib/api-types";
+import { ensureNpmOnPath, getNpmCommandForPi, resolveNpmBinary } from "@/lib/resolve-npm";
 
+const execFileAsync = promisify(execFile);
 export const dynamic = "force-dynamic";
 
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
@@ -198,8 +205,133 @@ function collectResources(paths: ResolvedPaths): {
   return { countsByPackage, resourcesByPackage, totals };
 }
 
+function preparePackageManagerEnv(settingsManager: SettingsManager, persistNpm = false): void {
+  // GUI/Electron PATH often omits user Node installs → spawn npm ENOENT.
+  ensureNpmOnPath();
+  // setNpmCommand() immediately writes ~/.pi/agent/settings.json — only do that
+  // when installing/updating so we pin a working absolute npm once.
+  if (persistNpm && !settingsManager.getNpmCommand()?.length) {
+    const cmd = getNpmCommandForPi();
+    if (cmd) settingsManager.setNpmCommand(cmd);
+  }
+}
+
+/**
+ * Pi installs packages with `--legacy-peer-deps`, so peerDependencies are not
+ * installed. Install declared peers into the package install root so package
+ * extensions can resolve their runtime modules.
+ */
+async function ensurePackagePeerDeps(scope: PluginScope, packageNameHint?: string): Promise<string | null> {
+  const agentDir = getAgentDir();
+  const installRoot = scope === "project"
+    ? null // project path needs cwd; handled by caller via packageManager list
+    : join(agentDir, "npm");
+  if (!installRoot || !existsSync(installRoot)) return null;
+
+  const pkgJsonPath = packageNameHint
+    ? join(installRoot, "node_modules", ...packageNameHint.split("/"), "package.json")
+    : null;
+
+  // Collect peer deps from all installed packages under the root (cheap enough).
+  const peers = new Set<string>();
+  const modulesDir = join(installRoot, "node_modules");
+  if (!existsSync(modulesDir)) return null;
+
+  const isResolvable = (name: string) => {
+    try {
+      requireFromHere.resolve(name, { paths: [installRoot] });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (packageNameHint && pkgJsonPath && existsSync(pkgJsonPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as {
+        peerDependencies?: Record<string, string>;
+      };
+      for (const name of Object.keys(pkg.peerDependencies ?? {})) {
+        if (!isResolvable(name)) peers.add(name);
+      }
+    } catch {
+      // ignore
+    }
+  } else {
+    // Top-level packages only (depth 1 + scoped depth 2)
+    for (const entry of readdirSync(modulesDir)) {
+      if (entry.startsWith(".")) continue;
+      const full = join(modulesDir, entry);
+      if (entry.startsWith("@")) {
+        if (!statSync(full).isDirectory()) continue;
+        for (const scoped of readdirSync(full)) {
+          const pj = join(full, scoped, "package.json");
+          if (!existsSync(pj)) continue;
+          try {
+            const pkg = JSON.parse(readFileSync(pj, "utf8")) as {
+              peerDependencies?: Record<string, string>;
+            };
+            for (const name of Object.keys(pkg.peerDependencies ?? {})) {
+              if (!isResolvable(name)) peers.add(name);
+            }
+          } catch {
+            // ignore
+          }
+        }
+        continue;
+      }
+      const pj = join(full, "package.json");
+      if (!existsSync(pj)) continue;
+      try {
+        const pkg = JSON.parse(readFileSync(pj, "utf8")) as {
+          peerDependencies?: Record<string, string>;
+        };
+        for (const name of Object.keys(pkg.peerDependencies ?? {})) {
+          if (!isResolvable(name)) peers.add(name);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (peers.size === 0) return null;
+
+  const npm = resolveNpmBinary();
+  if (!npm) return `Missing peers (${[...peers].join(", ")}) but npm not found`;
+
+  try {
+    await execFileAsync(npm, ["install", ...peers, "--prefix", installRoot, "--legacy-peer-deps"], {
+      timeout: 180_000,
+      env: process.env,
+    });
+    return `Installed peer deps: ${[...peers].join(", ")}`;
+  } catch (error) {
+    return `Failed to install peers (${[...peers].join(", ")}): ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+function guessPackageNameFromSource(source: string): string | undefined {
+  // npm:@scope/name@version or npm:name@version or bare name
+  let s = source.trim();
+  if (s.startsWith("npm:")) s = s.slice(4);
+  if (s.startsWith("git:") || s.startsWith("http") || s.startsWith("/") || s.startsWith(".")) {
+    return undefined;
+  }
+  // strip version for scoped: @scope/name@version → @scope/name
+  if (s.startsWith("@")) {
+    const parts = s.split("@");
+    // ["", "scope/name", "version?"] or ["", "scope/name"]
+    if (parts.length >= 2) return `@${parts[1]}`;
+  }
+  const at = s.lastIndexOf("@");
+  if (at > 0) return s.slice(0, at);
+  return s || undefined;
+}
+
 async function readPlugins(cwd: string): Promise<PluginsResponse> {
   const settingsManager = SettingsManager.create(cwd, getAgentDir());
+  preparePackageManagerEnv(settingsManager);
   const packageManager = new DefaultPackageManager({
     cwd,
     agentDir: getAgentDir(),
@@ -291,6 +423,8 @@ export async function POST(req: Request) {
     if (!body.action) return NextResponse.json({ error: "action required" }, { status: 400 });
 
     const settingsManager = SettingsManager.create(body.cwd, getAgentDir());
+    const needsNpm = body.action === "install" || body.action === "update";
+    preparePackageManagerEnv(settingsManager, needsNpm);
     const packageManager = new DefaultPackageManager({
       cwd: body.cwd,
       agentDir: getAgentDir(),
@@ -301,12 +435,38 @@ export async function POST(req: Request) {
 
     if (body.action === "install") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
+      if (!ensureNpmOnPath()) {
+        return NextResponse.json(
+          {
+            error:
+              "Cannot find `npm` on this machine (spawn npm ENOENT). Install Node.js, or set PATH / PI_WEB_NPM to your npm binary, then retry.",
+          },
+          { status: 500 },
+        );
+      }
       await packageManager.installAndPersist(source, { local });
+      if (!local) {
+        const peerNote = await ensurePackagePeerDeps("global", guessPackageNameFromSource(source));
+        if (peerNote) console.log(`[plugins] ${peerNote}`);
+      }
     } else if (body.action === "remove") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
       await packageManager.removeAndPersist(source, { local });
     } else if (body.action === "update") {
+      if (!ensureNpmOnPath()) {
+        return NextResponse.json(
+          {
+            error:
+              "Cannot find `npm` on this machine (spawn npm ENOENT). Install Node.js, or set PATH / PI_WEB_NPM to your npm binary, then retry.",
+          },
+          { status: 500 },
+        );
+      }
       await packageManager.update(source);
+      if (!local) {
+        const peerNote = await ensurePackagePeerDeps("global", source ? guessPackageNameFromSource(source) : undefined);
+        if (peerNote) console.log(`[plugins] ${peerNote}`);
+      }
     } else if (body.action === "disable") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
       setPackageDisabled(settingsManager, source, readScope(body.scope), true);

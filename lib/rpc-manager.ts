@@ -8,6 +8,11 @@ import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
+import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
+
+// If users install packages that spawn the Pi CLI (e.g. pi-subagents), never use
+// Electron as process.execPath — set PI_SUBAGENT_PI_BINARY to a real `pi`.
+ensureSubagentSpawnEnv();
 
 // ============================================================================
 // Types

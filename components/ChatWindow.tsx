@@ -183,6 +183,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef,
+    stickToBottom, resumeStickToBottom,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
@@ -660,11 +661,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               />
             )}
 
-            {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
-            )}
-
-            <div ref={messagesEndRef} />
+            {/* Small tail padding so the last line isn't flush against the input bar. */}
+            <div ref={messagesEndRef} style={{ height: 12 }} />
             </div>
           </div>
         </div>
@@ -676,6 +674,42 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             messageRefs={messageRefs}
           />
         )}
+        {/* Always-visible jump-to-latest FAB, bottom-right of the message viewport */}
+        <button
+          type="button"
+          onClick={resumeStickToBottom}
+          title={t("window.scrollToBottom")}
+          aria-label={t("window.scrollToBottom")}
+          aria-pressed={stickToBottom}
+          style={{
+            position: "absolute",
+            right: isMobile ? 14 : CHAT_MINIMAP_WIDTH + 10,
+            bottom: 12,
+            zIndex: 45,
+            width: 34,
+            height: 34,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 999,
+            border: "1px solid var(--border)",
+            background: stickToBottom
+              ? "var(--bg-panel)"
+              : "var(--accent)",
+            color: stickToBottom
+              ? "var(--text-muted)"
+              : "var(--accent-fg)",
+            boxShadow: "0 2px 10px color-mix(in oklab, var(--text) 10%, transparent)",
+            cursor: "pointer",
+            opacity: stickToBottom ? 0.72 : 1,
+            transition: "background 120ms ease, color 120ms ease, opacity 120ms ease",
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 5v14" />
+            <path d="m19 12-7 7-7-7" />
+          </svg>
+        </button>
       </div>
 
       <div className="relative">

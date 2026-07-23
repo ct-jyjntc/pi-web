@@ -89,3 +89,25 @@ export interface PluginsResponse {
   totals: PluginResourceCounts;
   diagnostics: PluginDiagnostic[];
 }
+
+export interface PluginSearchResult {
+  name: string;
+  version: string;
+  description: string;
+  source: string;
+  url: string;
+  weeklyDownloads?: number;
+  publisher?: string;
+  keywords: string[];
+}
+
+export interface PluginSearchResult {
+  name: string;
+  version: string;
+  description: string;
+  source: string;
+  url: string;
+  weeklyDownloads?: number;
+  publisher?: string;
+  keywords: string[];
+}

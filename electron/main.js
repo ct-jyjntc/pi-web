@@ -124,6 +124,60 @@ function attachServerExitHandler(child) {
   });
 }
 
+/**
+ * macOS GUI apps (Dock / Finder / packaged Electron) often inherit a minimal
+ * PATH that does not include Homebrew / nvm / user-local npm. Plugin install
+ * then fails with `spawn npm ENOENT`. Prepend common Node install locations.
+ */
+function augmentPathForNodeTools(baseEnv) {
+  const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  const extras = [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    home ? `${home}/.local/bin` : "",
+    home ? `${home}/.hermes/node/bin` : "",
+    home ? `${home}/.nvm/current/bin` : "",
+    home ? `${home}/.fnm/current/bin` : "",
+    home ? `${home}/.volta/bin` : "",
+    home ? `${home}/.asdf/shims` : "",
+  ].filter(Boolean);
+
+  const sep = process.platform === "win32" ? ";" : ":";
+  const current = baseEnv[pathKey] || process.env[pathKey] || "";
+  const parts = current.split(sep).filter(Boolean);
+  for (const dir of extras.reverse()) {
+    if (fs.existsSync(dir) && !parts.includes(dir)) {
+      parts.unshift(dir);
+    }
+  }
+
+  // Resolve real `pi` CLI for plugins that spawn child agents (never Electron as node).
+  const piCandidates = [
+    baseEnv.PI_SUBAGENT_PI_BINARY,
+    baseEnv.PI_WEB_PI_BINARY,
+    "/opt/homebrew/bin/pi",
+    "/usr/local/bin/pi",
+    home ? `${home}/.local/bin/pi` : "",
+  ].filter(Boolean);
+  let piBinary = piCandidates.find((p) => fs.existsSync(p));
+  if (!piBinary) {
+    for (const dir of parts) {
+      const cand = path.join(dir, "pi");
+      if (fs.existsSync(cand)) {
+        piBinary = cand;
+        break;
+      }
+    }
+  }
+
+  const next = { ...baseEnv, [pathKey]: parts.join(sep) };
+  if (piBinary) {
+    next.PI_SUBAGENT_PI_BINARY = piBinary;
+  }
+  return next;
+}
+
 function startNextServer(port) {
   if (!hasProductionBuild()) {
     throw new Error(
@@ -133,7 +187,7 @@ function startNextServer(port) {
     );
   }
 
-  const env = {
+  const env = augmentPathForNodeTools({
     ...process.env,
     PORT: String(port),
     HOSTNAME: HOST,
@@ -142,7 +196,7 @@ function startNextServer(port) {
     NODE_ENV: "production",
     // Never set ELECTRON_RUN_AS_NODE on a spawn of process.execPath — that
     // creates a second Dock icon labeled "exec" on macOS.
-  };
+  });
   delete env.ELECTRON_RUN_AS_NODE;
 
   if (isPackaged) {

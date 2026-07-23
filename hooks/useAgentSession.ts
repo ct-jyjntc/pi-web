@@ -154,8 +154,8 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
-const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
-const USER_SCROLL_INTENT_MS = 1200;
+const PROGRAMMATIC_SCROLL_IGNORE_MS = 250;
+const NEAR_BOTTOM_PX = 80;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -375,9 +375,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const initialScrollDoneRef = useRef(false);
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
-  const completionScrollAllowedRef = useRef(true);
+  const stickToBottomRef = useRef(true);
+  const [stickToBottom, setStickToBottom] = useState(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
-  const userScrollIntentUntilRef = useRef(0);
   const ignoreProgrammaticScrollUntilRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1057,8 +1057,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     dispatch({ type: "start" });
-    pendingScrollToUserRef.current = true;
-    completionScrollAllowedRef.current = true;
+    // Without the old full-viewport spacer, pin to the live tail so the
+    // growing model reply stays in view (user message stays just above it).
+    pendingScrollToUserRef.current = false;
+    stickToBottomRef.current = true;
+    setStickToBottom(true);
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
 
@@ -1456,10 +1459,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    messagesEndRef.current?.scrollIntoView({ behavior });
+  const isNearBottom = useCallback((container: HTMLElement, threshold = NEAR_BOTTOM_PX) => {
+    return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
   }, []);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+      messagesEndRef.current?.scrollIntoView({ behavior });
+      return;
+    }
+    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+    const top = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (behavior === "instant") {
+      container.scrollTop = top;
+    } else {
+      container.scrollTo({ top, behavior });
+    }
+  }, []);
+
+  const resumeStickToBottom = useCallback(() => {
+    stickToBottomRef.current = true;
+    setStickToBottom(true);
+    scrollToBottom("smooth");
+  }, [scrollToBottom]);
 
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1467,7 +1491,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!container || !el) return;
     const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
     ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    container.scrollTo({ top: elAbsTop - 16, behavior: "smooth" });
+    // Pin the latest user message near the top so the model reply grows into view.
+    // Keep stick-to-bottom on so subsequent stream growth follows the reply.
+    stickToBottomRef.current = true;
+    setStickToBottom(true);
+    container.scrollTo({ top: Math.max(0, elAbsTop - 16), behavior: "smooth" });
+  }, []);
+
+  const detachStickToBottom = useCallback(() => {
+    if (!stickToBottomRef.current) return;
+    stickToBottomRef.current = false;
+    setStickToBottom(false);
   }, []);
 
   const markUserScrollIntent = useCallback((event: Event) => {
@@ -1475,15 +1509,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!SCROLL_KEYS.has(event.key)) return;
       if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable='true']")) return;
     }
-    userScrollIntentUntilRef.current = Date.now() + USER_SCROLL_INTENT_MS;
-  }, []);
+    // Any intentional scroll (wheel/keys/touch) detaches. Only the FAB reattaches.
+    detachStickToBottom();
+  }, [detachStickToBottom]);
 
   const handleScrollPositionChange = useCallback(() => {
-    if (!agentRunningRef.current) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
     if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
-    if (Date.now() > userScrollIntentUntilRef.current) return;
-    completionScrollAllowedRef.current = false;
-  }, []);
+
+    // Never auto-reattach when the user reaches the bottom. Follow mode is only
+    // restored via resumeStickToBottom (the jump-to-latest button).
+    if (!isNearBottom(container) && stickToBottomRef.current) {
+      stickToBottomRef.current = false;
+      setStickToBottom(false);
+    }
+  }, [isNearBottom]);
 
   // Load session on mount
   useEffect(() => {
@@ -1538,40 +1579,85 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   useEffect(() => {
     window.addEventListener("keydown", markUserScrollIntent);
-    window.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
     return () => {
       window.removeEventListener("keydown", markUserScrollIntent);
-      window.removeEventListener("pointerdown", markUserScrollIntent);
     };
   }, [markUserScrollIntent]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    container.addEventListener("wheel", markUserScrollIntent, { passive: true });
-    container.addEventListener("touchstart", markUserScrollIntent, { passive: true });
+
+    const onWheel = (event: WheelEvent) => {
+      // Any intentional wheel movement detaches follow mode.
+      if (event.deltaY !== 0 || event.deltaX !== 0) detachStickToBottom();
+    };
+    const onTouchMove = () => {
+      detachStickToBottom();
+    };
+
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
     container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
     return () => {
-      container.removeEventListener("wheel", markUserScrollIntent);
-      container.removeEventListener("touchstart", markUserScrollIntent);
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("scroll", handleScrollPositionChange);
     };
-  }, [messages.length, loading, handleScrollPositionChange, markUserScrollIntent]);
+  }, [messages.length, loading, handleScrollPositionChange, detachStickToBottom]);
 
+  // Initial / send-time scroll placement.
   useEffect(() => {
-    if (messages.length > 0) {
-      if (pendingScrollToUserRef.current) {
-        pendingScrollToUserRef.current = false;
-        initialScrollDoneRef.current = true;
-        scrollUserMsgToTop();
-      } else if (!initialScrollDoneRef.current) {
-        initialScrollDoneRef.current = true;
-        scrollToBottom("instant");
-      } else if (!agentRunningRef.current && completionScrollAllowedRef.current) {
-        scrollToBottom("smooth");
-      }
+    if (messages.length === 0) return;
+    if (pendingScrollToUserRef.current) {
+      pendingScrollToUserRef.current = false;
+      initialScrollDoneRef.current = true;
+      scrollUserMsgToTop();
+      return;
     }
-  }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
+    if (!initialScrollDoneRef.current) {
+      initialScrollDoneRef.current = true;
+      stickToBottomRef.current = true;
+      setStickToBottom(true);
+      scrollToBottom("instant");
+    }
+  }, [messages.length, scrollToBottom, scrollUserMsgToTop]);
+
+  // While stick-to-bottom is active, keep the viewport pinned as content grows
+  // (streaming text, tool results, phase labels).
+  useEffect(() => {
+    if (!stickToBottom) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const pin = () => {
+      if (!stickToBottomRef.current) return;
+      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+      container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    };
+
+    pin();
+    const ro = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => pin())
+      : null;
+    ro?.observe(container);
+    // Observe the message column (first child) which is what grows during stream.
+    const content = container.firstElementChild;
+    if (content) ro?.observe(content);
+
+    return () => ro?.disconnect();
+  }, [stickToBottom, messages.length, agentRunning, bashRunning]);
+
+  // Token-level stream updates may not always fire ResizeObserver reliably
+  // across browsers; pin again when the streaming bubble content changes.
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    if (!streamState.isStreaming && !agentRunning) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+    container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+  }, [streamState.streamingMessage, streamState.isStreaming, agentRunning, messages.length]);
 
   // Load model list
   useEffect(() => {
@@ -1630,6 +1716,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
+    // Scroll follow
+    stickToBottom, resumeStickToBottom,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,

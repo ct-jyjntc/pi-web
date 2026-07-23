@@ -212,6 +212,7 @@ const en = {
   "window.extensionInput": "Extension terminal input",
   "window.confirm": "Confirm",
   "window.submit": "Submit",
+  "window.scrollToBottom": "Jump to latest",
 
   // Branches
   "branch.noSession": "No active session",
@@ -323,7 +324,7 @@ const en = {
 
   // PluginsConfig
   "plugins.addPlugin": "Add Plugin",
-  "plugins.packagePlaceholder": "npm:@scope/package",
+  "plugins.packagePlaceholder": "npm:@scope/package or git:github.com/user/repo",
   "plugins.status": "Status",
   "plugins.version": "Version",
   "plugins.package": "Package",
@@ -351,6 +352,16 @@ const en = {
   "plugins.enabled": "Package enabled.",
   "plugins.disabledToast": "Package disabled.",
   "plugins.sessionReloaded": "Session reloaded.",
+  "plugins.browseCatalog": "Browse npm (keywords:pi-package)",
+  "plugins.searchPlaceholder": "Search pi packages… e.g. subagent, mcp, web",
+  "plugins.catalogHint": "Official discovery: npm packages tagged pi-package. Review source before install — packages run with full system access.",
+  "plugins.manualSource": "Or install by source",
+  "plugins.noPackages": "No packages found",
+  "plugins.installSource": "Install",
+  "plugins.alreadyInstalled": "Installed",
+  "plugins.openNpm": "npm",
+  "plugins.popular": "Popular",
+  "modal.refresh": "Refresh",
 
   // File explorer
   "files.loading": "Loading files...",
@@ -601,6 +612,7 @@ const zh: Record<MessageKey, string> = {
   "window.extensionInput": "扩展终端输入",
   "window.confirm": "确认",
   "window.submit": "提交",
+  "window.scrollToBottom": "回到最新",
 
   "branch.noSession": "无活动会话",
   "branch.noBranches": "此会话没有分支",
@@ -705,7 +717,7 @@ const zh: Record<MessageKey, string> = {
   "skills.updatesCount": "{n} 个更新",
 
   "plugins.addPlugin": "添加插件",
-  "plugins.packagePlaceholder": "npm:@scope/package",
+  "plugins.packagePlaceholder": "npm:@scope/package 或 git:github.com/user/repo",
   "plugins.status": "状态",
   "plugins.version": "版本",
   "plugins.package": "包",
@@ -733,6 +745,16 @@ const zh: Record<MessageKey, string> = {
   "plugins.enabled": "包已启用。",
   "plugins.disabledToast": "包已禁用。",
   "plugins.sessionReloaded": "会话已重新加载。",
+  "plugins.browseCatalog": "浏览 npm（keywords:pi-package）",
+  "plugins.searchPlaceholder": "搜索 Pi 扩展包… 如 subagent、mcp、web",
+  "plugins.catalogHint": "官方发现渠道：带 pi-package 标签的 npm 包。安装前请审查源码 — 扩展拥有完整系统权限。",
+  "plugins.manualSource": "或手动填写源",
+  "plugins.noPackages": "未找到包",
+  "plugins.installSource": "安装",
+  "plugins.alreadyInstalled": "已安装",
+  "plugins.openNpm": "npm",
+  "plugins.popular": "热门",
+  "modal.refresh": "刷新",
 
   "files.loading": "加载文件中…",
   "files.modified": "已修改",
