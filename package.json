@@ -50,12 +50,14 @@
       "buildResources": "electron/icons"
     },
     "files": [
-      "electron/**/*",
+      "electron/main.js",
+      "electron/preload.js",
+      "electron/icons/icon.icns",
+      "electron/icons/icon.png",
+      "electron/icons/icon.ico",
       "package.json",
-      "!electron/icons/icon.iconset/**",
-      "!**/*.map",
-      "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md}",
-      "!**/node_modules/.cache/**"
+      "!node_modules/**/*",
+      "!**/node_modules/**/*"
     ],
     "extraResources": [
       {
@@ -69,6 +71,12 @@
     ],
     "afterPack": "./scripts/electron-after-pack.mjs",
     "asar": true,
+    "npmRebuild": false,
+    "electronLanguages": [
+      "en",
+      "zh_CN",
+      "zh_TW"
+    ],
     "mac": {
       "icon": "electron/icons/icon.icns",
       "category": "public.app-category.developer-tools",
