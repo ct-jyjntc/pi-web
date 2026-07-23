@@ -11,45 +11,61 @@
   --color-text-dim: var(--text-dim);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
   --color-user-bg: var(--user-bg);
   --color-assistant-bg: var(--assistant-bg);
   --color-tool-bg: var(--tool-bg);
   --color-bg-subtle: var(--bg-subtle);
+  --color-success: var(--success);
+  --color-destructive: var(--destructive);
   --font-mono-font: var(--font-mono);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
 }
 
+/* Quiet Console monochrome tokens — keep existing names so inline styles cascade */
 :root {
-  --bg: #ffffff;
-  --bg-panel: #f5f5f5;
-  --bg-hover: #eeeeee;
-  --bg-selected: #e8e8e8;
-  --border: #e0e0e0;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --text-dim: #9ca3af;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --user-bg: #eff6ff;
-  --assistant-bg: #ffffff;
-  --tool-bg: #f9fafb;
-  --bg-subtle: rgba(0,0,0,0.03);
+  --radius: 0.5rem;
+  --bg: oklch(0.995 0 0);
+  --bg-panel: oklch(0.975 0.002 90);
+  --bg-hover: oklch(0.96 0.002 90);
+  --bg-selected: oklch(0.94 0.003 90);
+  --border: oklch(0.91 0 0);
+  --text: oklch(0.145 0 0);
+  --text-muted: oklch(0.55 0 0);
+  --text-dim: oklch(0.68 0 0);
+  --accent: oklch(0.16 0 0);
+  --accent-hover: oklch(0.28 0 0);
+  --accent-fg: oklch(0.985 0 0);
+  --user-bg: oklch(0.965 0.002 90);
+  --assistant-bg: oklch(0.995 0 0);
+  --tool-bg: oklch(0.975 0.002 90);
+  --bg-subtle: color-mix(in oklab, var(--text) 3.5%, transparent);
+  --success: oklch(0.55 0.12 150);
+  --destructive: oklch(0.58 0.22 27);
+  --ring: oklch(0.2 0 0);
 }
 
 html.dark {
-  --bg: #1a1a1a;
-  --bg-panel: #242424;
-  --bg-hover: #2e2e2e;
-  --bg-selected: #383838;
-  --border: #3a3a3a;
-  --text: #e8e8e8;
-  --text-muted: #9ca3af;
-  --text-dim: #6b7280;
-  --accent: #60a5fa;
-  --accent-hover: #93c5fd;
-  --user-bg: #1e293b;
-  --assistant-bg: #1a1a1a;
-  --tool-bg: #1f2937;
-  --bg-subtle: rgba(255,255,255,0.04);
+  --bg: oklch(0.13 0 0);
+  --bg-panel: oklch(0.18 0 0);
+  --bg-hover: oklch(0.22 0 0);
+  --bg-selected: oklch(0.25 0 0);
+  --border: oklch(0.27 0 0);
+  --text: oklch(0.95 0 0);
+  --text-muted: oklch(0.64 0 0);
+  --text-dim: oklch(0.5 0 0);
+  --accent: oklch(0.94 0 0);
+  --accent-hover: oklch(0.98 0 0);
+  --accent-fg: oklch(0.12 0 0);
+  --user-bg: oklch(0.21 0 0);
+  --assistant-bg: oklch(0.13 0 0);
+  --tool-bg: oklch(0.18 0 0);
+  --bg-subtle: color-mix(in oklab, var(--text) 4.5%, transparent);
+  --success: oklch(0.72 0.12 150);
+  --destructive: oklch(0.65 0.2 28);
+  --ring: oklch(0.75 0 0);
 }
 
 /* Theme toggle: circular wipe via View Transitions API.
@@ -77,25 +93,49 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-sans), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14.7px;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
   overscroll-behavior: none;
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
   height: 100dvh;
 }
 
+::selection {
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 2px;
+  border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
@@ -112,7 +152,7 @@ pre, code {
 /* react-markdown output styles */
 .markdown-body {
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.65;
   color: var(--text);
   word-break: break-word;
 }
@@ -120,11 +160,11 @@ pre, code {
 .markdown-body p:last-child { margin-bottom: 0; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3,
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
-  font-weight: 600;
+  font-weight: 500;
   margin: 10px 0 5px;
   color: var(--text);
   line-height: 1.35;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 .markdown-body h1 { font-size: 1.16em; }
 .markdown-body h2 { font-size: 1.08em; }
@@ -139,12 +179,12 @@ pre, code {
 .markdown-body ol > li { list-style-type: decimal; }
 .markdown-body li > p { margin: 0; }
 .markdown-body li::marker {
-  color: color-mix(in srgb, var(--accent) 72%, var(--text-muted));
-  font-weight: 600;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 .markdown-body strong {
-  color: color-mix(in srgb, var(--text) 88%, var(--accent));
-  font-weight: 700;
+  color: var(--text);
+  font-weight: 600;
 }
 .markdown-body em { color: var(--text-muted); }
 .markdown-body a {
@@ -653,9 +693,9 @@ span.linenumber {
 }
 
 @keyframes saved-pop {
-  0%   { transform: scale(1); box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
-  40%  { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.25); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+  0%   { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in oklab, var(--success) 45%, transparent); }
+  40%  { transform: scale(1.06); box-shadow: 0 0 0 5px color-mix(in oklab, var(--success) 20%, transparent); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in oklab, var(--success) 0%, transparent); }
 }
 
 @keyframes saved-check-draw {
@@ -674,8 +714,8 @@ span.linenumber {
     transition: width 0.2s ease, min-width 0.2s ease;
   }
   .sidebar-container.sidebar-open {
-    width: 260px;
-    min-width: 260px;
+    width: 240px;
+    min-width: 240px;
   }
   .sidebar-container.sidebar-closed {
     width: 0;
@@ -684,8 +724,8 @@ span.linenumber {
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
   .sidebar-container > * {
-    width: 260px;
-    min-width: 260px;
+    width: 240px;
+    min-width: 240px;
   }
 }
 

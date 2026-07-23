@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/hooks/useLocale";
+
 import { useState } from "react";
 import { getFileIcon } from "./FileIcons";
 
@@ -18,6 +20,7 @@ interface Props {
 }
 
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
+  const { t } = useLocale();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
 
   return (
@@ -28,7 +31,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
         background: "var(--bg-panel)",
         overflowX: "auto",
         flexShrink: 0,
-        height: 36,
+        height: 32,
       }}
     >
       {tabs.map((tab) => {
@@ -50,7 +53,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               display: "flex",
               alignItems: "center",
               gap: 6,
-              height: 36,
+              height: 32,
               paddingLeft: 12,
               paddingRight: 6,
               borderRight: "1px solid var(--border)",
@@ -96,8 +99,8 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
                 flexShrink: 0,
                 transition: "background 0.1s, color 0.1s",
               }}
-              title="Close"
-              aria-label={`Close ${tab.label}`}
+              title={t("tab.close")}
+              aria-label={t("tab.closeNamed", { name: tab.label })}
             >
               <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
                 <line x1="2" y1="2" x2="8" y2="8" />

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/hooks/useLocale";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -56,7 +58,7 @@ function statusColor(status: PluginPackageInfo["status"]): string {
   if (status === "loaded") return "var(--accent)";
   if (status === "installed") return "#f59e0b";
   if (status === "disabled") return "var(--text-dim)";
-  return "#ef4444";
+  return "var(--destructive)";
 }
 
 function ResourceList({ pkg }: { pkg: PluginPackageInfo }) {
@@ -170,7 +172,7 @@ function buttonStyle(disabled?: boolean, danger?: boolean): React.CSSProperties 
     background: danger ? "rgba(239,68,68,0.08)" : "none",
     border: "1px solid var(--border)",
     borderRadius: 6,
-    color: danger ? "#ef4444" : "var(--text-muted)",
+    color: danger ? "var(--destructive)" : "var(--text-muted)",
     cursor: disabled ? "not-allowed" : "pointer",
     fontSize: 12,
     opacity: disabled ? 0.5 : 1,
@@ -343,7 +345,7 @@ function AddPluginPanel({
           style={{
             ...buttonStyle(busy || !source.trim()),
             background: "var(--accent)",
-            color: "white",
+            color: "var(--accent-fg)",
             borderColor: "var(--accent)",
           }}
         >
@@ -390,7 +392,7 @@ function AddPluginPanel({
       </div>
 
       {actionError && (
-        <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>
+        <div style={{ fontSize: 12, color: "var(--destructive)", whiteSpace: "pre-wrap" }}>
           {actionError}
         </div>
       )}
@@ -520,7 +522,7 @@ function PackageDetail({
         <div style={{ color: "var(--text-dim)" }}>Installed path</div>
         <div
           style={{
-            color: pkg.installedPath ? "var(--text-muted)" : "#ef4444",
+            color: pkg.installedPath ? "var(--text-muted)" : "var(--destructive)",
             fontFamily: "var(--font-mono)",
             overflowWrap: "anywhere",
           }}
@@ -541,12 +543,12 @@ function PackageDetail({
       </div>
 
       {actionMessage && (
-        <div style={{ fontSize: 12, color: "#16a34a" }}>
+        <div style={{ fontSize: 12, color: "var(--success)" }}>
           {actionMessage}
         </div>
       )}
       {actionError && (
-        <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>
+        <div style={{ fontSize: 12, color: "var(--destructive)", whiteSpace: "pre-wrap" }}>
           {actionError}
         </div>
       )}
@@ -565,6 +567,7 @@ export function PluginsConfig({
   onClose: () => void;
   onReloaded?: () => void;
 }) {
+  const { t } = useLocale();
   const isMobile = useIsMobile();
   const [data, setData] = useState<PluginsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -733,7 +736,7 @@ export function PluginsConfig({
         >
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
-              Plugins
+              {t("modal.plugins")}
             </span>
             <code
               style={{
@@ -783,7 +786,7 @@ export function PluginsConfig({
                   Loading...
                 </div>
               ) : error ? (
-                <div style={{ padding: "10px 8px", fontSize: 11, color: "#ef4444" }}>
+                <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--destructive)" }}>
                   {error}
                 </div>
               ) : packages.length === 0 ? (
@@ -991,7 +994,7 @@ export function PluginsConfig({
             {data?.diagnostics.length ? (
               <span
                 title={data.diagnostics.map((d) => `${d.type}: ${d.source ? `${d.source}: ` : ""}${d.message}`).join("\n")}
-                style={{ color: data.diagnostics.some((d) => d.type === "error") ? "#ef4444" : "#d97706" }}
+                style={{ color: data.diagnostics.some((d) => d.type === "error") ? "var(--destructive)" : "#d97706" }}
               >
                 {data.diagnostics.length} diagnostic{data.diagnostics.length === 1 ? "" : "s"}
               </span>

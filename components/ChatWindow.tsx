@@ -12,6 +12,8 @@ import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAg
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useLocale } from "@/hooks/useLocale";
+import type { MessageKey } from "@/lib/i18n/messages";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import {
   captureScrollDistance,
@@ -37,17 +39,19 @@ interface Props {
   onOpenFile?: (filePath: string) => void;
 }
 
-function phaseLabel(phase: AgentPhase): string {
+function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Record<string, string | number>) => string, locale: string): string {
   if (phase?.kind === "running_tools") {
-    const names = phase.tools.map((t) => t.name);
-    if (names.length === 0) return "Running tool...";
-    if (names.length === 1) return `Running ${names[0]}...`;
-    if (names.length <= 3) return `Running ${names.join(", ")}...`;
-    return `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
+    const names = phase.tools.map((tool) => tool.name);
+    if (names.length === 0) return t("window.runningTool");
+    if (names.length === 1) return locale === "zh" ? `正在运行 ${names[0]}…` : `Running ${names[0]}...`;
+    if (names.length <= 3) return locale === "zh" ? `正在运行 ${names.join("、")}…` : `Running ${names.join(", ")}...`;
+    return locale === "zh"
+      ? `正在运行 ${names.slice(0, 2).join("、")}（+${names.length - 2}）…`
+      : `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
   }
-  if (phase?.kind === "waiting_model") return "Waiting for model...";
-  if (phase?.kind === "running_command") return "Running command...";
-  return "Thinking...";
+  if (phase?.kind === "waiting_model") return t("window.waitingModel");
+  if (phase?.kind === "running_command") return t("window.runningCommand");
+  return t("window.thinking");
 }
 
 const CHAT_MINIMAP_WIDTH = 36;
@@ -99,9 +103,10 @@ function withAssistantBlocks(
 }
 
 function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
+  const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
-  const parts = ["Process details", `${messageCount} ${messageCount === 1 ? "message" : "messages"}`];
-  if (toolCallCount > 0) parts.push(`${toolCallCount} ${toolCallCount === 1 ? "tool call" : "tool calls"}`);
+  const parts = [t("window.processDetails"), t("window.messagesCount", { n: messageCount })];
+  if (toolCallCount > 0) parts.push(t("window.toolCallsCount", { n: toolCallCount }));
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -123,7 +128,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
           fontSize: 12,
           textAlign: "left",
         }}
-        title={expanded ? "Collapse process details" : "Expand process details"}
+        title={expanded ? t("window.collapseProcess") : t("window.expandProcess")}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="4 2.5 7.5 6 4 9.5" />
@@ -142,6 +147,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
 }
 
 export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile }: Props) {
+  const { t, locale } = useLocale();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
 
@@ -356,24 +362,25 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onDrop={handleDrop}
     >
       {isDragOver && !sessionBusy && (
-        <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
+        <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[color-mix(in_oklab,var(--accent)_6%,transparent)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {[0, 0.8, 1.6].map((delay) => (
               <div
                 key={delay}
-                className="absolute h-[720px] w-[720px] rounded-full border-[1.5px] border-solid border-[rgba(37,99,235,0.5)] animate-[drop-ripple_2.4s_ease-out_infinite_backwards]"
+                className="absolute h-[720px] w-[720px] rounded-full border-[1.5px] border-solid border-[color-mix(in_oklab,var(--accent)_40%,transparent)] animate-[drop-ripple_2.4s_ease-out_infinite_backwards]"
                 style={{ transformOrigin: "center", animationDelay: `${delay}s` }}
               />
             ))}
           </div>
           <svg
             width="280" height="280" viewBox="0 0 140 140" fill="none" xmlns="http://www.w3.org/2000/svg"
-            className="drop-shadow-[0_6px_18px_rgba(37,99,235,0.18)]"
+            className="opacity-80"
+            style={{ filter: "drop-shadow(0 6px 18px color-mix(in oklab, var(--text) 10%, transparent))" }}
           >
-            <rect x="28" y="44" width="84" height="60" rx="8" fill="rgba(37,99,235,0.08)" stroke="rgba(37,99,235,0.50)" strokeWidth="1.8"/>
-            <path d="M36 100 L54 72 L68 88 L80 74 L104 100Z" fill="rgba(37,99,235,0.16)" stroke="rgba(37,99,235,0.40)" strokeWidth="1.4" strokeLinejoin="round"/>
-            <circle cx="96" cy="58" r="8" fill="rgba(37,99,235,0.22)" stroke="rgba(37,99,235,0.55)" strokeWidth="1.6"/>
-            <g stroke="rgba(37,99,235,0.45)" strokeWidth="1.4" strokeLinecap="round">
+            <rect x="28" y="44" width="84" height="60" rx="8" fill="color-mix(in oklab, var(--accent) 8%, transparent)" stroke="color-mix(in oklab, var(--accent) 45%, transparent)" strokeWidth="1.8"/>
+            <path d="M36 100 L54 72 L68 88 L80 74 L104 100Z" fill="color-mix(in oklab, var(--accent) 14%, transparent)" stroke="color-mix(in oklab, var(--accent) 35%, transparent)" strokeWidth="1.4" strokeLinejoin="round"/>
+            <circle cx="96" cy="58" r="8" fill="color-mix(in oklab, var(--accent) 18%, transparent)" stroke="color-mix(in oklab, var(--accent) 50%, transparent)" strokeWidth="1.6"/>
+            <g stroke="color-mix(in oklab, var(--accent) 40%, transparent)" strokeWidth="1.4" strokeLinecap="round">
               <line x1="96" y1="46" x2="96" y2="43"/>
               <line x1="96" y1="70" x2="96" y2="73"/>
               <line x1="84" y1="58" x2="81" y2="58"/>
@@ -632,7 +639,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
             {agentRunning && !streamState.streamingMessage && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase)}</span>
+                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t, locale)}</span>
               </div>
             )}
 
@@ -758,7 +765,7 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
     >
       {notices.map((notice, index) => {
         const color = notice.type === "error"
-          ? "#ef4444"
+          ? "var(--destructive)"
           : notice.type === "warning"
             ? "#d97706"
             : notice.type === "success"
@@ -823,6 +830,7 @@ function ExtensionDialog({
   request: ExtensionDialogRequest;
   onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
 }) {
+  const { t } = useLocale();
   const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
 
   useEffect(() => {
@@ -955,35 +963,41 @@ function ExtensionDialog({
               cursor: "pointer",
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           {request.method === "confirm" ? (
             <button
               onClick={submitValue}
               style={{
-                padding: "6px 10px",
-                borderRadius: 6,
+                padding: "6px 12px",
+                height: 32,
+                borderRadius: 999,
                 border: "1px solid var(--accent)",
                 background: "var(--accent)",
-                color: "#fff",
+                color: "var(--accent-fg)",
                 cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 500,
               }}
             >
-              Confirm
+              {t("window.confirm")}
             </button>
           ) : request.method !== "select" ? (
             <button
               onClick={submitValue}
               style={{
-                padding: "6px 10px",
-                borderRadius: 6,
+                padding: "6px 12px",
+                height: 32,
+                borderRadius: 999,
                 border: "1px solid var(--accent)",
                 background: "var(--accent)",
-                color: "#fff",
+                color: "var(--accent-fg)",
                 cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 500,
               }}
             >
-              Submit
+              {t("window.submit")}
             </button>
           ) : null}
         </div>
@@ -1009,6 +1023,7 @@ function ExtensionCustomPanel({
   request: ExtensionCustomRequest;
   onInput: (request: ExtensionCustomRequest, data: string) => void;
 }) {
+  const { t } = useLocale();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
   const displayLines = normalizeCustomPanelLines(request.lines);
@@ -1050,7 +1065,7 @@ function ExtensionCustomPanel({
       >
         <textarea
           ref={inputRef}
-          aria-label="Extension terminal input"
+          aria-label={t("window.extensionInput")}
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"

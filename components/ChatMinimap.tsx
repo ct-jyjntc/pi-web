@@ -43,9 +43,9 @@ function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
 
 function getNodeColor(msg: AgentMessage | Partial<AgentMessage>): { bg: string; border: string } {
   if (msg.role === "user") {
-    return { bg: "rgba(37,99,235,0.18)", border: "rgba(37,99,235,0.7)" };
+    return { bg: "color-mix(in oklab, var(--accent) 16%, transparent)", border: "color-mix(in oklab, var(--accent) 55%, transparent)" };
   }
-  return { bg: "rgba(107,114,128,0.12)", border: "rgba(107,114,128,0.5)" };
+  return { bg: "color-mix(in oklab, var(--text-muted) 12%, transparent)", border: "color-mix(in oklab, var(--text-muted) 40%, transparent)" };
 }
 
 function hasTextContent(msg: AgentMessage | Partial<AgentMessage>): boolean {

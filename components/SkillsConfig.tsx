@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/hooks/useLocale";
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type {
@@ -156,7 +158,7 @@ function SkillDetail({
           onToggle={() => onToggle(skill)}
         />
         {saveError && (
-          <span style={{ fontSize: 12, color: "#f87171", flexShrink: 0 }}>
+          <span style={{ fontSize: 12, color: "var(--destructive)", flexShrink: 0 }}>
             {saveError}
           </span>
         )}
@@ -260,9 +262,9 @@ function SkillDetail({
                   color: checkingUpdate
                     ? "var(--accent)"
                     : updateStatus?.state === "up-to-date"
-                      ? "#16a34a"
+                      ? "var(--success)"
                       : updateStatus?.state === "error"
-                          ? "#ef4444"
+                          ? "var(--destructive)"
                           : "var(--text-dim)",
                 }}
               >
@@ -284,7 +286,7 @@ function SkillDetail({
                   border: "none",
                   borderRadius: 5,
                   background: "var(--accent)",
-                  color: "#fff",
+                  color: "var(--accent-fg)",
                   cursor: updating || checkingUpdate ? "not-allowed" : "pointer",
                   opacity: updating || checkingUpdate ? 0.5 : 1,
                   fontSize: 11,
@@ -296,7 +298,7 @@ function SkillDetail({
             )}
           </div>
           {updateError && (
-            <span style={{ fontSize: 12, color: "#ef4444" }}>{updateError}</span>
+            <span style={{ fontSize: 12, color: "var(--destructive)" }}>{updateError}</span>
           )}
         </div>
       )}
@@ -465,7 +467,7 @@ function AddSkillPanel({
               borderRadius: 6,
               border: "none",
               background: "var(--accent)",
-              color: "#fff",
+              color: "var(--accent-fg)",
               cursor: searching || !query.trim() ? "not-allowed" : "pointer",
               opacity: searching || !query.trim() ? 0.5 : 1,
               flexShrink: 0,
@@ -522,11 +524,11 @@ function AddSkillPanel({
 
         {/* Errors */}
         {searchError && (
-          <div style={{ fontSize: 12, color: "#f87171" }}>{searchError}</div>
+          <div style={{ fontSize: 12, color: "var(--destructive)" }}>{searchError}</div>
         )}
         {installError && (
           <div
-            style={{ fontSize: 12, color: "#f87171", wordBreak: "break-word" }}
+            style={{ fontSize: 12, color: "var(--destructive)", wordBreak: "break-word" }}
           >
             {installError}
           </div>
@@ -629,7 +631,7 @@ function AddSkillPanel({
                         : "pointer",
                     background: isInstalled ? "rgba(34,197,94,0.1)" : "none",
                     color: isInstalled
-                      ? "#16a34a"
+                      ? "var(--success)"
                       : isInstalling
                         ? "var(--accent)"
                         : "var(--text-muted)",
@@ -676,6 +678,7 @@ export function SkillsConfig({
   cwd: string;
   onClose: () => void;
 }) {
+  const { t } = useLocale();
   const isMobile = useIsMobile();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -886,7 +889,7 @@ export function SkillsConfig({
             <span
               style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}
             >
-              Skills
+              {t("modal.skills")}
             </span>
             <code
               style={{
@@ -949,7 +952,7 @@ export function SkillsConfig({
                   style={{
                     padding: "10px 8px",
                     fontSize: 11,
-                    color: "#f87171",
+                    color: "var(--destructive)",
                   }}
                 >
                   {error}
