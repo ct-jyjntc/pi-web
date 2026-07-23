@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/hooks/useLocale";
+
 import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { getFileIcon, FolderIcon } from "./FileIcons";
 import {
@@ -118,10 +120,21 @@ const GIT_STATUS_COLORS: Record<GitFileStatusKind, string> = {
   conflict: "var(--destructive)",
 };
 
+const GIT_STATUS_LABEL_KEYS: Record<GitFileStatusKind, "files.modified" | "files.added" | "files.deleted" | "files.renamed" | "files.untracked" | "files.conflict"> = {
+  modified: "files.modified",
+  added: "files.added",
+  deleted: "files.deleted",
+  renamed: "files.renamed",
+  untracked: "files.untracked",
+  conflict: "files.conflict",
+};
+
 function uploadFiles(
   targetDirectory: string,
   files: File[],
   strategy: UploadConflictStrategy,
+  // message factory so this non-component helper stays i18n-friendly
+  msg: (key: "files.uploadNetworkError" | "files.uploadCancelled") => string,
   onProgress: (progress: number) => void,
 ): Promise<{ status: number; data: UploadResponse }> {
   return new Promise((resolve, reject) => {
@@ -138,8 +151,8 @@ function uploadFiles(
         onProgress(Math.round((event.loaded / event.total) * 100));
       }
     };
-    xhr.onerror = () => reject(new Error("Network error while uploading files"));
-    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    xhr.onerror = () => reject(new Error(msg("files.uploadNetworkError")));
+    xhr.onabort = () => reject(new Error(msg("files.uploadCancelled")));
     xhr.onload = () => {
       let data: UploadResponse = {};
       try {
@@ -154,6 +167,7 @@ function uploadFiles(
 }
 
 function MentionIcon({ size = 11 }: { size?: number }) {
+  const { t } = useLocale();
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="4" />
@@ -206,6 +220,7 @@ function TreeNode({
   gitStatusByPath: Map<string, GitFileStatus>;
   changedDirectoryPaths: Set<string>;
 }) {
+  const { t } = useLocale();
   const open = expandedPaths.has(node.fullPath);
   const highlighted = highlightedPaths.has(node.fullPath);
   const normalizedPath = normalizeFilePathSlashes(node.fullPath);
@@ -298,15 +313,15 @@ function TreeNode({
         </span>
         {highlighted && (
           <span
-            title="Newly uploaded"
-            aria-label="Newly uploaded"
+            title={t("files.newlyUploaded")}
+            aria-label={t("files.newlyUploaded")}
             style={{ width: 6, height: 6, flexShrink: 0, borderRadius: "50%", background: "var(--text-muted)" }}
           />
         )}
         {!hovered && !node.isDir && gitStatus && (
           <span
-            title={GIT_STATUS_LABELS[gitStatus.status]}
-            aria-label={GIT_STATUS_LABELS[gitStatus.status]}
+            title={t(GIT_STATUS_LABEL_KEYS[gitStatus.status])}
+            aria-label={t(GIT_STATUS_LABEL_KEYS[gitStatus.status])}
             style={{
               width: 14,
               flexShrink: 0,
@@ -322,14 +337,14 @@ function TreeNode({
         )}
         {!hovered && containsGitChanges && (
           <span
-            title="Contains changed files"
-            aria-label="Contains changed files"
+            title={t("files.containsChanged")}
+            aria-label={t("files.containsChanged")}
             style={{
               width: 6,
               height: 6,
               flexShrink: 0,
               borderRadius: "50%",
-              background: "#d6a84b",
+              background: "var(--text-muted)",
             }}
           />
         )}
@@ -344,7 +359,7 @@ function TreeNode({
               e.stopPropagation();
               onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir);
             }}
-            title="Insert path into chat"
+            title={t("files.insertPath")}
             style={{
               position: "absolute",
               right: !node.isDir ? 28 : 4,
@@ -375,7 +390,7 @@ function TreeNode({
             href={`/api/files/${encodeFilePathForApi(node.fullPath)}?type=download`}
             download
             onClick={(e) => e.stopPropagation()}
-            title="Download file"
+            title={t("files.download")}
             style={{
               position: "absolute",
               right: 4,
@@ -443,6 +458,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onAtMentions,
   onUploadBusyChange,
 }, ref) {
+  const { t } = useLocale();
   const [roots, setRoots] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -510,7 +526,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setUploadPhase("uploading");
 
     try {
-      const { status, data } = await uploadFiles(cwd, files, strategy, setUploadProgress);
+      const { status, data } = await uploadFiles(cwd, files, strategy, (key) => t(key), setUploadProgress);
       if (status === 409 && data.conflicts?.length) {
         setPendingConflict({
           files,
@@ -637,7 +653,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (
-          <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? "Checking files" : `Uploading, ${uploadProgress}%`}>
+          <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? t("files.checking") : `Uploading, ${uploadProgress}%`}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 14, color: "var(--text-muted)" }}>
               {uploadPhase === "checking" ? (
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true">
@@ -661,12 +677,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         )}
 
         {pendingConflict && (
-          <div role="alert" style={{ padding: 7, border: "1px solid color-mix(in srgb, #f59e0b 55%, var(--border))", borderRadius: 4, background: "color-mix(in srgb, #f59e0b 9%, var(--bg-panel))" }}>
+          <div role="alert" style={{ padding: 7, border: "1px solid color-mix(in oklab, var(--text-muted) 40%, var(--border))", borderRadius: 6, background: "color-mix(in oklab, var(--text-muted) 8%, var(--bg-panel))" }}>
             <div style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.35, overflowWrap: "anywhere" }}>
               {pendingConflict.conflicts.length} file{pendingConflict.conflicts.length === 1 ? "" : "s"} already exist: {pendingConflict.conflicts.join(", ")}
             </div>
             {pendingConflict.nonReplaceable.length > 0 && (
-              <div style={{ marginTop: 3, fontSize: 10, color: "#f59e0b", lineHeight: 1.35, overflowWrap: "anywhere" }}>
+              <div style={{ marginTop: 3, fontSize: 10, color: "var(--text)", lineHeight: 1.35, overflowWrap: "anywhere" }}>
                 Cannot replace: {pendingConflict.nonReplaceable.join(", ")}
               </div>
             )}
@@ -687,7 +703,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         {uploadError && (
           <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11, lineHeight: 1.35, color: "var(--destructive)" }}>
             <span style={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>{uploadError}</span>
-            <DismissButton onClick={() => setUploadError(null)} title="Dismiss error" />
+            <DismissButton onClick={() => setUploadError(null)} title={t("files.dismissError")} />
           </div>
         )}
 
@@ -696,7 +712,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 22, fontSize: 11 }}>
               <div style={{ minWidth: 0, flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
                 {uploadSummary.uploaded.length > 0 && (
-                  <span title={`${uploadSummary.uploaded.length} uploaded`} aria-label={`${uploadSummary.uploaded.length} uploaded`} style={{ display: "flex", alignItems: "center", gap: 3, color: "#22c55e" }}>
+                  <span title={`${uploadSummary.uploaded.length} uploaded`} aria-label={`${uploadSummary.uploaded.length} uploaded`} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--success)" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="m5 12 4 4L19 6" />
                     </svg>
@@ -735,7 +751,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   mention
                 </button>
               )}
-              <DismissButton onClick={() => setUploadSummary(null)} title="Dismiss upload results" />
+              <DismissButton onClick={() => setUploadSummary(null)} title={t("files.dismissUpload")} />
             </div>
             {uploadSummary.errors.map((item) => (
               <div key={item.name} title={item.error} style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, minWidth: 0, fontSize: 10, color: "var(--destructive)" }}>
@@ -754,7 +770,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
       <div style={{ padding: "2px 4px" }}>
         {loading ? (
-          <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
+          <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>{t("files.loading")}</div>
         ) : error ? (
           <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--destructive)" }}>{error}</div>
         ) : (

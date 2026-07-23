@@ -339,15 +339,15 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center text-text-muted">
-        Loading session...
+      <div className="flex h-full items-center justify-center" style={{ color: "var(--text-muted)" }}>
+        {t("window.loadingSession")}
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center text-red-400">
+      <div className="flex h-full items-center justify-center" style={{ color: "var(--destructive)" }}>
         {error}
       </div>
     );
@@ -418,20 +418,19 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 12,
-                marginLeft: 16,
-                marginRight: 52,
+                padding: "0 14px",
                 fontFamily: "var(--font-mono)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
-                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Web</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1, lineHeight: 1, overflow: "hidden" }}>
+                <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap", lineHeight: 1 }}>π</span>
+                <span style={{ fontSize: 18, color: "var(--text)", fontWeight: 600, letterSpacing: "-0.01em", flexShrink: 0, whiteSpace: "nowrap", lineHeight: 1 }}>Pi Web</span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", gap: 2, flexShrink: 0, lineHeight: 1.2 }}>
+                <span style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.2 }}>
                   web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
                 </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                <span style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.2 }}>
                   pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
                 </span>
               </div>
@@ -645,7 +644,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
             {bashRunning && !pendingBash && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">Running command...</span>
+                <span className="animate-[pulse_1.5s_infinite]">{t("window.runningCommand")}</span>
               </div>
             )}
 
@@ -767,9 +766,9 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
         const color = notice.type === "error"
           ? "var(--destructive)"
           : notice.type === "warning"
-            ? "#d97706"
+            ? "var(--text)"
             : notice.type === "success"
-              ? "#10b981"
+              ? "var(--success)"
               : "var(--accent)";
         return (
           <div
@@ -872,7 +871,7 @@ function ExtensionDialog({
       >
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>extension request</div>
+          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{t("window.extensionRequest")}</div>
         </div>
 
         <div style={{ padding: 14 }}>
@@ -1112,7 +1111,7 @@ function ExtensionCustomPanel({
           }}
         />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>Extension panel</div>
+          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("window.extensionPanel")}</div>
           <button
             onClick={() => onInput(request, "\x03")}
             style={{

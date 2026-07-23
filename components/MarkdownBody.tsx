@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/hooks/useLocale";
+
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -122,6 +124,7 @@ function normalizeDisplayMath(markdown: string): string {
 }
 
 function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boolean }) {
+  const { t } = useLocale();
   const { isDark } = useTheme();
   const [showPreview, setShowPreview] = useState(false);
   const [svg, setSvg] = useState<string | null>(null);
@@ -145,7 +148,7 @@ function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boole
       });
 
       const parsed = await mermaid.parse(code, { suppressErrors: true });
-      if (!parsed) throw new Error("Invalid Mermaid diagram");
+      if (!parsed) throw new Error(t("md.invalidMermaid"));
 
       const id =
         typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -184,9 +187,9 @@ function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boole
 
   const body =
     failedKey === currentKey ? (
-      <div className="mermaid-block mermaid-block-error">Invalid Mermaid diagram</div>
+      <div className="mermaid-block mermaid-block-error">{t("md.invalidMermaid")}</div>
     ) : !svg || renderedKey !== currentKey ? (
-      <div className="mermaid-block mermaid-block-loading" aria-label="Rendering Mermaid diagram" />
+      <div className="mermaid-block mermaid-block-loading" aria-label={t("md.renderingMermaid")} />
     ) : (
       <div
         className="mermaid-block"

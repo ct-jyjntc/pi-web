@@ -283,18 +283,19 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
+            gap: 5,
             height: "100%",
-            padding: "0 12px",
+            padding: "0 10px",
             background: open ? "var(--bg-selected)" : "none",
             border: "none",
-            borderTop: open ? "2px solid var(--accent)" : "2px solid transparent",
             borderRight: "1px solid var(--border)",
+            boxShadow: open ? "inset 0 -2px 0 0 var(--accent)" : "inset 0 0 0 0 transparent",
             cursor: "pointer",
             color: open ? "var(--text)" : "var(--text-muted)",
-            fontSize: 11,
+            fontSize: 12,
+            lineHeight: 1,
             whiteSpace: "nowrap",
-            transition: "color 0.1s, background 0.1s",
+            transition: "color 0.1s, background 0.1s, box-shadow 0.1s",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)"; }}

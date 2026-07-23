@@ -100,6 +100,55 @@ html, body {
   overscroll-behavior: none;
 }
 
+/* Electron immersive titlebar */
+html.pi-desktop {
+  --titlebar-height: 38px;
+  /* Space for macOS traffic lights when sidebar header is the left chrome */
+  --traffic-lights-pad: 72px;
+}
+
+html.pi-desktop body {
+  /* Allow window drag on empty chrome; interactive controls opt out via .titlebar-no-drag */
+  -webkit-app-region: no-drag;
+}
+
+html.pi-desktop .titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+html.pi-desktop .titlebar-no-drag,
+html.pi-desktop .titlebar-no-drag * {
+  -webkit-app-region: no-drag !important;
+}
+
+html.pi-desktop .desktop-top-chrome {
+  min-height: var(--titlebar-height);
+  padding-top: env(titlebar-area-height, 0px);
+}
+
+/* macOS: leave room for traffic lights; brand title removed — actions sit on the right */
+html.pi-desktop.pi-desktop-mac .sidebar-desktop-header {
+  padding-top: 6px;
+}
+
+html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row {
+  min-height: 28px;
+  padding-left: 0;
+}
+
+html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row > .titlebar-drag {
+  min-width: var(--traffic-lights-pad);
+}
+
+/* Safety: never let drag regions swallow sidebar pickers / buttons */
+html.pi-desktop .sidebar-desktop-header button,
+html.pi-desktop .sidebar-desktop-header input,
+html.pi-desktop .sidebar-desktop-header select,
+html.pi-desktop .sidebar-desktop-header .titlebar-no-drag,
+html.pi-desktop .sidebar-desktop-header .titlebar-no-drag * {
+  -webkit-app-region: no-drag !important;
+}
+
 html {
   color-scheme: light;
 }

@@ -283,15 +283,19 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
+  const { t } = useLocale();
   return <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{children}</div>;
 }
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
+function ProviderDetail({
+  name, provider, onChange, onRename, onDelete,
+}: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
 }) {
+  const { t } = useLocale();
   const [editingName, setEditingName] = useState(name);
   useEffect(() => setEditingName(name), [name]);
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
@@ -304,14 +308,14 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>Provider</SectionTitle>
+        <SectionTitle>{t("models.provider")}</SectionTitle>
         <button onClick={onDelete}
           style={{ padding: "3px 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "var(--destructive)", cursor: "pointer", fontSize: 11 }}>
           Delete
         </button>
       </div>
 
-      <Field label="Provider name">
+      <Field label={t("models.providerName")}>
         <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
         {editingName !== name && editingName.trim() && (
           <button onClick={() => onRename(editingName.trim())}
@@ -321,7 +325,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
         )}
       </Field>
 
-      <Field label="Base URL">
+      <Field label={t("models.baseUrl")}>
         <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
           placeholder="https://api.example.com/v1" mono />
       </Field>
@@ -334,7 +338,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
         </span>
       </Field>
 
-      <Field label="API">
+      <Field label={t("models.api")}>
         <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
     </div>
@@ -517,6 +521,7 @@ function ModelDetail({
   onChange: (m: ModelEntry) => void;
   onDelete: () => void;
 }) {
+  const { t } = useLocale();
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
   const costVal = (k: keyof NonNullable<ModelEntry["cost"]>) => model.cost?.[k] !== undefined ? String(model.cost[k]) : "";
@@ -526,7 +531,7 @@ function ModelDetail({
   };
   const testSummary = (() => {
     if (testState.phase === "idle") return null;
-    if (testState.phase === "testing") return "Testing model connection...";
+    if (testState.phase === "testing") return t("models.testingConnection");
     const meta = [
       testState.latencyMs !== undefined ? `${testState.latencyMs}ms` : null,
       testState.status !== undefined ? `HTTP ${testState.status}` : null,
@@ -580,7 +585,7 @@ function ModelDetail({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>Model</SectionTitle>
+        <SectionTitle>{t("models.model")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {testSummary && (
             <span
@@ -589,10 +594,10 @@ function ModelDetail({
                 maxWidth: 260,
                 height: 24,
                 padding: "0 8px",
-                border: `1px solid ${testState.phase === "error" ? "#fecaca" : testState.phase === "success" ? "#bbf7d0" : "var(--border)"}`,
+                border: `1px solid ${testState.phase === "error" ? "color-mix(in oklab, var(--destructive) 35%, var(--border))" : testState.phase === "success" ? "color-mix(in oklab, var(--success) 35%, var(--border))" : "var(--border)"}`,
                 borderRadius: 4,
-                background: testState.phase === "error" ? "#fee2e2" : testState.phase === "success" ? "#dcfce7" : "#e5e7eb",
-                color: "#111827",
+                background: testState.phase === "error" ? "color-mix(in oklab, var(--destructive) 12%, transparent)" : testState.phase === "success" ? "color-mix(in oklab, var(--success) 12%, transparent)" : "var(--bg-selected)",
+                color: "var(--text)",
                 fontSize: 11,
                 display: "inline-flex",
                 alignItems: "center",
@@ -608,7 +613,7 @@ function ModelDetail({
           <button
             onClick={handleTest}
             disabled={!model.id.trim() || testState.phase === "testing"}
-            title="Test model connection"
+            title={t("models.testConnection")}
             style={{
               height: 24,
               padding: "0 8px",
@@ -630,18 +635,18 @@ function ModelDetail({
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
-            {testState.phase === "testing" ? "Testing…" : testState.phase === "success" ? "OK" : "Test"}
+            {testState.phase === "testing" ? t("modal.testing") : testState.phase === "success" ? t("modal.ok") : t("modal.test")}
           </button>
           <button onClick={onDelete}
             style={{ height: 24, padding: "0 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "var(--destructive)", cursor: "pointer", fontSize: 11, boxSizing: "border-box" }}>
-            Remove
+            {t("modal.remove")}
           </button>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
-        <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
+        <Field label={t("shell.name")}><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
       </div>
 
       <Field label="API override">
@@ -663,7 +668,7 @@ function ModelDetail({
           />
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <SectionTitle>Thinking level map</SectionTitle>
+              <SectionTitle>{t("models.thinkingMap")}</SectionTitle>
               {model.thinkingLevelMap && (
                 <button
                   onClick={() => set("thinkingLevelMap", undefined)}
@@ -682,18 +687,18 @@ function ModelDetail({
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Context window (tokens)">
+        <Field label={t("models.contextWindow")}>
           <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
             onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
         </Field>
-        <Field label="Max output tokens">
+        <Field label={t("models.maxOutput")}>
           <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
             onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
         </Field>
       </div>
 
       <div>
-        <SectionTitle>Cost (per million tokens)</SectionTitle>
+        <SectionTitle>{t("models.cost")}</SectionTitle>
         <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
           {(["input", "output", "cacheRead", "cacheWrite"] as const).map((k) => (
             <Field key={k} label={k}>
@@ -709,6 +714,7 @@ function ModelDetail({
 // ── OAuth detail ──────────────────────────────────────────────────────────────
 
 function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
+  const { t } = useLocale();
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
   const [inputValue, setInputValue] = useState("");
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -834,7 +840,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>Subscription</SectionTitle>
+        <SectionTitle>{t("models.subscription")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "var(--success)" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.loggedIn ? "var(--success)" : "var(--text-dim)" }}>
@@ -851,7 +857,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </p>
         )}
         {loginState.phase === "connecting" && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>Opening browser…</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{t("models.openingBrowser")}</p>
         )}
         {loginState.phase === "select" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -926,7 +932,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{loginState.message}</p>
         )}
         {loginState.phase === "success" && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--success)" }}>Connected successfully.</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--success)" }}>{t("models.connectedOk")}</p>
         )}
         {loginState.phase === "error" && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--destructive)" }}>{loginState.message}</p>
@@ -968,6 +974,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
 // ── API Key detail ────────────────────────────────────────────────────────────
 
 function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRefresh: () => void }) {
+  const { t } = useLocale();
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -1026,7 +1033,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>API Key</SectionTitle>
+        <SectionTitle>{t("models.apiKey")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "var(--success)" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.configured ? "var(--success)" : "var(--text-dim)" }}>
@@ -1047,7 +1054,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
             value={apiKey}
             onChange={setApiKey}
             onKeyDown={(e) => { if (e.key === "Enter" && apiKey.trim()) handleSave(); }}
-            placeholder={provider.configured ? "Enter new key to replace…" : "sk-…"}
+            placeholder={provider.configured ? t("models.enterNewKey") : "sk-…"}
             style={{ flex: 1 }}
             autoComplete="off"
             spellCheck={false}
@@ -1071,7 +1078,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
-            {savedOk ? "Saved" : saving ? "Saving…" : "Save"}
+            {savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}
           </button>
         </div>
       </Field>
@@ -1151,6 +1158,7 @@ function AddProviderPicker({
   oauthProviders, apiKeyProviders,
   onSelectOAuth, onSelectApiKey, onAddCustom, onClose,
 }: AddProviderPickerProps) {
+  const { t } = useLocale();
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -1196,7 +1204,7 @@ function AddProviderPicker({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
-            placeholder="Search providers…"
+            placeholder={t("models.searchProviders")}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
           />
         </div>
@@ -1204,11 +1212,11 @@ function AddProviderPicker({
         {/* Card grid */}
         <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
           {totalCount === 0 ? (
-            <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>No providers match</div>
+            <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>{t("models.noProvidersMatch")}</div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 8 }}>
               {showCustom && (
-                <div style={{ gridColumn: "1 / -1", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Custom</div>
+                <div style={{ gridColumn: "1 / -1", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("models.custom")}</div>
               )}
               {showCustom && (
                 <button
@@ -1218,8 +1226,8 @@ function AddProviderPicker({
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>OpenAI / Anthropic compatible</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>Custom endpoint format</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t("models.compatible")}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{t("models.customEndpoint")}</div>
                   </div>
                   <span style={{ width: 26, height: 26, borderRadius: 5, background: "var(--bg-hover)", border: "1px dashed var(--border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)" }}>
@@ -1230,7 +1238,7 @@ function AddProviderPicker({
               )}
 
               {availableOAuth.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Subscriptions</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("models.subscriptions")}</div>
               )}
               {availableOAuth.map((p) => (
                 <button key={p.id} onClick={() => { onSelectOAuth(p.id); onClose(); }}
@@ -1240,14 +1248,14 @@ function AddProviderPicker({
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>OAuth</div>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{t("models.oauth")}</div>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
                 </button>
               ))}
 
               {availableApiKey.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: availableOAuth.length > 0 ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>API Key</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: availableOAuth.length > 0 ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("models.apiKey")}</div>
               )}
               {availableApiKey.map((p) => (
                 <button key={p.id} onClick={() => { onSelectApiKey(p.id); onClose(); }}
@@ -1522,7 +1530,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
 
               {/* Custom providers */}
               {loading ? (
-                <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>Loading…</div>
+                <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>{t("modal.loading")}</div>
               ) : providers.map(([pName, pData]) => {
                 const isProviderSelected = selection?.type === "provider" && selection.name === pName;
                 const models = pData.models ?? [];
@@ -1562,7 +1570,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                             {m.id || "new model"}
                           </span>
                           {m.reasoning && (
-                            <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
+                            <span style={{ fontSize: 9, padding: "1px 4px", background: "color-mix(in oklab, var(--text-muted) 14%, transparent)", color: "var(--text-muted)", borderRadius: 3, flexShrink: 0 }}>T</span>
                           )}
                         </div>
                       );
@@ -1631,7 +1639,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
-            <span>{savedOk ? "Saved" : saving ? "Saving…" : "Save"}</span>
+            <span>{savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}</span>
           </button>
         </div>
       </div>

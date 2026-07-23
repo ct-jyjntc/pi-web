@@ -43,14 +43,15 @@ function Toggle({
   loading: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useLocale();
   return (
     <button
       onClick={onToggle}
       disabled={loading}
       title={
         enabled
-          ? "Visible in model prompt — click to disable"
-          : "Hidden from model prompt — click to enable"
+          ? t("skills.visibleToModel")
+          : t("skills.hiddenFromModel")
       }
       style={{
         flexShrink: 0,
@@ -108,6 +109,7 @@ function SkillDetail({
   onCheckUpdate: () => void;
   onUpdate: () => void;
 }) {
+  const { t } = useLocale();
   const label = sourceLabel(skill);
   const enabled = !skill.disableModelInvocation;
 
@@ -248,7 +250,7 @@ function SkillDetail({
                 style={{
                   fontFamily: "var(--font-mono)",
                   fontSize: 12,
-                  color: "#d97706",
+                  color: "var(--text)",
                 }}
               >
                 {shortVersion(updateStatus.latestVersion)}
@@ -269,12 +271,12 @@ function SkillDetail({
                 }}
               >
                 {checkingUpdate
-                  ? "Checking..."
+                  ? t("skills.checking")
                   : updateStatus?.state === "up-to-date"
-                    ? "Up to date"
+                    ? t("skills.upToDate")
                     : updateStatus?.state === "unsupported"
-                        ? "Automatic checks unavailable"
-                        : updateStatus?.message || "Check failed"}
+                        ? t("skills.autoCheckUnavailable")
+                        : updateStatus?.message || t("skills.checkFailed")}
               </span>
             )}
             {updateStatus?.state === "update-available" && (
@@ -293,7 +295,7 @@ function SkillDetail({
                   fontWeight: 600,
                 }}
               >
-                {updating ? "Updating..." : "Update"}
+                {updating ? t("modal.updating") : t("modal.update")}
               </button>
             )}
           </div>
@@ -345,6 +347,7 @@ function AddSkillPanel({
   installedPackages: Record<SkillInstallScope, ReadonlySet<string>>;
   onInstalled: () => void;
 }) {
+  const { t } = useLocale();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SkillSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -381,7 +384,7 @@ function AddSkillPanel({
         return;
       }
       setResults(d.results ?? []);
-      if ((d.results ?? []).length === 0) setSearchError("No skills found");
+      if ((d.results ?? []).length === 0) setSearchError(t("skills.noSkills"));
     } catch (e) {
       setSearchError(String(e));
     } finally {
@@ -446,7 +449,7 @@ function AddSkillPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter") search(query);
             }}
-            placeholder="e.g. react, testing, deploy"
+            placeholder={t("skills.searchPlaceholder")}
             style={{
               flex: 1,
               padding: "7px 10px",
@@ -473,7 +476,7 @@ function AddSkillPanel({
               flexShrink: 0,
             }}
           >
-            {searching ? "Searching…" : "Search"}
+            {searching ? t("modal.searching") : t("modal.search")}
           </button>
         </div>
 
@@ -641,8 +644,8 @@ function AddSkillPanel({
                   {isInstalled
                     ? "✓ Installed"
                     : isInstalling
-                      ? "Installing…"
-                      : "Install"}
+                      ? t("modal.installing")
+                      : t("modal.install")}
                 </button>
               </div>
             );
@@ -1090,9 +1093,9 @@ export function SkillsConfig({
                                 if (status?.state !== "update-available") return null;
                                 return (
                                   <span
-                                    title="Update available"
+                                    title={t("skills.updateAvailable")}
                                     style={{
-                                      color: "#d97706",
+                                      color: "var(--text)",
                                       fontSize: 13,
                                       lineHeight: 1,
                                       flexShrink: 0,
@@ -1249,13 +1252,13 @@ export function SkillsConfig({
                   fontSize: 12,
                 }}
               >
-                {checkingAll ? "Checking..." : "Check updates"}
+                {checkingAll ? t("skills.checking") : t("skills.checkUpdates")}
               </button>
             )}
             {Object.values(updateStatuses).filter(
               (status) => status.state === "update-available",
             ).length > 0 && (
-              <span style={{ fontSize: 12, color: "#d97706" }}>
+              <span style={{ fontSize: 12, color: "var(--text)" }}>
                 {
                   Object.values(updateStatuses).filter(
                     (status) => status.state === "update-available",

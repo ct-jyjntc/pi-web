@@ -10,6 +10,8 @@ declare global {
   interface Window {
     piDesktop?: {
       selectDirectory: () => Promise<string | null>;
+      isDesktop?: boolean;
+      platform?: string;
     };
   }
 }
@@ -233,94 +235,6 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
   };
   sort(roots);
   return roots;
-}
-
-const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
-
-function useScramble(target: string, running: boolean): string {
-  const [display, setDisplay] = useState(target);
-  const frameRef = useRef<number | null>(null);
-  const iterRef = useRef(0);
-
-  useEffect(() => {
-    if (!running) {
-      setDisplay(target);
-      return;
-    }
-    iterRef.current = 0;
-    const totalFrames = target.length * 4;
-
-    const step = () => {
-      iterRef.current += 1;
-      const progress = iterRef.current / totalFrames;
-      const resolved = Math.floor(progress * target.length);
-
-      setDisplay(
-        target
-          .split("")
-          .map((char, i) => {
-            if (char === " ") return " ";
-            if (i < resolved) return char;
-            return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
-          })
-          .join("")
-      );
-
-      if (iterRef.current < totalFrames) {
-        frameRef.current = requestAnimationFrame(step);
-      } else {
-        setDisplay(target);
-      }
-    };
-
-    frameRef.current = requestAnimationFrame(step);
-    return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); };
-  }, [target, running]);
-
-  return display;
-}
-
-function PiWebTitle() {
-  const [showVersion, setShowVersion] = useState(false);
-  const [scrambling, setScrambling] = useState(false);
-  const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Web";
-  const display = useScramble(target, scrambling);
-
-  const triggerScramble = useCallback((toVersion: boolean) => {
-    setShowVersion(toVersion);
-    setScrambling(true);
-    setTimeout(() => setScrambling(false), (toVersion ? 6 : 8) * 4 * (1000 / 60) + 100);
-  }, []);
-
-  const handleClick = useCallback(() => {
-    if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
-
-    const next = !showVersion;
-    triggerScramble(next);
-
-    if (next) {
-      revertTimerRef.current = setTimeout(() => triggerScramble(false), 3000);
-    }
-  }, [showVersion, triggerScramble]);
-
-  useEffect(() => () => { if (revertTimerRef.current) clearTimeout(revertTimerRef.current); }, []);
-
-  return (
-    <button
-      onClick={handleClick}
-      style={{
-        background: "none", border: "none", padding: 0, cursor: "default",
-        fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
-        color: showVersion ? "var(--accent)" : "var(--text)",
-        fontFamily: "var(--font-mono)",
-        minWidth: "6ch",
-      }}
-    >
-      {display}
-    </button>
-  );
 }
 
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
@@ -779,17 +693,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      {/* Header */}
+      {/* Header: only the top action row is a window drag strip.
+          Project/worktree pickers MUST stay titlebar-no-drag or Electron steals clicks. */}
       <div
+        className="sidebar-desktop-header desktop-top-chrome"
         style={{
-          padding: "12px 10px 10px",
+          padding: "8px 10px 10px",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <PiWebTitle />
-          <div style={{ display: "flex", gap: 6 }}>
+        <div
+          className="sidebar-desktop-title-row titlebar-drag"
+          style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", minHeight: 28, marginBottom: 8, gap: 6 }}
+        >
+          <div className="titlebar-drag" style={{ flex: 1, minWidth: 8, height: 28 }} aria-hidden />
+          <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button
               onClick={handleNewSession}
               disabled={!selectedCwd}
@@ -799,7 +718,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 border: "1px solid var(--border)",
                 color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
                 cursor: selectedCwd ? "pointer" : "not-allowed",
-                height: 32,
+                height: 28,
                 paddingLeft: 10,
                 paddingRight: 12,
                 borderRadius: 999,
@@ -807,6 +726,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 fontWeight: 500,
                 letterSpacing: "-0.01em",
                 flexShrink: 0,
+                lineHeight: 1,
                 transition: "background 0.12s, color 0.12s, border-color 0.12s",
               }}
               title={selectedCwd ? t("sidebar.newSessionIn", { cwd: selectedCwd }) : t("sidebar.selectProjectFirst")}
@@ -836,7 +756,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 border: `1px solid ${sessionRefreshDone ? "color-mix(in oklab, var(--success) 35%, var(--border))" : "var(--border)"}`,
                 color: sessionRefreshDone ? "var(--success)" : "var(--text-muted)",
                 cursor: "pointer",
-                width: 32, height: 32,
+                width: 28, height: 28,
                 borderRadius: 999,
                 padding: 0,
                 flexShrink: 0,
@@ -855,6 +775,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 e.currentTarget.style.borderColor = "var(--border)";
               }}
               title={t("common.refresh")}
+              aria-label={t("common.refresh")}
             >
               {sessionRefreshDone ? (
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -870,25 +791,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
         </div>
 
+        {/* CWD picker + worktree — never put these inside titlebar-drag */}
+        <div className="titlebar-no-drag" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
         {/* CWD picker */}
         <div ref={dropdownRef} style={{ position: "relative" }}>
           <button
+            type="button"
             onClick={() => setDropdownOpen((v) => !v)}
             title={selectedProject ?? selectedCwd ?? ""}
             style={{
               width: "100%",
               display: "flex",
               alignItems: "center",
-              padding: "6px 10px",
+              minHeight: 32,
+              padding: "0 10px",
               background: selectedCwd ? "var(--bg-hover)" : "var(--bg-selected)",
               border: selectedCwd ? "1px solid var(--border)" : "1px solid var(--text-muted)",
               borderRadius: 8,
               cursor: "pointer",
               fontSize: 12,
+              lineHeight: 1,
               color: "var(--text)",
               textAlign: "left",
               transition: "border-color 0.15s, background 0.15s",
-            }}
+              WebkitAppRegion: "no-drag",
+            } as React.CSSProperties}
           >
             {selectedCwd ? (
               <PathLabel
@@ -1155,14 +1082,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           if (!worktreeState) return null;
           const currentWt = worktreeState.worktrees.find((w) => w.path === selectedCwd)
             ?? worktreeState.worktrees.find((w) => w.isMain);
-          return (
-            <div ref={wtDropdownRef} style={{ position: "relative", marginTop: 6 }}>
+            return (
+            <div ref={wtDropdownRef} className="titlebar-no-drag" style={{ position: "relative", marginTop: 6 }}>
               <button
+                type="button"
                 onClick={() => setWtDropdownOpen((v) => !v)}
                 title={currentWt ? t("sidebar.switchWorktreeNamed", { name: currentWt.path }) : t("sidebar.switchWorktree")}
                 style={{
                   width: "100%",
-                  height: 29,
+                  height: 32,
                   boxSizing: "border-box",
                   display: "flex",
                   alignItems: "center",
@@ -1170,13 +1098,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   padding: "0 10px",
                   background: "var(--bg-hover)",
                   border: "1px solid var(--border)",
-                  borderRadius: 7,
+                  borderRadius: 8,
                   cursor: "pointer",
-                  fontSize: 11,
-                  lineHeight: 1.35,
+                  fontSize: 12,
+                  lineHeight: 1,
                   color: "var(--text-muted)",
                   textAlign: "left",
-                }}
+                  WebkitAppRegion: "no-drag",
+                } as React.CSSProperties}
               >
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: currentWt && !currentWt.isMain ? "var(--accent)" : "var(--text-dim)" }}>
                   <line x1="6" y1="3" x2="6" y2="15" />
@@ -1284,16 +1213,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                             <button
                               onClick={() => void handleRemoveWorktree(wt.path, false)}
                               disabled={wtBusy}
-                              title={`Remove worktree checkout ${wt.path}; the branch is kept`}
+                              title={t("sidebar.removeWorktree", { path: wt.path })}
+                              aria-label={t("sidebar.removeWorktree", { path: wt.path })}
                               style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 width: 34, height: 28, padding: 0, marginRight: 4,
                                 background: "none", border: "none",
                                 color: "var(--text-dim)", cursor: "pointer",
-                                borderRadius: 5, flexShrink: 0,
+                                borderRadius: 999, flexShrink: 0,
                                 transition: "color 0.12s, background 0.12s",
                               }}
-                              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--destructive)"; e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+                              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--destructive)"; e.currentTarget.style.background = "color-mix(in oklab, var(--destructive) 10%, transparent)"; }}
                               onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
                             >
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1317,7 +1247,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         setWtError(null);
                         setTimeout(() => wtNewInputRef.current?.focus(), 0);
                       }}
-                      title="Create a worktree checkout for a branch"
+                      title={t("sidebar.createWorktreeHint")}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -1460,6 +1390,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{inactiveWorktreeSelector.label}</span>
           </button>
         )}
+        </div>
       </div>
 
       {/* Session list */}
@@ -1509,7 +1440,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             overflow: "hidden",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", flexShrink: 0, minHeight: 32 }}>
             <button
               onClick={() => setExplorerOpen((v) => !v)}
               style={{
@@ -1517,7 +1448,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 alignItems: "center",
                 gap: 6,
                 flex: 1,
-                padding: "6px 10px",
+                minHeight: 32,
+                padding: "0 10px",
                 background: "none",
                 border: "none",
                 color: "var(--text-muted)",
@@ -1527,6 +1459,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 letterSpacing: "0.05em",
                 textTransform: "uppercase",
                 textAlign: "left",
+                lineHeight: 1,
               }}
             >
               <svg
@@ -1575,6 +1508,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 explorerRefreshTimerRef.current = setTimeout(() => setExplorerRefreshDone(false), 2000);
               }}
               title={t("sidebar.refreshExplorer")}
+              aria-label={t("sidebar.refreshExplorer")}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: 26, height: 26, padding: 0, marginRight: 6,
@@ -1837,7 +1771,7 @@ function SessionItem({
   }, []);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
-  const ITEM_HEIGHT = 40;
+  const ITEM_HEIGHT = 48;
 
   return (
     <div
@@ -1887,7 +1821,7 @@ function SessionItem({
                 <path d="M10 11v6M14 11v6" />
                 <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
               </svg>
-              Delete
+               {t("common.delete")}
             </button>
             <button
               onClick={handleDeleteCancel}
@@ -1970,8 +1904,8 @@ function SessionItem({
               <span>{t("sidebar.msgs", { n: session.messageCount })}</span>
               {session.worktreeBranch && (
                 <span
-                  title={`Worktree: ${session.cwd}`}
-                  style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--accent)", minWidth: 0, overflow: "hidden" }}
+                  title={t("sidebar.worktree", { branch: session.worktreeBranch })}
+                  style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)", minWidth: 0, overflow: "hidden" }}
                 >
                   <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <line x1="6" y1="3" x2="6" y2="15" />
@@ -2011,6 +1945,7 @@ function SessionItem({
               <button
                 onClick={startRename}
                 title={t("common.rename")}
+                aria-label={t("common.rename")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 28, height: 28, padding: 0,
@@ -2037,6 +1972,7 @@ function SessionItem({
               <button
                 onClick={handleDeleteClick}
                 title={t("common.delete")}
+                aria-label={t("common.delete")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 28, height: 28, padding: 0,

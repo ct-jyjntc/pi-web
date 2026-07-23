@@ -60,6 +60,17 @@ export function AppShell() {
   useEffect(() => {
     setMobileSidebarReady(true);
   }, []);
+  // Electron immersive chrome: mark html so CSS can pad under traffic lights / enable drag.
+  useEffect(() => {
+    const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
+    if (!desktop?.isDesktop) return;
+    const root = document.documentElement;
+    root.classList.add("pi-desktop");
+    if (desktop.platform === "darwin") root.classList.add("pi-desktop-mac");
+    return () => {
+      root.classList.remove("pi-desktop", "pi-desktop-mac");
+    };
+  }, []);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
 
@@ -454,7 +465,7 @@ export function AppShell() {
         onAtMention={handleAtMention}
         onAtMentions={handleAtMentions}
       />
-      <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
+      <div style={{ padding: "8px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, borderTop: "1px solid var(--border)" }}>
         {([
           {
             key: "models",
@@ -462,7 +473,7 @@ export function AppShell() {
             onClick: () => setModelsConfigOpen(true),
             disabled: false,
             icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
                 <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
                 <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
@@ -477,7 +488,7 @@ export function AppShell() {
             onClick: () => setSkillsConfigOpen(true),
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2L2 7l10 5 10-5-10-5z" />
                 <path d="M2 17l10 5 10-5" />
                 <path d="M2 12l10 5 10-5" />
@@ -490,7 +501,7 @@ export function AppShell() {
             onClick: () => setPluginsConfigOpen(true),
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 7V2" />
                 <path d="M15 7V2" />
                 <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
@@ -505,10 +516,10 @@ export function AppShell() {
             disabled={disabled}
             title={label}
             style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              height: 32, padding: 0, background: "none", border: "none",
-              borderRadius: 999, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-              fontSize: 12, opacity: disabled ? 0.35 : 1,
+              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+              height: 32, padding: "0 6px", background: "none", border: "none",
+              borderRadius: 8, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
+              fontSize: 12, lineHeight: 1, opacity: disabled ? 0.35 : 1,
               transition: "background 0.12s, color 0.12s",
             }}
             onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
@@ -629,14 +640,34 @@ export function AppShell() {
       {/* Center: chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
-        <div ref={topBarRef} style={{ display: "flex", alignItems: "center", flexShrink: 0, borderBottom: "1px solid var(--border)", height: 32, background: "var(--bg-panel)" }}>
+        <div
+          ref={topBarRef}
+          className="titlebar-drag desktop-top-chrome"
+          style={{
+            display: "flex",
+            alignItems: "stretch",
+            flexShrink: 0,
+            borderBottom: "1px solid var(--border)",
+            height: 36,
+            background: "var(--bg-panel)",
+          }}
+        >
+          {/* When sidebar is closed on macOS desktop, leave room for traffic lights */}
+          {!sidebarOpen && (
+            <div
+              className="titlebar-drag"
+              aria-hidden
+              style={{ width: "var(--traffic-lights-pad, 0px)", flexShrink: 0 }}
+            />
+          )}
           <button
+            className="titlebar-no-drag"
             onClick={handleSidebarToggle}
             title={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
             aria-label={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
-              width: 32, height: 32, padding: 0,
+              width: 36, height: "100%", padding: 0,
               background: "none", border: "none", borderRight: "1px solid var(--border)",
               color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
             }}
@@ -654,6 +685,7 @@ export function AppShell() {
             )}
           </button>
           <button
+            className="titlebar-no-drag"
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
@@ -663,7 +695,7 @@ export function AppShell() {
             aria-pressed={isDark}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
-              width: 32, height: 32, padding: 0,
+              width: 36, height: "100%", padding: 0,
               background: "none", border: "none", borderRight: "1px solid var(--border)",
               color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
             }}
@@ -685,24 +717,30 @@ export function AppShell() {
             )}
           </button>
           <button
+            className="titlebar-no-drag"
             onClick={toggleLocale}
-            title={locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}
-            aria-label={locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}
+            title={`${t("shell.language")}: ${locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}`}
+            aria-label={`${t("shell.language")}: ${locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}`}
             style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: 32, height: 32, padding: 0,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+              minWidth: 44, height: "100%", padding: "0 8px",
               background: "none", border: "none", borderRight: "1px solid var(--border)",
               color: "var(--text-muted)", cursor: "pointer", flexShrink: 0,
-              fontSize: 10, fontWeight: 600, letterSpacing: "0.02em",
+              fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
               transition: "color 0.12s",
+              fontVariantNumeric: "tabular-nums",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
-            {locale === "zh" ? "EN" : "中"}
+            <span style={{ opacity: locale === "en" ? 1 : 0.45 }}>EN</span>
+            <span style={{ opacity: 0.35 }}>/</span>
+            <span style={{ opacity: locale === "zh" ? 1 : 0.45 }}>中</span>
           </button>
+          {/* Flexible drag region between chrome controls and trailing actions */}
+          <div className="titlebar-drag" style={{ flex: 1, minWidth: 12, height: "100%" }} aria-hidden />
           {showChat && (
-            <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+            <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
               <button
                 onClick={handleViewFullHistory}
                 disabled={!selectedSession}
@@ -711,18 +749,19 @@ export function AppShell() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 6,
+                  gap: 5,
                   height: "100%",
-                  padding: "0 12px",
+                  padding: "0 10px",
                   background: "none",
                   border: "none",
-                  borderTop: "2px solid transparent",
                   borderRight: "1px solid var(--border)",
+                  boxShadow: "inset 0 0 0 0 transparent",
                   color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
                   cursor: selectedSession ? "pointer" : "not-allowed",
                   opacity: selectedSession ? 1 : 0.45,
                   flexShrink: 0,
-                  fontSize: 11,
+                  fontSize: 12,
+                  lineHeight: 1,
                   whiteSpace: "nowrap",
                   transition: "color 0.1s, background 0.1s, opacity 0.1s",
                 }}
@@ -787,15 +826,15 @@ export function AppShell() {
                     title={title}
                     aria-label={label}
                     style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      height: "100%", padding: "0 12px",
+                      display: "flex", alignItems: "center", gap: 5,
+                      height: "100%", padding: "0 10px",
                       background: "none", border: "none",
-                      borderTop: "2px solid transparent",
                       borderRight: "1px solid var(--border)",
+                      boxShadow: "inset 0 0 0 0 transparent",
                       color: isError ? "var(--destructive)" : isSuccess ? "var(--success)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
                       cursor: disabled ? "not-allowed" : "pointer",
                       opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
-                      flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+                      flexShrink: 0, fontSize: 12, lineHeight: 1, whiteSpace: "nowrap",
                       transition: "color 0.1s, background 0.1s, opacity 0.1s",
                     }}
                     onMouseEnter={(e) => {
@@ -846,15 +885,15 @@ export function AppShell() {
                 aria-label={t("shell.systemPrompt")}
                 aria-pressed={activeTopPanel === "system"}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  height: "100%", padding: "0 12px",
+                  display: "flex", alignItems: "center", gap: 5,
+                  height: "100%", padding: "0 10px",
                   background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
                   border: "none",
-                  borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
                   borderRight: "1px solid var(--border)",
+                  boxShadow: activeTopPanel === "system" ? "inset 0 -2px 0 0 var(--accent)" : "inset 0 0 0 0 transparent",
                   cursor: "pointer",
                   color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
-                  fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+                  fontSize: 12, lineHeight: 1, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s, box-shadow 0.1s",
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)"; }}
@@ -902,6 +941,7 @@ export function AppShell() {
             return (
               <button
                 type="button"
+                className="titlebar-no-drag"
                 onClick={() => toggleTopPanel("session")}
                 title={tooltip || t("shell.sessionInfo")}
                 aria-label={t("shell.sessionInfo")}
@@ -910,15 +950,15 @@ export function AppShell() {
                   marginLeft: "auto",
                   display: "flex", alignItems: "center", gap: 10,
                   paddingLeft: 12,
-                  paddingRight: rightPanelOpen ? 12 : 48,
+                  paddingRight: 12,
                   height: "100%",
                   background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
                   border: "none",
-                  borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
-                  fontSize: 11, color: "var(--text-muted)",
+                  boxShadow: activeTopPanel === "session" ? "inset 0 -2px 0 0 var(--accent)" : "inset 0 0 0 0 transparent",
+                  fontSize: 11, lineHeight: 1, color: "var(--text-muted)",
                   whiteSpace: "nowrap", cursor: "pointer",
                   fontVariantNumeric: "tabular-nums",
-                  transition: "color 0.1s, background 0.1s",
+                  transition: "color 0.1s, background 0.1s, box-shadow 0.1s",
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)"; }}
@@ -968,6 +1008,37 @@ export function AppShell() {
               </button>
             );
           })()}
+          <button
+            className="titlebar-no-drag"
+            onClick={() => setRightPanelOpen((v) => !v)}
+            title={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
+            aria-label={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 36,
+              height: "100%",
+              padding: 0,
+              marginLeft: (showChat && (sessionStats || contextUsage)) ? 0 : "auto",
+              background: rightPanelOpen ? "var(--bg-selected)" : "none",
+              border: "none",
+              borderLeft: "1px solid var(--border)",
+              color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
+              cursor: "pointer",
+              flexShrink: 0,
+              transition: "color 0.12s, background 0.12s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)";
+              e.currentTarget.style.background = rightPanelOpen ? "var(--bg-selected)" : "none";
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+            </svg>
+          </button>
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
             <div style={{
@@ -1241,8 +1312,8 @@ export function AppShell() {
         }}
       >
         {/* Right panel tab bar */}
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 32 }}>
-          <div style={{ flex: 1, overflow: "hidden" }}>
+        <div className="titlebar-drag desktop-top-chrome" style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36 }}>
+          <div className="titlebar-no-drag" style={{ flex: 1, overflow: "hidden", minWidth: 0 }}>
             <TabBar
               tabs={fileTabs}
               activeTabId={activeFileTabId ?? ""}
@@ -1250,7 +1321,6 @@ export function AppShell() {
               onCloseTab={handleCloseFileTab}
             />
           </div>
-
         </div>
 
         {/* File content */}
@@ -1275,26 +1345,6 @@ export function AppShell() {
         </div>
       </div>
     </div>
-    {/* File panel toggle — always visible at top-right */}
-    <button
-      onClick={() => setRightPanelOpen((v) => !v)}
-      title={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
-      aria-label={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
-      style={{
-        position: "fixed", top: 0, right: 0, zIndex: 300,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        width: 32, height: 32, padding: 0,
-        background: "var(--bg-panel)", border: "none", borderLeft: "1px solid var(--border)", borderBottom: "1px solid var(--border)",
-        color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
-        cursor: "pointer", transition: "color 0.12s",
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-      </svg>
-    </button>
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />

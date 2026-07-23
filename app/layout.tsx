@@ -31,7 +31,7 @@ export default function RootLayout({
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("pi-theme");if(t==="dark")document.documentElement.classList.add("dark");var l=localStorage.getItem("pi-locale");if(l==="zh"||l==="en")document.documentElement.lang=l;else{var n=(navigator.language||"").toLowerCase();document.documentElement.lang=n.indexOf("zh")===0?"zh":"en"}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("pi-theme");if(t==="dark")document.documentElement.classList.add("dark");var l=localStorage.getItem("pi-locale");if(l==="zh"||l==="en")document.documentElement.lang=l;else{var n=(navigator.language||"").toLowerCase();document.documentElement.lang=n.indexOf("zh")===0?"zh":"en"}if(window.piDesktop&&window.piDesktop.isDesktop){document.documentElement.classList.add("pi-desktop");if(window.piDesktop.platform==="darwin")document.documentElement.classList.add("pi-desktop-mac")}}catch(e){}})();`,
           }}
         />
       </head>

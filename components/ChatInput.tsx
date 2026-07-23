@@ -834,11 +834,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
     : 0;
-  const compactVerb = compactResult?.reason && compactResult.reason !== "manual"
-    ? `${compactResult.reason[0].toUpperCase()}${compactResult.reason.slice(1)} compacted`
-    : "Compacted";
   const compactResultText = compactResult
-    ? `${compactVerb} ${formatTokenCount(compactResult.tokensBefore)} -> ${formatTokenCount(compactResult.estimatedTokensAfter)} tokens (${formatTokenCount(compactSavedTokens)} saved)`
+    ? `${t("chat.compacted")} ${t("chat.compactedDetail", {
+      from: formatTokenCount(compactResult.tokensBefore),
+      to: formatTokenCount(compactResult.estimatedTokensAfter),
+      saved: formatTokenCount(compactSavedTokens),
+    })}`
     : null;
   const thinkingDisplayLabel = (() => {
     const lvl = thinkingLevel ?? "auto";
@@ -972,22 +973,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         {retryInfo && (
           <div style={{
             marginBottom: 8, padding: "5px 10px",
-            background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.25)",
-            borderRadius: 6, fontSize: 12, color: "rgba(180,130,0,0.9)",
+            background: "color-mix(in oklab, var(--text-muted) 10%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--text-muted) 28%, var(--border))",
+            borderRadius: 6, fontSize: 12, color: "var(--text)",
             display: "flex", alignItems: "center", gap: 6,
           }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
               <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
               <path d="M3 3v5h5" />
             </svg>
-            Retrying ({retryInfo.attempt}/{retryInfo.maxAttempts})…{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
+            {t("chat.retrying", { n: retryInfo.attempt, m: retryInfo.maxAttempts })}{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
           </div>
         )}
         {compactResultText && (
           <div style={{
             marginBottom: 8, padding: "5px 10px",
-            background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.24)",
-            borderRadius: 6, fontSize: 12, color: "rgba(5,150,105,0.95)",
+            background: "color-mix(in oklab, var(--success) 10%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--success) 28%, var(--border))",
+            borderRadius: 6, fontSize: 12, color: "var(--success)",
             display: "flex", alignItems: "center", gap: 6,
           }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -1056,7 +1059,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   color: "var(--text-dim)",
                 }}
               >
-                <span>{slashCommandsLoading ? t("chat.loadingCommands") : `Slash commands · ${slashCommandCountLabel}`}</span>
+                <span>{slashCommandsLoading ? t("chat.loadingCommands") : t("chat.slashCommands", { n: slashCommandCountLabel })}</span>
                 <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
               </div>
               <div style={{ maxHeight: "calc(min(56vh, 460px) - 34px)", overflowY: "auto", padding: 10 }}>
@@ -1198,7 +1201,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <span>
                     {indexLoading
                       ? t("chat.loadingFiles")
-                      : `Files · ${matchCountLabel}${truncatedHint}`}
+                      : `${t("chat.files", { n: matchCountLabel })}${truncatedHint}`}
                   </span>
                   <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
                 </div>
@@ -1266,7 +1269,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 ? "color-mix(in oklab, var(--text-muted) 35%, var(--border))"
                 : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
               borderRadius: 10,
-              padding: "10px 10px 10px 14px",
+              padding: "8px 10px 8px 14px",
               boxShadow: "0 1px 2px color-mix(in oklab, var(--text) 4%, transparent)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
@@ -1323,7 +1326,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("steer")}
                   disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? "Image attachments cannot be queued while the agent is running" : "Interrupt the current run and inject this message now"}
+                  title={attachedImages.length ? t("chat.queueNoImages") : t("chat.steerTitle")}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     height: 32, padding: "0 12px",
@@ -1346,7 +1349,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("followup")}
                   disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? "Image attachments cannot be queued while the agent is running" : "Queue this message after the agent finishes"}
+                  title={attachedImages.length ? t("chat.queueNoImages") : t("chat.followUpTitle")}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     height: 32, padding: "0 12px",
@@ -1768,7 +1771,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     {TOOL_PRESETS.map((lvl) => {
                       const preset = TOOL_PRESET_MAP[lvl];
                       const isActive = (toolPreset ?? "default") === preset;
-                      const desc = lvl === "off" ? "No tools, read-only" : lvl === "default" ? "4 built-in tools" : "All built-in tools";
+                      const desc = lvl === "off" ? t("chat.toolsNone") : lvl === "default" ? t("chat.toolsDefault") : t("chat.toolsFull");
                       return (
                         <button
                           key={lvl}
@@ -1804,10 +1807,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 {compactError && (
                   <div style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    background: "#1f2937", color: "#f87171",
-                    fontSize: 11, padding: "4px 8px", borderRadius: 5,
+                    background: "var(--bg-panel)", color: "var(--destructive)",
+                    fontSize: 11, padding: "4px 8px", borderRadius: 6,
                     whiteSpace: "nowrap", pointerEvents: "none",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.2)", zIndex: 50,
+                    border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
+                    boxShadow: "0 2px 8px color-mix(in oklab, var(--text) 10%, transparent)", zIndex: 50,
                   }}>
                     {compactError}
                   </div>
@@ -1926,8 +1930,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {isMobile && controlsMenuOpen && (
               <button
                 type="button"
-                title="Collapse controls"
-                aria-label="Collapse controls"
+                title={t("chat.collapseControls")}
+                aria-label={t("chat.collapseControls")}
                 aria-expanded={true}
                 onClick={() => {
                   setToolDropdownOpen(false);

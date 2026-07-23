@@ -10,6 +10,8 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  // Minimal server bundle for Electron packaging (see electron/main.js + dist:dmg)
+  output: "standalone",
   serverExternalPackages: [
     "undici",
     "@earendil-works/pi-coding-agent",

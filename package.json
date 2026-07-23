@@ -14,8 +14,11 @@
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
+  "main": "electron/main.js",
+  "author": "agegr",
   "files": [
     "bin",
+    "electron",
     ".next",
     "!.next/cache",
     "!.next/dev",
@@ -27,9 +30,89 @@
   "scripts": {
     "dev": "next dev -p 30141",
     "build": "next build --webpack",
+    "build:electron": "npm run build && node scripts/prepare-electron-standalone.mjs",
     "start": "next start -p 30141",
     "lint": "eslint .",
+    "electron": "electron .",
+    "electron:dev": "electron .",
+    "electron:prod": "npm run build:electron && electron .",
+    "electron:rebuild": "npm run build:electron && electron .",
+    "dist:dmg": "npm run build:electron && electron-builder --mac dmg",
+    "dist:mac": "npm run build:electron && electron-builder --mac dmg zip",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
+  },
+  "build": {
+    "appId": "ai.agegr.pi-web",
+    "productName": "Pi Web",
+    "copyright": "Copyright © agegr",
+    "directories": {
+      "output": "dist",
+      "buildResources": "electron/icons"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json",
+      "!electron/icons/icon.iconset/**",
+      "!**/*.map",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md}",
+      "!**/node_modules/.cache/**"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "standalone",
+        "filter": [
+          "**/*",
+          "!**/node_modules/**"
+        ]
+      }
+    ],
+    "afterPack": "./scripts/electron-after-pack.mjs",
+    "asar": true,
+    "mac": {
+      "icon": "electron/icons/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null
+    },
+    "dmg": {
+      "title": "Pi Web ${version}",
+      "artifactName": "Pi-Web-${version}-${arch}.${ext}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "linux": {
+      "icon": "electron/icons",
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development"
+    },
+    "win": {
+      "icon": "electron/icons/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    }
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.81.1",
@@ -48,6 +131,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "electron": "^37.10.3",
+    "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "jiti": "^2.7.0",

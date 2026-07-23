@@ -881,7 +881,7 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
   const marker =
     cell.type === "added" ? "+" : cell.type === "removed" ? "-" : " ";
   const markerColor =
-    cell.type === "added" ? "#22c55e" : cell.type === "removed" ? "var(--destructive)" : "var(--text-dim)";
+    cell.type === "added" ? "var(--success)" : cell.type === "removed" ? "var(--destructive)" : "var(--text-dim)";
 
   return (
     <div
@@ -951,7 +951,7 @@ function PatchTextView({ text }: { text: string }) {
           kind === "hunk" ? "rgba(96,165,250,0.12)" :
           "transparent";
         const color =
-          kind === "added" ? "#22c55e" :
+          kind === "added" ? "var(--success)" :
           kind === "removed" ? "var(--destructive)" :
           kind === "hunk" ? "var(--accent)" :
           "var(--text)";
@@ -963,9 +963,9 @@ function PatchTextView({ text }: { text: string }) {
               display: "flex",
               background: bg,
               borderLeft: kind === "added"
-                ? "3px solid #22c55e"
+                ? "3px solid var(--success)"
                 : kind === "removed"
-                ? "3px solid #f87171"
+                ? "3px solid var(--destructive)"
                 : kind === "hunk"
                 ? "3px solid var(--accent)"
                 : "3px solid transparent",
@@ -1057,6 +1057,7 @@ function PairedResult({ text, isEmpty, isError }: {
 }
 
 function CompactionMessageView({ message }: { message: CustomMessage }) {
+  const { t } = useLocale();
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
   const time = formatTime(message.timestamp);
@@ -1089,16 +1090,16 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
         </div>
 
         <div style={{ padding: "11px 13px 12px" }}>
-          <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, lineHeight: 1.35 }}>
-            Conversation compacted
+          <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 500, lineHeight: 1.35 }}>
+            {t("msg.conversationCompacted")}
           </div>
           <div style={{ marginTop: 3, marginBottom: 10, color: "var(--text)", fontSize: 14, lineHeight: 1.5 }}>
-            The conversation history before this point was compacted into the following summary:
+            {t("msg.compactionSummaryIntro")}
           </div>
           {parsedSummary.body ? (
             <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
           ) : (
-            <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no summary)</span>
+            <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("msg.noSummary")}</span>
           )}
           <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
         </div>
@@ -1113,12 +1114,12 @@ function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: strin
   if (total === 0) return null;
 
   const parts = [];
-  if (readFiles.length > 0) parts.push(`${readFiles.length} read`);
-  if (modifiedFiles.length > 0) parts.push(`${modifiedFiles.length} modified`);
+  if (readFiles.length > 0) parts.push(`${readFiles.length} ${t("msg.readFiles").toLowerCase()}`);
+  if (modifiedFiles.length > 0) parts.push(`${modifiedFiles.length} ${t("msg.modifiedFiles").toLowerCase()}`);
 
   return (
     <details className="compaction-file-details">
-      <summary>File context: {parts.join(", ")}</summary>
+      <summary>{t("msg.fileContext", { parts: parts.join(", ") })}</summary>
       {modifiedFiles.length > 0 && <CompactionFileList title={t("msg.modifiedFiles")} files={modifiedFiles} />}
       {readFiles.length > 0 && <CompactionFileList title={t("msg.readFiles")} files={readFiles} />}
     </details>
@@ -1184,7 +1185,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
           <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
             {title}
           </span>
-          {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>hidden extension message</span>}
+          {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("msg.hiddenExtension")}</span>}
           {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
 
