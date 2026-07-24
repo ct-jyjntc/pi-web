@@ -241,6 +241,29 @@ body {
   background: var(--text-dim);
 }
 
+/* Chat message list: hide native scrollbar — right rail minimap is the scroll UI.
+   Clip wrapper + negative margin is the Electron/WebKit-safe approach; CSS rules below
+   still hide the bar when the gutter trick is not needed. */
+.chat-scroll-clip {
+  position: relative;
+  min-height: 0;
+}
+.chat-scroll-area {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.chat-scroll-area::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+.chat-scroll-area::-webkit-scrollbar-thumb,
+.chat-scroll-area::-webkit-scrollbar-track {
+  display: none !important;
+  background: transparent !important;
+}
+
 :root {
   --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
 }

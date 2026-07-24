@@ -10,7 +10,7 @@ interface Props {
   messageRefs: RefObject<(HTMLDivElement | null)[]>;
 }
 
-const MINIMAP_WIDTH = 36;
+export const MINIMAP_WIDTH = 36;
 
 function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
   if (msg.role === "user") {
@@ -258,6 +258,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   return (
     <div
       ref={containerRef}
+      className="chat-minimap"
       onMouseDown={handleMouseDown}
       onMouseEnter={() => setMinimapHovered(true)}
       onMouseLeave={() => { setMinimapHovered(false); setMouseYRatio(null); }}
@@ -266,29 +267,32 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         setMouseYRatio((e.clientY - rect.top) / rect.height);
       }}
       style={{
-        width: MINIMAP_WIDTH,
-        flexShrink: 0,
+        width: "100%",
+        flex: 1,
+        minHeight: 0,
         position: "relative",
         cursor: "default",
         userSelect: "none",
-        borderLeft: "1px solid var(--border)",
-        background: "var(--bg-panel)",
         overflow: "visible",
+        opacity: minimapHovered ? 1 : 0.55,
+        transition: "opacity 0.15s ease",
       }}
     >
-      {/* Viewport indicator */}
+      {/* Viewport indicator — quiet thumb */}
       <div
         style={{
           position: "absolute",
-          left: 0,
-          right: 0,
+          left: 4,
+          right: 4,
           top: `${viewportBoxTop}%`,
-          height: `${viewportBoxHeight}%`,
-          background: "color-mix(in oklab, var(--text) 8%, transparent)",
-          borderTop: "1px solid color-mix(in oklab, var(--text) 16%, transparent)",
-          borderBottom: "1px solid color-mix(in oklab, var(--text) 16%, transparent)",
+          height: `${Math.max(viewportBoxHeight, 4)}%`,
+          background: minimapHovered
+            ? "color-mix(in oklab, var(--text) 10%, transparent)"
+            : "color-mix(in oklab, var(--text) 6%, transparent)",
+          borderRadius: "var(--radius-xs)",
           pointerEvents: "none",
           zIndex: 1,
+          transition: "background 0.15s ease",
         }}
       />
 
@@ -302,14 +306,13 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         return (
           <div
             key={node.index}
-
             style={{
               position: "absolute",
               top: `${dotTop}%`,
               transform: "translateY(-50%)",
               left: 0,
               right: 0,
-              height: "12px",
+              height: "10px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -317,38 +320,22 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
               zIndex: 2,
             }}
           >
-            {/* Dot */}
             <div
               style={{
-                width: isUser ? 8 : 6,
-                height: isUser ? 8 : 6,
+                width: isUser ? 6 : 4,
+                height: isUser ? 6 : 4,
                 borderRadius: isUser ? 2 : "50%",
                 background: color.bg,
-                border: `1.5px solid ${color.border}`,
+                border: `1px solid ${color.border}`,
                 flexShrink: 0,
-                transition: "transform 0.1s",
-                transform: isNearest ? "scale(1.6)" : "scale(1)",
+                transition: "transform 0.1s ease, opacity 0.1s ease",
+                transform: isNearest ? "scale(1.5)" : "scale(1)",
+                opacity: minimapHovered ? 1 : 0.75,
               }}
             />
-
-
           </div>
         );
       })}
-
-      {/* Center line */}
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: 0,
-          bottom: 0,
-          width: 1,
-          background: "var(--border)",
-          transform: "translateX(-50%)",
-          zIndex: 0,
-        }}
-      />
 
       {/* Tooltips for all nodes, collision-free positions */}
       {minimapHovered && nodes.map((node, i) => {

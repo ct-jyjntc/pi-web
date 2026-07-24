@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
@@ -500,7 +500,19 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <NoticeShelf notices={notices} floating align="right" />
           </div>
         </div>
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
+        {/* Outer clips native scrollbar; inner scrolls. Right rail is the only scroll UI. */}
+        <div className="chat-scroll-clip flex-1 min-w-0 overflow-hidden">
+        <div
+          ref={scrollContainerRef}
+          className="chat-scroll-area h-full overflow-y-auto pt-4"
+          style={{
+            // Push native scrollbar into the clipped gutter (WebKit/Electron fallback)
+            marginRight: -24,
+            paddingRight: 24,
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          } as CSSProperties}
+        >
           <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
               <ExtensionStatusBar statuses={extensionStatuses} />
@@ -704,50 +716,79 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             </div>
           </div>
         </div>
+        </div>
+        {/* Right rail: quiet minimap + jump-to-bottom docked as strip chrome (not a floating FAB) */}
         {isMobile ? null : (
-          <ChatMinimap
-            messages={messages}
-            streamingMessage={streamState.streamingMessage}
-            scrollContainer={scrollContainerRef}
-            messageRefs={messageRefs}
-          />
+          <div
+            className="chat-scroll-rail"
+            style={{
+              width: CHAT_MINIMAP_WIDTH,
+              flexShrink: 0,
+              display: "flex",
+              flexDirection: "column",
+              borderLeft: "1px solid var(--border)",
+              background: "var(--bg-panel)",
+              minHeight: 0,
+            }}
+          >
+            <ChatMinimap
+              messages={messages}
+              streamingMessage={streamState.streamingMessage}
+              scrollContainer={scrollContainerRef}
+              messageRefs={messageRefs}
+            />
+            {!stickToBottom && (
+              <button
+                type="button"
+                className="chrome-btn is-icon"
+                onClick={resumeStickToBottom}
+                title={t("window.scrollToBottom")}
+                aria-label={t("window.scrollToBottom")}
+                style={{
+                  width: "100%",
+                  minWidth: 0,
+                  height: 36,
+                  minHeight: 36,
+                  borderTop: "1px solid var(--border)",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 5v14" />
+                  <path d="m19 12-7 7-7-7" />
+                </svg>
+              </button>
+            )}
+          </div>
         )}
-        {/* Always-visible jump-to-latest FAB, bottom-right of the message viewport */}
-        <button
-          type="button"
-          onClick={resumeStickToBottom}
-          title={t("window.scrollToBottom")}
-          aria-label={t("window.scrollToBottom")}
-          aria-pressed={stickToBottom}
-          style={{
-            position: "absolute",
-            right: isMobile ? 14 : CHAT_MINIMAP_WIDTH + 10,
-            bottom: 12,
-            zIndex: 45,
-            width: 34,
-            height: 34,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: "var(--radius-pill)",
-            border: "1px solid var(--border)",
-            background: stickToBottom
-              ? "var(--bg-panel)"
-              : "var(--accent)",
-            color: stickToBottom
-              ? "var(--text-muted)"
-              : "var(--accent-fg)",
-            boxShadow: "var(--shadow-md)",
-            cursor: "pointer",
-            opacity: stickToBottom ? 0.72 : 1,
-            transition: "background 120ms ease, color 120ms ease, opacity 120ms ease",
-          }}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M12 5v14" />
-            <path d="m19 12-7 7-7-7" />
-          </svg>
-        </button>
+        {/* Mobile only: quiet jump control, only when scrolled up */}
+        {isMobile && !stickToBottom && (
+          <button
+            type="button"
+            className="chrome-btn is-icon"
+            onClick={resumeStickToBottom}
+            title={t("window.scrollToBottom")}
+            aria-label={t("window.scrollToBottom")}
+            style={{
+              position: "absolute",
+              right: 14,
+              bottom: 12,
+              zIndex: 45,
+              width: 32,
+              height: 32,
+              minWidth: 32,
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--bg-panel)",
+              boxShadow: "var(--shadow-sm)",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 5v14" />
+              <path d="m19 12-7 7-7-7" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="relative">
