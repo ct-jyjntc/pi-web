@@ -138,6 +138,9 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.sessionId === next.sessionId;
 });
 
+const USER_MSG_COLLAPSE_CHARS = 420;
+const USER_MSG_COLLAPSE_LINES = 8;
+
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
   message: UserMessage;
   cwd?: string;
@@ -152,6 +155,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const { t } = useLocale();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const content =
     typeof message.content === "string"
@@ -169,6 +173,15 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
+  const lineCount = content ? content.split("\n").length : 0;
+  const isLong =
+    content.length > USER_MSG_COLLAPSE_CHARS || lineCount > USER_MSG_COLLAPSE_LINES;
+  const showCollapsed = isLong && !expanded;
+  const collapsedPreview = content
+    .split("\n")
+    .slice(0, USER_MSG_COLLAPSE_LINES)
+    .join("\n")
+    .slice(0, USER_MSG_COLLAPSE_CHARS);
 
   const copyContent = () => {
     copyText(content).then(() => {
@@ -223,7 +236,63 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               })}
             </div>
           )}
-          {content && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>}
+          {content && (
+            showCollapsed ? (
+              <div>
+                <div
+                  style={{
+                    maxHeight: 140,
+                    overflow: "hidden",
+                    position: "relative",
+                    maskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
+                    WebkitMaskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
+                  }}
+                >
+                  <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>
+                    {collapsedPreview}
+                  </MarkdownBody>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExpanded(true)}
+                  style={{
+                    marginTop: 6,
+                    padding: "2px 0",
+                    border: "none",
+                    background: "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 500,
+                  }}
+                >
+                  {t("msg.showMore")}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
+                {isLong && (
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(false)}
+                    style={{
+                      marginTop: 6,
+                      padding: "2px 0",
+                      border: "none",
+                      background: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {t("msg.showLess")}
+                  </button>
+                )}
+              </div>
+            )
+          )}
         </div>
 
       </div>

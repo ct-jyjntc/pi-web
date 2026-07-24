@@ -225,6 +225,8 @@ const en = {
 
   // Message chrome
   "msg.copyMessage": "Copy message",
+  "msg.showMore": "Show more",
+  "msg.showLess": "Show less",
   "msg.editFromHere": "Edit from here",
   "msg.editFromHereTitle": "Edit from here — branches within this session",
   "msg.newSession": "New session",
@@ -595,6 +597,8 @@ const zh: Record<MessageKey, string> = {
   "branch.branches": "分支",
 
   "msg.copyMessage": "复制消息",
+  "msg.showMore": "展开",
+  "msg.showLess": "收起",
   "msg.editFromHere": "从此编辑",
   "msg.editFromHereTitle": "从此编辑 — 在本会话内创建分支",
   "msg.newSession": "新会话",
