@@ -351,199 +351,199 @@ function AddPluginPanel({
     installedSources.has(item.source) || installedSources.has(item.name) || installedSources.has(`npm:${item.name}`);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, minHeight: "100%" }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
-          {t("plugins.addPlugin")}
-        </div>
-        <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
-          {t("plugins.catalogHint")}
-        </div>
-        <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-          {installLocation(scope, cwd)}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <SegmentedScope value={scope} onChange={onScopeChange} />
-        <a
-          href="https://www.npmjs.com/search?q=keywords%3Api-package"
-          target="_blank"
-          rel="noreferrer"
-          style={{ fontSize: 12, color: "var(--text-muted)", textDecoration: "underline" }}
-        >
-          {t("plugins.browseCatalog")}
-        </a>
-      </div>
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
-          ref={searchRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void search(query);
-          }}
-          placeholder={t("plugins.searchPlaceholder")}
-          style={{
-            flex: 1,
-            height: 36,
-            padding: "0 11px",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            background: "var(--bg-panel)",
-            color: "var(--text)",
-            fontSize: 13,
-            outline: "none",
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => void search(query)}
-          disabled={searching}
-          style={{
-            ...buttonStyle(searching),
-            background: "var(--accent)",
-            color: "var(--accent-fg)",
-            borderColor: "var(--accent)",
-            minWidth: 88,
-          }}
-        >
-          {searching ? t("modal.searching") : t("modal.search")}
-        </button>
-      </div>
-
-      {searchError && (
-        <div style={{ fontSize: 12, color: "var(--destructive)", whiteSpace: "pre-wrap" }}>
-          {searchError}
-        </div>
-      )}
-
-      {results.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 0, flex: 1, minHeight: 0 }}>
-          <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>
-            {query.trim() ? `${results.length} / ${total}` : `${t("plugins.popular")} · ${results.length}`}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, gap: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, flexShrink: 0, paddingBottom: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
+            {t("plugins.addPlugin")}
           </div>
-          <div style={{ overflowY: "auto", maxHeight: "42vh", borderTop: "1px solid var(--border)" }}>
-            {results.map((item) => {
-              const installed = isInstalled(item);
-              return (
-                <div
-                  key={item.source}
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 12,
-                    padding: "12px 0",
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-                        {item.name}
-                      </span>
-                      <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                        v{item.version}
-                      </span>
-                      {item.publisher && (
-                        <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
-                          @{item.publisher}
-                        </span>
-                      )}
-                    </div>
-                    {item.description && (
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.45 }}>
-                        {item.description}
-                      </div>
-                    )}
-                    <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ fontSize: 11, color: "var(--text-dim)", textDecoration: "underline" }}
-                      >
-                        {t("plugins.openNpm")}
-                      </a>
-                      <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                        {item.source}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy || installed}
-                    onClick={() => onInstallSource(item.source)}
-                    style={{
-                      ...buttonStyle(busy || installed),
-                      flexShrink: 0,
-                      background: installed ? "var(--bg-panel)" : "var(--accent)",
-                      color: installed ? "var(--text-dim)" : "var(--accent-fg)",
-                      borderColor: installed ? "var(--border)" : "var(--accent)",
-                      minWidth: 72,
-                    }}
-                  >
-                    {installed ? t("plugins.alreadyInstalled") : busy ? t("modal.installing") : t("plugins.installSource")}
-                  </button>
-                </div>
-              );
-            })}
+          <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+            {t("plugins.catalogHint")}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+            {installLocation(scope, cwd)}
           </div>
         </div>
-      )}
 
-      {!searching && catalogLoaded && results.length === 0 && !searchError && (
-        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("plugins.noPackages")}</div>
-      )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-          {t("plugins.manualSource")}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <SegmentedScope value={scope} onChange={onScopeChange} />
+          <a
+            href="https://www.npmjs.com/search?q=keywords%3Api-package"
+            target="_blank"
+            rel="noreferrer"
+            style={{ fontSize: 12, color: "var(--text-muted)", textDecoration: "underline" }}
+          >
+            {t("plugins.browseCatalog")}
+          </a>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+
+        <div style={{ display: "flex", gap: 8 }}>
           <input
-            value={source}
-            onChange={(e) => onSourceChange(e.target.value)}
-            placeholder={t("plugins.packagePlaceholder")}
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void search(query);
+            }}
+            placeholder={t("plugins.searchPlaceholder")}
             style={{
               flex: 1,
-              minWidth: 220,
-              height: 34,
+              height: 36,
               padding: "0 11px",
               border: "1px solid var(--border)",
               borderRadius: 6,
               background: "var(--bg-panel)",
               color: "var(--text)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 12,
+              fontSize: 13,
               outline: "none",
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && source.trim() && !busy) onInstall();
             }}
           />
           <button
             type="button"
-            onClick={onInstall}
-            disabled={busy || !source.trim()}
+            onClick={() => void search(query)}
+            disabled={searching}
             style={{
-              ...buttonStyle(busy || !source.trim()),
+              ...buttonStyle(searching),
               background: "var(--accent)",
               color: "var(--accent-fg)",
               borderColor: "var(--accent)",
+              minWidth: 88,
             }}
           >
-            {busy ? t("modal.installing") : t("modal.install")}
+            {searching ? t("modal.searching") : t("modal.search")}
           </button>
         </div>
+
+        {searchError && (
+          <div style={{ fontSize: 12, color: "var(--destructive)", whiteSpace: "pre-wrap" }}>
+            {searchError}
+          </div>
+        )}
       </div>
 
-      {actionError && (
-        <div style={{ fontSize: 12, color: "var(--destructive)", whiteSpace: "pre-wrap" }}>
-          {actionError}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", borderTop: "1px solid var(--border)" }}>
+        {results.length > 0 && (
+          <div style={{ fontSize: 11, color: "var(--text-dim)", padding: "8px 0 4px" }}>
+            {query.trim() ? `${results.length} / ${total}` : `${t("plugins.popular")} · ${results.length}`}
+          </div>
+        )}
+        {results.map((item) => {
+          const installed = isInstalled(item);
+          return (
+            <div
+              key={item.source}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 12,
+                padding: "12px 0",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+                    {item.name}
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                    v{item.version}
+                  </span>
+                  {item.publisher && (
+                    <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                      @{item.publisher}
+                    </span>
+                  )}
+                </div>
+                {item.description && (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.45 }}>
+                    {item.description}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: 11, color: "var(--text-dim)", textDecoration: "underline" }}
+                  >
+                    {t("plugins.openNpm")}
+                  </a>
+                  <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                    {item.source}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={busy || installed}
+                onClick={() => onInstallSource(item.source)}
+                style={{
+                  ...buttonStyle(busy || installed),
+                  flexShrink: 0,
+                  background: installed ? "var(--bg-panel)" : "var(--accent)",
+                  color: installed ? "var(--text-dim)" : "var(--accent-fg)",
+                  borderColor: installed ? "var(--border)" : "var(--accent)",
+                  minWidth: 72,
+                }}
+              >
+                {installed ? t("plugins.alreadyInstalled") : busy ? t("modal.installing") : t("plugins.installSource")}
+              </button>
+            </div>
+          );
+        })}
+
+        {!searching && catalogLoaded && results.length === 0 && !searchError && (
+          <div style={{ fontSize: 12, color: "var(--text-dim)", padding: "12px 0" }}>{t("plugins.noPackages")}</div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "14px 0 4px" }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
+            {t("plugins.manualSource")}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input
+              value={source}
+              onChange={(e) => onSourceChange(e.target.value)}
+              placeholder={t("plugins.packagePlaceholder")}
+              style={{
+                flex: 1,
+                minWidth: 220,
+                height: 34,
+                padding: "0 11px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg-panel)",
+                color: "var(--text)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                outline: "none",
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && source.trim() && !busy) onInstall();
+              }}
+            />
+            <button
+              type="button"
+              onClick={onInstall}
+              disabled={busy || !source.trim()}
+              style={{
+                ...buttonStyle(busy || !source.trim()),
+                background: "var(--accent)",
+                color: "var(--accent-fg)",
+                borderColor: "var(--accent)",
+              }}
+            >
+              {busy ? t("modal.installing") : t("modal.install")}
+            </button>
+          </div>
         </div>
-      )}
+
+        {actionError && (
+          <div style={{ fontSize: 12, color: "var(--destructive)", whiteSpace: "pre-wrap", paddingBottom: 8 }}>
+            {actionError}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1103,7 +1103,17 @@ export function PluginsConfig({
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              // Add mode owns its own scroll region; detail pages scroll here once.
+              overflowY: addMode ? "hidden" : "auto",
+              padding: addMode ? "16px 20px 12px" : 20,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
             {addMode ? (
               <AddPluginPanel
                 cwd={cwd}
