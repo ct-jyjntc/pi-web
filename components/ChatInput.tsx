@@ -43,6 +43,8 @@ interface Props {
   compactResult?: CompactResultInfo | null;
   toolPreset?: "none" | "default" | "full";
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
+  /** Called after permission mode is persisted so the host can /reload. */
+  onPermissionModeApplied?: () => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   availableThinkingLevels?: string[] | null;
@@ -71,6 +73,8 @@ export interface ChatInputHandle {
 
 const TOOL_PRESETS = ["off", "default", "full"] as const;
 const TOOL_PRESET_MAP: Record<"off" | "default" | "full", "none" | "default" | "full"> = { off: "none", default: "default", full: "full" };
+const PERMISSION_MODES = ["ask", "full"] as const;
+type PermissionMode = (typeof PERMISSION_MODES)[number];
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
@@ -193,6 +197,7 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
+  onPermissionModeApplied,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -209,6 +214,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
+  const [permissionDropdownOpen, setPermissionDropdownOpen] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
+  const [permissionBusy, setPermissionBusy] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? getDraft(draftKey)?.images.map(draftImageToAttachedImage) ?? [] : []
@@ -230,6 +238,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
+  const permissionDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
@@ -847,6 +856,44 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return thinkingLevelMap[lvl] ?? lvl;
   })();
   const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default";
+  const permissionLabel = permissionMode === "full" ? t("chat.permissionFull") : t("chat.permissionAsk");
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/permissions")
+      .then(async (res) => {
+        const data = (await res.json()) as { mode?: string };
+        if (!cancelled && (data.mode === "ask" || data.mode === "full")) {
+          setPermissionMode(data.mode);
+        }
+      })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const applyPermissionMode = useCallback(async (mode: PermissionMode) => {
+    if (permissionBusy || mode === permissionMode) {
+      setPermissionDropdownOpen(false);
+      return;
+    }
+    setPermissionBusy(true);
+    setPermissionDropdownOpen(false);
+    try {
+      const res = await fetch("/api/permissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = (await res.json()) as { mode?: string; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.mode === "ask" || data.mode === "full") setPermissionMode(data.mode);
+      onPermissionModeApplied?.();
+    } catch (e) {
+      console.error("Failed to set permission mode:", e);
+    } finally {
+      setPermissionBusy(false);
+    }
+  }, [onPermissionModeApplied, permissionBusy, permissionMode]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -862,6 +909,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
+      }
+      if (permissionDropdownRef.current && !permissionDropdownRef.current.contains(e.target as Node)) {
+        setPermissionDropdownOpen(false);
       }
       if (controlsMenuRef.current && !controlsMenuRef.current.contains(e.target as Node)) {
         setControlsMenuOpen(false);
@@ -1725,6 +1775,92 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
+            <div ref={permissionDropdownRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => !permissionBusy && setPermissionDropdownOpen((v) => !v)}
+                disabled={permissionBusy}
+                title={t("chat.changePermission", { mode: permissionLabel })}
+                aria-label={t("chat.changePermission", { mode: permissionLabel })}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                  padding: isMobile ? "0 6px" : "8px 12px",
+                  width: isMobile ? "auto" : undefined,
+                  height: 32,
+                  background: permissionDropdownOpen ? "var(--bg-hover)" : "none",
+                  border: "none",
+                  borderRadius: 999,
+                  color: permissionMode === "full" ? "var(--destructive)" : "var(--text-muted)",
+                  cursor: permissionBusy ? "wait" : "pointer",
+                  fontSize: 12,
+                  opacity: permissionBusy ? 0.6 : 1,
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  if (permissionBusy) return;
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = permissionMode === "full" ? "var(--destructive)" : "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = permissionDropdownOpen ? "var(--bg-hover)" : "none";
+                  e.currentTarget.style.color = permissionMode === "full" ? "var(--destructive)" : "var(--text-muted)";
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {permissionMode === "full" ? (
+                    <>
+                      <rect x="3" y="11" width="18" height="11" rx="2" />
+                      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                    </>
+                  ) : (
+                    <>
+                      <rect x="3" y="11" width="18" height="11" rx="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </>
+                  )}
+                </svg>
+                {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{permissionLabel}</span>}
+              </button>
+              {permissionDropdownOpen && (
+                <div style={{
+                  position: "absolute", bottom: "calc(100% + 6px)", right: 0,
+                  zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
+                  borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+                  overflow: "hidden", minWidth: 220,
+                }}>
+                  {PERMISSION_MODES.map((mode) => {
+                    const isActive = permissionMode === mode;
+                    const title = mode === "full" ? t("chat.permissionFull") : t("chat.permissionAsk");
+                    const desc = mode === "full" ? t("chat.permissionFullDesc") : t("chat.permissionAskDesc");
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => void applyPermissionMode(mode)}
+                        style={{
+                          display: "flex", alignItems: "flex-start", gap: 8,
+                          width: "100%", padding: "9px 12px",
+                          background: isActive ? "var(--bg-selected)" : "none",
+                          border: "none",
+                          color: isActive ? "var(--text)" : "var(--text-muted)",
+                          cursor: "pointer", fontSize: 12, textAlign: "left",
+                          fontWeight: isActive ? 600 : 400,
+                        }}
+                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                      >
+                        {isActive
+                          ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 3 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                          : <span style={{ width: 10, flexShrink: 0 }} />}
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: "block", color: mode === "full" ? "var(--destructive)" : "inherit" }}>{title}</span>
+                          <span style={{ display: "block", fontSize: 11, color: "var(--text-dim)", marginTop: 2, fontWeight: 400 }}>{desc}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {!isStreaming && onToolPresetChange && (
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button

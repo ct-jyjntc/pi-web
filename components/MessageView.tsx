@@ -684,6 +684,48 @@ function ThinkingBlock({
 }
 
 
+function toolDisplayMeta(toolName: string): { label: string; accent: string; bg: string; border: string } {
+  const n = toolName.toLowerCase();
+  if (n === "todo") {
+    return {
+      label: "todo",
+      accent: "var(--accent)",
+      bg: "color-mix(in oklab, var(--accent) 6%, var(--bg))",
+      border: "color-mix(in oklab, var(--accent) 28%, var(--border))",
+    };
+  }
+  if (n.includes("subagent") || n === "agent" || n.includes("delegate")) {
+    return {
+      label: toolName,
+      accent: "var(--success)",
+      bg: "color-mix(in oklab, var(--success) 7%, var(--bg))",
+      border: "color-mix(in oklab, var(--success) 30%, var(--border))",
+    };
+  }
+  if (n.includes("ask") || n.includes("question") || n.includes("user")) {
+    return {
+      label: toolName,
+      accent: "var(--accent)",
+      bg: "color-mix(in oklab, var(--accent) 5%, var(--bg))",
+      border: "color-mix(in oklab, var(--accent) 25%, var(--border))",
+    };
+  }
+  if (n.includes("simplif") || n.includes("review")) {
+    return {
+      label: toolName,
+      accent: "var(--text)",
+      bg: "var(--bg-panel)",
+      border: "var(--border)",
+    };
+  }
+  return {
+    label: toolName,
+    accent: "var(--success)",
+    bg: "rgba(34,197,94,0.04)",
+    border: "rgba(34,197,94,0.25)",
+  };
+}
+
 function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
@@ -696,15 +738,19 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
+  const meta = toolDisplayMeta(block.toolName);
+  // Compact tool-display style: collapse long results by default; expand on click.
+  const longResult = (resultText?.length ?? 0) > 1200;
+  const showResultCollapsed = !expanded && result && longResult && !resultDiff;
 
   return (
     <div
       style={{
-        borderRadius: 7,
+        borderRadius: 10,
         overflow: "hidden",
         fontSize: 12,
-        border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
-        background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
+        border: isError ? "1px solid rgba(248,113,113,0.45)" : `1px solid ${meta.border}`,
+        background: isError ? "rgba(248,113,113,0.05)" : meta.bg,
       }}
     >
       {/* ── Tool call header ── */}
@@ -715,7 +761,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           alignItems: "center",
           gap: 7,
           width: "100%",
-          padding: "6px 10px",
+          padding: "7px 11px",
           background: "none",
           border: "none",
           color: "var(--text-muted)",
@@ -725,14 +771,17 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           minWidth: 0,
         }}
       >
-        <span style={{ color: isError ? "var(--destructive)" : "var(--success)", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
-          {block.toolName}
+        <span style={{ color: isError ? "var(--destructive)" : meta.accent, fontFamily: "var(--font-mono)", fontWeight: 650, fontSize: 11, flexShrink: 0 }}>
+          {meta.label}
         </span>
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {getToolPreview(block)}
         </span>
         {duration !== undefined && (
           <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        )}
+        {showResultCollapsed && (
+          <span style={{ fontSize: 10, color: "var(--text-dim)", flexShrink: 0 }}>truncated</span>
         )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
@@ -759,8 +808,8 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         </pre>
       )}
 
-      {/* ── Paired result — only shown when expanded ── */}
-      {expanded && result && (
+      {/* Short results always visible; long results only when expanded (tool-display style). */}
+      {result && (expanded || !longResult || resultDiff) && (
         resultDiff ? (
           <PairedDiffResult
             diff={resultDiff}
@@ -772,6 +821,22 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
             isError={isError}
           />
         )
+      )}
+      {showResultCollapsed && resultText && (
+        <div
+          style={{
+            padding: "6px 11px 8px",
+            borderTop: isError ? "1px solid rgba(248,113,113,0.2)" : `1px solid ${meta.border}`,
+            color: "var(--text-dim)",
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {resultText.replace(/\s+/g, " ").slice(0, 140)}…
+        </div>
       )}
     </div>
   );

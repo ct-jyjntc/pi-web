@@ -22,6 +22,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import { SpecializedExtensionWidget, SpecializedStatusChip } from "./extension/ExtensionWidgetViews";
 
 interface Props {
   session: SessionInfo | null;
@@ -316,6 +317,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      onPermissionModeApplied={session || isNew ? () => { void handleBuiltinSlashCommand("/reload"); } : undefined}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}
@@ -731,29 +733,26 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   );
 }
 
-function ExtensionStatusBar({ statuses }: { statuses: Array<{ key: string; text: string }> }) {
-  if (statuses.length === 0) return null;
+function isPermissionStatus(status: { key: string; text: string }): boolean {
+  const k = status.key.toLowerCase();
+  const t = status.text.toLowerCase();
+  // Permission mode is already controlled in the composer toolbar — hide the
+  // redundant "Permission / yolo" chip from the chat chrome.
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-      {statuses.map((status) => (
-        <div
-          key={status.key}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            maxWidth: "100%",
-            padding: "4px 8px",
-            border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))",
-            borderRadius: 6,
-            background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
-            color: "var(--text-muted)",
-            fontSize: 12,
-          }}
-        >
-          <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{status.key}</span>
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{status.text}</span>
-        </div>
+    k.includes("permission")
+    || k.includes("pi-permission")
+    || t === "yolo"
+    || t.includes("yolo mode")
+  );
+}
+
+function ExtensionStatusBar({ statuses }: { statuses: Array<{ key: string; text: string }> }) {
+  const visible = statuses.filter((s) => !isPermissionStatus(s));
+  if (visible.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+      {visible.map((status) => (
+        <SpecializedStatusChip key={status.key} statusKey={status.key} text={status.text} />
       ))}
     </div>
   );
@@ -762,24 +761,9 @@ function ExtensionStatusBar({ statuses }: { statuses: Array<{ key: string; text:
 function ExtensionWidgets({ widgets }: { widgets: Array<{ key: string; lines: string[] }> }) {
   if (widgets.length === 0) return null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 6 }}>
       {widgets.map((widget) => (
-        <div
-          key={widget.key}
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 7,
-            background: "var(--bg-panel)",
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ padding: "5px 9px", borderBottom: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
-            {widget.key}
-          </div>
-          <pre style={{ margin: 0, padding: "8px 9px", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-mono)" }}>
-            {widget.lines.join("\n")}
-          </pre>
-        </div>
+        <SpecializedExtensionWidget key={widget.key} widgetKey={widget.key} lines={widget.lines} />
       ))}
     </div>
   );
@@ -878,6 +862,10 @@ function ExtensionDialog({
     }
   };
 
+  const isPermissionLike =
+    /permission|allow|deny|policy|批准|权限|允许|拒绝/i.test(request.title)
+    || (request.method === "confirm" && /permission|bash|tool|命令|工具/i.test(request.message));
+
   return (
     <div
       style={{
@@ -888,29 +876,64 @@ function ExtensionDialog({
         alignItems: "center",
         justifyContent: "center",
         padding: 20,
-        background: "rgba(0,0,0,0.18)",
+        background: "color-mix(in oklab, var(--text) 18%, transparent)",
+        backdropFilter: "blur(6px)",
       }}
     >
       <div
         role="dialog"
         aria-modal="true"
         style={{
-          width: "min(560px, 100%)",
+          width: "min(520px, 100%)",
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: 14,
           background: "var(--bg)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
+          boxShadow: "0 24px 64px color-mix(in oklab, var(--text) 22%, transparent)",
           overflow: "hidden",
         }}
       >
-        <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{t("window.extensionRequest")}</div>
+        <div style={{ padding: "14px 16px 12px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {isPermissionLike && (
+              <span
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 6,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "color-mix(in oklab, var(--destructive) 12%, var(--bg-panel))",
+                  color: "var(--destructive)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}
+              >
+                !
+              </span>
+            )}
+            <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 650, lineHeight: 1.3 }}>{request.title}</div>
+          </div>
         </div>
 
-        <div style={{ padding: 14 }}>
+        <div style={{ padding: 16 }}>
           {request.method === "confirm" && (
-            <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{request.message}</div>
+            <div
+              style={{
+                color: "var(--text)",
+                fontSize: 13.5,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                padding: isPermissionLike ? "10px 12px" : 0,
+                borderRadius: isPermissionLike ? 8 : 0,
+                background: isPermissionLike ? "var(--bg-panel)" : "transparent",
+                border: isPermissionLike ? "1px solid var(--border)" : "none",
+                fontFamily: isPermissionLike ? "var(--font-mono)" : "inherit",
+              }}
+            >
+              {request.message}
+            </div>
           )}
           {request.method === "select" && (
             <div style={{ display: "grid", gap: 8 }}>
@@ -920,14 +943,24 @@ function ExtensionDialog({
                   onClick={() => onRespond(request, { value: option })}
                   style={{
                     width: "100%",
-                    padding: "9px 10px",
-                    borderRadius: 7,
+                    padding: "11px 12px",
+                    borderRadius: 10,
                     border: "1px solid var(--border)",
                     background: "var(--bg-panel)",
                     color: "var(--text)",
                     cursor: "pointer",
                     textAlign: "left",
-                    fontSize: 13,
+                    fontSize: 13.5,
+                    lineHeight: 1.4,
+                    transition: "background 0.12s, border-color 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.borderColor = "color-mix(in oklab, var(--accent) 35%, var(--border))";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "var(--bg-panel)";
+                    e.currentTarget.style.borderColor = "var(--border)";
                   }}
                 >
                   {option}
@@ -999,22 +1032,42 @@ function ExtensionDialog({
             {t("common.cancel")}
           </button>
           {request.method === "confirm" ? (
-            <button
-              onClick={submitValue}
-              style={{
-                padding: "6px 12px",
-                height: 32,
-                borderRadius: 999,
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "var(--accent-fg)",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 500,
-              }}
-            >
-              {t("window.confirm")}
-            </button>
+            <>
+              {isPermissionLike && (
+                <button
+                  onClick={() => onRespond(request, { confirmed: false })}
+                  style={{
+                    padding: "6px 14px",
+                    height: 34,
+                    borderRadius: 999,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg)",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 500,
+                  }}
+                >
+                  {t("ext.deny")}
+                </button>
+              )}
+              <button
+                onClick={submitValue}
+                style={{
+                  padding: "6px 14px",
+                  height: 34,
+                  borderRadius: 999,
+                  border: "1px solid var(--accent)",
+                  background: "var(--accent)",
+                  color: "var(--accent-fg)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                {isPermissionLike ? t("ext.allow") : t("window.confirm")}
+              </button>
+            </>
           ) : request.method !== "select" ? (
             <button
               onClick={submitValue}

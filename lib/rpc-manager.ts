@@ -9,10 +9,11 @@ import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-ty
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
+import { ensureBuiltinPackages } from "./ensure-builtin-packages";
 
-// If users install packages that spawn the Pi CLI (e.g. pi-subagents), never use
-// Electron as process.execPath — set PI_SUBAGENT_PI_BINARY to a real `pi`.
+// If packages spawn the Pi CLI, never use Electron as process.execPath.
 ensureSubagentSpawnEnv();
+void ensureBuiltinPackages();
 
 // ============================================================================
 // Types
@@ -117,6 +118,12 @@ export class AgentSessionWrapper {
   private activeCustomUis = new Map<string, ActiveCustomUi>();
   private extensionStatuses = new Map<string, string>();
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
+  /** Live factory widgets that re-render via tui.requestRender(). */
+  private widgetFactories = new Map<string, {
+    component: CustomUiComponent;
+    tui: ReturnType<typeof createHeadlessCustomUiTui>;
+    placement: "aboveEditor" | "belowEditor";
+  }>();
   private promptRunning = false;
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -632,6 +639,31 @@ export class AgentSessionWrapper {
     return Array.from(this.extensionWidgets.values());
   }
 
+  private refreshFactoryWidget(key: string): void {
+    const entry = this.widgetFactories.get(key);
+    if (!entry) return;
+    let lines: string[];
+    try {
+      lines = entry.component.render(DEFAULT_CUSTOM_UI_COLUMNS);
+    } catch (error) {
+      lines = [`Widget render failed: ${error instanceof Error ? error.message : String(error)}`];
+    }
+    // Strip ANSI for structured parsing; keep raw for ANSI widgets.
+    this.extensionWidgets.set(key, {
+      key,
+      lines,
+      placement: entry.placement,
+    });
+    this.emit({
+      type: "extension_ui_request",
+      id: randomUUID(),
+      method: "setWidget",
+      widgetKey: key,
+      widgetLines: lines,
+      widgetPlacement: entry.placement,
+    } as ExtensionUiRequest as AgentEvent);
+  }
+
   private getCustomUiWidth(options: unknown): number {
     if (!options || typeof options !== "object") return DEFAULT_CUSTOM_UI_COLUMNS;
     const overlayOptions = (options as { overlayOptions?: unknown }).overlayOptions;
@@ -865,24 +897,63 @@ export class AgentSessionWrapper {
       setWorkingIndicator: () => {},
       setHiddenThinkingLabel: () => {},
       setWidget: (key, content, options) => {
-        if (content !== undefined && !Array.isArray(content)) return;
+        // In the web UI, chrome widgets (todo / agents) must sit next to the
+        // composer — not above the message list where users never see them.
+        const k = key.toLowerCase();
+        const forceBelow =
+          k.includes("todo") || k === "rpiv-todos" || k === "agents" || k.includes("subagent") || k === "btw";
+        const placement = forceBelow ? "belowEditor" : (options?.placement ?? "aboveEditor");
+
+        // Clear existing factory widget for this key.
+        const existing = this.widgetFactories.get(key);
+        if (existing) {
+          try { existing.component.dispose?.(); } catch { /* ignore */ }
+          this.widgetFactories.delete(key);
+        }
+
         if (content === undefined) {
           this.extensionWidgets.delete(key);
-        } else {
-          this.extensionWidgets.set(key, {
-            key,
-            lines: content,
-            placement: options?.placement ?? "aboveEditor",
-          });
+          this.emit({
+            type: "extension_ui_request",
+            id: randomUUID(),
+            method: "setWidget",
+            widgetKey: key,
+            widgetLines: undefined,
+            widgetPlacement: placement,
+          } as ExtensionUiRequest as AgentEvent);
+          return;
         }
-        this.emit({
-          type: "extension_ui_request",
-          id: randomUUID(),
-          method: "setWidget",
-          widgetKey: key,
-          widgetLines: content,
-          widgetPlacement: options?.placement,
-        } as ExtensionUiRequest as AgentEvent);
+
+        // Static string[] form
+        if (Array.isArray(content)) {
+          this.extensionWidgets.set(key, { key, lines: content, placement });
+          this.emit({
+            type: "extension_ui_request",
+            id: randomUUID(),
+            method: "setWidget",
+            widgetKey: key,
+            widgetLines: content,
+            widgetPlacement: placement,
+          } as ExtensionUiRequest as AgentEvent);
+          return;
+        }
+
+        // Factory form: (tui, theme) => Component — used by todo, subagents, etc.
+        if (typeof content !== "function") return;
+        try {
+          const tui = createHeadlessCustomUiTui(() => {
+            this.refreshFactoryWidget(key);
+          }, DEFAULT_CUSTOM_UI_COLUMNS);
+          const component = (content as (tui: unknown, theme: unknown) => CustomUiComponent)(
+            tui,
+            PLAIN_TEXT_THEME,
+          );
+          if (!component || typeof component.render !== "function") return;
+          this.widgetFactories.set(key, { component, tui, placement });
+          this.refreshFactoryWidget(key);
+        } catch (error) {
+          console.error(`[pi-web] setWidget factory failed for ${key}:`, error instanceof Error ? error.message : error);
+        }
       },
       setFooter: () => {},
       setHeader: () => {},
@@ -940,6 +1011,10 @@ export class AgentSessionWrapper {
       reload: async () => {
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
+        for (const [, entry] of this.widgetFactories) {
+          try { entry.component.dispose?.(); } catch { /* ignore */ }
+        }
+        this.widgetFactories.clear();
         await this.inner.reload({
           beforeSessionStart: () => {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
