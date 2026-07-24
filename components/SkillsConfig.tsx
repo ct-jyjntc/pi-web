@@ -840,76 +840,81 @@ export function SkillsConfig({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
         zIndex: 1000,
-        background: "var(--overlay-bg)",
-        backdropFilter: "blur(6px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        background: "var(--overlay-bg)",
+        backdropFilter: "blur(6px)",
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
+        className="modal-shell"
         style={{
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",
           height: isMobile ? "calc(100dvh - 16px)" : "78vh",
           maxHeight: "calc(100dvh - 16px)",
+          display: "flex",
+          flexDirection: "column",
           background: "var(--bg)",
           border: "1px solid var(--border)",
           borderRadius: "var(--radius-lg)",
-          display: "flex",
-          flexDirection: "column",
           boxShadow: "var(--shadow-lg)",
           overflow: "hidden",
         }}
       >
         {/* Header */}
         <div
+          className="modal-header"
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "12px 18px",
+            gap: 12,
+            height: 44,
+            minHeight: 44,
+            padding: "0 8px 0 16px",
             borderBottom: "1px solid var(--border)",
+            background: "var(--bg-panel)",
             flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span
-              style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}
-            >
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
               {t("modal.skills")}
             </span>
-            <code
-              style={{
-                fontSize: 11,
-                color: "var(--text-muted)",
-                fontFamily: "var(--font-mono)",
-                maxWidth: 320,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
+            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {shortenPath(cwd)}
             </code>
           </div>
           <button
+            type="button"
+            className="chrome-btn is-icon"
             onClick={onClose}
+            aria-label={t("common.close")}
             style={{
-              background: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 32,
+              height: 32,
+              padding: 0,
               border: "none",
+              borderRadius: "var(--radius-xs)",
+              background: "transparent",
               color: "var(--text-muted)",
               cursor: "pointer",
-              fontSize: 20,
+              fontSize: 18,
               lineHeight: 1,
-              padding: "2px 6px",
+              flexShrink: 0,
             }}
           >
             ×
@@ -917,18 +922,29 @@ export function SkillsConfig({
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div
+          className="modal-body"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: isMobile ? "column" : "row",
+            overflow: "hidden",
+          }}
+        >
           {/* Left: skill list */}
           <div
+            className="modal-sidebar"
             style={{
               width: isMobile ? "100%" : 210,
               maxHeight: isMobile ? "40vh" : undefined,
-              borderRight: isMobile ? "none" : "1px solid var(--border)",
-              borderBottom: isMobile ? "1px solid var(--border)" : "none",
+              flexShrink: 0,
               display: "flex",
               flexDirection: "column",
-              flexShrink: 0,
+              overflow: "hidden",
               background: "var(--bg-panel)",
+              borderRight: isMobile ? "none" : "1px solid var(--border)",
+              borderBottom: isMobile ? "1px solid var(--border)" : "none",
             }}
           >
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
@@ -1154,7 +1170,10 @@ export function SkillsConfig({
           </div>
 
           {/* Right: detail or add panel */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+          <div
+            className="modal-main"
+            style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", background: "var(--bg)", padding: 20 }}
+          >
             {addMode ? (
               <AddSkillPanel
                 cwd={cwd}
@@ -1216,18 +1235,23 @@ export function SkillsConfig({
 
         {/* Footer */}
         <div
+          className="modal-footer"
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "10px 18px",
+            gap: 8,
+            minHeight: 52,
+            padding: "0 16px",
             borderTop: "1px solid var(--border)",
+            background: "var(--bg-panel)",
             flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             {skills.some((skill) => Boolean(skill.install)) && (
               <button
+                type="button"
                 className="btn-ghost"
                 onClick={() => void checkForUpdates()}
                 disabled={checkingAll || updatingSkill !== null}
@@ -1252,10 +1276,7 @@ export function SkillsConfig({
               </span>
             )}
           </div>
-          <button
-            className="btn-ghost"
-            onClick={onClose}
-          >
+          <button type="button" className="btn-ghost" onClick={onClose}>
             {t("common.close")}
           </button>
         </div>

@@ -243,7 +243,17 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     return positions;
   }, [minimapHovered, nodes, minimapHeightPx]);
 
-  if (!visible) return null;
+  // Always occupy the rail (parent is full-height chrome). When content is short,
+  // keep an empty quiet track so the rail stays continuous to the page bottom.
+  if (!visible) {
+    return (
+      <div
+        className="chat-minimap chat-minimap-empty"
+        style={{ width: "100%", flex: 1, minHeight: 0 }}
+        aria-hidden
+      />
+    );
+  }
 
   const viewportBoxTop = scrollRatio * (1 - viewportRatio) * 100;
   const viewportBoxHeight = viewportRatio * 100;
@@ -274,7 +284,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         cursor: "default",
         userSelect: "none",
         overflow: "visible",
-        opacity: minimapHovered ? 1 : 0.55,
+        opacity: 1,
         transition: "opacity 0.15s ease",
       }}
     >

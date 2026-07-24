@@ -377,7 +377,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
     if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = "32px";
     }
   }, [clearImages, draftKey]);
 
@@ -413,8 +413,23 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    if (value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    const row = ta.closest(".composer-input-row");
+    // Measure natural height with single-line metrics first.
+    ta.style.height = "32px";
+    ta.style.lineHeight = "32px";
+    ta.style.padding = "0";
+    // Expand for multi-line content.
+    const natural = ta.scrollHeight;
+    const multiline = Boolean(value) && natural > 36;
+    row?.classList.toggle("is-multiline", multiline);
+    if (multiline) {
+      ta.style.lineHeight = "1.45";
+      ta.style.padding = "6px 0";
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    } else {
+      ta.style.height = "32px";
+    }
   }, [value]);
 
   useEffect(() => {
@@ -963,7 +978,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         flexShrink: 0,
         background: "transparent",
         padding: "0 16px 8px",
-        paddingRight: isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
+        paddingRight: 16, // right rail is a sibling column now — no extra minimap pad
       }}
     >
       {/* Hidden file input */}
@@ -1367,17 +1382,24 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             rows={1}
             style={{
               flex: 1,
-              background: "none",
+              minWidth: 0,
+              maxHeight: 200,
+              // Inline fallback so centering works even if CSS class load lags
+              boxSizing: "border-box",
+              display: "block",
+              margin: 0,
               border: "none",
               outline: "none",
               resize: "none",
+              background: "transparent",
               color: "var(--text)",
-              fontSize: 14,
-              lineHeight: 1.6,
               fontFamily: "inherit",
-              minHeight: 24,
-              maxHeight: 200,
-              overflow: "auto",
+              fontSize: 14,
+              lineHeight: "32px",
+              height: 32,
+              minHeight: 32,
+              padding: 0,
+              overflowY: "auto",
             }}
           />
 
@@ -1419,7 +1441,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               disabled={!value.trim() && !attachedImages.length}
               style={{
                 flexShrink: 0,
-                alignSelf: "flex-end",
                 display: "flex", alignItems: "center", gap: 6,
                 height: 32, padding: "0 14px",
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",

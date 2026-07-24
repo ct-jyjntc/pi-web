@@ -1207,12 +1207,16 @@ function AddProviderPicker({
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 1100, background: "var(--overlay-bg)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}
+      className="modal-backdrop"
+      style={{ zIndex: 1100 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-lg)", overflow: "hidden" }}>
+      <div
+        className="modal-shell"
+        style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))" }}
+      >
         {/* Search */}
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="modal-header" style={{ height: 44, padding: "0 14px", gap: 8 }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
             <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -1510,30 +1514,116 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "var(--overlay-bg)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}>
-      <div role="dialog" aria-modal="true" style={{ width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-lg)", overflow: "hidden" }}>
+    <div
+      className="modal-backdrop"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--overlay-bg)",
+        backdropFilter: "blur(6px)",
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="modal-shell"
+        style={{
+          width: isMobile ? "calc(100vw - 16px)" : 860,
+          maxWidth: "calc(100vw - 16px)",
+          height: isMobile ? "calc(100dvh - 16px)" : "78vh",
+          maxHeight: "calc(100dvh - 16px)",
+          display: "flex",
+          flexDirection: "column",
+          background: "var(--bg)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-lg)",
+          boxShadow: "var(--shadow-lg)",
+          overflow: "hidden",
+        }}
+      >
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("modal.models")}</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
+        <div
+          className="modal-header"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            height: 44,
+            minHeight: 44,
+            padding: "0 8px 0 16px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
+              {t("modal.models")}
+            </span>
+            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              ~/.pi/agent/models.json
+            </code>
           </div>
-          <button onClick={requestClose} aria-label={t("common.close")} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
+          <button
+            type="button"
+            className="chrome-btn is-icon"
+            onClick={requestClose}
+            aria-label={t("common.close")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 32,
+              height: 32,
+              padding: 0,
+              border: "none",
+              borderRadius: "var(--radius-xs)",
+              background: "transparent",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 18,
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div
+          className="modal-body"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: isMobile ? "column" : "row",
+            overflow: "hidden",
+          }}
+        >
 
           {/* Left: tree */}
-          <div style={{
-            width: isMobile ? "100%" : 210,
-            maxHeight: isMobile ? "40vh" : undefined,
-            borderRight: isMobile ? "none" : "1px solid var(--border)",
-            borderBottom: isMobile ? "1px solid var(--border)" : "none",
-            display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)",
-          }}>
+          <div
+            className="modal-sidebar"
+            style={{
+              width: isMobile ? "100%" : 210,
+              maxHeight: isMobile ? "40vh" : undefined,
+              flexShrink: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              background: "var(--bg-panel)",
+              borderRight: isMobile ? "none" : "1px solid var(--border)",
+              borderBottom: isMobile ? "1px solid var(--border)" : "none",
+            }}
+          >
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
               {/* Active OAuth subscriptions */}
               {activeOAuth.map((p) => {
@@ -1652,7 +1742,10 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           </div>
 
           {/* Right: detail */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+          <div
+            className="modal-main"
+            style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", background: "var(--bg)", padding: 20 }}
+          >
             {loading ? null : detailContent ?? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
                 {t("models.selectHint")}
@@ -1662,24 +1755,35 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-          {saveError && <span style={{ fontSize: 12, color: "var(--destructive)", flex: 1 }}>{saveError}</span>}
-          <button onClick={requestClose} className="btn-ghost">
+        <div
+          className="modal-footer"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            minHeight: 52,
+            padding: "0 16px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            flexShrink: 0,
+          }}
+        >
+          {saveError && <span style={{ fontSize: 12, color: "var(--destructive)", flex: 1, minWidth: 0 }}>{saveError}</span>}
+          <button type="button" onClick={requestClose} className="btn-ghost">
             {t("common.cancel")}
           </button>
-          <button onClick={handleSave} disabled={saving || savedOk} style={{
-            position: "relative",
-            height: 34,
-            padding: "0 16px",
-            minWidth: 92,
-            background: savedOk ? "var(--success)" : saving ? "var(--bg-panel)" : "var(--accent)",
-            border: "none", borderRadius: "var(--radius-pill)",
-            color: savedOk ? "var(--accent-fg)" : saving ? "var(--text-muted)" : "var(--accent-fg)",
-            cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-            transition: "background-color 0.2s ease, color 0.2s ease",
-            animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-          }}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleSave}
+            disabled={saving || savedOk}
+            style={{
+              minWidth: 92,
+              background: savedOk ? "var(--success)" : undefined,
+              animation: savedOk ? "saved-pop 0.45s ease" : undefined,
+            }}
+          >
             {savedOk && (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
                 style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}>
@@ -1692,13 +1796,39 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       </div>
     </div>
     {confirmDiscard && (
-      <div style={{ position: "fixed", inset: 0, zIndex: 1100, background: "var(--overlay-bg)", display: "flex", alignItems: "center", justifyContent: "center" }}
-        onClick={(e) => { if (e.target === e.currentTarget) setConfirmDiscard(false); }}>
-        <div role="dialog" aria-modal="true" style={{ width: "min(360px, calc(100vw - 32px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-          <span style={{ fontSize: 13, color: "var(--text)" }}>{t("models.unsavedChanges")}</span>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button onClick={() => setConfirmDiscard(false)} className="btn-ghost">{t("common.cancel")}</button>
-            <button onClick={() => { setConfirmDiscard(false); onClose(); }} className="btn-danger">{t("models.discardChanges")}</button>
+      <div
+        className="modal-backdrop"
+        style={{
+          position: "fixed", inset: 0, zIndex: 1100, display: "flex",
+          alignItems: "center", justifyContent: "center",
+          background: "var(--overlay-bg)", backdropFilter: "blur(6px)",
+        }}
+        onClick={(e) => { if (e.target === e.currentTarget) setConfirmDiscard(false); }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="modal-shell"
+          style={{
+            width: "min(360px, calc(100vw - 32px))",
+            display: "flex", flexDirection: "column",
+            background: "var(--bg)", border: "1px solid var(--border)",
+            borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", overflow: "hidden",
+          }}
+        >
+          <div style={{ padding: "16px 18px", fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
+            {t("models.unsavedChanges")}
+          </div>
+          <div
+            className="modal-footer"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8,
+              minHeight: 52, padding: "0 16px", borderTop: "1px solid var(--border)",
+              background: "var(--bg-panel)", flexShrink: 0,
+            }}
+          >
+            <button type="button" onClick={() => setConfirmDiscard(false)} className="btn-ghost">{t("common.cancel")}</button>
+            <button type="button" onClick={() => { setConfirmDiscard(false); onClose(); }} className="btn-danger">{t("models.discardChanges")}</button>
           </div>
         </div>
       </div>

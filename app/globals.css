@@ -1329,10 +1329,37 @@ span.linenumber {
 }
 .composer-input-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center; /* single-line text + send share the same vertical center */
   gap: 8px;
-  padding: 10px 10px 10px 14px;
+  padding: 8px 10px 8px 14px;
   background: var(--bg);
+}
+/* Keep send at bottom when textarea grows multi-line */
+.composer-input-row:has(textarea:not(:placeholder-shown)),
+.composer-input-row.is-multiline {
+  align-items: flex-end;
+}
+.composer-input-row textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 32px !important;
+  height: 32px;
+  margin: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 32px; /* equal to control height → true vertical center for single line */
+  padding: 0;
+  overflow-y: auto;
+}
+.composer-input-row.is-multiline textarea {
+  line-height: 1.45;
+  padding: 6px 0;
 }
 .composer-toolbar {
   display: flex;
@@ -1377,11 +1404,11 @@ span.linenumber {
   overflow: hidden;
 }
 
-/* Modal backdrop + shell */
+/* Modal backdrop + shell — quiet console dialog chrome */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1389,9 +1416,89 @@ span.linenumber {
   backdrop-filter: blur(6px);
 }
 .modal-shell {
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  height: 44px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+.modal-header-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.modal-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.modal-sidebar {
+  width: 210px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+.modal-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .modal-body {
+    flex-direction: column;
+  }
+  .modal-sidebar {
+    width: 100%;
+    max-height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
 }
