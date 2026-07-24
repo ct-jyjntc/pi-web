@@ -157,23 +157,25 @@ const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messag
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <label style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>{label}</label>
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <label style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500, letterSpacing: "-0.01em" }}>{label}</label>
       {children}
     </div>
   );
 }
 
-const inputStyle = {
-  padding: "6px 9px",
-  background: "var(--bg-panel)",
+/** Quiet console field: transparent bg, fine border — matches main app inputs */
+const inputStyle: React.CSSProperties = {
+  padding: "7px 10px",
+  background: "var(--bg)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius-sm)",
   color: "var(--text)",
-  fontSize: 12,
+  fontSize: 13,
   outline: "none",
   width: "100%",
-  boxSizing: "border-box" as const,
+  boxSizing: "border-box",
+  transition: "border-color 0.12s ease",
 };
 
 function TextInput({ value, onChange, placeholder, mono }: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
@@ -284,7 +286,57 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{children}</div>;
+  return (
+    <div style={{
+      fontSize: 12,
+      fontWeight: 600,
+      color: "var(--text)",
+      letterSpacing: "-0.01em",
+      lineHeight: 1,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+/** Detail strip: title left, actions right — matches app chrome headers */
+function DetailStrip({
+  title,
+  actions,
+}: {
+  title: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      minHeight: 32,
+      margin: "-4px 0 4px",
+      paddingBottom: 10,
+      borderBottom: "1px solid var(--border)",
+    }}>
+      <SectionTitle>{title}</SectionTitle>
+      {actions ? <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>{actions}</div> : null}
+    </div>
+  );
+}
+
+/** Sidebar nav row — same grammar as session list */
+function navRowStyle(selected: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    minHeight: 30,
+    padding: "5px 8px",
+    borderRadius: 0,
+    cursor: "pointer",
+    background: selected ? "var(--bg-selected)" : "transparent",
+    transition: "background 0.1s ease",
+  };
 }
 
 // ── Provider detail ───────────────────────────────────────────────────────────
@@ -308,34 +360,31 @@ function ProviderDetail({
   }, [provider.api]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>{t("models.provider")}</SectionTitle>
-        {confirmDelete ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <DetailStrip
+        title={t("models.provider")}
+        actions={confirmDelete ? (
+          <>
             <span style={{ fontSize: 11, color: "var(--destructive)" }}>{t("models.confirmDeleteProvider")}</span>
-            <button onClick={onDelete}
-              style={{ padding: "3px 9px", background: "var(--destructive)", border: "none", borderRadius: "var(--radius-pill)", color: "var(--accent-fg)", cursor: "pointer", fontSize: 11, fontWeight: 500 }}>
-              {t("common.delete")}
-            </button>
-            <button onClick={() => setConfirmDelete(false)}
-              style={{ padding: "3px 9px", background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>
-              {t("common.cancel")}
-            </button>
-          </div>
+            <button type="button" className="btn-danger btn-compact" onClick={onDelete}>{t("common.delete")}</button>
+            <button type="button" className="btn-ghost btn-compact" onClick={() => setConfirmDelete(false)}>{t("common.cancel")}</button>
+          </>
         ) : (
-          <button onClick={() => setConfirmDelete(true)}
-            style={{ padding: "3px 8px", background: "none", border: "1px solid var(--destructive-border)", borderRadius: "var(--radius-xs)", color: "var(--destructive)", cursor: "pointer", fontSize: 11 }}>
+          <button
+            type="button"
+            className="btn-ghost btn-compact"
+            onClick={() => setConfirmDelete(true)}
+            style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
+          >
             {t("common.delete")}
           </button>
         )}
-      </div>
+      />
 
       <Field label={t("models.providerName")}>
         <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
         {editingName !== name && editingName.trim() && (
-          <button onClick={() => onRename(editingName.trim())}
-            style={{ marginTop: 4, padding: "3px 10px", background: "var(--accent)", border: "none", borderRadius: "var(--radius-pill)", color: "var(--accent-fg)", cursor: "pointer", fontSize: 11, alignSelf: "flex-start" }}>
+          <button type="button" className="btn-primary btn-compact" onClick={() => onRename(editingName.trim())} style={{ marginTop: 6, alignSelf: "flex-start" }}>
             {t("common.rename")}
           </button>
         )}
@@ -600,20 +649,21 @@ function ModelDetail({
   }, [model, provider, providerName, testState.phase]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>{t("models.model")}</SectionTitle>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <DetailStrip
+        title={t("models.model")}
+        actions={(
+          <>
           {testSummary && (
             <span
               title={testSummary}
               style={{
-                maxWidth: 260,
-                height: 24,
+                maxWidth: 220,
+                height: 26,
                 padding: "0 8px",
                 border: `1px solid ${testState.phase === "error" ? "color-mix(in oklab, var(--destructive) 35%, var(--border))" : testState.phase === "success" ? "color-mix(in oklab, var(--success) 35%, var(--border))" : "var(--border)"}`,
-                borderRadius: "var(--radius-xs)",
-                background: testState.phase === "error" ? "color-mix(in oklab, var(--destructive) 12%, transparent)" : testState.phase === "success" ? "color-mix(in oklab, var(--success) 12%, transparent)" : "var(--bg-selected)",
+                borderRadius: "var(--radius-sm)",
+                background: testState.phase === "error" ? "color-mix(in oklab, var(--destructive) 12%, transparent)" : testState.phase === "success" ? "color-mix(in oklab, var(--success) 12%, transparent)" : "var(--bg)",
                 color: "var(--text)",
                 fontSize: 11,
                 display: "inline-flex",
@@ -628,21 +678,15 @@ function ModelDetail({
             </span>
           )}
           <button
+            type="button"
+            className="btn-ghost btn-compact"
             onClick={handleTest}
             disabled={!model.id.trim() || testState.phase === "testing"}
             title={t("models.testConnection")}
             style={{
-              height: 24,
-              padding: "0 8px",
-              background: testState.phase === "success" ? "var(--success)" : "none",
-              border: `1px solid ${testState.phase === "success" ? "var(--success)" : "var(--border)"}`,
-              borderRadius: "var(--radius-xs)",
-              color: testState.phase === "success" ? "var(--accent-fg)" : (!model.id.trim() || testState.phase === "testing") ? "var(--text-dim)" : "var(--text-muted)",
-              cursor: (!model.id.trim() || testState.phase === "testing") ? "not-allowed" : "pointer",
-              fontSize: 11,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
+              background: testState.phase === "success" ? "var(--success)" : undefined,
+              borderColor: testState.phase === "success" ? "var(--success)" : undefined,
+              color: testState.phase === "success" ? "var(--accent-fg)" : undefined,
               boxSizing: "border-box",
               gap: 5,
             }}
@@ -654,12 +698,17 @@ function ModelDetail({
             )}
             {testState.phase === "testing" ? t("modal.testing") : testState.phase === "success" ? t("modal.ok") : t("modal.test")}
           </button>
-          <button onClick={onDelete}
-            style={{ height: 24, padding: "0 8px", background: "none", border: "1px solid var(--destructive-border)", borderRadius: "var(--radius-xs)", color: "var(--destructive)", cursor: "pointer", fontSize: 11, boxSizing: "border-box" }}>
+          <button
+            type="button"
+            className="btn-ghost btn-compact"
+            onClick={onDelete}
+            style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
+          >
             {t("modal.remove")}
           </button>
-        </div>
-      </div>
+          </>
+        )}
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label={t("models.idRequired")}><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
@@ -855,16 +904,18 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     loginState.phase === "prompt" || loginState.phase === "select";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>{t("models.subscription")}</SectionTitle>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "var(--success)" : "var(--border)", display: "inline-block" }} />
-          <span style={{ fontSize: 11, color: provider.loggedIn ? "var(--success)" : "var(--text-dim)" }}>
-            {provider.loggedIn ? t("models.statusConnected") : t("models.statusNotConnected")}
-          </span>
-        </div>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <DetailStrip
+        title={t("models.subscription")}
+        actions={(
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "var(--success)" : "var(--border)", display: "inline-block" }} />
+            <span style={{ fontSize: 11, color: provider.loggedIn ? "var(--success)" : "var(--text-dim)" }}>
+              {provider.loggedIn ? t("models.statusConnected") : t("models.statusNotConnected")}
+            </span>
+          </div>
+        )}
+      />
 
       {/* Status */}
       <div style={{ minHeight: 48 }}>
@@ -1048,16 +1099,18 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   }, [provider.id, onRefresh]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>{t("models.apiKey")}</SectionTitle>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "var(--success)" : "var(--border)", display: "inline-block" }} />
-          <span style={{ fontSize: 11, color: provider.configured ? "var(--success)" : "var(--text-dim)" }}>
-            {provider.configured ? t("models.statusConfigured") : t("models.statusNotConfigured")}
-          </span>
-        </div>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <DetailStrip
+        title={t("models.apiKey")}
+        actions={(
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "var(--success)" : "var(--border)", display: "inline-block" }} />
+            <span style={{ fontSize: 11, color: provider.configured ? "var(--success)" : "var(--text-dim)" }}>
+              {provider.configured ? t("models.statusConfigured") : t("models.statusNotConfigured")}
+            </span>
+          </div>
+        )}
+      />
 
       <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
         {provider.configured
@@ -1624,7 +1677,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
               borderBottom: isMobile ? "1px solid var(--border)" : "none",
             }}
           >
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
               {/* Active OAuth subscriptions */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
@@ -1632,9 +1685,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                   <div
                     key={p.id}
                     onClick={() => setSelection({ type: "oauth", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: "var(--radius-sm)", cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
+                    style={navRowStyle(isSelected)}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
+                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
@@ -1649,9 +1702,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                   <div
                     key={p.id}
                     onClick={() => setSelection({ type: "apikey", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: "var(--radius-sm)", cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
+                    style={navRowStyle(isSelected)}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
+                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</span>
@@ -1666,18 +1719,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
 
               {/* Custom providers */}
               {loading ? (
-                <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>{t("modal.loading")}</div>
+                <div style={{ padding: "10px 10px", fontSize: 12, color: "var(--text-muted)" }}>{t("modal.loading")}</div>
               ) : providers.map(([pName, pData]) => {
                 const isProviderSelected = selection?.type === "provider" && selection.name === pName;
                 const models = pData.models ?? [];
                 return (
-                  <div key={pName} style={{ marginBottom: 2 }}>
+                  <div key={pName}>
                     {/* Provider row */}
                     <div
                       onClick={() => setSelection({ type: "provider", name: pName })}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: "var(--radius-sm)", cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none" }}
+                      style={navRowStyle(isProviderSelected)}
                       onMouseEnter={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                      onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "none"; }}
+                      onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "transparent"; }}
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
                         <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
@@ -1698,15 +1751,15 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                         <div
                           key={i}
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-                          style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px 5px 26px", borderRadius: "var(--radius-sm)", cursor: "pointer", background: isModelSelected ? "var(--bg-selected)" : "none" }}
+                          style={{ ...navRowStyle(isModelSelected), paddingLeft: 28, minHeight: 28 }}
                           onMouseEnter={(e) => { if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
+                          onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "transparent"; }}
                         >
-                          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: m.id ? "var(--text-muted)" : "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: m.id ? "var(--text-muted)" : "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {m.id || t("models.newModel")}
                           </span>
                           {m.reasoning && (
-                            <span style={{ fontSize: 9, padding: "1px 4px", background: "color-mix(in oklab, var(--text-muted) 14%, transparent)", color: "var(--text-muted)", borderRadius: "var(--radius-xs)", flexShrink: 0 }}>T</span>
+                            <span style={{ fontSize: 9, padding: "1px 5px", border: "1px solid var(--border)", color: "var(--text-dim)", borderRadius: "var(--radius-xs)", flexShrink: 0 }}>T</span>
                           )}
                         </div>
                       );
@@ -1715,26 +1768,31 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                     {/* Add model button */}
                     <div
                       onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px 4px 26px", borderRadius: "var(--radius-sm)", cursor: "pointer", color: "var(--text-dim)" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+                      style={{ ...navRowStyle(false), paddingLeft: 28, minHeight: 28, color: "var(--text-dim)" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "transparent"; }}
                     >
-                      <span style={{ fontSize: 11 }}>{t("models.addModel")}</span>
+                      <span style={{ fontSize: 12 }}>{t("models.addModel")}</span>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* Add provider */}
-            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
-              <button onClick={() => setPickerOpen(true)} style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: "var(--radius-sm)",
-                color: "var(--text-muted)", cursor: "pointer", fontSize: 12,
-              }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-muted)"; }}
+            {/* Add provider — strip footer action */}
+            <div style={{ borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(true)}
+                className="chrome-btn"
+                style={{
+                  width: "100%",
+                  height: 36,
+                  minHeight: 36,
+                  justifyContent: "center",
+                  color: "var(--text-muted)",
+                  borderRadius: 0,
+                }}
               >
                 {t("modal.addProvider")}
               </button>

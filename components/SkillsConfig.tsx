@@ -454,7 +454,7 @@ function AddSkillPanel({
               flex: 1,
               padding: "7px 10px",
               fontSize: 13,
-              background: "var(--bg-panel)",
+              background: "var(--bg)",
               border: "1px solid var(--border)",
               borderRadius: "var(--radius-sm)",
               color: "var(--text)",
@@ -462,19 +462,10 @@ function AddSkillPanel({
             }}
           />
           <button
+            type="button"
+            className="btn-primary"
             onClick={() => search(query)}
             disabled={searching || !query.trim()}
-            style={{
-              padding: "7px 16px",
-              fontSize: 13,
-              borderRadius: "var(--radius-sm)",
-              border: "none",
-              background: "var(--accent)",
-              color: "var(--accent-fg)",
-              cursor: searching || !query.trim() ? "not-allowed" : "pointer",
-              opacity: searching || !query.trim() ? 0.5 : 1,
-              flexShrink: 0,
-            }}
           >
             {searching ? t("modal.searching") : t("modal.search")}
           </button>
@@ -1021,12 +1012,11 @@ export function SkillsConfig({
                       <div key={grpLabel} style={{ marginBottom: 6 }}>
                         <div
                           style={{
-                            padding: "4px 8px 3px",
-                            fontSize: 10,
+                            padding: "8px 10px 4px",
+                            fontSize: 11,
                             fontWeight: 600,
-                            color: "var(--text-dim)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.06em",
+                            color: "var(--text-muted)",
+                            letterSpacing: "-0.01em",
                           }}
                         >
                           {grpLabel}
@@ -1046,12 +1036,14 @@ export function SkillsConfig({
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 7,
-                                padding: "8px 8px",
-                                borderRadius: "var(--radius-sm)",
+                                minHeight: 30,
+                                padding: "5px 10px",
+                                borderRadius: 0,
                                 cursor: "pointer",
                                 background: isSelected
                                   ? "var(--bg-selected)"
-                                  : "none",
+                                  : "transparent",
+                                transition: "background 0.1s ease",
                               }}
                               onMouseEnter={(e) => {
                                 if (!isSelected)
@@ -1060,23 +1052,20 @@ export function SkillsConfig({
                               }}
                               onMouseLeave={(e) => {
                                 if (!isSelected)
-                                  e.currentTarget.style.background = "none";
+                                  e.currentTarget.style.background =
+                                    "transparent";
                               }}
                             >
                               <span
                                 style={{
                                   flexShrink: 0,
-                                  width: 7,
-                                  height: 7,
+                                  width: 6,
+                                  height: 6,
                                   borderRadius: "50%",
                                   background: disabled
                                     ? "var(--border)"
-                                    : "var(--accent)",
-                                  boxShadow: disabled
-                                    ? "none"
-                                    : "0 0 4px var(--accent)",
-                                  transition:
-                                    "background 0.15s, box-shadow 0.15s",
+                                    : "var(--text)",
+                                  opacity: disabled ? 1 : 0.75,
                                 }}
                               />
                               <span
@@ -1122,10 +1111,9 @@ export function SkillsConfig({
                 })()
               )}
             </div>
-            {/* Add skill button */}
+            {/* Add skill — strip footer action */}
             <div
               style={{
-                padding: "8px 6px",
                 borderTop: "1px solid var(--border)",
                 flexShrink: 0,
               }}
@@ -1135,20 +1123,28 @@ export function SkillsConfig({
                 style={{
                   display: "flex",
                   alignItems: "center",
+                  justifyContent: "center",
                   gap: 6,
-                  padding: "7px 8px",
-                  borderRadius: "var(--radius-sm)",
+                  height: 36,
+                  padding: "0 10px",
+                  borderRadius: 0,
                   cursor: "pointer",
-                  background: addMode ? "var(--bg-selected)" : "none",
-                  color: addMode ? "var(--accent)" : "var(--text-dim)",
+                  background: addMode ? "var(--bg-selected)" : "transparent",
+                  color: addMode ? "var(--text)" : "var(--text-muted)",
                   fontSize: 12,
+                  transition: "background 0.1s ease, color 0.1s ease",
                 }}
                 onMouseEnter={(e) => {
-                  if (!addMode)
+                  if (!addMode) {
                     e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  if (!addMode) e.currentTarget.style.background = "none";
+                  if (!addMode) {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = "var(--text-muted)";
+                  }
                 }}
               >
                 <svg
