@@ -205,7 +205,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, streamState,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, modelImageSupport, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -306,13 +306,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [ctxKey, onContextUsageChange]);
   useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
 
-  const onDrop = useCallback((files: File[]) => {
-    if (sessionBusy) return;
-    chatInputRef?.current?.addImages(files);
-  }, [sessionBusy, chatInputRef]);
-
-  const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
-
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
   const messageRefs = useMessageRefs(visibleMessages.length);
 
@@ -326,6 +319,18 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const currentThinkingLevelMap = displayModelValue
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
+
+  const supportsImageInput = displayModelValue
+    ? modelImageSupport[`${displayModelValue.provider}:${displayModelValue.modelId}`] === true
+      || modelList.some((m) => m.provider === displayModelValue.provider && m.id === displayModelValue.modelId && m.supportsImage)
+    : false;
+
+  const onDrop = useCallback((files: File[]) => {
+    if (sessionBusy || !supportsImageInput) return;
+    chatInputRef?.current?.addImages(files);
+  }, [sessionBusy, chatInputRef, supportsImageInput]);
+
+  const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
   const handlePermissionModeApplied = useCallback(() => {
     void handleBuiltinSlashCommand("/reload");
@@ -357,6 +362,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}
       thinkingLevelMap={currentThinkingLevelMap}
+      supportsImageInput={supportsImageInput}
       retryInfo={retryInfo}
       queuedMessages={queuedMessages}
       onRecallQueue={handleRecallQueue}

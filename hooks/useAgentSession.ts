@@ -307,14 +307,33 @@ export interface AttachedImage {
 }
 
 type SelectedModel = { provider: string; modelId: string };
-type ModelEntry = { id: string; name: string; provider: string };
+type ModelEntry = { id: string; name: string; provider: string; supportsImage?: boolean };
 type ModelsResponse = {
   models: Record<string, string>;
   modelList?: ModelEntry[];
   defaultModel?: SelectedModel | null;
   thinkingLevels?: Record<string, string[]>;
   thinkingLevelMaps?: Record<string, Record<string, string | null>>;
+  imageSupport?: Record<string, boolean>;
 };
+
+function clampThinkingLevelForModel(
+  current: ThinkingLevelOption,
+  supported: string[] | undefined,
+): ThinkingLevelOption {
+  if (current === "auto") return "auto";
+  if (!supported || supported.length === 0) return "auto";
+  if (supported.includes(current)) return current;
+  // Prefer a sensible default on the new model, else first supported, else auto.
+  for (const prefer of ["medium", "low", "high", "off"] as const) {
+    if (supported.includes(prefer)) return prefer;
+  }
+  const first = supported[0];
+  if (first === "off" || first === "minimal" || first === "low" || first === "medium" || first === "high" || first === "xhigh" || first === "max") {
+    return first;
+  }
+  return "auto";
+}
 
 type SlashCommandsResponse = {
   commands?: SlashCommandInfo[];
@@ -342,6 +361,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelList, setModelList] = useState<ModelEntry[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
+  const [modelImageSupport, setModelImageSupport] = useState<Record<string, boolean>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
@@ -1239,6 +1259,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [loadContext]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
+    const key = `${provider}:${modelId}`;
+    const supported = modelThinkingLevels[key];
+    const nextThinking = clampThinkingLevelForModel(thinkingLevel, supported);
+    if (nextThinking !== thinkingLevel) {
+      setThinkingLevel(nextThinking);
+    }
+
     if (isNew) {
       setNewSessionModel({ provider, modelId });
       setPendingModel({ provider, modelId });
@@ -1246,6 +1273,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!sid) return;
       try {
         await sendAgentCommand(sid, { type: "set_model", provider, modelId });
+        if (nextThinking !== "auto") {
+          await sendAgentCommand(sid, { type: "set_thinking_level", level: nextThinking });
+        }
       } catch (e) {
         console.error("Failed to set model:", e);
       }
@@ -1256,10 +1286,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       await sendAgentCommand(sid, { type: "set_model", provider, modelId });
       setCurrentModelOverride({ provider, modelId });
+      if (nextThinking !== "auto") {
+        await sendAgentCommand(sid, { type: "set_thinking_level", level: nextThinking });
+      }
     } catch (e) {
       console.error("Failed to set model:", e);
     }
-  }, [isNew, setNewSessionModel]);
+  }, [isNew, modelThinkingLevels, setNewSessionModel, thinkingLevel]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1288,6 +1321,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setModelNames(d.models);
     setModelThinkingLevels(d.thinkingLevels ?? {});
     setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
+    setModelImageSupport(d.imageSupport ?? {});
     const nextModelList = d.modelList ?? [];
     setModelList(nextModelList);
     if (isNew) {
@@ -1734,7 +1768,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, modelImageSupport, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,

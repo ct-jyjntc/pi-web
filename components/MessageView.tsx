@@ -931,6 +931,7 @@ function PairedDiffResult({ diff }: {
 }
 
 function SplitPatchView({ text }: { text: string }) {
+  const { t } = useLocale();
   const files = useMemo(() => parseUnifiedPatch(text), [text]);
   if (!files) return <PatchTextView text={text} />;
   const showFileHeaders = files.length > 1;
@@ -960,8 +961,8 @@ function SplitPatchView({ text }: { text: string }) {
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              <SplitDiffHeader title={file.oldPath || "Before"} side="left" />
-              <SplitDiffHeader title={file.newPath || "After"} side="right" />
+              <SplitDiffHeader title={file.oldPath || t("msg.diffBefore")} side="left" />
+              <SplitDiffHeader title={file.newPath || t("msg.diffAfter")} side="right" />
             </div>
           )}
 
@@ -1359,7 +1360,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
               textAlign: "left",
             }}
           >
-            {text ? previewText(text) : "Show extension message"}
+            {text ? previewText(text) : t("msg.showExtensionMessage")}
           </button>
         )}
 
@@ -1405,8 +1406,8 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
               }}
             >
               {isHiddenDisplay
-                ? (contentExpanded ? "Collapse" : "Expand")
-                : (detailsExpanded ? "Hide details" : "Show details")}
+                ? (contentExpanded ? t("msg.collapse") : t("msg.expand"))
+                : (detailsExpanded ? t("msg.hideDetails") : t("msg.showDetails"))}
             </button>
           )}
         </div>

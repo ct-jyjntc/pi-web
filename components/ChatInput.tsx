@@ -49,6 +49,8 @@ interface Props {
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   availableThinkingLevels?: string[] | null;
   thinkingLevelMap?: Record<string, string | null> | null;
+  /** When false, image attach / paste / drop is disabled. */
+  supportsImageInput?: boolean;
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   queuedMessages?: QueuedMessages | null;
   onRecallQueue?: () => void;
@@ -201,6 +203,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   onPermissionModeApplied,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
+  supportsImageInput = false,
   retryInfo, queuedMessages, onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
@@ -317,7 +320,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }));
 
   const processImageFiles = useCallback(async (files: File[]) => {
-    if (isStreaming) return;
+    if (isStreaming || !supportsImageInput) return;
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
     if (!imageFiles.length) return;
     const newImages = await Promise.all(
@@ -337,7 +340,19 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       )
     );
     setAttachedImages((prev) => [...prev, ...newImages]);
-  }, [isStreaming]);
+  }, [isStreaming, supportsImageInput]);
+
+  // Drop attached images when switching to a model without vision.
+  useEffect(() => {
+    if (supportsImageInput) return;
+    setAttachedImages((prev) => {
+      if (prev.length === 0) return prev;
+      for (const img of prev) {
+        try { URL.revokeObjectURL(img.previewUrl); } catch { /* ignore */ }
+      }
+      return [];
+    });
+  }, [supportsImageInput]);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
@@ -778,13 +793,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (!supportsImageInput) return;
     const items = Array.from(e.clipboardData?.items ?? []);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
     if (!imageItems.length) return;
     e.preventDefault();
     const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
     processImageFiles(files);
-  }, [processImageFiles]);
+  }, [processImageFiles, supportsImageInput]);
 
   useEffect(() => {
     if (slashQuery === null) {
@@ -956,7 +972,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         type="file"
         accept="image/*"
         multiple
-        disabled={isStreaming}
+        disabled={isStreaming || !supportsImageInput}
         style={{ display: "none" }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
@@ -1477,20 +1493,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isStreaming}
-              title={t("chat.attachImage")}
+              disabled={isStreaming || !supportsImageInput}
+              title={supportsImageInput ? t("chat.attachImage") : t("chat.attachImageDisabled")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
                 background: "none", border: "none",
                 borderRadius: "var(--radius-pill)",
                 color: attachedImages.length ? "var(--text)" : "var(--text-muted)",
-                cursor: isStreaming ? "not-allowed" : "pointer",
-                opacity: isStreaming ? 0.5 : 1,
+                cursor: (isStreaming || !supportsImageInput) ? "not-allowed" : "pointer",
+                opacity: (isStreaming || !supportsImageInput) ? 0.4 : 1,
                 transition: "background 0.12s, color 0.12s",
               }}
               onMouseEnter={(e) => {
-                if (isStreaming) return;
+                if (isStreaming || !supportsImageInput) return;
                 e.currentTarget.style.background = "var(--bg-hover)";
                 e.currentTarget.style.color = "var(--text)";
               }}

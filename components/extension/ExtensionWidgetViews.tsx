@@ -323,13 +323,13 @@ export function SpecializedStatusChip({
   const isPermission = kind.includes("permission") || kind.includes("pi-permission");
   const isAgents = kind.includes("subagent") || kind === "agents";
 
+  const { t } = useLocale();
   const label =
-    isPermission ? "Permission"
-      : isAgents ? "Agents"
-        : kind.includes("todo") ? "Todo"
-          : kind.includes("btw") ? "BTW"
-            : kind.includes("rtk") ? "RTK"
-              : statusKey;
+    isPermission ? t("ext.permission")
+      : isAgents ? t("ext.agents")
+        : kind.includes("todo") ? t("ext.todo")
+          : kind.includes("btw") ? t("ext.btw")
+            : statusKey;
 
   const color =
     isYolo ? "var(--destructive)"

@@ -40,10 +40,11 @@ function filterByExactEnabledModels<T extends { id: string; provider: string }>(
 
 async function loadModels(cwd: string): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
-  let modelList: { id: string; name: string; provider: string }[] = [];
+  let modelList: { id: string; name: string; provider: string; supportsImage: boolean }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
   const thinkingLevels: Record<string, string[]> = {};
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
+  const imageSupport: Record<string, boolean> = {};
 
   const agentDir = getAgentDir();
   const services = await createAgentSessionServices({ cwd, agentDir });
@@ -51,16 +52,18 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const settings: SettingsManager = services.settingsManager;
   const enabledModels = settings.getEnabledModels();
   const visible = filterByExactEnabledModels(available, enabledModels);
-  modelList = visible.map((m: { id: string; name: string; provider: string }) => ({
+  modelList = visible.map((m: { id: string; name: string; provider: string; input?: string[] }) => ({
     id: m.id,
     name: m.name,
     provider: m.provider,
+    supportsImage: Array.isArray(m.input) && m.input.includes("image"),
   })).sort(compareModelEntries);
   for (const m of visible) {
     const key = `${m.provider}:${m.id}`;
     nameMap.set(key, m.name);
     thinkingLevels[key] = getSupportedThinkingLevels(m);
     if (m.thinkingLevelMap) thinkingLevelMaps[key] = m.thinkingLevelMap;
+    imageSupport[key] = Array.isArray(m.input) && m.input.includes("image");
   }
 
   const provider = settings.getDefaultProvider();
@@ -69,7 +72,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     defaultModel = { provider, modelId };
   }
 
-  return { models: Object.fromEntries(nameMap), modelList, defaultModel, thinkingLevels, thinkingLevelMaps };
+  return { models: Object.fromEntries(nameMap), modelList, defaultModel, thinkingLevels, thinkingLevelMaps, imageSupport };
 }
 
 const EMPTY_MODELS: ModelsData = {
@@ -78,6 +81,7 @@ const EMPTY_MODELS: ModelsData = {
   defaultModel: null,
   thinkingLevels: {},
   thinkingLevelMaps: {},
+  imageSupport: {},
 };
 
 export async function GET(req: Request) {
