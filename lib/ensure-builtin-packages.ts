@@ -21,7 +21,6 @@ export const BUILTIN_PACKAGE_SOURCES = [
   "npm:@juicesharp/rpiv-ask-user-question",
   "npm:@juicesharp/rpiv-todo",
   "npm:@lll9p/pi-better-compaction",
-  "npm:pi-rtk-optimizer",
 ] as const;
 
 /** Previously bundled packages that are TUI-centric / redundant in pi-web. */
@@ -30,6 +29,7 @@ export const PRUNE_PACKAGE_SOURCES = [
   "npm:pi-markdown-preview",
   "npm:pi-simplify",
   "npm:pi-tool-display",
+  "npm:pi-rtk-optimizer",
 ] as const;
 
 let ensurePromise: Promise<{ installed: string[]; notes: string[] }> | null = null;

@@ -157,7 +157,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 
 ### Built-in packages and skills
-- First-party pi packages are auto-installed into `~/.pi/agent` on boot via `lib/ensure-builtin-packages.ts` (permission, subagents, todo, ask-user, better-compaction, rtk-optimizer). TUI-only packages (btw, markdown-preview, simplify, tool-display) are pruned.
+- First-party pi packages are auto-installed into `~/.pi/agent` on boot via `lib/ensure-builtin-packages.ts` (permission, subagents, todo, ask-user, better-compaction). TUI-only / unused packages (btw, markdown-preview, simplify, tool-display, rtk-optimizer) are pruned.
 - Extension runtime UI (confirm/select/input/editor, widgets, status chips, custom panels) is handled by `rpc-manager` + `ChatWindow` — there is no user-facing package manager UI.
 - `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.

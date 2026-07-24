@@ -1,6 +1,7 @@
 "use client";
 
 import { useLocale } from "@/hooks/useLocale";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 import { useEffect, useState, useRef, useCallback, type CSSProperties, type MouseEvent } from "react";
 import {
@@ -41,7 +42,7 @@ interface FileData {
 
 type DisplayMode = "source" | "preview" | "diff";
 
-const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
+const DISPLAY_MODE_LABELS: Record<DisplayMode, MessageKey> = {
   source: "viewer.source",
   preview: "viewer.preview",
   diff: "viewer.diff",
@@ -907,7 +908,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
                       color: active ? "var(--text)" : "var(--text-muted)",
                     }}
                   >
-                    {t(DISPLAY_MODE_LABELS[mode] as any)}
+                    {t(DISPLAY_MODE_LABELS[mode])}
                   </button>
                 );
               })}
