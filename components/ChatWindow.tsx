@@ -485,7 +485,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       <>
       {/* Full-height row: main column + always-on right rail to page bottom */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={{ overflow: "visible" }}>
         <div className="relative min-h-0 flex-1 overflow-hidden">
         {isMobile && (
           <button
@@ -750,7 +750,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         </div>
         </div>
 
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0" style={{ overflow: "visible", zIndex: 40 }}>
           <div
             style={{
               padding: `0 ${CHAT_COLUMN_PADDING}px`,

@@ -220,6 +220,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [permissionDropdownOpen, setPermissionDropdownOpen] = useState(false);
+  // Fixed-position anchors (same pattern as model picker) so menus escape overflow clipping
+  const [thinkingMenuRect, setThinkingMenuRect] = useState<{ top: number; right: number } | null>(null);
+  const [permissionMenuRect, setPermissionMenuRect] = useState<{ top: number; right: number } | null>(null);
+  const [toolMenuRect, setToolMenuRect] = useState<{ top: number; right: number } | null>(null);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
   const [permissionBusy, setPermissionBusy] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -970,7 +974,37 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (!isMobile) setControlsMenuOpen(false);
   }, [isMobile]);
 
+  /** Open a toolbar menu above its trigger using viewport-fixed coords (like model picker). */
+  const openFixedMenu = useCallback((
+    e: React.MouseEvent<HTMLElement>,
+    open: boolean,
+    setOpen: (v: boolean | ((prev: boolean) => boolean)) => void,
+    setRect: (r: { top: number; right: number } | null) => void,
+  ) => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setRect({ top: rect.top, right: rect.right });
+    setOpen(true);
+  }, []);
 
+  const fixedMenuStyle = useCallback((rect: { top: number; right: number }, minWidth: number): React.CSSProperties => {
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const bottom = viewportHeight - rect.top + 6;
+    const maxH = Math.max(120, Math.min(rect.top - 8, viewportHeight * 0.6));
+    return {
+      position: "fixed",
+      bottom,
+      right: Math.max(8, viewportWidth - rect.right),
+      zIndex: 500,
+      minWidth,
+      maxHeight: maxH,
+      overflowY: "auto",
+    };
+  }, []);
 
   return (
     <div
@@ -1632,7 +1666,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 <button
                   type="button"
                   className={`chrome-btn${thinkingDropdownOpen ? " is-active" : ""}`}
-                  onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
+                  onClick={(e) => {
+                    if (isStreaming) return;
+                    openFixedMenu(e, thinkingDropdownOpen, setThinkingDropdownOpen, setThinkingMenuRect);
+                  }}
                   disabled={isStreaming}
                   title={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
                   aria-label={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
@@ -1645,11 +1682,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   </svg>
                   {(!isMobile || controlsMenuOpen) && <span>{thinkingDisplayLabel}</span>}
                 </button>
-                {thinkingDropdownOpen && (
-                  <div className="menu-card" style={{
-                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    zIndex: 100, minWidth: 180,
-                  }}>
+                {thinkingDropdownOpen && thinkingMenuRect && (
+                  <div className="menu-card" style={fixedMenuStyle(thinkingMenuRect, 180)}>
                     {THINKING_LEVELS.filter((lvl) => {
                       if (!availableThinkingLevels) return true;
                       if (lvl === "auto") return true;
@@ -1696,7 +1730,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               <button
                 type="button"
                 className={`chrome-btn${permissionDropdownOpen ? " is-active" : ""}${permissionMode === "full" ? " is-danger" : ""}`}
-                onClick={() => !permissionBusy && setPermissionDropdownOpen((v) => !v)}
+                onClick={(e) => {
+                  if (permissionBusy) return;
+                  openFixedMenu(e, permissionDropdownOpen, setPermissionDropdownOpen, setPermissionMenuRect);
+                }}
                 disabled={permissionBusy}
                 title={t("chat.changePermission", { mode: permissionLabel })}
                 aria-label={t("chat.changePermission", { mode: permissionLabel })}
@@ -1721,23 +1758,32 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 </svg>
                 {(!isMobile || controlsMenuOpen) && <span>{permissionLabel}</span>}
               </button>
-              {permissionError && (
-                <div role="alert" style={{
-                  position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                  background: "var(--bg-panel)", color: "var(--destructive)",
-                  fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-sm)",
-                  maxWidth: "min(420px, 80vw)", overflowWrap: "break-word",
-                  border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
-                  boxShadow: "var(--shadow-md)", zIndex: 50,
-                }}>
-                  {t("chat.permissionChangeFailed")}: {permissionError}
-                </div>
-              )}
-              {permissionDropdownOpen && (
-                <div className="menu-card" style={{
-                  position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                  zIndex: 100, minWidth: 220,
-                }}>
+              {permissionError && (() => {
+                const btn = permissionDropdownRef.current?.querySelector("button");
+                const r = btn?.getBoundingClientRect();
+                const anchor = r
+                  ? { top: r.top, right: r.right }
+                  : permissionMenuRect;
+                if (!anchor) return null;
+                const pos = fixedMenuStyle(anchor, 220);
+                return (
+                  <div role="alert" style={{
+                    position: "fixed",
+                    bottom: pos.bottom,
+                    right: pos.right,
+                    zIndex: 500,
+                    background: "var(--bg-panel)", color: "var(--destructive)",
+                    fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-sm)",
+                    maxWidth: "min(420px, 80vw)", overflowWrap: "break-word",
+                    border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
+                    boxShadow: "var(--shadow-md)",
+                  }}>
+                    {t("chat.permissionChangeFailed")}: {permissionError}
+                  </div>
+                );
+              })()}
+              {permissionDropdownOpen && permissionMenuRect && (
+                <div className="menu-card" style={fixedMenuStyle(permissionMenuRect, 220)}>
                   {PERMISSION_MODES.map((mode) => {
                     const isActive = permissionMode === mode;
                     const title = mode === "full" ? t("chat.permissionFull") : t("chat.permissionAsk");
@@ -1777,7 +1823,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 <button
                   type="button"
                   className={`chrome-btn${toolDropdownOpen ? " is-active" : ""}`}
-                  onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
+                  onClick={(e) => {
+                    if (isStreaming) return;
+                    openFixedMenu(e, toolDropdownOpen, setToolDropdownOpen, setToolMenuRect);
+                  }}
                   disabled={isStreaming}
                   title={t("chat.changeTools", { preset: toolPresetLabel })}
                   aria-label={t("chat.changeTools", { preset: toolPresetLabel })}
@@ -1788,11 +1837,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   </svg>
                   {(!isMobile || controlsMenuOpen) && <span>{toolPresetLabel}</span>}
                 </button>
-                {toolDropdownOpen && (
-                  <div className="menu-card" style={{
-                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    zIndex: 100, minWidth: 120,
-                  }}>
+                {toolDropdownOpen && toolMenuRect && (
+                  <div className="menu-card" style={fixedMenuStyle(toolMenuRect, 160)}>
                     {TOOL_PRESETS.map((lvl) => {
                       const preset = TOOL_PRESET_MAP[lvl];
                       const isActive = (toolPreset ?? "default") === preset;

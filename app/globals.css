@@ -1313,11 +1313,14 @@ span.linenumber {
   min-width: 0;
 }
 
-/* Unified composer: input + chrome toolbar in one card */
+/* Unified composer: input + chrome toolbar in one card.
+   overflow must stay visible so toolbar menus can open upward without clipping. */
 .composer-shell {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
+  z-index: 20;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1333,6 +1336,7 @@ span.linenumber {
   gap: 8px;
   padding: 8px 10px 8px 14px;
   background: var(--bg);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 /* Keep send at bottom when textarea grows multi-line */
 .composer-input-row:has(textarea:not(:placeholder-shown)),
@@ -1368,6 +1372,18 @@ span.linenumber {
   min-height: 34px;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  position: relative;
+  z-index: 30;
+  overflow: visible;
+}
+.composer-toolbar .chrome-controls,
+.composer-toolbar .chrome-controls > div {
+  position: relative;
+  overflow: visible;
+}
+.composer-toolbar .menu-card {
+  z-index: 400;
 }
 .composer-toolbar .chrome-btn {
   height: 34px;
