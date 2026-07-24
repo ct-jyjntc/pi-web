@@ -168,8 +168,8 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
             fontFamily: "var(--font-mono)",
             color: role === "user" ? "var(--accent)" : "var(--text-dim)",
             background: role === "user" ? "var(--user-bg)" : "var(--bg-hover)",
-            border: `1px solid ${role === "user" ? "var(--border)" : "var(--border)"}`,
-            borderRadius: 3,
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-xs)",
             padding: "0 4px",
             marginRight: 5,
             flexShrink: 0,
@@ -367,14 +367,12 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
 
       {/* Tree panel - overlay */}
       {open && (
-        <div style={{
+        <div className="menu-card" style={{
           position: "absolute",
           top: "100%",
           left: 0,
           right: 0,
-          background: "var(--bg)",
-          borderBottom: "1px solid var(--border)",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+          marginTop: 4,
           zIndex: 100,
         }}>
           {hasContent && firstNode ? (

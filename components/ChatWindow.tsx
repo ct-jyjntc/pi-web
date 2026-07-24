@@ -693,7 +693,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            borderRadius: 999,
+            borderRadius: "var(--radius-pill)",
             border: "1px solid var(--border)",
             background: stickToBottom
               ? "var(--bg-panel)"
@@ -801,16 +801,14 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
               maxHeight: 60,
               marginBottom: index === notices.length - 1 ? 0 : 6,
               overflow: "hidden",
-              borderRadius: 14,
-              border: "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
+              borderRadius: "var(--radius-lg)",
+              border: "1px solid var(--border)",
               background: "var(--bg)",
               color: "var(--text-muted)",
               width: "fit-content",
               maxWidth: "min(100%, 620px)",
-              boxShadow: floating
-                ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
-                : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              fontSize: 18,
+              boxShadow: floating ? "var(--shadow-md)" : "var(--shadow-sm)",
+              fontSize: 13,
               lineHeight: 1.45,
               transformOrigin: "top center",
               animation: notice.exiting
@@ -886,9 +884,9 @@ function ExtensionDialog({
         style={{
           width: "min(520px, 100%)",
           border: "1px solid var(--border)",
-          borderRadius: 14,
+          borderRadius: "var(--radius-lg)",
           background: "var(--bg)",
-          boxShadow: "0 24px 64px color-mix(in oklab, var(--text) 22%, transparent)",
+          boxShadow: "var(--shadow-lg)",
           overflow: "hidden",
         }}
       >
@@ -899,7 +897,7 @@ function ExtensionDialog({
                 style={{
                   width: 22,
                   height: 22,
-                  borderRadius: 6,
+                  borderRadius: "var(--radius-sm)",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -913,7 +911,7 @@ function ExtensionDialog({
                 !
               </span>
             )}
-            <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 650, lineHeight: 1.3 }}>{request.title}</div>
+            <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>{request.title}</div>
           </div>
         </div>
 
@@ -922,11 +920,11 @@ function ExtensionDialog({
             <div
               style={{
                 color: "var(--text)",
-                fontSize: 13.5,
+                fontSize: 14,
                 lineHeight: 1.6,
                 whiteSpace: "pre-wrap",
                 padding: isPermissionLike ? "10px 12px" : 0,
-                borderRadius: isPermissionLike ? 8 : 0,
+                borderRadius: isPermissionLike ? "var(--radius-md)" : 0,
                 background: isPermissionLike ? "var(--bg-panel)" : "transparent",
                 border: isPermissionLike ? "1px solid var(--border)" : "none",
                 fontFamily: isPermissionLike ? "var(--font-mono)" : "inherit",
@@ -944,7 +942,7 @@ function ExtensionDialog({
                   style={{
                     width: "100%",
                     padding: "11px 12px",
-                    borderRadius: 10,
+                    borderRadius: "var(--radius-lg)",
                     border: "1px solid var(--border)",
                     background: "var(--bg-panel)",
                     color: "var(--text)",
@@ -981,7 +979,7 @@ function ExtensionDialog({
               style={{
                 width: "100%",
                 padding: "9px 10px",
-                borderRadius: 7,
+                borderRadius: "var(--radius-md)",
                 border: "1px solid var(--border)",
                 background: "var(--bg-panel)",
                 color: "var(--text)",
@@ -1003,7 +1001,7 @@ function ExtensionDialog({
                 width: "100%",
                 minHeight: 220,
                 padding: 10,
-                borderRadius: 7,
+                borderRadius: "var(--radius-md)",
                 border: "1px solid var(--border)",
                 background: "var(--bg-panel)",
                 color: "var(--text)",
@@ -1019,15 +1017,8 @@ function ExtensionDialog({
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--bg-panel)" }}>
           <button
+            className="btn-ghost"
             onClick={() => onRespond(request, { cancelled: true })}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--bg)",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-            }}
           >
             {t("common.cancel")}
           </button>
@@ -1035,53 +1026,23 @@ function ExtensionDialog({
             <>
               {isPermissionLike && (
                 <button
+                  className="btn-ghost"
                   onClick={() => onRespond(request, { confirmed: false })}
-                  style={{
-                    padding: "6px 14px",
-                    height: 34,
-                    borderRadius: 999,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg)",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    fontWeight: 500,
-                  }}
                 >
                   {t("ext.deny")}
                 </button>
               )}
               <button
+                className="btn-primary"
                 onClick={submitValue}
-                style={{
-                  padding: "6px 14px",
-                  height: 34,
-                  borderRadius: 999,
-                  border: "1px solid var(--accent)",
-                  background: "var(--accent)",
-                  color: "var(--accent-fg)",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
               >
                 {isPermissionLike ? t("ext.allow") : t("window.confirm")}
               </button>
             </>
           ) : request.method !== "select" ? (
             <button
+              className="btn-primary"
               onClick={submitValue}
-              style={{
-                padding: "6px 12px",
-                height: 32,
-                borderRadius: 999,
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "var(--accent-fg)",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 500,
-              }}
             >
               {t("window.submit")}
             </button>
@@ -1128,7 +1089,8 @@ function ExtensionCustomPanel({
         alignItems: "center",
         justifyContent: "center",
         padding: 20,
-        background: "rgba(0,0,0,0.18)",
+        background: "var(--overlay-bg)",
+        backdropFilter: "blur(6px)",
       }}
     >
       <div
@@ -1142,9 +1104,9 @@ function ExtensionCustomPanel({
           width: "min(920px, 100%)",
           maxHeight: "min(760px, calc(100vh - 40px))",
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: "var(--radius-lg)",
           background: "var(--bg)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
+          boxShadow: "var(--shadow-lg)",
           overflow: "hidden",
           outline: "none",
         }}
@@ -1198,12 +1160,12 @@ function ExtensionCustomPanel({
           }}
         />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("window.extensionPanel")}</div>
+          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{t("window.extensionPanel")}</div>
           <button
             onClick={() => onInput(request, "\x03")}
             style={{
               padding: "5px 9px",
-              borderRadius: 6,
+              borderRadius: "var(--radius-sm)",
               border: "1px solid var(--border)",
               background: "var(--bg-panel)",
               color: "var(--text-muted)",
@@ -1223,7 +1185,7 @@ function ExtensionCustomPanel({
             background: "var(--bg-panel)",
             color: "var(--text)",
             fontFamily: "var(--font-mono)",
-            fontSize: 13,
+            fontSize: 12.5,
             lineHeight: 1.45,
             whiteSpace: "pre",
           }}

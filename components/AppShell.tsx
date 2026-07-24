@@ -502,7 +502,7 @@ export function AppShell() {
             style={{
               flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
               height: 32, padding: "0 6px", background: "none", border: "none",
-              borderRadius: 8, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
+              borderRadius: "var(--radius-md)", color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
               fontSize: 12, lineHeight: 1, opacity: disabled ? 0.35 : 1,
               transition: "background 0.12s, color 0.12s",
             }}
@@ -539,7 +539,7 @@ export function AppShell() {
           transform: translateY(0);
           filter: blur(0);
           background: var(--bg-panel);
-          box-shadow: 0 10px 28px rgba(0,0,0,0.10);
+          box-shadow: var(--shadow-md);
         }
       }
       @keyframes session-info-light-wash {
@@ -599,7 +599,7 @@ export function AppShell() {
           position: "fixed",
           inset: 0,
           zIndex: 199,
-          background: "rgba(0,0,0,0.4)",
+          background: "var(--overlay-bg)",
           opacity: sidebarOpen ? 1 : 0,
           pointerEvents: sidebarOpen ? "auto" : "none",
           transition: "opacity 0.25s ease",
@@ -1067,7 +1067,7 @@ export function AppShell() {
                 <div className="session-info-popover" style={{
                   background: "var(--bg-panel)",
                   borderBottom: "1px solid var(--border)",
-                  boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
+                  boxShadow: "var(--shadow-md)",
                   padding: "12px 16px",
                 }}>
                   {sessionStats ? (() => {
@@ -1144,7 +1144,7 @@ export function AppShell() {
                             color: copied ? "var(--accent)" : "var(--text-dim)",
                             background: "transparent",
                             border: "1px solid var(--border)",
-                            borderRadius: 4,
+                            borderRadius: "var(--radius-xs)",
                             cursor: "pointer",
                             flex: "0 0 auto",
                             transition: "color 0.12s, border-color 0.12s, background 0.12s",

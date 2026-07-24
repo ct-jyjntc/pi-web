@@ -96,7 +96,7 @@ function CompactShell({
     <div
       style={{
         border: "1px solid var(--border)",
-        borderRadius: 8,
+        borderRadius: "var(--radius-md)",
         background: "var(--bg-panel)",
         overflow: "hidden",
       }}
@@ -118,8 +118,8 @@ function CompactShell({
           color: "var(--text)",
         }}
       >
-        <span style={{ width: 6, height: 6, borderRadius: 99, background: accent, flexShrink: 0 }} />
-        <span style={{ fontSize: 11, fontWeight: 650, flexShrink: 0 }}>{title}</span>
+        <span style={{ width: 6, height: 6, borderRadius: "var(--radius-pill)", background: accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{title}</span>
         <span
           style={{
             flex: 1,
@@ -173,7 +173,7 @@ function TodoWidgetCard({ parsed, widgetKey }: { parsed: ParsedTodoWidget; widge
               style={{
                 width: 48,
                 height: 3,
-                borderRadius: 99,
+                borderRadius: "var(--radius-pill)",
                 background: "var(--border)",
                 overflow: "hidden",
                 flexShrink: 0,
@@ -346,15 +346,15 @@ export function SpecializedStatusChip({
         maxWidth: "100%",
         height: 22,
         padding: "0 8px",
-        borderRadius: 999,
+        borderRadius: "var(--radius-pill)",
         border: `1px solid color-mix(in oklab, ${color} 24%, var(--border))`,
         background: `color-mix(in oklab, ${color} 7%, var(--bg-panel))`,
         color: "var(--text-muted)",
         fontSize: 11,
       }}
     >
-      <span style={{ width: 5, height: 5, borderRadius: 99, background: color, flexShrink: 0 }} />
-      <span style={{ color: "var(--text)", fontWeight: 650, fontSize: 10 }}>{label}</span>
+      <span style={{ width: 5, height: 5, borderRadius: "var(--radius-pill)", background: color, flexShrink: 0 }} />
+      <span style={{ color: "var(--text)", fontWeight: 600, fontSize: 10 }}>{label}</span>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {text}
       </span>

@@ -182,7 +182,7 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
           fontSize: 10,
           fontFamily: "var(--font-mono)",
           padding: "1px 7px",
-          borderRadius: 999,
+          borderRadius: "var(--radius-pill)",
           border: `1px solid ${kind === "steer" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "var(--border)"}`,
           color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
         }}
@@ -956,7 +956,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div style={{
             marginBottom: 8,
             border: "1px solid var(--border)",
-            borderRadius: 6,
+            borderRadius: "var(--radius-sm)",
             background: "var(--bg-panel)",
             padding: "5px 0",
           }}>
@@ -989,7 +989,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     color: "var(--text)",
                     background: "transparent",
                     border: "1px solid var(--border)",
-                    borderRadius: 7,
+                    borderRadius: "var(--radius-md)",
                     cursor: "pointer",
                     transition: "background 0.12s, border-color 0.12s",
                     whiteSpace: "nowrap",
@@ -1025,7 +1025,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             marginBottom: 8, padding: "5px 10px",
             background: "color-mix(in oklab, var(--text-muted) 10%, transparent)",
             border: "1px solid color-mix(in oklab, var(--text-muted) 28%, var(--border))",
-            borderRadius: 6, fontSize: 12, color: "var(--text)",
+            borderRadius: "var(--radius-sm)", fontSize: 12, color: "var(--text)",
             display: "flex", alignItems: "center", gap: 6,
           }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -1040,7 +1040,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             marginBottom: 8, padding: "5px 10px",
             background: "color-mix(in oklab, var(--success) 10%, transparent)",
             border: "1px solid color-mix(in oklab, var(--success) 28%, var(--border))",
-            borderRadius: 6, fontSize: 12, color: "var(--success)",
+            borderRadius: "var(--radius-sm)", fontSize: 12, color: "var(--success)",
             display: "flex", alignItems: "center", gap: 6,
           }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -1058,7 +1058,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <img
                   src={img.previewUrl}
                   alt=""
-                  style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)", display: "block" }}
+                  style={{ width: 56, height: 56, objectFit: "cover", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", display: "block" }}
                 />
                 <button
                   onClick={() => removeImage(i)}
@@ -1083,17 +1083,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         <div style={{ position: "relative" }}>
           {slashMenuOpen && slashQuery !== null && (
             <div
+              className="menu-card"
               style={{
                 position: "absolute",
                 left: 0,
                 right: 0,
                 bottom: "calc(100% + 8px)",
                 zIndex: 120,
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
-                overflow: "hidden",
                 maxHeight: "min(56vh, 460px)",
               }}
             >
@@ -1171,7 +1167,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                                 justifyContent: "center",
                                 padding: "9px 10px",
                                 border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-                                borderRadius: 7,
+                                borderRadius: "var(--radius-md)",
                                 background: active ? "var(--bg-selected)" : "var(--bg-panel)",
                                 color: "var(--text)",
                                 cursor: "pointer",
@@ -1222,17 +1218,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               : "";
             return (
               <div
+                className="menu-card"
                 style={{
                   position: "absolute",
                   left: 0,
                   right: 0,
                   bottom: "calc(100% + 8px)",
                   zIndex: 120,
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
-                  overflow: "hidden",
                   maxHeight: "min(48vh, 400px)",
                 }}
               >
@@ -1284,12 +1276,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                             gap: 8,
                             padding: "6px 8px",
                             border: "none",
-                            borderRadius: 6,
+                            borderRadius: "var(--radius-sm)",
                             background: active ? "var(--bg-selected)" : "none",
                             color: "var(--text)",
                             cursor: "pointer",
                             textAlign: "left",
-                            fontSize: 12.5,
+                            fontSize: 12,
                             fontFamily: "var(--font-mono)",
                           }}
                         >
@@ -1317,10 +1309,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               background: "var(--bg)",
               border: `1px solid ${bashMode ? "var(--border)" : isStreaming && (onSteer || onFollowUp)
                 ? "color-mix(in oklab, var(--text-muted) 35%, var(--border))"
-                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
-              borderRadius: 10,
+                : "var(--border)"}`,
+              borderRadius: "var(--radius-lg)",
               padding: "8px 10px 8px 14px",
-              boxShadow: "0 1px 2px color-mix(in oklab, var(--text) 4%, transparent)",
+              boxShadow: "var(--shadow-sm)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
@@ -1382,7 +1374,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     height: 32, padding: "0 12px",
                     background: canQueueStreamingMessage ? "var(--bg-selected)" : "none",
                     border: "1px solid var(--border)",
-                    borderRadius: 999,
+                    borderRadius: "var(--radius-pill)",
                     color: canQueueStreamingMessage ? "var(--text)" : "var(--text-dim)",
                     cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
                     fontSize: 12, fontWeight: 500, letterSpacing: "-0.01em",
@@ -1405,7 +1397,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     height: 32, padding: "0 12px",
                     background: canQueueStreamingMessage ? "var(--bg-hover)" : "none",
                     border: "1px solid var(--border)",
-                    borderRadius: 999,
+                    borderRadius: "var(--radius-pill)",
                     color: canQueueStreamingMessage ? "var(--text-muted)" : "var(--text-dim)",
                     cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
                     fontSize: 12, fontWeight: 500, letterSpacing: "-0.01em",
@@ -1431,7 +1423,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 height: 32, padding: "0 14px",
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
-                borderRadius: 999,
+                borderRadius: "var(--radius-pill)",
                 color: (value.trim() || attachedImages.length) ? "var(--accent-fg)" : "var(--text-dim)",
                 cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
                 fontSize: 12,
@@ -1477,7 +1469,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
                 background: "none", border: "none",
-                borderRadius: 999,
+                borderRadius: "var(--radius-pill)",
                 color: attachedImages.length ? "var(--text)" : "var(--text-muted)",
                 cursor: isStreaming ? "not-allowed" : "pointer",
                 opacity: isStreaming ? 0.5 : 1,
@@ -1519,7 +1511,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       overflow: "hidden",
                       background: modelDropdownOpen ? "var(--bg-hover)" : "none",
                       border: "none",
-                      borderRadius: 999,
+                      borderRadius: "var(--radius-pill)",
                       color: "var(--text-muted)",
                       cursor: isStreaming ? "not-allowed" : "pointer",
                       fontSize: 12,
@@ -1556,13 +1548,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       ? { left: 8, right: 8, maxWidth: "calc(100vw - 16px)" }
                       : { left: modelDropdownRect.left, width: "max-content", minWidth: modelDropdownRect.width };
                     return (
-                      <div ref={modelDropdownPanelRef} style={{
+                      <div ref={modelDropdownPanelRef} className="menu-card" style={{
                       position: "fixed",
                       bottom,
                       ...panelPos,
-                      zIndex: 500, background: "var(--bg)", border: "1px solid var(--border)",
-                      borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                      overflow: "hidden", maxHeight: maxH, overflowY: "auto",
+                      zIndex: 500,
+                      maxHeight: maxH, overflowY: "auto",
                       }}>
                       {modelsByProvider.map((group, gi) => (
                         <div key={group.provider}>
@@ -1570,7 +1561,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                             <div style={{
                               padding: "6px 12px 4px",
                               fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
-                              textTransform: "uppercase", letterSpacing: "0.07em",
+                              textTransform: "uppercase", letterSpacing: "0.06em",
                               borderTop: gi > 0 ? "1px solid var(--border)" : "none",
                             }}>
                               {group.provider}
@@ -1644,7 +1635,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   padding: "8px 10px",
                   background: "none",
                   border: "none",
-                  borderRadius: 999,
+                  borderRadius: "var(--radius-pill)",
                   color: "var(--text-muted)",
                   cursor: controlsMenuOpen ? "default" : "pointer",
                   fontSize: 12,
@@ -1681,10 +1672,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 maxWidth: "calc(100vw - 32px)",
                 flexWrap: "nowrap",
                 justifyContent: "flex-end",
-                border: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
-                borderRadius: 10,
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-lg)",
                 background: "color-mix(in srgb, var(--bg-panel) 92%, var(--bg))",
-                boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
+                boxShadow: "var(--shadow-md)",
                 backdropFilter: "blur(10px)",
               } : null),
             }}>
@@ -1702,7 +1693,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     height: 32,
                     background: thinkingDropdownOpen ? "var(--bg-hover)" : "none",
                     border: "none",
-                    borderRadius: 999,
+                    borderRadius: "var(--radius-pill)",
                     color: "var(--text-muted)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     fontSize: 12,
@@ -1727,11 +1718,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
                 </button>
                 {thinkingDropdownOpen && (
-                  <div style={{
+                  <div className="menu-card" style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
-                    borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                    overflow: "hidden", minWidth: 180,
+                    zIndex: 100, minWidth: 180,
                   }}>
                     {THINKING_LEVELS.filter((lvl) => {
                       if (!availableThinkingLevels) return true;
@@ -1788,7 +1777,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   height: 32,
                   background: permissionDropdownOpen ? "var(--bg-hover)" : "none",
                   border: "none",
-                  borderRadius: 999,
+                  borderRadius: "var(--radius-pill)",
                   color: permissionMode === "full" ? "var(--destructive)" : "var(--text-muted)",
                   cursor: permissionBusy ? "wait" : "pointer",
                   fontSize: 12,
@@ -1821,11 +1810,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{permissionLabel}</span>}
               </button>
               {permissionDropdownOpen && (
-                <div style={{
+                <div className="menu-card" style={{
                   position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                  zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
-                  borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                  overflow: "hidden", minWidth: 220,
+                  zIndex: 100, minWidth: 220,
                 }}>
                   {PERMISSION_MODES.map((mode) => {
                     const isActive = permissionMode === mode;
@@ -1875,7 +1862,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     height: 32,
                     background: toolDropdownOpen ? "var(--bg-hover)" : "none",
                     border: "none",
-                    borderRadius: 999,
+                    borderRadius: "var(--radius-pill)",
                     color: "var(--text-muted)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     fontSize: 12,
@@ -1898,11 +1885,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
                 </button>
                 {toolDropdownOpen && (
-                  <div style={{
+                  <div className="menu-card" style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
-                    borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                    overflow: "hidden", minWidth: 120,
+                    zIndex: 100, minWidth: 120,
                   }}>
                     {TOOL_PRESETS.map((lvl) => {
                       const preset = TOOL_PRESET_MAP[lvl];
@@ -1944,7 +1929,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <div style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
                     background: "var(--bg-panel)", color: "var(--destructive)",
-                    fontSize: 11, padding: "4px 8px", borderRadius: 6,
+                    fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-sm)",
                     whiteSpace: "nowrap", pointerEvents: "none",
                     border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
                     boxShadow: "0 2px 8px color-mix(in oklab, var(--text) 10%, transparent)", zIndex: 50,
@@ -1962,7 +1947,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     height: 32,
                     background: isCompacting ? "color-mix(in oklab, var(--destructive) 10%, transparent)" : "none",
                     border: "none",
-                    borderRadius: 999,
+                    borderRadius: "var(--radius-pill)",
                     color: isCompacting ? "var(--destructive)" : "var(--text-muted)",
                     cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
                     fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
@@ -2002,7 +1987,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   height: 32,
                   background: "color-mix(in oklab, var(--destructive) 10%, transparent)",
                   border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
-                  borderRadius: 999,
+                  borderRadius: "var(--radius-pill)",
                   color: "var(--destructive)",
                   cursor: "pointer",
                   fontSize: 12, fontWeight: 500,
@@ -2031,7 +2016,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   padding: 0,
                   background: "none",
                   border: "none",
-                  borderRadius: 999,
+                  borderRadius: "var(--radius-pill)",
                   color: soundEnabled ? "var(--text-muted)" : "var(--text-dim)",
                   cursor: "pointer",
                   opacity: soundEnabled ? 1 : 0.55,
@@ -2084,8 +2069,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   marginLeft: 0,
                   background: "var(--bg-hover)",
                   border: "none",
-                  borderLeft: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
-                  borderRadius: "0 9px 9px 0",
+                  borderLeft: "1px solid var(--border)",
+                  borderRadius: "0 var(--radius-lg) var(--radius-lg) 0",
                   color: "var(--text)",
                   cursor: "pointer",
                   transition: "background 0.12s, color 0.12s",

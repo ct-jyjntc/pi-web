@@ -19,14 +19,22 @@
   --color-success: var(--success);
   --color-destructive: var(--destructive);
   --font-mono-font: var(--font-mono);
-  --radius-sm: calc(var(--radius) - 2px);
-  --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
 }
 
 /* Quiet Console monochrome tokens — keep existing names so inline styles cascade */
 :root {
-  --radius: 0.5rem;
+  /* Radius scale — use these instead of raw px values */
+  --radius-xs: 4px;   /* small controls: icon buttons, tags, checkboxes */
+  --radius-sm: 6px;   /* inputs, list blocks */
+  --radius-md: 8px;   /* cards, bubbles, dropdown menus */
+  --radius-lg: 10px;  /* composer, tool blocks, modal shells */
+  --radius-pill: 999px;
+
   --bg: oklch(0.995 0 0);
   --bg-panel: oklch(0.975 0.002 90);
   --bg-hover: oklch(0.96 0.002 90);
@@ -45,6 +53,23 @@
   --success: oklch(0.55 0.12 150);
   --destructive: oklch(0.58 0.22 27);
   --ring: oklch(0.2 0 0);
+
+  /* Status tints (derive from --success/--destructive, auto-adapt to dark) */
+  --success-bg: color-mix(in oklab, var(--success) 7%, var(--bg));
+  --success-border: color-mix(in oklab, var(--success) 30%, var(--border));
+  --destructive-bg: color-mix(in oklab, var(--destructive) 6%, var(--bg));
+  --destructive-border: color-mix(in oklab, var(--destructive) 35%, var(--border));
+
+  /* Diff highlighting (single recipe for MessageView + FileViewer) */
+  --diff-add-bg: color-mix(in oklab, var(--success) 11%, transparent);
+  --diff-del-bg: color-mix(in oklab, var(--destructive) 12%, transparent);
+  --diff-hunk-bg: color-mix(in oklab, var(--text) 6%, transparent);
+
+  /* Modal overlay + elevation shadows (dark values below) */
+  --overlay-bg: rgba(0, 0, 0, 0.38);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08), 0 8px 24px -12px rgba(0, 0, 0, 0.16);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.22);
 }
 
 html.dark {
@@ -66,6 +91,11 @@ html.dark {
   --success: oklch(0.72 0.12 150);
   --destructive: oklch(0.65 0.2 28);
   --ring: oklch(0.75 0 0);
+
+  --overlay-bg: rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55);
 }
 
 /* Theme toggle: circular wipe via View Transitions API.
@@ -246,7 +276,7 @@ pre, code {
 .markdown-body a:hover { text-decoration-color: var(--accent); }
 .markdown-body .markdown-inline-code {
   background: var(--bg-subtle);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   padding: 1px 5px;
   color: var(--text);
   font-family: var(--font-mono);
@@ -273,7 +303,7 @@ pre, code {
   height: 14px;
   margin: 0;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--bg);
   display: inline-grid;
   place-content: center;
@@ -294,7 +324,7 @@ pre, code {
 }
 .markdown-body blockquote {
   border-left: 3px solid color-mix(in srgb, var(--border) 75%, var(--text-muted));
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   margin: 6px 0;
   padding: 6px 11px;
   background: var(--bg-subtle);
@@ -306,7 +336,7 @@ pre, code {
   overflow-x: auto;
   overflow-y: hidden;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
 }
 .markdown-body table {
   border-collapse: separate;
@@ -325,7 +355,7 @@ pre, code {
 .markdown-body th {
   background: var(--bg-panel);
   color: color-mix(in srgb, var(--text) 88%, var(--text-muted));
-  font-weight: 650;
+  font-weight: 600;
 }
 .markdown-body tbody tr:nth-child(even) td { background: var(--bg-subtle); }
 .markdown-body hr {
@@ -416,7 +446,7 @@ pre, code {
   margin-bottom: 4px;
   color: var(--text);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
 }
 .compaction-file-list {
   max-height: 180px;
@@ -424,7 +454,7 @@ pre, code {
   padding: 7px 8px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg-panel);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -442,7 +472,7 @@ pre, code {
   position: relative;
   margin: 6px 0;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 42%, transparent);
@@ -461,7 +491,7 @@ pre, code {
 .markdown-code-lang {
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-weight: 650;
+  font-weight: 600;
 }
 .markdown-code-actions {
   display: flex;
@@ -470,7 +500,7 @@ pre, code {
 }
 .markdown-code-action {
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   padding: 2px 7px;
   background: var(--bg);
   color: var(--text-muted);
@@ -561,7 +591,7 @@ pre, code {
   height: 24px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 
 .file-viewer-mode-button {
@@ -582,7 +612,7 @@ pre, code {
 }
 
 .file-viewer-mode-button:hover {
-  filter: brightness(1.08);
+  background: var(--bg-hover) !important;
 }
 
 .file-viewer-icon-button {
@@ -595,7 +625,7 @@ pre, code {
   box-sizing: border-box;
   flex: 0 0 24px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -638,7 +668,7 @@ pre, code {
 .markdown-file-preview pre {
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 12px 16px;
   overflow-x: auto;
   font-family: var(--font-mono);
@@ -650,7 +680,7 @@ pre, code {
   font-size: 0.9em;
   background: var(--bg-panel);
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
 }
 .markdown-file-preview pre code {
   background: none;
@@ -818,7 +848,7 @@ span.linenumber {
   }
   .sidebar-container.sidebar-open {
     transform: translateX(0);
-    box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+    box-shadow: var(--shadow-md);
   }
   .sidebar-container.sidebar-closed {
     transform: translateX(-100%);
@@ -840,4 +870,160 @@ span.linenumber {
     border-left: none !important;
     display: none !important;
   }
+}
+
+/* ── Shared UI recipes ───────────────────────────────────────────
+   Use these classes instead of re-inventing button/menu/modal
+   styles inline. Override size via CSS vars where provided. */
+
+/* Primary action (Send / Save / Login / Confirm / Open) */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Secondary action (Cancel / Close / Test / Check for updates) */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.btn-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Destructive action (Delete / Remove) */
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--destructive);
+  color: var(--accent-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--destructive) 85%, var(--text));
+}
+.btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Icon-only button. Default 28px; override with --icon-btn-size (24/32/36). */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-btn-size, 28px);
+  height: var(--icon-btn-size, 28px);
+  padding: 0;
+  flex: 0 0 var(--icon-btn-size, 28px);
+  border: none;
+  border-radius: var(--icon-btn-radius, var(--radius-xs));
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Text input shared recipe (focus = accent border) */
+.input-base {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 0.15s ease;
+}
+.input-base:focus {
+  border-color: var(--accent);
+}
+.input-base::placeholder {
+  color: var(--text-dim);
+}
+
+/* Floating dropdown/menu card */
+.menu-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+/* Modal backdrop + shell */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay-bg);
+  backdrop-filter: blur(6px);
+}
+.modal-shell {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
 }

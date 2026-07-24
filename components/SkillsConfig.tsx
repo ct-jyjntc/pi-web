@@ -57,7 +57,7 @@ function Toggle({
         flexShrink: 0,
         width: 40,
         height: 22,
-        borderRadius: 11,
+        borderRadius: "var(--radius-pill)",
         border: "none",
         padding: 0,
         cursor: loading ? "wait" : "pointer",
@@ -76,7 +76,7 @@ function Toggle({
           height: 16,
           borderRadius: "50%",
           background: "var(--bg)",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
+          boxShadow: "var(--shadow-sm)",
           transition: "left 0.18s cubic-bezier(.4,0,.2,1)",
         }}
       />
@@ -129,14 +129,14 @@ function SkillDetail({
           style={{
             fontSize: 10,
             padding: "1px 5px",
-            borderRadius: 3,
+            borderRadius: "var(--radius-xs)",
             flexShrink: 0,
             background:
               label === "project"
-                ? "rgba(99,102,241,0.12)"
-                : "rgba(120,120,120,0.12)",
+                ? "color-mix(in oklab, var(--accent) 10%, transparent)"
+                : "var(--bg-subtle)",
             color:
-              label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
+              label === "project" ? "var(--accent)" : "var(--text-dim)",
           }}
         >
           {label}
@@ -234,7 +234,7 @@ function SkillDetail({
                 style={{
                   padding: "4px 9px",
                   border: "1px solid var(--border)",
-                  borderRadius: 5,
+                  borderRadius: "var(--radius-sm)",
                   background: "none",
                   color: "var(--text-muted)",
                   cursor: checkingUpdate || updating ? "not-allowed" : "pointer",
@@ -286,7 +286,7 @@ function SkillDetail({
                 style={{
                   padding: "4px 10px",
                   border: "none",
-                  borderRadius: 5,
+                  borderRadius: "var(--radius-sm)",
                   background: "var(--accent)",
                   color: "var(--accent-fg)",
                   cursor: updating || checkingUpdate ? "not-allowed" : "pointer",
@@ -456,7 +456,7 @@ function AddSkillPanel({
               fontSize: 13,
               background: "var(--bg-panel)",
               border: "1px solid var(--border)",
-              borderRadius: 6,
+              borderRadius: "var(--radius-sm)",
               color: "var(--text)",
               outline: "none",
             }}
@@ -467,7 +467,7 @@ function AddSkillPanel({
             style={{
               padding: "7px 16px",
               fontSize: 13,
-              borderRadius: 6,
+              borderRadius: "var(--radius-sm)",
               border: "none",
               background: "var(--accent)",
               color: "var(--accent-fg)",
@@ -485,7 +485,7 @@ function AddSkillPanel({
           <div
             style={{
               display: "flex",
-              borderRadius: 5,
+              borderRadius: "var(--radius-sm)",
               border: "1px solid var(--border)",
               overflow: "hidden",
               fontSize: 12,
@@ -626,13 +626,13 @@ function AddSkillPanel({
                     padding: "5px 14px",
                     fontSize: 12,
                     fontWeight: 500,
-                    borderRadius: 5,
+                    borderRadius: "var(--radius-sm)",
                     border: "1px solid var(--border)",
                     cursor:
                       isInstalled || isInstalling || installing !== null
                         ? "not-allowed"
                         : "pointer",
-                    background: isInstalled ? "rgba(34,197,94,0.1)" : "none",
+                    background: isInstalled ? "var(--success-bg)" : "none",
                     color: isInstalled
                       ? "var(--success)"
                       : isInstalling
@@ -853,7 +853,8 @@ export function SkillsConfig({
         position: "fixed",
         inset: 0,
         zIndex: 1000,
-        background: "rgba(0,0,0,0.35)",
+        background: "var(--overlay-bg)",
+        backdropFilter: "blur(6px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -870,10 +871,10 @@ export function SkillsConfig({
           maxHeight: "calc(100dvh - 16px)",
           background: "var(--bg)",
           border: "1px solid var(--border)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           display: "flex",
           flexDirection: "column",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          boxShadow: "var(--shadow-lg)",
           overflow: "hidden",
         }}
       >
@@ -1039,7 +1040,7 @@ export function SkillsConfig({
                                 alignItems: "center",
                                 gap: 7,
                                 padding: "8px 8px",
-                                borderRadius: 5,
+                                borderRadius: "var(--radius-sm)",
                                 cursor: "pointer",
                                 background: isSelected
                                   ? "var(--bg-selected)"
@@ -1129,7 +1130,7 @@ export function SkillsConfig({
                   alignItems: "center",
                   gap: 6,
                   padding: "7px 8px",
-                  borderRadius: 5,
+                  borderRadius: "var(--radius-sm)",
                   cursor: "pointer",
                   background: addMode ? "var(--bg-selected)" : "none",
                   color: addMode ? "var(--accent)" : "var(--text-dim)",
@@ -1236,21 +1237,9 @@ export function SkillsConfig({
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {skills.some((skill) => Boolean(skill.install)) && (
               <button
+                className="btn-ghost"
                 onClick={() => void checkForUpdates()}
                 disabled={checkingAll || updatingSkill !== null}
-                style={{
-                  padding: "6px 12px",
-                  background: "none",
-                  border: "1px solid var(--border)",
-                  borderRadius: 6,
-                  color: "var(--text-muted)",
-                  cursor:
-                    checkingAll || updatingSkill !== null
-                      ? "not-allowed"
-                      : "pointer",
-                  opacity: checkingAll || updatingSkill !== null ? 0.5 : 1,
-                  fontSize: 12,
-                }}
               >
                 {checkingAll ? t("skills.checking") : t("skills.checkUpdates")}
               </button>
@@ -1273,16 +1262,8 @@ export function SkillsConfig({
             )}
           </div>
           <button
+            className="btn-ghost"
             onClick={onClose}
-            style={{
-              padding: "6px 14px",
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
           >
             Close
           </button>

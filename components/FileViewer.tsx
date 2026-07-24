@@ -49,7 +49,7 @@ const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
 
 const FILE_CODE_STYLE: CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: 13,
+  fontSize: 12.5,
   lineHeight: 1.6,
 };
 
@@ -273,9 +273,9 @@ function DiffView({ patch }: { patch: string }) {
         const lines = seg.lines.map((line, li) => {
           const bg =
             line.type === "added"
-              ? "rgba(0,200,80,0.12)"
+              ? "var(--diff-add-bg)"
               : line.type === "removed"
-              ? "rgba(240,60,60,0.14)"
+              ? "var(--diff-del-bg)"
               : "transparent";
           const prefix =
             line.type === "added" ? "+" : line.type === "removed" ? "-" : " ";
@@ -452,7 +452,7 @@ function ImageViewer({
               maxWidth: "100%",
               maxHeight: "100%",
               objectFit: "contain",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+              boxShadow: "var(--shadow-md)",
             }}
           />
         )}

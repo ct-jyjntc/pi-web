@@ -197,8 +197,21 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 ## CSS Variables (`app/globals.css`)
 
 ```
---bg --bg-panel --bg-hover --bg-selected --border
+--bg --bg-panel --bg-hover --bg-selected --border --bg-subtle
 --text --text-muted --text-dim
---accent --user-bg --tool-bg
+--accent --accent-hover --accent-fg --user-bg --assistant-bg --tool-bg
+--success --destructive --ring
+--success-bg --success-border --destructive-bg --destructive-border   (status tints)
+--diff-add-bg --diff-del-bg --diff-hunk-bg                           (single diff recipe)
+--overlay-bg --shadow-sm --shadow-md --shadow-lg                     (per-theme values)
+--radius-xs(4) --radius-sm(6) --radius-md(8) --radius-lg(10) --radius-pill(999)
 --font-mono
 ```
+
+**Styling rules**: no raw hex/rgba colors or numeric borderRadius in components — use the tokens above.
+Shared classes for common controls (defined at the end of globals.css):
+`.btn-primary` (accent pill), `.btn-ghost` (bordered rect), `.btn-danger`,
+`.icon-btn` (size via `--icon-btn-size`), `.input-base`, `.menu-card` (floating dropdown),
+`.modal-backdrop`, `.modal-shell`.
+Font-size scale: 11 micro labels / 12 tool+meta / 13 secondary UI / 14 body; code 12.5.
+Uppercase micro-headers: `letterSpacing: 0.06em`; headings/labels use `fontWeight: 600` (not 650).
