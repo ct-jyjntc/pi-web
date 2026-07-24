@@ -43,12 +43,11 @@ interface Props {
 function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Record<string, string | number>) => string, locale: string): string {
   if (phase?.kind === "running_tools") {
     const names = phase.tools.map((tool) => tool.name);
+    const sep = locale === "zh" ? "、" : ", ";
     if (names.length === 0) return t("window.runningTool");
-    if (names.length === 1) return locale === "zh" ? `正在运行 ${names[0]}…` : `Running ${names[0]}...`;
-    if (names.length <= 3) return locale === "zh" ? `正在运行 ${names.join("、")}…` : `Running ${names.join(", ")}...`;
-    return locale === "zh"
-      ? `正在运行 ${names.slice(0, 2).join("、")}（+${names.length - 2}）…`
-      : `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
+    if (names.length === 1) return t("window.runningNamed", { name: names[0] });
+    if (names.length <= 3) return t("window.runningNamedMany", { names: names.join(sep) });
+    return t("window.runningNamedMore", { names: names.slice(0, 2).join(sep), n: names.length - 2 });
   }
   if (phase?.kind === "waiting_model") return t("window.waitingModel");
   if (phase?.kind === "running_command") return t("window.runningCommand");

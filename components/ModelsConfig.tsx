@@ -346,11 +346,11 @@ function ProviderDetail({
           placeholder="https://api.example.com/v1" mono />
       </Field>
 
-      <Field label="API Key">
+      <Field label={t("models.apiKey")}>
         <SecretTextInput value={provider.apiKey ?? ""} onChange={(v) => set("apiKey", v || undefined)}
-          placeholder="ENV_VAR_NAME, !shell-command, or literal key" mono />
+          placeholder={t("models.apiKeyPlaceholder")} mono />
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Prefix with <code style={{ fontFamily: "var(--font-mono)" }}>!</code> to run a shell command, or use an env var name
+          {t("models.apiKeyHint")}
         </span>
       </Field>
 
@@ -383,6 +383,7 @@ function ThinkingLevelMapEditor({
   value: Record<string, string | null> | undefined;
   onChange: (v: Record<string, string | null> | undefined) => void;
 }) {
+  const { t } = useLocale();
   const map = value ?? {};
 
   const setLevel = (level: ThinkingLevel, entry: string | null | "omit") => {
@@ -458,13 +459,13 @@ function ThinkingLevelMapEditor({
                 onClick={() => setLevel(level, "omit")}
                 style={{ ...btnBase, ...(state === "omit" ? btnActive : {}) }}
               >
-                Default
+                {t("models.thinkingDefault")}
               </button>
               <button
                 onClick={() => setLevel(level, null)}
                 style={{ ...btnBase, borderLeft: "1px solid var(--border)", ...(state === "null" ? btnActiveDisabled : {}) }}
               >
-                Disabled
+                {t("models.thinkingDisabled")}
               </button>
             </div>
 
@@ -474,7 +475,7 @@ function ThinkingLevelMapEditor({
                 onClick={() => setLevel(level, strVal || level)}
                 style={{ ...btnBase, ...(state === "string" ? btnActive : {}), borderRight: "1px solid var(--border)", flexShrink: 0 }}
               >
-                Custom
+                {t("models.custom")}
               </button>
               <input
                 value={strVal}
@@ -553,9 +554,9 @@ function ModelDetail({
       testState.status !== undefined ? `HTTP ${testState.status}` : null,
     ].filter(Boolean);
     if (testState.phase === "success") {
-      return ["Connected", ...meta, testState.responseText || null].filter(Boolean).join(" · ");
+      return [t("modal.connected"), ...meta, testState.responseText || null].filter(Boolean).join(" · ");
     }
-    return ["Failed", ...meta, testState.message].filter(Boolean).join(" · ");
+    return [t("modal.failed"), ...meta, testState.message].filter(Boolean).join(" · ");
   })();
 
   useEffect(() => {
@@ -801,7 +802,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     };
     es.onerror = () => {
       es.close();
-      setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: "Connection lost" });
+      setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: t("models.connectionLost") });
     };
   }, [provider.id, onRefresh]);
 
@@ -813,7 +814,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
 
   const submitCode = useCallback(async (token: string, code: string) => {
     if (!code.trim()) return;
-    setLoginState({ phase: "progress", message: "Verifying…" });
+    setLoginState({ phase: "progress", message: t("models.verifying") });
     try {
       const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
         method: "POST",
@@ -828,12 +829,12 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       setInputValue("");
       // Success path: SSE stream will emit "success" and update state
     } catch (e) {
-      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "Network error" });
+      setLoginState({ phase: "error", message: e instanceof Error ? e.message : t("models.networkError") });
     }
   }, [provider.id]);
 
   const submitSelection = useCallback(async (token: string, value: string) => {
-    setLoginState({ phase: "progress", message: "Continuing…" });
+    setLoginState({ phase: "progress", message: t("models.continuing") });
     try {
       const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
         method: "POST",
@@ -845,7 +846,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         setLoginState({ phase: "error", message: d.error ?? `Server error ${res.status}` });
       }
     } catch (e) {
-      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "Network error" });
+      setLoginState({ phase: "error", message: e instanceof Error ? e.message : t("models.networkError") });
     }
   }, [provider.id]);
 
@@ -860,7 +861,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "var(--success)" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.loggedIn ? "var(--success)" : "var(--text-dim)" }}>
-            {provider.loggedIn ? "connected" : "not connected"}
+            {provider.loggedIn ? t("models.statusConnected") : t("models.statusNotConnected")}
           </span>
         </div>
       </div>
@@ -869,7 +870,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       <div style={{ minHeight: 48 }}>
         {loginState.phase === "idle" && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-            {provider.loggedIn ? "Already connected. You can re-login or disconnect." : `Connect your ${provider.name} account.`}
+            {provider.loggedIn ? t("models.alreadyConnected") : t("models.connectAccount", { name: provider.name })}
           </p>
         )}
         {loginState.phase === "connecting" && (
@@ -897,14 +898,14 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
               {loginState.phase === "auth"
-                ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
+                ? t("models.pasteRedirectUrl")
                 : loginState.message}
             </p>
             {loginState.phase === "auth" && (
               <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
-                If the browser window did not open,{" "}
+                {t("models.openLoginFallback")}{" "}
                 <a href={loginState.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
-                  click here to open the login page
+                  {t("models.openLoginLink")}
                 </a>
                 .
               </p>
@@ -915,7 +916,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") submitCode(loginState.token, inputValue); }}
-                placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? "Enter value…")}
+                placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? t("models.enterValue"))}
                 style={{ flex: 1, padding: "6px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--text)", fontSize: 12, outline: "none", fontFamily: "var(--font-mono)", boxSizing: "border-box" }}
               />
               <button
@@ -931,7 +932,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         {loginState.phase === "device_code" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Open the verification page and enter this code:
+              {t("models.deviceCodeHint")}
             </p>
             <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--text)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: 0 }}>
               {loginState.userCode}
@@ -940,7 +941,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
               <a href={loginState.verificationUri} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
                 {loginState.verificationUri}
               </a>
-              {loginState.expiresInSeconds ? ` Expires in ${Math.ceil(loginState.expiresInSeconds / 60)} minutes.` : ""}
+              {loginState.expiresInSeconds ? ` ${t("models.expiresInMinutes", { n: Math.ceil(loginState.expiresInSeconds / 60) })}` : ""}
             </p>
           </div>
         )}
@@ -970,7 +971,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
               onClick={handleLogin}
               style={{ padding: "5px 14px", background: "var(--accent)", border: "none", borderRadius: "var(--radius-pill)", color: "var(--accent-fg)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
             >
-              {provider.loggedIn ? "Re-login" : "Login"}
+              {provider.loggedIn ? t("modal.relogin") : t("modal.login")}
             </button>
             {provider.loggedIn && (
               <button
@@ -1053,18 +1054,18 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "var(--success)" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.configured ? "var(--success)" : "var(--text-dim)" }}>
-            {provider.configured ? "configured" : "not configured"}
+            {provider.configured ? t("models.statusConfigured") : t("models.statusNotConfigured")}
           </span>
         </div>
       </div>
 
       <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
         {provider.configured
-          ? `API key is stored. Enter a new key below to replace it, or disconnect to remove it.`
-          : `Enter your ${provider.displayName} API key to enable ${provider.modelCount} model${provider.modelCount !== 1 ? "s" : ""}.`}
+          ? t("models.apiKeyStored")
+          : t("models.enterApiKey")}
       </p>
 
-      <Field label="API Key">
+      <Field label={t("models.apiKey")}>
         <div style={{ display: "flex", gap: 6 }}>
           <SecretTextInput
             value={apiKey}
@@ -1112,7 +1113,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
             cursor: removing ? "not-allowed" : "pointer", fontSize: 12,
           }}
         >
-          {removing ? "Removing…" : "Disconnect"}
+          {removing ? t("modal.removing") : t("modal.disconnect")}
         </button>
       )}
     </div>
@@ -1612,7 +1613,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                           onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
                         >
                           <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: m.id ? "var(--text-muted)" : "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {m.id || "new model"}
+                            {m.id || t("models.newModel")}
                           </span>
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "color-mix(in oklab, var(--text-muted) 14%, transparent)", color: "var(--text-muted)", borderRadius: "var(--radius-xs)", flexShrink: 0 }}>T</span>
@@ -1628,7 +1629,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                       onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
                     >
-                      <span style={{ fontSize: 11 }}>+ model</span>
+                      <span style={{ fontSize: 11 }}>{t("models.addModel")}</span>
                     </div>
                   </div>
                 );
@@ -1645,7 +1646,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-muted)"; }}
               >
-                + Add provider
+                {t("modal.addProvider")}
               </button>
             </div>
           </div>

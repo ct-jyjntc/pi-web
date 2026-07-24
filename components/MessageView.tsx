@@ -805,7 +805,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
   const resultText = result
     ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
-  const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
+  const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "" || resultText.trim() === "（无输出）");
   const isError = result?.isError ?? false;
   const meta = toolDisplayMeta(block.toolName);
   // Compact tool-display style: collapse long results by default; expand on click.
@@ -850,7 +850,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
         )}
         {showResultCollapsed && (
-          <span style={{ fontSize: 10, color: "var(--text-dim)", flexShrink: 0 }}>truncated</span>
+          <span style={{ fontSize: 10, color: "var(--text-dim)", flexShrink: 0 }}>{/* truncated badge filled below via parent t if needed */}…</span>
         )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
@@ -1185,7 +1185,7 @@ function PairedResult({ text, isEmpty, isError }: {
           opacity: isEmpty ? 0.6 : 1,
         }}
       >
-        {isEmpty ? "(no output)" : text}
+        {isEmpty ? "—" : text}
       </pre>
     </div>
   );
@@ -1512,6 +1512,7 @@ function formatUsage(usage: {
 }
 
 function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {
+  const { t } = useLocale();
   const [fullOutput, setFullOutput] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
   const [fullError, setFullError] = useState<string | null>(null);
@@ -1546,7 +1547,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
   // Reuse the existing ToolCallBlock so user-run bash looks identical to an
   // agent-run bash tool call: same header, collapse behavior, result pane.
   // Synthesize an equivalent ToolCallContent + ToolResultMessage pair.
-  const toolName = message.excludeFromContext ? "bash (local)" : "bash";
+  const toolName = message.excludeFromContext ? t("msg.bashLocal") : "bash";
   const block: ToolCallContent = {
     type: "toolCall",
     toolCallId: `bash-${message.timestamp ?? ""}`,
@@ -1575,14 +1576,14 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
               disabled={loadingFull}
               style={{ background: "none", border: "none", color: "var(--accent)", cursor: loadingFull ? "default" : "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}
             >
-              {loadingFull ? "loading…" : "view full output"}
+              {loadingFull ? t("msg.loadingFull") : t("msg.viewFullOutput")}
             </button>
           )}
           <a
             href={`${fullOutputUrl}&download=1`}
             style={{ marginLeft: showFullButton ? 10 : 0, color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
           >
-            download full output
+            {t("msg.downloadFullOutput")}
           </a>
           {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
         </div>

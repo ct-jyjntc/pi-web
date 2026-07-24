@@ -156,18 +156,10 @@ html.pi-desktop .desktop-top-chrome {
   padding-top: env(titlebar-area-height, 0px);
 }
 
-/* macOS: leave room for traffic lights; brand title removed — actions sit on the right */
-html.pi-desktop.pi-desktop-mac .sidebar-desktop-header {
-  padding-top: 6px;
-}
-
-html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row {
-  min-height: 28px;
-  padding-left: 0;
-}
-
-html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row > .titlebar-drag {
+/* macOS: first sidebar strip aligns with top bar; drag pad clears traffic lights */
+html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row > .sidebar-toolbar-drag {
   min-width: var(--traffic-lights-pad);
+  flex: 0 0 var(--traffic-lights-pad);
 }
 
 /* Safety: never let drag regions swallow sidebar pickers / buttons */
@@ -998,6 +990,174 @@ span.linenumber {
 }
 .input-base::placeholder {
   color: var(--text-dim);
+}
+.input-base.input-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+/* Sidebar chrome — mirror AppShell top bar: flat strips + vertical dividers */
+.sidebar-desktop-header {
+  padding: 0;
+  border-bottom: none;
+}
+
+.sidebar-toolbar-row {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+.sidebar-toolbar-drag {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Full-height strip control (same grammar as top bar buttons) */
+.sidebar-strip-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 100%;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.1s ease, background 0.1s ease, opacity 0.1s ease;
+}
+.sidebar-strip-btn:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.sidebar-strip-btn:disabled,
+.sidebar-strip-btn[aria-disabled="true"] {
+  color: var(--text-dim);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.sidebar-strip-btn.is-success {
+  color: var(--success);
+  background: color-mix(in oklab, var(--success) 12%, transparent);
+  opacity: 1;
+}
+.sidebar-strip-btn.is-active {
+  color: var(--text);
+  background: var(--bg-selected);
+}
+
+.sidebar-strip-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+  border-left: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  opacity: 1;
+}
+.sidebar-strip-grow:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.sidebar-strip-grow.is-empty {
+  color: var(--text-dim);
+}
+.sidebar-strip-grow[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.82;
+}
+
+.sidebar-strip-icon {
+  width: 36px;
+  padding: 0;
+  flex: 0 0 36px;
+}
+
+.sidebar-strip-action {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+.sidebar-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.sidebar-menu-item-active {
+  color: var(--text);
+  background: var(--bg-selected);
+}
+.sidebar-menu-item-active:hover {
+  background: var(--bg-selected);
+}
+.wt-row .sidebar-menu-item {
+  width: auto;
+  flex: 1;
+}
+
+.sidebar-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.1s ease, background 0.1s ease;
+}
+.sidebar-section-label:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.btn-primary.btn-compact,
+.btn-ghost.btn-compact,
+.btn-danger.btn-compact {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  gap: 4px;
 }
 
 /* Floating dropdown/menu card */

@@ -653,7 +653,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (
-          <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? t("files.checking") : `Uploading, ${uploadProgress}%`}>
+          <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? t("files.checking") : t("files.uploading", { n: uploadProgress })}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 14, color: "var(--text-muted)" }}>
               {uploadPhase === "checking" ? (
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true">
@@ -679,22 +679,22 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         {pendingConflict && (
           <div role="alert" style={{ padding: 7, border: "1px solid color-mix(in oklab, var(--text-muted) 40%, var(--border))", borderRadius: "var(--radius-sm)", background: "color-mix(in oklab, var(--text-muted) 8%, var(--bg-panel))" }}>
             <div style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.35, overflowWrap: "anywhere" }}>
-              {pendingConflict.conflicts.length} file{pendingConflict.conflicts.length === 1 ? "" : "s"} already exist: {pendingConflict.conflicts.join(", ")}
+              {t("files.alreadyExist", { n: pendingConflict.conflicts.length, names: pendingConflict.conflicts.join(", ") })}
             </div>
             {pendingConflict.nonReplaceable.length > 0 && (
               <div style={{ marginTop: 3, fontSize: 10, color: "var(--text)", lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                Cannot replace: {pendingConflict.nonReplaceable.join(", ")}
+                {t("files.cannotReplace", { names: pendingConflict.nonReplaceable.join(", ") })}
               </div>
             )}
             <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
               <button type="button" onClick={() => void performUpload(pendingConflict.files, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--destructive)", borderRadius: "var(--radius-xs)", background: "transparent", color: "var(--destructive)", cursor: "pointer", fontSize: 10 }}>
-                Replace
+                {t("files.replace")}
               </button>
               <button type="button" onClick={() => void performUpload(pendingConflict.files, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
-                Skip existing
+                {t("files.skipExisting")}
               </button>
               <button type="button" onClick={() => setPendingConflict(null)} style={{ height: 22, padding: "0 7px", border: "none", borderRadius: "var(--radius-xs)", background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 10 }}>
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </div>
@@ -793,7 +793,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         )}
         {!loading && !error && roots.length === 0 && (
           <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
-            No files found
+            {t("files.none")}
           </div>
         )}
       </div>

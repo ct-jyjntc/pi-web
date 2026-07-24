@@ -171,7 +171,7 @@ function SkillDetail({
           <span
             style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
           >
-            Source
+            {t("skills.source")}
           </span>
           <a
             href={skill.install.skillsShUrl}
@@ -208,7 +208,7 @@ function SkillDetail({
           <span
             style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
           >
-            Version
+            {t("skills.version")}
           </span>
           <div
             style={{
@@ -309,7 +309,7 @@ function SkillDetail({
         <span
           style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
         >
-          Name
+          {t("shell.name")}
         </span>
         <span
           style={{
@@ -326,7 +326,7 @@ function SkillDetail({
         <span
           style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
         >
-          Description
+          {t("skills.description")}
         </span>
         <span
           style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}
@@ -437,7 +437,7 @@ function AddSkillPanel({
         }}
       >
         <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-          Add Skill
+          {t("skills.addSkill")}
         </div>
 
         {/* Search row */}
@@ -642,7 +642,7 @@ function AddSkillPanel({
                   }}
                 >
                   {isInstalled
-                    ? "✓ Installed"
+                    ? t("skills.installed")
                     : isInstalling
                       ? t("modal.installing")
                       : t("modal.install")}
@@ -657,16 +657,7 @@ function AddSkillPanel({
           <div
             style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.8 }}
           >
-            Search{" "}
-            <a
-              href="https://skills.sh"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: "var(--accent)", textDecoration: "none" }}
-            >
-              skills.sh
-            </a>{" "}
-            to discover and install skills for your agent.
+            {t("skills.searchEmpty")}
           </div>
         )
       )}
@@ -949,7 +940,7 @@ export function SkillsConfig({
                     color: "var(--text-muted)",
                   }}
                 >
-                  Loading…
+                  {t("modal.loading")}
                 </div>
               ) : error ? (
                 <div
@@ -969,14 +960,14 @@ export function SkillsConfig({
                     color: "var(--text-dim)",
                   }}
                 >
-                  No skills found
+                  {t("skills.noSkills")}
                 </div>
               ) : (
                 (() => {
                   const groups: { label: string; skills: typeof skills }[] = [];
                   const groupDefinitions = [
                     {
-                      label: "project / skills.sh",
+                      label: t("skills.groupProject"),
                       matches: (skill: Skill) =>
                         sourceLabel(skill) === "project" &&
                         Boolean(skill.install?.skillsShUrl),
@@ -988,19 +979,19 @@ export function SkillsConfig({
                         !skill.install?.skillsShUrl,
                     },
                     {
-                      label: "global / skills.sh",
+                      label: t("skills.groupGlobal"),
                       matches: (skill: Skill) =>
                         sourceLabel(skill) === "global" &&
                         Boolean(skill.install?.skillsShUrl),
                     },
                     {
-                      label: "global",
+                      label: t("skills.groupGlobal"),
                       matches: (skill: Skill) =>
                         sourceLabel(skill) === "global" &&
                         !skill.install?.skillsShUrl,
                     },
                     {
-                      label: "path",
+                      label: t("skills.groupPath"),
                       matches: (skill: Skill) => sourceLabel(skill) === "path",
                     },
                   ];
@@ -1157,7 +1148,7 @@ export function SkillsConfig({
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-                Add skill
+                {t("skills.addSkill")}
               </div>
             </div>
           </div>
@@ -1217,7 +1208,7 @@ export function SkillsConfig({
                   fontSize: 13,
                 }}
               >
-                Select a skill
+                {t("skills.selectSkill")}
               </div>
             )}
           </div>
@@ -1265,7 +1256,7 @@ export function SkillsConfig({
             className="btn-ghost"
             onClick={onClose}
           >
-            Close
+            {t("common.close")}
           </button>
         </div>
       </div>
