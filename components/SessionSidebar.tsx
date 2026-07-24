@@ -708,7 +708,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionTree = buildSessionTree(filteredSessions);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
       {/* Header mirrors AppShell top bar: flat 36px strips + vertical dividers.
           Project/worktree pickers MUST stay titlebar-no-drag or Electron steals clicks. */}
       <div

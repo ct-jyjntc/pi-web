@@ -453,7 +453,10 @@ export function AppShell() {
   }, [windowTitle]);
 
   const sidebarContent = (
-    <>
+    <div
+      className="sidebar-shell"
+      style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}
+    >
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
@@ -471,58 +474,39 @@ export function AppShell() {
         onAtMention={handleAtMention}
         onAtMentions={handleAtMentions}
       />
-      <div style={{ padding: "8px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, borderTop: "1px solid var(--border)" }}>
-        {([
-          {
-            key: "models",
-            label: t("shell.models"),
-            onClick: () => setModelsConfigOpen(true),
-            disabled: false,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-              </svg>
-            ),
-          },
-          {
-            key: "skills",
-            label: t("shell.skills"),
-            onClick: () => setSkillsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-            ),
-          },
-        ] as { key: string; label: string; onClick: () => void; disabled: boolean; icon: React.ReactNode }[]).map(({ key, label, onClick, disabled, icon }) => (
-          <button
-            key={key}
-            onClick={onClick}
-            disabled={disabled}
-            title={label}
-            style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-              height: 32, padding: "0 6px", background: "none", border: "none",
-              borderRadius: "var(--radius-md)", color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-              fontSize: 12, lineHeight: 1, opacity: disabled ? 0.35 : 1,
-              transition: "background 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
+      <div className="chrome-footer">
+        <button
+          type="button"
+          className="chrome-btn"
+          onClick={() => setModelsConfigOpen(true)}
+          title={t("shell.models")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
+            <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
+            <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
+            <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
+            <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
+          </svg>
+          <span>{t("shell.models")}</span>
+        </button>
+        <div className="chrome-divider" aria-hidden />
+        <button
+          type="button"
+          className="chrome-btn"
+          onClick={() => setSkillsConfigOpen(true)}
+          disabled={!activeCwd && !selectedSession?.cwd && !newSessionCwd}
+          title={t("shell.skills")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+          <span>{t("shell.skills")}</span>
+        </button>
       </div>
-    </>
+    </div>
   );
 
   return (
@@ -649,135 +633,77 @@ export function AppShell() {
           {!sidebarOpen && (
             <div className="traffic-lights-spacer titlebar-drag" aria-hidden />
           )}
-          <button
-            className="titlebar-no-drag"
-            onClick={handleSidebarToggle}
-            title={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
-            aria-label={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: 36, height: "100%", padding: 0,
-              background: "none", border: "none", borderRight: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {sidebarOpen ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            )}
-          </button>
-          <button
-            className="titlebar-no-drag"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-            }}
-            title={isDark ? t("shell.switchToLight") : t("shell.switchToDark")}
-            aria-label={isDark ? t("shell.switchToLight") : t("shell.switchToDark")}
-            aria-pressed={isDark}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: 36, height: "100%", padding: 0,
-              background: "none", border: "none", borderRight: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {isDark ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="5" />
-                <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-            )}
-          </button>
-          <button
-            className="titlebar-no-drag"
-            onClick={toggleLocale}
-            title={`${t("shell.language")}: ${locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}`}
-            aria-label={`${t("shell.language")}: ${locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}`}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
-              minWidth: 44, height: "100%", padding: "0 8px",
-              background: "none", border: "none", borderRight: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0,
-              fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
-              transition: "color 0.12s",
-              fontVariantNumeric: "tabular-nums",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            <span style={{ opacity: locale === "en" ? 1 : 0.45 }}>EN</span>
-            <span style={{ opacity: 0.35 }}>/</span>
-            <span style={{ opacity: locale === "zh" ? 1 : 0.45 }}>中</span>
-          </button>
-          {/* Flexible drag region between chrome controls and trailing actions */}
+          {/* Left cluster: shell controls — no internal dividers */}
+          <div className="chrome-cluster titlebar-no-drag">
+            <button
+              type="button"
+              className="chrome-btn is-icon"
+              onClick={handleSidebarToggle}
+              title={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
+              aria-label={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
+            >
+              {sidebarOpen ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className="chrome-btn is-icon"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+              }}
+              title={isDark ? t("shell.switchToLight") : t("shell.switchToDark")}
+              aria-label={isDark ? t("shell.switchToLight") : t("shell.switchToDark")}
+              aria-pressed={isDark}
+            >
+              {isDark ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className="chrome-btn"
+              onClick={toggleLocale}
+              title={`${t("shell.language")}: ${locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}`}
+              aria-label={`${t("shell.language")}: ${locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}`}
+              style={{ minWidth: 44, fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", fontVariantNumeric: "tabular-nums" }}
+            >
+              <span style={{ opacity: locale === "en" ? 1 : 0.45 }}>EN</span>
+              <span style={{ opacity: 0.35 }}>/</span>
+              <span style={{ opacity: locale === "zh" ? 1 : 0.45 }}>中</span>
+            </button>
+          </div>
+          <div className="chrome-divider" aria-hidden />
+          {/* Flexible drag region between chrome clusters */}
           <div className="titlebar-drag" style={{ flex: 1, minWidth: 12, height: "100%" }} aria-hidden />
           {showChat && (
-            <div className="titlebar-no-drag" style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+            <div className="chrome-cluster titlebar-no-drag">
               <button
+                type="button"
+                className="chrome-btn"
                 onClick={handleViewFullHistory}
                 disabled={!selectedSession}
                 title={selectedSession ? t("shell.fullHistoryTitle") : t("shell.fullHistoryDisabled")}
                 aria-label={t("shell.fullHistoryTitle")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  height: "100%",
-                  padding: "0 10px",
-                  background: "none",
-                  border: "none",
-                  borderRight: "1px solid var(--border)",
-                  boxShadow: "inset 0 0 0 0 transparent",
-                  color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-                  cursor: selectedSession ? "pointer" : "not-allowed",
-                  opacity: selectedSession ? 1 : 0.45,
-                  flexShrink: 0,
-                  fontSize: 12,
-                  lineHeight: 1,
-                  whiteSpace: "nowrap",
-                  transition: "color 0.1s, background 0.1s, opacity 0.1s",
-                }}
-                onMouseEnter={(e) => {
-                  if (!selectedSession) return;
-                  e.currentTarget.style.color = "var(--text)";
-                  e.currentTarget.style.background = "var(--bg-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = selectedSession ? "var(--text-muted)" : "var(--text-dim)";
-                  e.currentTarget.style.background = "none";
-                }}
               >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{
-                    color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-                    flexShrink: 0,
-                  }}
-                >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
                   <path d="M3 3v5h5" />
                   <path d="M12 7v5l3 2" />
@@ -810,31 +736,11 @@ export function AppShell() {
                 return (
                   <button
                     type="button"
+                    className={`chrome-btn${isError ? " is-danger" : isSuccess ? " is-success" : ""}`}
                     onClick={() => void handleAutoName()}
                     disabled={disabled}
                     title={title}
                     aria-label={label}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      height: "100%", padding: "0 10px",
-                      background: "none", border: "none",
-                      borderRight: "1px solid var(--border)",
-                      boxShadow: "inset 0 0 0 0 transparent",
-                      color: isError ? "var(--destructive)" : isSuccess ? "var(--success)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
-                      cursor: disabled ? "not-allowed" : "pointer",
-                      opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
-                      flexShrink: 0, fontSize: 12, lineHeight: 1, whiteSpace: "nowrap",
-                      transition: "color 0.1s, background 0.1s, opacity 0.1s",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (disabled) return;
-                      e.currentTarget.style.color = isError ? "var(--destructive)" : "var(--text)";
-                      e.currentTarget.style.background = "var(--bg-hover)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = isError ? "var(--destructive)" : isSuccess ? "var(--success)" : disabled ? "var(--text-dim)" : "var(--text-muted)";
-                      e.currentTarget.style.background = "none";
-                    }}
                   >
                     {autoNameStatus.kind === "naming" ? (
                       <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -868,26 +774,16 @@ export function AppShell() {
                 hasSession
               />
               <button
+                type="button"
                 ref={systemBtnRef}
+                className={`chrome-btn${activeTopPanel === "system" ? " is-active" : ""}`}
                 onClick={() => toggleTopPanel("system")}
                 title={t("shell.systemPrompt")}
                 aria-label={t("shell.systemPrompt")}
                 aria-pressed={activeTopPanel === "system"}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  height: "100%", padding: "0 10px",
-                  background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
-                  border: "none",
-                  borderRight: "1px solid var(--border)",
-                  boxShadow: activeTopPanel === "system" ? "inset 0 -2px 0 0 var(--accent)" : "inset 0 0 0 0 transparent",
-                  cursor: "pointer",
-                  color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
-                  fontSize: 12, lineHeight: 1, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s, box-shadow 0.1s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)"; }}
+                style={activeTopPanel === "system" ? { boxShadow: "inset 0 -2px 0 0 var(--accent)" } : undefined}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemPrompt ? "var(--text)" : "var(--text-dim)", flexShrink: 0 }}>
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <polyline points="14 2 14 8 20 8" />
                   <line x1="8" y1="13" x2="16" y2="13" />
@@ -928,29 +824,24 @@ export function AppShell() {
             const tooltip = tooltipParts.join("  |  ");
 
             return (
+              <>
+              <div className="chrome-divider titlebar-no-drag" aria-hidden />
               <button
                 type="button"
-                className="titlebar-no-drag"
+                className={`chrome-btn titlebar-no-drag${activeTopPanel === "session" ? " is-active" : ""}`}
                 onClick={() => toggleTopPanel("session")}
                 title={tooltip || t("shell.sessionInfo")}
                 aria-label={t("shell.sessionInfo")}
                 aria-pressed={activeTopPanel === "session"}
                 style={{
-                  marginLeft: "auto",
-                  display: "flex", alignItems: "center", gap: 10,
+                  marginLeft: 0,
+                  gap: 10,
                   paddingLeft: 12,
                   paddingRight: 12,
-                  height: "100%",
-                  background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
-                  border: "none",
-                  boxShadow: activeTopPanel === "session" ? "inset 0 -2px 0 0 var(--accent)" : "inset 0 0 0 0 transparent",
-                  fontSize: 11, lineHeight: 1, color: "var(--text-muted)",
-                  whiteSpace: "nowrap", cursor: "pointer",
+                  fontSize: 11,
                   fontVariantNumeric: "tabular-nums",
-                  transition: "color 0.1s, background 0.1s, box-shadow 0.1s",
+                  boxShadow: activeTopPanel === "session" ? "inset 0 -2px 0 0 var(--accent)" : undefined,
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)"; }}
               >
                 {isMobile && (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -995,34 +886,16 @@ export function AppShell() {
                   </span>
                 )}
               </button>
+              </>
             );
           })()}
+          <div className="chrome-divider titlebar-no-drag" aria-hidden />
           <button
-            className="titlebar-no-drag"
+            type="button"
+            className={`chrome-btn is-icon titlebar-no-drag${rightPanelOpen ? " is-active" : ""}`}
             onClick={() => setRightPanelOpen((v) => !v)}
             title={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
             aria-label={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 36,
-              height: "100%",
-              padding: 0,
-              marginLeft: (showChat && (sessionStats || contextUsage)) ? 0 : "auto",
-              background: rightPanelOpen ? "var(--bg-selected)" : "none",
-              border: "none",
-              borderLeft: "1px solid var(--border)",
-              color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
-              cursor: "pointer",
-              flexShrink: 0,
-              transition: "color 0.12s, background 0.12s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)";
-              e.currentTarget.style.background = rightPanelOpen ? "var(--bg-selected)" : "none";
-            }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
