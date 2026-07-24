@@ -228,6 +228,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [permissionBusy, setPermissionBusy] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  const [compactConfirmOpen, setCompactConfirmOpen] = useState(false);
+  const [compactConfirmRect, setCompactConfirmRect] = useState<{ top: number; right: number } | null>(null);
+  const compactBtnRef = useRef<HTMLButtonElement>(null);
+  const compactConfirmRef = useRef<HTMLDivElement>(null);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? getDraft(draftKey)?.images.map(draftImageToAttachedImage) ?? [] : []
   ));
@@ -965,10 +969,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (controlsMenuRef.current && !controlsMenuRef.current.contains(e.target as Node)) {
         setControlsMenuOpen(false);
       }
+      const target = e.target as Node;
+      const inCompactBtn = compactBtnRef.current?.contains(target);
+      const inCompactConfirm = compactConfirmRef.current?.contains(target);
+      if (!inCompactBtn && !inCompactConfirm) {
+        setCompactConfirmOpen(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    if (isCompacting) setCompactConfirmOpen(false);
+  }, [isCompacting]);
 
   useEffect(() => {
     if (!isMobile) setControlsMenuOpen(false);
@@ -1893,13 +1907,30 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   </div>
                 )}
                 <button
+                  ref={compactBtnRef}
                   type="button"
-                  className={`chrome-btn${isCompacting ? " is-danger is-active" : ""}`}
-                  onClick={isCompacting ? onAbortCompaction : onCompact}
+                  className={`chrome-btn${isCompacting || compactConfirmOpen ? " is-danger is-active" : ""}`}
+                  onClick={() => {
+                    if (isCompacting) {
+                      onAbortCompaction?.();
+                      setCompactConfirmOpen(false);
+                      return;
+                    }
+                    const rect = compactBtnRef.current?.getBoundingClientRect();
+                    if (rect) {
+                      setCompactConfirmRect({
+                        top: rect.top - 8,
+                        right: window.innerWidth - rect.right,
+                      });
+                    }
+                    setCompactConfirmOpen((v) => !v);
+                  }}
                   disabled={isStreaming && !isCompacting}
                   style={isMobile ? { padding: "0 6px" } : undefined}
                   title={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
                   aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+                  aria-expanded={compactConfirmOpen}
+                  aria-haspopup="dialog"
                 >
                   {isCompacting ? (
                     <>
@@ -1916,6 +1947,54 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     </>
                   )}
                 </button>
+                {compactConfirmOpen && !isCompacting && compactConfirmRect && (
+                  <div
+                    ref={compactConfirmRef}
+                    role="dialog"
+                    aria-label={t("chat.compactConfirmTitle")}
+                    className="menu-card"
+                    style={{
+                      position: "fixed",
+                      top: compactConfirmRect.top,
+                      right: compactConfirmRect.right,
+                      transform: "translateY(-100%)",
+                      zIndex: 600,
+                      width: "min(280px, calc(100vw - 24px))",
+                      padding: 12,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+                      {t("chat.compactConfirmTitle")}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45 }}>
+                      {t("chat.compactConfirmBody")}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() => setCompactConfirmOpen(false)}
+                        style={{ fontSize: 12, padding: "4px 10px" }}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-danger"
+                        onClick={() => {
+                          setCompactConfirmOpen(false);
+                          onCompact();
+                        }}
+                        style={{ fontSize: 12, padding: "4px 10px" }}
+                      >
+                        {t("chat.compactConfirmAction")}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

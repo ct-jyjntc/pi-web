@@ -6,6 +6,8 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
+import { GitPanel } from "./GitPanel";
+import { TerminalPanel } from "./TerminalPanel";
 import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
@@ -102,7 +104,7 @@ export function AppShell() {
     setSystemPrompt(prompt);
   }, []);
 
-  // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
+  // Session stats (tokens + cost) — populated by ChatWindow, shown in right panel Context tab
   const [sessionStats, setSessionStats] = useState<SessionStatsInfo | null>(null);
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -128,24 +130,19 @@ export function AppShell() {
     };
   }, []);
 
-  // Context usage — populated by ChatWindow, displayed in top bar
+  // Context usage — populated by ChatWindow, shown in right panel footer
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
     setContextUsage(usage);
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session") => {
+  const toggleTopPanel = useCallback((panel: "branches" | "system") => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
-  }, [isMobile]);
-
-  const openSessionStatsPanel = useCallback(() => {
-    if (isMobile) setSidebarOpen(false);
-    setActiveTopPanel("session");
   }, [isMobile]);
 
   const handleSidebarToggle = useCallback(() => {
@@ -165,10 +162,41 @@ export function AppShell() {
     return () => ro.disconnect();
   }, [activeTopPanel]);
 
-  // Right panel — file tabs only
+  // Right panel — workspace tabs + drag-resizable width (left sidebar stays fixed)
+  const RIGHT_PANEL_WIDTH_KEY = "pi-right-panel-width";
+  const RIGHT_PANEL_MIN = 280;
+  const RIGHT_PANEL_MAX = 900;
+  const RIGHT_PANEL_DEFAULT = 380;
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  // Default must match SSR; hydrate width from localStorage after mount.
+  const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT);
+
+  const [rightPanelResizing, setRightPanelResizing] = useState(false);
+  const rightPanelWidthRef = useRef(rightPanelWidth);
+  rightPanelWidthRef.current = rightPanelWidth;
+  const rightPanelResizeCleanupRef = useRef<(() => void) | null>(null);
+  /** Right workspace: review + files + context + optional terminals */
+  type WorkspaceTab =
+    | { id: "review"; kind: "review" }
+    | { id: "files"; kind: "files" }
+    | { id: "context"; kind: "context" }
+    | { id: string; kind: "terminal"; label: string };
+  const [workspaceTabs, setWorkspaceTabs] = useState<WorkspaceTab[]>([
+    { id: "review", kind: "review" },
+    { id: "files", kind: "files" },
+    { id: "context", kind: "context" },
+  ]);
+  const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string>("review");
+  const [gitFocusPath, setGitFocusPath] = useState<string | null>(null);
+  const terminalSeqRef = useRef(1);
+
+  const openSessionStatsPanel = useCallback(() => {
+    if (isMobile) setSidebarOpen(false);
+    setRightPanelOpen(true);
+    setActiveWorkspaceTabId("context");
+  }, [isMobile]);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -392,6 +420,7 @@ export function AppShell() {
   }, [selectedSession, router]);
 
   const handleOpenFile = useCallback((filePath: string, fileName: string, sourceSessionId?: string | null) => {
+    // Files opened from the explorer go into the Files workspace tab.
     const tabId = `file:${filePath}`;
     setFileTabs((prev) => {
       const existing = prev.find((t) => t.id === tabId);
@@ -400,10 +429,119 @@ export function AppShell() {
       return prev.map((t) => t.id === tabId ? { ...t, sourceSessionId } : t);
     });
     setActiveFileTabId(tabId);
+    setActiveWorkspaceTabId("files");
     setRightPanelOpen(true);
-    // On mobile the file panel is full-screen; close the drawer so it shows.
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
+
+  const addTerminalTab = useCallback(() => {
+    const n = terminalSeqRef.current++;
+    const id = `terminal-${n}`;
+    setWorkspaceTabs((prev) => [...prev, { id, kind: "terminal", label: `${t("git.terminal")} ${n}` }]);
+    setActiveWorkspaceTabId(id);
+    setRightPanelOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile, t]);
+
+  const closeWorkspaceTab = useCallback((tabId: string) => {
+    if (tabId === "review" || tabId === "files") return;
+    setWorkspaceTabs((prev) => prev.filter((tab) => tab.id !== tabId));
+    setActiveWorkspaceTabId((cur) => (cur === tabId ? "review" : cur));
+  }, []);
+
+  // Load persisted width after mount (avoid SSR hydration mismatch)
+  useEffect(() => {
+    // Clear any stuck resize cursor from a previous half-finished drag
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    try {
+      const raw = window.localStorage.getItem(RIGHT_PANEL_WIDTH_KEY);
+      const n = raw ? Number(raw) : NaN;
+      if (!Number.isFinite(n)) return;
+      const max = Math.min(RIGHT_PANEL_MAX, Math.floor(window.innerWidth * 0.72));
+      setRightPanelWidth(Math.min(max, Math.max(RIGHT_PANEL_MIN, Math.round(n))));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Persist right panel width
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(rightPanelWidth));
+    } catch {
+      // ignore quota / private mode
+    }
+  }, [rightPanelWidth]);
+
+  // Always clear a half-finished resize on unmount
+  useEffect(() => () => {
+    rightPanelResizeCleanupRef.current?.();
+    rightPanelResizeCleanupRef.current = null;
+  }, []);
+
+  const handleRightPanelResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (isMobile || !rightPanelOpen) return;
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    // End any previous drag first
+    rightPanelResizeCleanupRef.current?.();
+
+    const startX = e.clientX;
+    const startW = rightPanelWidthRef.current;
+    const handle = e.currentTarget;
+    const pointerId = e.pointerId;
+    setRightPanelResizing(true);
+
+    try {
+      handle.setPointerCapture(pointerId);
+    } catch {
+      // ignore
+    }
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      // Left edge: drag left → wider, drag right → narrower
+      const delta = startX - ev.clientX;
+      const max = Math.min(RIGHT_PANEL_MAX, Math.floor(window.innerWidth * 0.72));
+      const next = Math.min(max, Math.max(RIGHT_PANEL_MIN, Math.round(startW + delta)));
+      rightPanelWidthRef.current = next;
+      setRightPanelWidth(next);
+    };
+
+    const cleanup = () => {
+      setRightPanelResizing(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", onUp);
+      try {
+        if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+      } catch {
+        // ignore
+      }
+      if (rightPanelResizeCleanupRef.current === cleanup) {
+        rightPanelResizeCleanupRef.current = null;
+      }
+    };
+
+    const onUp = (ev: Event) => {
+      if (ev instanceof PointerEvent && ev.pointerId !== pointerId) return;
+      cleanup();
+    };
+
+    rightPanelResizeCleanupRef.current = cleanup;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+    window.addEventListener("blur", onUp);
+  }, [isMobile, rightPanelOpen]);
 
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null);
@@ -412,15 +550,13 @@ export function AppShell() {
   const handleCloseFileTab = useCallback((tabId: string) => {
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0) setRightPanelOpen(false);
+      setActiveFileTabId((cur) => {
+        if (cur !== tabId) return cur;
+        return next.length > 0 ? next[next.length - 1].id : null;
+      });
       return next;
     });
-    setActiveFileTabId((cur) => {
-      if (cur !== tabId) return cur;
-      const remaining = fileTabs.filter((t) => t.id !== tabId);
-      return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
-    });
-  }, [fileTabs]);
+  }, []);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
@@ -772,104 +908,6 @@ export function AppShell() {
               </button>
             </div>
           )}
-          {/* Session stats — right-aligned in top bar */}
-          {showChat && (sessionStats || contextUsage) && (() => {
-            const tokens = sessionStats?.tokens;
-            const c = sessionStats?.cost ?? 0;
-            const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
-            const costStr = c > 0 ? (c >= 0.01 ? `$${c.toFixed(2)}` : `<$0.01`) : null;
-
-            let ctxColor = "var(--text-muted)";
-            let ctxStr: string | null = null;
-            if (contextUsage?.contextWindow) {
-              const pct = contextUsage.percent;
-              if (pct !== null && pct > 90) ctxColor = "var(--destructive)";
-              else if (pct !== null && pct > 70) ctxColor = "var(--text)";
-              ctxStr = pct !== null ? `${pct.toFixed(0)}% / ${fmt(contextUsage.contextWindow)}` : `? / ${fmt(contextUsage.contextWindow)}`;
-            }
-
-            const tooltipParts: string[] = [];
-            if (tokens) {
-              tooltipParts.push(`${t("shell.statIn")}: ${tokens.input.toLocaleString()}`);
-              tooltipParts.push(`${t("shell.statOut")}: ${tokens.output.toLocaleString()}`);
-              tooltipParts.push(`${t("shell.statCacheRead")}: ${tokens.cacheRead.toLocaleString()}`);
-              tooltipParts.push(`${t("shell.statCacheWrite")}: ${tokens.cacheWrite.toLocaleString()}`);
-              if (c > 0) tooltipParts.push(`${t("shell.statCost")}: $${c.toFixed(4)}`);
-            }
-            if (contextUsage?.contextWindow) {
-              const pct = contextUsage.percent;
-              tooltipParts.push(`${t("shell.statContext")}: ${pct !== null ? pct.toFixed(1) + "%" : t("shell.statUnknown")} of ${contextUsage.contextWindow.toLocaleString()} ${t("shell.statTokens")}`);
-            }
-            const tooltip = tooltipParts.join("  |  ");
-
-            return (
-              <>
-              <div className="chrome-divider titlebar-no-drag" aria-hidden style={{ flexShrink: 0 }} />
-              <button
-                type="button"
-                className={`chrome-btn titlebar-no-drag app-topbar-stats${activeTopPanel === "session" ? " is-active" : ""}`}
-                onClick={() => toggleTopPanel("session")}
-                title={tooltip || t("shell.sessionInfo")}
-                aria-label={t("shell.sessionInfo")}
-                aria-pressed={activeTopPanel === "session"}
-                style={{
-                  marginLeft: 0,
-                  gap: 8,
-                  paddingLeft: 10,
-                  paddingRight: 10,
-                  fontSize: 11,
-                  fontVariantNumeric: "tabular-nums",
-                  flexShrink: 1,
-                  minWidth: 0,
-                  boxShadow: activeTopPanel === "session" ? "inset 0 -2px 0 0 var(--accent)" : undefined,
-                }}
-              >
-                {isMobile && (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-                  </svg>
-                )}
-                {!isMobile && tokens && tokens.input > 0 && (
-                  <span className="app-topbar-stats-main" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
-                    </svg>
-                    {fmt(tokens.input)}
-                  </span>
-                )}
-                {!isMobile && tokens && tokens.output > 0 && (
-                  <span className="app-topbar-stats-main" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                    </svg>
-                    {fmt(tokens.output)}
-                  </span>
-                )}
-                {!isMobile && tokens && tokens.cacheRead > 0 && (
-                  <span className="app-topbar-stats-extra" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
-                    </svg>
-                    {fmt(tokens.cacheRead)}
-                  </span>
-                )}
-                {!isMobile && costStr && (
-                  <span className="app-topbar-stats-extra" style={{ display: "flex", alignItems: "center", color: "var(--text)", fontWeight: 500 }}>
-                    {costStr}
-                  </span>
-                )}
-                {ctxStr && (
-                  <span className="app-topbar-stats-extra" style={{ display: "flex", alignItems: "center", gap: 4, color: ctxColor }}>
-                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" /><line x1="1" y1="9" x2="9" y2="9" />
-                    </svg>
-                    {ctxStr}
-                  </span>
-                )}
-              </button>
-              </>
-            );
-          })()}
           </div>
 
           {/* Trailing: file panel toggle — always visible, never squeezed out */}
@@ -924,160 +962,6 @@ export function AppShell() {
                   ) : (
                     <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
                       {t("shell.systemPromptLoad")}
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeTopPanel === "session" && (
-                <div className="session-info-popover" style={{
-                  background: "var(--bg-panel)",
-                  borderBottom: "1px solid var(--border)",
-                  boxShadow: "var(--shadow-md)",
-                  padding: "12px 16px",
-                }}>
-                  {sessionStats ? (() => {
-                    const sessionRows = [
-                      ...(sessionStats.sessionName ? [{ label: t("shell.name"), value: sessionStats.sessionName, copyField: null }] : []),
-                      { label: t("shell.file"), value: sessionStats.sessionFile ?? t("shell.inMemory"), copyField: "file" as const },
-                      { label: t("shell.id"), value: sessionStats.sessionId, copyField: "id" as const },
-                    ];
-                    const messageRows = [
-                      [t("shell.user"), sessionStats.userMessages.toLocaleString()],
-                      [t("shell.assistant"), sessionStats.assistantMessages.toLocaleString()],
-                      [t("shell.toolCalls"), sessionStats.toolCalls.toLocaleString()],
-                      [t("shell.toolResults"), sessionStats.toolResults.toLocaleString()],
-                      [t("shell.total"), sessionStats.totalMessages.toLocaleString()],
-                    ];
-                    const tokenRows = [
-                      [t("shell.input"), sessionStats.tokens.input.toLocaleString()],
-                      [t("shell.output"), sessionStats.tokens.output.toLocaleString()],
-                      ...(sessionStats.tokens.cacheRead > 0 ? [[t("shell.cacheRead"), sessionStats.tokens.cacheRead.toLocaleString()]] : []),
-                      ...(sessionStats.tokens.cacheWrite > 0 ? [[t("shell.cacheWrite"), sessionStats.tokens.cacheWrite.toLocaleString()]] : []),
-                      [t("shell.total"), sessionStats.tokens.total.toLocaleString()],
-                    ];
-                    const ctx = contextUsage ?? sessionStats.contextUsage;
-                    const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
-                    const extraTokenRows = [
-                      ...(sessionStats.cost > 0 ? [[t("shell.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
-                      ...(ctx?.contextWindow ? [[t("shell.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
-                    ];
-                    const section = (
-                      title: string,
-                      sectionRows: string[][],
-                      valueAlign: "left" | "right" = "left",
-                      compact = false,
-                    ) => (
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{title}</div>
-                          <div style={{
-                            display: "grid",
-                            gridTemplateColumns: compact ? "max-content max-content" : "auto minmax(0, 1fr)",
-                            columnGap: compact ? 14 : 12,
-                            rowGap: 4,
-                            justifyContent: compact ? "start" : undefined,
-                          }}>
-                            {sectionRows.map(([label, value]) => (
-                              <div key={`${title}:${label}`} style={{ display: "contents" }}>
-                                <div style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{label}</div>
-                                <div style={{
-                                  color: "var(--text-muted)",
-                                  minWidth: 0,
-                                  overflowWrap: compact ? "normal" : "anywhere",
-                                  textAlign: valueAlign,
-                                  whiteSpace: valueAlign === "right" ? "nowrap" : "normal",
-                                }}>{value}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    const copyButton = (field: SessionCopyField, value: string) => {
-                      const copied = copiedSessionField === field;
-                      return (
-                        <button
-                          type="button"
-                          title={copied ? t("common.copied") : field === "file" ? t("shell.copyFilePath") : t("shell.copySessionId")}
-                          onClick={() => handleCopySessionField(field, value)}
-                          style={{
-                            alignSelf: "start",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: 22,
-                            height: 22,
-                            marginTop: -2,
-                            color: copied ? "var(--accent)" : "var(--text-dim)",
-                            background: "transparent",
-                            border: "1px solid var(--border)",
-                            borderRadius: "var(--radius-xs)",
-                            cursor: "pointer",
-                            flex: "0 0 auto",
-                            transition: "color 0.12s, border-color 0.12s, background 0.12s",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = "var(--accent)";
-                            e.currentTarget.style.borderColor = "var(--accent)";
-                            e.currentTarget.style.background = "var(--bg-hover)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = copied ? "var(--accent)" : "var(--text-dim)";
-                            e.currentTarget.style.borderColor = "var(--border)";
-                            e.currentTarget.style.background = "transparent";
-                          }}
-                        >
-                          {copied ? (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          ) : (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                          )}
-                        </button>
-                      );
-                    };
-                    const sessionInfoSection = (
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{t("shell.sessionInfoTitle")}</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", columnGap: 12, rowGap: 8, alignItems: "start" }}>
-                          {sessionRows.map((row) => (
-                            <div key={`session-info:${row.label}`} style={{ display: "contents" }}>
-                              <div style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{row.label}</div>
-                              <div style={{
-                                color: "var(--text-muted)",
-                                minWidth: 0,
-                                overflowWrap: "anywhere",
-                                wordBreak: "break-word",
-                                whiteSpace: "normal",
-                              }}>{row.value}</div>
-                              <div>{row.copyField ? copyButton(row.copyField, row.value) : null}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-
-                    return (
-                      <div style={{
-                        display: "grid",
-                        gridTemplateColumns: isMobile
-                          ? "1fr"
-                          : "minmax(360px, 1.7fr) minmax(140px, 0.55fr) minmax(190px, 0.75fr)",
-                        gap: isMobile ? 16 : 24,
-                        fontSize: 12,
-                        lineHeight: 1.5,
-                        fontFamily: "var(--font-mono)",
-                      }}>
-                        {sessionInfoSection}
-                        {section(t("shell.messages"), messageRows)}
-                        {section(t("shell.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
-                      </div>
-                    );
-                  })() : (
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      {t("shell.sessionInfoEmpty")}
                     </div>
                   )}
                 </div>
@@ -1150,46 +1034,530 @@ export function AppShell() {
         </div>
       </div>
 
-      {/* Right panel: file viewer — always mounted, width animated via CSS */}
+      {/*
+        Seam handle: zero layout width, sits exactly between chat rail and right panel.
+        Absolute hit target straddles the 1px border (half into rail, half into panel).
+      */}
+      {rightPanelOpen && !isMobile && (
+        <div
+          className="right-panel-seam titlebar-no-drag"
+          style={{
+            position: "relative",
+            flex: "0 0 0px",
+            width: 0,
+            minWidth: 0,
+            alignSelf: "stretch",
+            zIndex: 60,
+            overflow: "visible",
+          }}
+        >
+          <div
+            className={`right-panel-edge-resizer${rightPanelResizing ? " is-active" : ""}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuenow={rightPanelWidth}
+            aria-valuemin={RIGHT_PANEL_MIN}
+            aria-valuemax={RIGHT_PANEL_MAX}
+            aria-label={t("shell.resizeFilePanel")}
+            title={t("shell.resizeFilePanel")}
+            onPointerDown={handleRightPanelResizeStart}
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              // Center on the seam: 4px into rail, 4px into panel
+              left: -4,
+              width: 8,
+              minWidth: 8,
+              maxWidth: 8,
+              cursor: "col-resize",
+              touchAction: "none",
+              background: rightPanelResizing
+                ? "color-mix(in oklab, var(--accent) 30%, transparent)"
+                : "transparent",
+            }}
+          />
+        </div>
+      )}
+
+      {/* Right panel */}
       <div
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizing ? " is-resizing" : ""}`}
         style={{
           display: "flex",
           flexDirection: "column",
-          borderLeft: "1px solid var(--border)",
+          borderLeft: rightPanelOpen ? "1px solid var(--border)" : "none",
           background: "var(--bg)",
+          position: "relative",
+          overflow: "hidden",
+          ["--right-panel-width" as string]: `${rightPanelWidth}px`,
         }}
       >
-        {/* Right panel tab bar */}
-        <div className="app-topbar titlebar-drag desktop-top-chrome" style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: "var(--titlebar-height)" }}>
-          <div className="titlebar-no-drag" style={{ flex: 1, overflow: "hidden", minWidth: 0 }}>
-            <TabBar
-              tabs={fileTabs}
-              activeTabId={activeFileTabId ?? ""}
-              onSelectTab={setActiveFileTabId}
-              onCloseTab={handleCloseFileTab}
-            />
+        {/* Workspace tabs: Review + Files + terminals + add */}
+        <div className="app-topbar titlebar-drag desktop-top-chrome" style={{ display: "flex", flexDirection: "row", alignItems: "stretch", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: "var(--titlebar-height)" }}>
+          <div
+            className="titlebar-no-drag right-workspace-tabs"
+            style={{ display: "flex", flexDirection: "row", alignItems: "stretch", flex: 1, minWidth: 0, overflow: "hidden" }}
+          >
+            {workspaceTabs.map((tab) => {
+              const active = tab.id === activeWorkspaceTabId;
+              const label =
+                tab.kind === "review" ? t("git.review")
+                  : tab.kind === "files" ? t("git.files")
+                    : tab.kind === "context" ? t("shell.contextTab")
+                      : tab.label;
+              const ctxPctBadge = contextUsage?.percent;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`right-workspace-tab${active ? " is-active" : ""}`}
+                  onClick={() => setActiveWorkspaceTabId(tab.id)}
+                  style={{
+                    display: "inline-flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    height: "100%",
+                    padding: "0 10px 0 12px",
+                    border: "none",
+                    borderRight: "1px solid var(--border)",
+                    background: active ? "var(--bg)" : "transparent",
+                    color: active ? "var(--text)" : "var(--text-muted)",
+                    cursor: "pointer",
+                    font: "inherit",
+                    fontSize: 12,
+                    fontWeight: active ? 500 : 400,
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    maxWidth: 160,
+                  }}
+                >
+                  {tab.kind === "review" ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  ) : tab.kind === "files" ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                  ) : tab.kind === "context" ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                      <path d="M3 20V10a9 9 0 0 1 18 0v10" /><line x1="3" y1="20" x2="21" y2="20" />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                      <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+                    </svg>
+                  )}
+                  <span className="right-workspace-tab-label" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{label}</span>
+                  {tab.kind === "context" && ctxPctBadge != null && (
+                    <span
+                      className="right-workspace-tab-count"
+                      style={{
+                        fontSize: 10,
+                        fontVariantNumeric: "tabular-nums",
+                        color: ctxPctBadge > 90 ? "var(--destructive)" : "var(--text-dim)",
+                        background: "var(--bg-subtle)",
+                        borderRadius: "var(--radius-pill)",
+                        padding: "0 6px",
+                        minWidth: 16,
+                        textAlign: "center",
+                        lineHeight: "16px",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {`${Math.round(ctxPctBadge)}%`}
+                    </span>
+                  )}
+                  {tab.kind === "files" && fileTabs.length > 0 && (
+                    <span
+                      className="right-workspace-tab-count"
+                      style={{
+                        fontSize: 10,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "var(--text-dim)",
+                        background: "var(--bg-subtle)",
+                        borderRadius: "var(--radius-pill)",
+                        padding: "0 6px",
+                        minWidth: 16,
+                        textAlign: "center",
+                        lineHeight: "16px",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {fileTabs.length}
+                    </span>
+                  )}
+                  {tab.kind === "terminal" && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="file-subtab-close"
+                      onClick={(e) => { e.stopPropagation(); closeWorkspaceTab(tab.id); }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          closeWorkspaceTab(tab.id);
+                        }
+                      }}
+                      title={t("tab.close")}
+                      aria-label={t("tab.close")}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 20,
+                        height: 20,
+                        borderRadius: "var(--radius-xs)",
+                        color: "var(--text-dim)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ display: "block" }}>
+                        <line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" />
+                      </svg>
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="chrome-btn is-icon right-workspace-add"
+              onClick={addTerminalTab}
+              title={t("git.newTerminal")}
+              aria-label={t("git.newTerminal")}
+              style={{ width: 36, minWidth: 36, height: "100%", minHeight: 0, borderRadius: 0, borderRight: "1px solid var(--border)" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ display: "block" }}>
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+            <div className="titlebar-drag" style={{ flex: 1, height: "100%" }} aria-hidden />
           </div>
         </div>
 
-        {/* File content */}
-        <div style={{ flex: 1, overflow: "hidden" }}>
-          {activeFileTab?.filePath ? (
-            <FileViewer
-              filePath={activeFileTab.filePath}
-              cwd={activeCwd ?? undefined}
-              sourceSessionId={activeFileTab.sourceSessionId}
-              gitRefreshKey={explorerRefreshKey}
-              onOpenFile={(filePath) => handleOpenFile(
-                filePath,
-                getFileName(filePath),
-                activeFileTab.sourceSessionId,
-              )}
+        <div style={{ flex: 1, overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column" }}>
+          {activeWorkspaceTabId === "review" ? (
+            <GitPanel
+              cwd={activeCwd}
+              refreshKey={explorerRefreshKey}
+              focusPath={gitFocusPath}
+              defaultExpanded
+              onOpenFile={(filePath, fileName) => {
+                // From review: open the file in the Files tab for full source view.
+                handleOpenFile(filePath, fileName);
+              }}
             />
+          ) : activeWorkspaceTabId === "files" ? (
+            <>
+              {fileTabs.length > 0 && (
+                <TabBar
+                  tabs={fileTabs}
+                  activeTabId={activeFileTabId ?? ""}
+                  onSelectTab={setActiveFileTabId}
+                  onCloseTab={handleCloseFileTab}
+                />
+              )}
+              <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
+                {activeFileTab?.filePath ? (
+                  <FileViewer
+                    filePath={activeFileTab.filePath}
+                    cwd={activeCwd ?? undefined}
+                    sourceSessionId={activeFileTab.sourceSessionId}
+                    gitRefreshKey={explorerRefreshKey}
+                    onOpenFile={(filePath) => handleOpenFile(
+                      filePath,
+                      getFileName(filePath),
+                      activeFileTab.sourceSessionId,
+                    )}
+                  />
+                ) : (
+                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+                    {t("shell.noFileOpen")}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : activeWorkspaceTabId === "context" ? (
+            (() => {
+              const tokens = sessionStats?.tokens;
+              const c = sessionStats?.cost ?? 0;
+              const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
+              const ctx = contextUsage ?? sessionStats?.contextUsage ?? null;
+              let ctxColor = "var(--text-muted)";
+              let ctxPct: number | null = null;
+              if (ctx?.contextWindow) {
+                ctxPct = ctx.percent;
+                if (ctxPct !== null && ctxPct > 90) ctxColor = "var(--destructive)";
+                else if (ctxPct !== null && ctxPct > 70) ctxColor = "var(--text)";
+              }
+
+              const sectionHeader = (title: string) => (
+                <div
+                  className="context-panel-section"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    minHeight: 28,
+                    padding: "0 12px",
+                    borderBottom: "1px solid var(--border)",
+                    background: "var(--bg-panel)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--text-dim)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {title}
+                </div>
+              );
+
+              const kvRow = (label: string, value: string, mono = false) => (
+                <div
+                  key={`${label}:${value}`}
+                  className="context-panel-row"
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 12,
+                    minHeight: 32,
+                    padding: "6px 12px",
+                    borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ color: "var(--text-dim)", whiteSpace: "nowrap", flexShrink: 0, lineHeight: "20px" }}>{label}</span>
+                  <span style={{
+                    marginLeft: "auto",
+                    color: "var(--text-muted)",
+                    textAlign: "right",
+                    minWidth: 0,
+                    overflowWrap: "anywhere",
+                    wordBreak: mono ? "break-all" : "normal",
+                    fontFamily: mono ? "var(--font-mono)" : "inherit",
+                    fontVariantNumeric: "tabular-nums",
+                    lineHeight: "20px",
+                  }}>{value}</span>
+                </div>
+              );
+
+              const usageRows: string[][] = [];
+              if (ctx?.contextWindow) {
+                usageRows.push([t("shell.context"), ctxPct !== null ? `${ctxPct.toFixed(1)}%` : t("shell.statUnknown")]);
+                usageRows.push([t("shell.statTokens"), ctx.tokens != null ? `${fmt(ctx.tokens)} / ${fmt(ctx.contextWindow)}` : fmt(ctx.contextWindow)]);
+              }
+              if (tokens) {
+                if (tokens.input > 0) usageRows.push([t("shell.input"), tokens.input.toLocaleString()]);
+                if (tokens.output > 0) usageRows.push([t("shell.output"), tokens.output.toLocaleString()]);
+                if (tokens.cacheRead > 0) usageRows.push([t("shell.cacheRead"), tokens.cacheRead.toLocaleString()]);
+                if (tokens.cacheWrite > 0) usageRows.push([t("shell.cacheWrite"), tokens.cacheWrite.toLocaleString()]);
+                if (tokens.total > 0) usageRows.push([t("shell.total"), tokens.total.toLocaleString()]);
+              }
+              if (c > 0) usageRows.push([t("shell.cost"), `$${c.toFixed(4)}`]);
+
+              return (
+                <div
+                  className="git-panel context-panel"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    height: "100%",
+                    minHeight: 0,
+                    flex: 1,
+                    background: "var(--bg)",
+                  }}
+                >
+                  {/* Toolbar — same strip language as Review */}
+                  <div
+                    className="git-panel-toolbar"
+                    style={{
+                      display: "flex",
+                      alignItems: "stretch",
+                      minHeight: 36,
+                      height: 36,
+                      borderBottom: "1px solid var(--border)",
+                      background: "var(--bg-panel)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div
+                      className="git-panel-title"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        height: "100%",
+                        padding: "0 12px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--text)",
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <span>{t("shell.contextTab")}</span>
+                      {ctxPct != null && (
+                        <span
+                          className="git-panel-stats"
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 500,
+                            fontVariantNumeric: "tabular-nums",
+                            color: ctxColor,
+                          }}
+                        >
+                          {`${Math.round(ctxPct)}%`}
+                        </span>
+                      )}
+                      {c > 0 && (
+                        <span
+                          className="git-panel-stats"
+                          style={{ fontSize: 11, fontWeight: 500, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}
+                        >
+                          {`$${c.toFixed(2)}`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="git-panel-toolbar-actions" style={{ display: "flex", alignItems: "stretch", marginLeft: "auto", flexShrink: 0 }}>
+                      {sessionStats?.sessionFile && (
+                        <button
+                          type="button"
+                          className="chrome-btn is-icon"
+                          onClick={() => handleCopySessionField("file", sessionStats.sessionFile!)}
+                          title={copiedSessionField === "file" ? t("common.copied") : t("shell.copyFilePath")}
+                          aria-label={t("shell.copyFilePath")}
+                          style={{ height: "100%", minHeight: 0, width: 36, minWidth: 36, borderLeft: "1px solid var(--border)", borderRadius: 0 }}
+                        >
+                          {copiedSessionField === "file" ? (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          ) : (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                      {sessionStats && (
+                        <button
+                          type="button"
+                          className="chrome-btn is-icon"
+                          onClick={() => handleCopySessionField("id", sessionStats.sessionId)}
+                          title={copiedSessionField === "id" ? t("common.copied") : t("shell.copySessionId")}
+                          aria-label={t("shell.copySessionId")}
+                          style={{ height: "100%", minHeight: 0, width: 36, minWidth: 36, borderLeft: "1px solid var(--border)", borderRadius: 0 }}
+                        >
+                          {copiedSessionField === "id" ? (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          ) : (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Meter strip — same height language as git subheader */}
+                  {ctx?.contextWindow && (
+                    <div
+                      className="git-panel-subheader"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        minHeight: 32,
+                        height: 32,
+                        padding: "0 12px",
+                        borderBottom: "1px solid var(--border)",
+                        background: "var(--bg)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <div
+                        aria-hidden
+                        style={{
+                          flex: 1,
+                          height: 4,
+                          borderRadius: "var(--radius-pill)",
+                          background: "var(--bg-subtle)",
+                          border: "1px solid var(--border)",
+                          overflow: "hidden",
+                          minWidth: 0,
+                        }}
+                      >
+                        <div style={{
+                          height: "100%",
+                          width: `${Math.min(100, Math.max(0, ctxPct ?? 0))}%`,
+                          background: ctxColor === "var(--destructive)" ? "var(--destructive)" : "var(--accent)",
+                          opacity: 0.85,
+                        }} />
+                      </div>
+                      <span style={{
+                        fontSize: 11,
+                        fontVariantNumeric: "tabular-nums",
+                        color: ctxColor,
+                        flexShrink: 0,
+                        fontFamily: "var(--font-mono)",
+                      }}>
+                        {ctx.tokens != null
+                          ? `${fmt(ctx.tokens)} / ${fmt(ctx.contextWindow)}`
+                          : (ctxPct !== null ? `${ctxPct.toFixed(0)}%` : fmt(ctx.contextWindow))}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="git-panel-body" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+                    {!sessionStats && !ctx?.contextWindow ? (
+                      <div style={{
+                        padding: "24px 12px",
+                        textAlign: "center",
+                        color: "var(--text-dim)",
+                        fontSize: 12,
+                      }}>
+                        {t("shell.sessionInfoEmpty")}
+                      </div>
+                    ) : (
+                      <>
+                        {usageRows.length > 0 && (
+                          <>
+                            {sectionHeader(t("shell.contextUsage"))}
+                            {usageRows.map(([label, value]) => kvRow(label, value))}
+                          </>
+                        )}
+
+                        {sessionStats && (
+                          <>
+                            {sectionHeader(t("shell.sessionInfoTitle"))}
+                            {sessionStats.sessionName && kvRow(t("shell.name"), sessionStats.sessionName)}
+                            {kvRow(t("shell.file"), sessionStats.sessionFile ?? t("shell.inMemory"), true)}
+                            {kvRow(t("shell.id"), sessionStats.sessionId, true)}
+
+                            {sectionHeader(t("shell.messages"))}
+                            {kvRow(t("shell.user"), sessionStats.userMessages.toLocaleString())}
+                            {kvRow(t("shell.assistant"), sessionStats.assistantMessages.toLocaleString())}
+                            {kvRow(t("shell.toolCalls"), sessionStats.toolCalls.toLocaleString())}
+                            {kvRow(t("shell.toolResults"), sessionStats.toolResults.toLocaleString())}
+                            {kvRow(t("shell.total"), sessionStats.totalMessages.toLocaleString())}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()
           ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
-              {t("shell.noFileOpen")}
-            </div>
+            <TerminalPanel key={activeWorkspaceTabId} cwd={activeCwd} />
           )}
         </div>
       </div>

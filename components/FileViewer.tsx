@@ -201,7 +201,7 @@ function diffLines(patch: string): DiffLine[] {
   }));
 }
 
-function DiffView({ patch }: { patch: string }) {
+export function DiffView({ patch, wrapLines = true }: { patch: string; wrapLines?: boolean }) {
   const diff = diffLines(patch);
 
   const hasChanges = diff.some((l) => l.type !== "unchanged");
@@ -245,9 +245,9 @@ function DiffView({ patch }: { patch: string }) {
 
   return (
     <div
-      className="file-diff-view"
+      className={`file-diff-view${wrapLines ? " is-wrapped" : ""}`}
       style={{
-        width: "max-content",
+        width: wrapLines ? "100%" : "max-content",
         minWidth: "100%",
         ...FILE_CODE_STYLE,
       }}
@@ -257,14 +257,7 @@ function DiffView({ patch }: { patch: string }) {
           const result = (
             <div
               key={si}
-              style={{
-                padding: "2px 16px",
-                color: "var(--text-dim)",
-                background: "var(--bg-panel)",
-                fontSize: 11,
-                borderTop: "1px solid var(--border)",
-                borderBottom: "1px solid var(--border)",
-              }}
+              className="file-diff-collapsed"
             >
               ... {seg.count} unchanged lines ...
             </div>
@@ -286,10 +279,12 @@ function DiffView({ patch }: { patch: string }) {
           return (
             <div
               key={li}
-              className="file-diff-line"
+              className={`file-diff-line file-diff-line-${line.type}`}
               style={{
                 display: "flex",
-                minWidth: "100%",
+                alignItems: "flex-start",
+                width: "100%",
+                minWidth: 0,
                 background: bg,
                 borderLeft: line.type === "added"
                   ? "3px solid var(--success)"
@@ -298,9 +293,7 @@ function DiffView({ patch }: { patch: string }) {
                   : "3px solid transparent",
               }}
             >
-              <span
-                style={FILE_LINE_NUMBER_STYLE}
-              >
+              <span style={FILE_LINE_NUMBER_STYLE}>
                 {line.type === "removed" ? line.oldLineNo : line.newLineNo}
               </span>
               <span
@@ -311,6 +304,7 @@ function DiffView({ patch }: { patch: string }) {
                   userSelect: "none",
                   flexShrink: 0,
                   fontWeight: 600,
+                  lineHeight: "20.8px",
                 }}
               >
                 {prefix}
@@ -318,9 +312,12 @@ function DiffView({ patch }: { patch: string }) {
               <span
                 className="file-diff-line-content"
                 style={{
-                  flexShrink: 0,
-                  padding: "0 8px 0 0",
-                  whiteSpace: "pre",
+                  flex: "1 1 auto",
+                  minWidth: 0,
+                  padding: "0 10px 0 0",
+                  whiteSpace: wrapLines ? "pre-wrap" : "pre",
+                  overflowWrap: wrapLines ? "anywhere" : "normal",
+                  wordBreak: wrapLines ? "break-word" : "normal",
                   color: "var(--text)",
                 }}
               >
@@ -732,7 +729,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [displayMode, setDisplayMode] = useState<DisplayMode>("source");
-  const [wrapLines, setWrapLines] = useState(false);
+  const [wrapLines, setWrapLines] = useState(true);
   const [watching, setWatching] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const gitDiffRequestRef = useRef(0);
