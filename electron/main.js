@@ -274,8 +274,10 @@ function createWindow(port) {
     autoHideMenuBar: true,
     ...(isMac
       ? {
+          // Immersive chrome: traffic lights sit in the left of the 40px top strip
+          // (matches --titlebar-height / --traffic-lights-pad in app/globals.css).
           titleBarStyle: "hiddenInset",
-          trafficLightPosition: { x: 14, y: 12 },
+          trafficLightPosition: { x: 16, y: 13 },
         }
       : {
           titleBarStyle: "hidden",

@@ -63,10 +63,18 @@ export function AppShell() {
     const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
     if (!desktop?.isDesktop) return;
     const root = document.documentElement;
+    const platformClass =
+      desktop.platform === "darwin"
+        ? "pi-desktop-mac"
+        : desktop.platform === "win32"
+          ? "pi-desktop-win"
+          : desktop.platform === "linux"
+            ? "pi-desktop-linux"
+            : null;
     root.classList.add("pi-desktop");
-    if (desktop.platform === "darwin") root.classList.add("pi-desktop-mac");
+    if (platformClass) root.classList.add(platformClass);
     return () => {
-      root.classList.remove("pi-desktop", "pi-desktop-mac");
+      root.classList.remove("pi-desktop", "pi-desktop-mac", "pi-desktop-win", "pi-desktop-linux");
     };
   }, []);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
@@ -626,23 +634,20 @@ export function AppShell() {
         {/* Top bar with sidebar toggle */}
         <div
           ref={topBarRef}
-          className="titlebar-drag desktop-top-chrome"
+          className="app-topbar titlebar-drag desktop-top-chrome"
           style={{
             display: "flex",
             alignItems: "stretch",
             flexShrink: 0,
             borderBottom: "1px solid var(--border)",
-            height: 36,
+            height: "var(--titlebar-height)",
             background: "var(--bg-panel)",
           }}
         >
-          {/* When sidebar is closed on macOS desktop, leave room for traffic lights */}
+          {/* When sidebar is closed on macOS desktop, leave room for traffic lights.
+              --traffic-lights-pad is 0 on web / win / linux. */}
           {!sidebarOpen && (
-            <div
-              className="titlebar-drag"
-              aria-hidden
-              style={{ width: "var(--traffic-lights-pad, 0px)", flexShrink: 0 }}
-            />
+            <div className="traffic-lights-spacer titlebar-drag" aria-hidden />
           )}
           <button
             className="titlebar-no-drag"
@@ -1296,7 +1301,7 @@ export function AppShell() {
         }}
       >
         {/* Right panel tab bar */}
-        <div className="titlebar-drag desktop-top-chrome" style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36 }}>
+        <div className="app-topbar titlebar-drag desktop-top-chrome" style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: "var(--titlebar-height)" }}>
           <div className="titlebar-no-drag" style={{ flex: 1, overflow: "hidden", minWidth: 0 }}>
             <TabBar
               tabs={fileTabs}

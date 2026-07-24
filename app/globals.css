@@ -130,11 +130,27 @@ html, body {
   overscroll-behavior: none;
 }
 
-/* Electron immersive titlebar */
+/* Electron immersive titlebar
+   - Web default sidebar 240px / chrome 36px
+   - Desktop mac: leave left pad for traffic lights; slightly wider sidebar
+   - Desktop win/linux: no left pad (window controls are on the right) */
+:root {
+  --titlebar-height: 36px;
+  --traffic-lights-pad: 0px;
+  --sidebar-width: 240px;
+}
+
 html.pi-desktop {
-  --titlebar-height: 38px;
-  /* Space for macOS traffic lights when sidebar header is the left chrome */
-  --traffic-lights-pad: 72px;
+  --titlebar-height: 36px;
+  --traffic-lights-pad: 0px;
+  --sidebar-width: 248px;
+}
+
+html.pi-desktop.pi-desktop-mac {
+  /* 3 traffic lights (~52) + x offset 16 + breathing room */
+  --titlebar-height: 40px;
+  --traffic-lights-pad: 80px;
+  --sidebar-width: 272px;
 }
 
 html.pi-desktop body {
@@ -151,15 +167,28 @@ html.pi-desktop .titlebar-no-drag * {
   -webkit-app-region: no-drag !important;
 }
 
-html.pi-desktop .desktop-top-chrome {
+/* Single-row top chrome (chat top bar / right panel tabs) — NOT multi-row sidebar header */
+html.pi-desktop .app-topbar {
+  height: var(--titlebar-height) !important;
   min-height: var(--titlebar-height);
-  padding-top: env(titlebar-area-height, 0px);
+  box-sizing: border-box;
 }
 
-/* macOS: first sidebar strip aligns with top bar; drag pad clears traffic lights */
-html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row > .sidebar-toolbar-drag {
+/* macOS: first sidebar strip clears traffic lights + matches top bar height */
+html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row.sidebar-toolbar-row {
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
+}
+
+/* Empty pad under traffic lights — pure drag region. Width is 0 outside macOS. */
+.traffic-lights-spacer {
+  width: var(--traffic-lights-pad);
   min-width: var(--traffic-lights-pad);
   flex: 0 0 var(--traffic-lights-pad);
+  height: 100%;
+}
+html.pi-desktop .traffic-lights-spacer {
+  -webkit-app-region: drag;
 }
 
 /* Safety: never let drag regions swallow sidebar pickers / buttons */
@@ -785,8 +814,8 @@ span.linenumber {
     transition: width 0.2s ease, min-width 0.2s ease;
   }
   .sidebar-container.sidebar-open {
-    width: 240px;
-    min-width: 240px;
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
   }
   .sidebar-container.sidebar-closed {
     width: 0;
@@ -795,8 +824,8 @@ span.linenumber {
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
   .sidebar-container > * {
-    width: 240px;
-    min-width: 240px;
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
   }
 }
 
@@ -1010,14 +1039,6 @@ span.linenumber {
   min-height: 36px;
   border-bottom: 1px solid var(--border);
   background: transparent;
-}
-
-.sidebar-toolbar-drag {
-  flex: 0 0 0;
-  width: 0;
-  min-width: 0;
-  height: 100%;
-  overflow: hidden;
 }
 
 /* Full-height strip control (same grammar as top bar buttons) */

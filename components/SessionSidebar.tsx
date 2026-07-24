@@ -712,12 +712,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       {/* Header mirrors AppShell top bar: flat 36px strips + vertical dividers.
           Project/worktree pickers MUST stay titlebar-no-drag or Electron steals clicks. */}
       <div
-        className="sidebar-desktop-header desktop-top-chrome"
+        className="sidebar-desktop-header"
         style={{ flexShrink: 0 }}
       >
-        {/* Row 1: project path + New + Refresh */}
+        {/* Row 1: project path + New + Refresh — height matches app top bar on macOS */}
         <div className="sidebar-toolbar-row sidebar-desktop-title-row titlebar-drag">
-          <div className="titlebar-drag sidebar-toolbar-drag" aria-hidden />
+          {/* macOS: reserves space under traffic lights; --traffic-lights-pad is 0 elsewhere */}
+          <div className="titlebar-drag traffic-lights-spacer" aria-hidden />
           <div ref={dropdownRef} className="titlebar-no-drag" style={{ position: "relative", flex: 1, minWidth: 0, display: "flex" }}>
             <button
               type="button"
