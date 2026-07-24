@@ -422,15 +422,6 @@ export function AppShell() {
     });
   }, [fileTabs]);
 
-  const handleViewFullHistory = useCallback(() => {
-    if (!selectedSession) return;
-    window.open(
-      `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-  }, [selectedSession]);
-
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
@@ -626,6 +617,8 @@ export function AppShell() {
             borderBottom: "1px solid var(--border)",
             height: "var(--titlebar-height)",
             background: "var(--bg-panel)",
+            overflow: "hidden",
+            minWidth: 0,
           }}
         >
           {/* When sidebar is closed on macOS desktop, leave room for traffic lights.
@@ -633,8 +626,8 @@ export function AppShell() {
           {!sidebarOpen && (
             <div className="traffic-lights-spacer titlebar-drag" aria-hidden />
           )}
-          {/* Left cluster: shell controls — no internal dividers */}
-          <div className="chrome-cluster titlebar-no-drag">
+          {/* Left cluster: shell controls — never shrink */}
+          <div className="chrome-cluster titlebar-no-drag" style={{ flexShrink: 0 }}>
             <button
               type="button"
               className="chrome-btn is-icon"
@@ -690,26 +683,12 @@ export function AppShell() {
               <span style={{ opacity: locale === "zh" ? 1 : 0.45 }}>中</span>
             </button>
           </div>
-          <div className="chrome-divider" aria-hidden />
-          {/* Flexible drag region between chrome clusters */}
-          <div className="titlebar-drag" style={{ flex: 1, minWidth: 12, height: "100%" }} aria-hidden />
+          <div className="chrome-divider" aria-hidden style={{ flexShrink: 0 }} />
+          {/* Middle: drag + chat actions + stats — may collapse when narrow */}
+          <div className="app-topbar-middle titlebar-drag">
+          <div className="titlebar-drag" style={{ flex: 1, minWidth: 8, height: "100%" }} aria-hidden />
           {showChat && (
-            <div className="chrome-cluster titlebar-no-drag">
-              <button
-                type="button"
-                className="chrome-btn"
-                onClick={handleViewFullHistory}
-                disabled={!selectedSession}
-                title={selectedSession ? t("shell.fullHistoryTitle") : t("shell.fullHistoryDisabled")}
-                aria-label={t("shell.fullHistoryTitle")}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-                  <path d="M3 3v5h5" />
-                  <path d="M12 7v5l3 2" />
-                </svg>
-                {!isMobile && <span>{t("shell.fullHistory")}</span>}
-              </button>
+            <div className="chrome-cluster titlebar-no-drag app-topbar-actions">
               {(() => {
                 const hasMessages = Boolean(
                   selectedSession
@@ -825,21 +804,23 @@ export function AppShell() {
 
             return (
               <>
-              <div className="chrome-divider titlebar-no-drag" aria-hidden />
+              <div className="chrome-divider titlebar-no-drag" aria-hidden style={{ flexShrink: 0 }} />
               <button
                 type="button"
-                className={`chrome-btn titlebar-no-drag${activeTopPanel === "session" ? " is-active" : ""}`}
+                className={`chrome-btn titlebar-no-drag app-topbar-stats${activeTopPanel === "session" ? " is-active" : ""}`}
                 onClick={() => toggleTopPanel("session")}
                 title={tooltip || t("shell.sessionInfo")}
                 aria-label={t("shell.sessionInfo")}
                 aria-pressed={activeTopPanel === "session"}
                 style={{
                   marginLeft: 0,
-                  gap: 10,
-                  paddingLeft: 12,
-                  paddingRight: 12,
+                  gap: 8,
+                  paddingLeft: 10,
+                  paddingRight: 10,
                   fontSize: 11,
                   fontVariantNumeric: "tabular-nums",
+                  flexShrink: 1,
+                  minWidth: 0,
                   boxShadow: activeTopPanel === "session" ? "inset 0 -2px 0 0 var(--accent)" : undefined,
                 }}
               >
@@ -849,7 +830,7 @@ export function AppShell() {
                   </svg>
                 )}
                 {!isMobile && tokens && tokens.input > 0 && (
-                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className="app-topbar-stats-main" style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
                     </svg>
@@ -857,7 +838,7 @@ export function AppShell() {
                   </span>
                 )}
                 {!isMobile && tokens && tokens.output > 0 && (
-                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className="app-topbar-stats-main" style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
                     </svg>
@@ -865,7 +846,7 @@ export function AppShell() {
                   </span>
                 )}
                 {!isMobile && tokens && tokens.cacheRead > 0 && (
-                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className="app-topbar-stats-extra" style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
                     </svg>
@@ -873,12 +854,12 @@ export function AppShell() {
                   </span>
                 )}
                 {!isMobile && costStr && (
-                  <span style={{ display: "flex", alignItems: "center", color: "var(--text)", fontWeight: 500 }}>
+                  <span className="app-topbar-stats-extra" style={{ display: "flex", alignItems: "center", color: "var(--text)", fontWeight: 500 }}>
                     {costStr}
                   </span>
                 )}
                 {ctxStr && (
-                  <span style={{ display: "flex", alignItems: "center", gap: 4, color: ctxColor }}>
+                  <span className="app-topbar-stats-extra" style={{ display: "flex", alignItems: "center", gap: 4, color: ctxColor }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" /><line x1="1" y1="9" x2="9" y2="9" />
                     </svg>
@@ -889,18 +870,24 @@ export function AppShell() {
               </>
             );
           })()}
-          <div className="chrome-divider titlebar-no-drag" aria-hidden />
-          <button
-            type="button"
-            className={`chrome-btn is-icon titlebar-no-drag${rightPanelOpen ? " is-active" : ""}`}
-            onClick={() => setRightPanelOpen((v) => !v)}
-            title={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
-            aria-label={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-            </svg>
-          </button>
+          </div>
+
+          {/* Trailing: file panel toggle — always visible, never squeezed out */}
+          <div className="app-topbar-trailing titlebar-no-drag">
+            <div className="chrome-divider" aria-hidden />
+            <button
+              type="button"
+              className={`chrome-btn is-icon${rightPanelOpen ? " is-active" : ""}`}
+              onClick={() => setRightPanelOpen((v) => !v)}
+              title={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
+              aria-label={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
+              style={{ flexShrink: 0 }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+              </svg>
+            </button>
+          </div>
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
             <div style={{

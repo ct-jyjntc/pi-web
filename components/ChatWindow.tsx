@@ -54,7 +54,9 @@ function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Record<stri
   return t("window.thinking");
 }
 
-const CHAT_MINIMAP_WIDTH = 36;
+/** Match app-topbar trailing icon column: 1px divider + 36px button = 37px total. */
+const CHAT_RAIL_BTN_WIDTH = 36;
+const CHAT_RAIL_WIDTH = CHAT_RAIL_BTN_WIDTH + 1; // + left divider
 const CHAT_COLUMN_PADDING = 16;
 
 function hasFinalAssistantAnswer(message: AgentMessage): boolean {
@@ -764,48 +766,61 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         </div>
         </div>
 
-        {/* Full-height right rail: minimap + always-visible jump-to-bottom, extends to page bottom */}
+        {/* Full-height right rail: same width grammar as topbar file-panel control
+            (1px chrome-divider + 36px icon column). */}
         {isMobile ? null : (
           <div
             className="chat-scroll-rail"
             style={{
-              width: CHAT_MINIMAP_WIDTH,
+              width: CHAT_RAIL_WIDTH,
               flexShrink: 0,
               display: "flex",
-              flexDirection: "column",
+              flexDirection: "row",
               alignSelf: "stretch",
-              borderLeft: "1px solid var(--border)",
               background: "var(--bg-panel)",
               minHeight: 0,
             }}
           >
-            <ChatMinimap
-              messages={messages}
-              streamingMessage={streamState.streamingMessage}
-              scrollContainer={scrollContainerRef}
-              messageRefs={messageRefs}
-            />
-            <button
-              type="button"
-              className={`chrome-btn is-icon${stickToBottom ? " is-active" : ""}`}
-              onClick={resumeStickToBottom}
-              title={t("window.scrollToBottom")}
-              aria-label={t("window.scrollToBottom")}
-              aria-pressed={stickToBottom}
+            <div className="chrome-divider" aria-hidden style={{ alignSelf: "stretch" }} />
+            <div
               style={{
-                width: "100%",
-                minWidth: 0,
-                height: 36,
-                minHeight: 36,
-                borderTop: "1px solid var(--border)",
-                color: stickToBottom ? "var(--text-dim)" : "var(--text-muted)",
+                width: CHAT_RAIL_BTN_WIDTH,
+                minWidth: CHAT_RAIL_BTN_WIDTH,
+                flex: "0 0 auto",
+                display: "flex",
+                flexDirection: "column",
+                minHeight: 0,
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M12 5v14" />
-                <path d="m19 12-7 7-7-7" />
-              </svg>
-            </button>
+              <ChatMinimap
+                messages={messages}
+                streamingMessage={streamState.streamingMessage}
+                scrollContainer={scrollContainerRef}
+                messageRefs={messageRefs}
+              />
+              <button
+                type="button"
+                className={`chrome-btn is-icon${stickToBottom ? " is-active" : ""}`}
+                onClick={resumeStickToBottom}
+                title={t("window.scrollToBottom")}
+                aria-label={t("window.scrollToBottom")}
+                aria-pressed={stickToBottom}
+                style={{
+                  width: CHAT_RAIL_BTN_WIDTH,
+                  minWidth: CHAT_RAIL_BTN_WIDTH,
+                  height: 36,
+                  minHeight: 36,
+                  borderTop: "1px solid var(--border)",
+                  borderRadius: 0,
+                  color: stickToBottom ? "var(--text-dim)" : "var(--text-muted)",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 5v14" />
+                  <path d="m19 12-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
           </div>
         )}
 
@@ -921,6 +936,21 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
 
 type ExtensionDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 
+/** Split jammed permission titles like "Permission Required Current agent..." into heading + body. */
+function splitExtensionCopy(title: string, message?: string): { heading: string; body: string } {
+  const full = [title, message].filter((part) => Boolean(part && part.trim())).join("\n\n").trim();
+  const headingMatch = full.match(/^(Permission Required|权限请求|需要权限|批准请求|Allow|Deny)([\s.:：-]*)/i);
+  if (headingMatch) {
+    const heading = headingMatch[1].replace(/\b\w/g, (c) => c.toUpperCase());
+    const body = full.slice(headingMatch[0].length).trim();
+    return { heading: heading || title, body: body || message || "" };
+  }
+  if (title.length > 72) {
+    return { heading: `${title.slice(0, 48).trim()}…`, body: full };
+  }
+  return { heading: title, body: (message ?? "").trim() };
+}
+
 function ExtensionDialog({
   request,
   onRespond,
@@ -943,12 +973,16 @@ function ExtensionDialog({
     }
   };
 
+  const rawMessage = request.method === "confirm" ? request.message : "";
   const isPermissionLike =
-    /permission|allow|deny|policy|批准|权限|允许|拒绝/i.test(request.title)
-    || (request.method === "confirm" && /permission|bash|tool|命令|工具/i.test(request.message));
+    /permission|allow|deny|policy|批准|权限|允许|拒绝|bash|tool|命令|工具/i.test(`${request.title}\n${rawMessage}`);
+  const { heading, body } = splitExtensionCopy(request.title, rawMessage || undefined);
+  const showBodyPanel = Boolean(body) || (request.method === "confirm" && Boolean(rawMessage));
+  const bodyText = body || rawMessage;
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: "absolute",
         inset: 0,
@@ -964,8 +998,12 @@ function ExtensionDialog({
       <div
         role="dialog"
         aria-modal="true"
+        className="modal-shell"
         style={{
-          width: "min(520px, 100%)",
+          width: isPermissionLike ? "min(640px, 100%)" : "min(520px, 100%)",
+          maxHeight: "min(80vh, 720px)",
+          display: "flex",
+          flexDirection: "column",
           border: "1px solid var(--border)",
           borderRadius: "var(--radius-lg)",
           background: "var(--bg)",
@@ -973,82 +1011,124 @@ function ExtensionDialog({
           overflow: "hidden",
         }}
       >
-        <div style={{ padding: "14px 16px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isPermissionLike && (
-              <span
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: "var(--radius-sm)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "color-mix(in oklab, var(--destructive) 12%, var(--bg-panel))",
-                  color: "var(--destructive)",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  flexShrink: 0,
-                }}
-              >
-                !
-              </span>
-            )}
-            <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>{request.title}</div>
+        {/* Header strip */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            minHeight: 44,
+            height: 44,
+            padding: "0 16px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            flexShrink: 0,
+          }}
+        >
+          {isPermissionLike && (
+            <span
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "var(--radius-sm)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "color-mix(in oklab, var(--destructive) 12%, var(--bg))",
+                color: "var(--destructive)",
+                fontSize: 12,
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              !
+            </span>
+          )}
+          <div
+            style={{
+              minWidth: 0,
+              color: "var(--text)",
+              fontSize: 14,
+              fontWeight: 600,
+              letterSpacing: "-0.01em",
+              lineHeight: 1.3,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={heading}
+          >
+            {heading}
           </div>
         </div>
 
-        <div style={{ padding: 16 }}>
-          {request.method === "confirm" && (
+        {/* Body */}
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          {showBodyPanel && bodyText && (
             <div
               style={{
                 color: "var(--text)",
-                fontSize: 14,
-                lineHeight: 1.6,
+                fontSize: isPermissionLike ? 12 : 13.5,
+                lineHeight: 1.55,
                 whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+                wordBreak: "break-word",
                 padding: isPermissionLike ? "10px 12px" : 0,
-                borderRadius: isPermissionLike ? "var(--radius-md)" : 0,
+                borderRadius: isPermissionLike ? "var(--radius-sm)" : 0,
                 background: isPermissionLike ? "var(--bg-panel)" : "transparent",
                 border: isPermissionLike ? "1px solid var(--border)" : "none",
                 fontFamily: isPermissionLike ? "var(--font-mono)" : "inherit",
+                maxHeight: isPermissionLike ? "min(28vh, 220px)" : undefined,
+                overflow: isPermissionLike ? "auto" : undefined,
               }}
             >
-              {request.message}
+              {bodyText}
             </div>
           )}
+
           {request.method === "select" && (
-            <div style={{ display: "grid", gap: 8 }}>
-              {request.options.map((option) => (
-                <button
-                  key={option}
-                  onClick={() => onRespond(request, { value: option })}
-                  style={{
-                    width: "100%",
-                    padding: "11px 12px",
-                    borderRadius: "var(--radius-lg)",
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-panel)",
-                    color: "var(--text)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 13.5,
-                    lineHeight: 1.4,
-                    transition: "background 0.12s, border-color 0.12s",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.borderColor = "color-mix(in oklab, var(--accent) 35%, var(--border))";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "var(--bg-panel)";
-                    e.currentTarget.style.borderColor = "var(--border)";
-                  }}
-                >
-                  {option}
-                </button>
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {request.options.map((option) => {
+                const isAllow = /^(yes|allow|允许|是)/i.test(option.trim());
+                const isDeny = /^(no|deny|拒绝|否)/i.test(option.trim());
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => onRespond(request, { value: option })}
+                    style={{
+                      width: "100%",
+                      minHeight: 36,
+                      padding: "8px 12px",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg)",
+                      color: isDeny ? "var(--destructive)" : "var(--text)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontSize: 13,
+                      lineHeight: 1.4,
+                      fontWeight: isAllow ? 500 : 400,
+                      transition: "background 0.1s ease, border-color 0.1s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.borderColor = isDeny
+                        ? "var(--destructive-border)"
+                        : "var(--border)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "var(--bg)";
+                      e.currentTarget.style.borderColor = "var(--border)";
+                    }}
+                  >
+                    {option}
+                  </button>
+                );
+              })}
             </div>
           )}
+
           {request.method === "input" && (
             <input
               autoFocus
@@ -1061,16 +1141,18 @@ function ExtensionDialog({
               }}
               style={{
                 width: "100%",
-                padding: "9px 10px",
-                borderRadius: "var(--radius-md)",
+                padding: "7px 10px",
+                borderRadius: "var(--radius-sm)",
                 border: "1px solid var(--border)",
-                background: "var(--bg-panel)",
+                background: "var(--bg)",
                 color: "var(--text)",
                 outline: "none",
                 fontSize: 13,
+                boxSizing: "border-box",
               }}
             />
           )}
+
           {request.method === "editor" && (
             <textarea
               autoFocus
@@ -1082,24 +1164,39 @@ function ExtensionDialog({
               }}
               style={{
                 width: "100%",
-                minHeight: 220,
-                padding: 10,
-                borderRadius: "var(--radius-md)",
+                minHeight: 200,
+                padding: "10px 12px",
+                borderRadius: "var(--radius-sm)",
                 border: "1px solid var(--border)",
-                background: "var(--bg-panel)",
+                background: "var(--bg)",
                 color: "var(--text)",
                 outline: "none",
                 resize: "vertical",
                 fontSize: 13,
                 lineHeight: 1.55,
                 fontFamily: "var(--font-mono)",
+                boxSizing: "border-box",
               }}
             />
           )}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--bg-panel)" }}>
+        {/* Footer strip */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            gap: 8,
+            minHeight: 52,
+            padding: "0 16px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            flexShrink: 0,
+          }}
+        >
           <button
+            type="button"
             className="btn-ghost"
             onClick={() => onRespond(request, { cancelled: true })}
           >
@@ -1109,24 +1206,20 @@ function ExtensionDialog({
             <>
               {isPermissionLike && (
                 <button
+                  type="button"
                   className="btn-ghost"
                   onClick={() => onRespond(request, { confirmed: false })}
+                  style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
                 >
                   {t("ext.deny")}
                 </button>
               )}
-              <button
-                className="btn-primary"
-                onClick={submitValue}
-              >
+              <button type="button" className="btn-primary" onClick={submitValue}>
                 {isPermissionLike ? t("ext.allow") : t("window.confirm")}
               </button>
             </>
           ) : request.method !== "select" ? (
-            <button
-              className="btn-primary"
-              onClick={submitValue}
-            >
+            <button type="button" className="btn-primary" onClick={submitValue}>
               {t("window.submit")}
             </button>
           ) : null}

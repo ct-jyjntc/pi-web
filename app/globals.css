@@ -174,6 +174,51 @@ html.pi-desktop .app-topbar {
   box-sizing: border-box;
 }
 
+/* Top bar: pin trailing controls; collapse middle labels when narrow */
+.app-topbar {
+  container-type: inline-size;
+  container-name: apptopbar;
+  overflow: hidden;
+  min-width: 0;
+}
+.app-topbar-middle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+}
+.app-topbar-trailing {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  min-width: 0;
+}
+/* Must win over .chrome-cluster { flex-shrink: 0 } so middle can collapse */
+.app-topbar-actions.chrome-cluster,
+.app-topbar .app-topbar-actions {
+  flex: 0 1 auto;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+@container apptopbar (max-width: 900px) {
+  .app-topbar-actions .chrome-btn > span {
+    display: none;
+  }
+}
+@container apptopbar (max-width: 720px) {
+  .app-topbar-stats-extra {
+    display: none !important;
+  }
+}
+@container apptopbar (max-width: 560px) {
+  .app-topbar-stats-main {
+    display: none !important;
+  }
+}
+
 /* macOS: first sidebar strip clears traffic lights + matches top bar height */
 html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row.sidebar-toolbar-row {
   height: var(--titlebar-height);
@@ -853,7 +898,8 @@ span.linenumber {
 }
 
 
-/* Right panel: animate width */
+/* Right panel: animate width.
+   Use the same clamp for shell + children so %/vw mismatch can't overflow. */
 @media (min-width: 641px) {
   .right-panel-container {
     overflow: hidden;
@@ -861,18 +907,19 @@ span.linenumber {
     flex-shrink: 0;
   }
   .right-panel-container.right-panel-open {
-    width: 42%;
-    min-width: 300px;
+    width: clamp(240px, 38%, 480px);
+    min-width: 240px;
   }
   .right-panel-container.right-panel-closed {
     width: 0;
     min-width: 0;
     border-left: none !important;
   }
-  /* keep inner content at fixed width so it doesn't reflow during animation */
+  /* keep inner content at fixed open-width so it doesn't reflow during animation */
   .right-panel-container > * {
-    width: 42vw;
-    min-width: 300px;
+    width: clamp(240px, 38vw, 480px);
+    min-width: 240px;
+    max-width: 480px;
   }
 }
 
@@ -1278,6 +1325,13 @@ span.linenumber {
   height: 100%;
   flex-shrink: 0;
 }
+/* Topbar middle actions must be allowed to shrink (overrides .chrome-cluster) */
+.app-topbar-actions.chrome-cluster {
+  flex: 0 1 auto;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
 .chrome-divider {
   width: 1px;
   min-width: 1px;
@@ -1314,13 +1368,16 @@ span.linenumber {
 }
 
 /* Unified composer: input + chrome toolbar in one card.
-   overflow must stay visible so toolbar menus can open upward without clipping. */
+   overflow stays visible for absolute mobile control tray + fixed desktop menus. */
 .composer-shell {
   display: flex;
   flex-direction: column;
   overflow: visible;
   position: relative;
   z-index: 20;
+  min-width: 0;
+  container-type: inline-size;
+  container-name: composer;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1337,6 +1394,7 @@ span.linenumber {
   padding: 8px 10px 8px 14px;
   background: var(--bg);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  min-width: 0;
 }
 /* Keep send at bottom when textarea grows multi-line */
 .composer-input-row:has(textarea:not(:placeholder-shown)),
@@ -1370,6 +1428,7 @@ span.linenumber {
   flex-direction: row;
   align-items: stretch;
   min-height: 34px;
+  min-width: 0;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
@@ -1377,10 +1436,13 @@ span.linenumber {
   z-index: 30;
   overflow: visible;
 }
-.composer-toolbar .chrome-controls,
+.composer-toolbar .chrome-controls {
+  position: relative;
+  min-width: 0;
+}
 .composer-toolbar .chrome-controls > div {
   position: relative;
-  overflow: visible;
+  min-width: 0;
 }
 .composer-toolbar .menu-card {
   z-index: 400;
@@ -1393,13 +1455,59 @@ span.linenumber {
   width: 34px;
   min-width: 34px;
 }
+.composer-toolbar-start {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.composer-toolbar-end {
+  flex: 0 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+}
+/* Model chip may shrink; pure icon buttons stay fixed */
+.composer-toolbar-start .chrome-btn:not(.is-icon) {
+  flex-shrink: 1;
+  min-width: 34px;
+  max-width: 180px;
+}
 .composer-toolbar-spacer {
-  flex: 1 1 auto;
-  min-width: 8px;
+  flex: 1 1 0;
+  min-width: 0;
 }
 .composer-toolbar .chrome-divider {
   margin: 8px 0;
   align-self: stretch;
+  flex-shrink: 0;
+}
+/* Progressive collapse: long zh labels (完全访问 / 压缩) overflow first */
+@container composer (max-width: 680px) {
+  .composer-toolbar-end .chrome-btn > span {
+    display: none;
+  }
+  .composer-toolbar-end .chrome-btn:not(.is-icon) {
+    padding: 0 8px;
+    gap: 0;
+    flex-shrink: 0;
+  }
+}
+@container composer (max-width: 560px) {
+  .composer-toolbar-start .chrome-btn:not(.is-icon) {
+    max-width: 120px;
+  }
+}
+@container composer (max-width: 440px) {
+  .composer-toolbar-start .chrome-btn > span {
+    display: none;
+  }
+  .composer-toolbar-start .chrome-btn:not(.is-icon) {
+    padding: 0 8px;
+    gap: 0;
+    max-width: 34px;
+    flex-shrink: 0;
+  }
+  .composer-toolbar .chrome-divider {
+    display: none;
+  }
 }
 
 .btn-primary.btn-compact,

@@ -1501,7 +1501,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           {/* Toolbar strip — same chrome language as top bar */}
           <div className="composer-toolbar">
           {/* LEFT: attach + model selector */}
-          <div className="chrome-controls" style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0 }}>
+          <div className={`chrome-controls composer-toolbar-start`} style={{ flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
             <button
               type="button"
               className={`chrome-btn is-icon${attachedImages.length ? " is-active" : ""}`}
@@ -1527,10 +1527,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       setModelDropdownOpen((v) => !v);
                     }}
                     disabled={isStreaming}
+                    title={currentName}
+                    aria-label={currentName}
                     style={{
                       justifyContent: isMobile ? "flex-start" : undefined,
                       width: isMobile ? "100%" : undefined,
-                      maxWidth: isMobile ? "100%" : 220,
+                      maxWidth: isMobile ? "100%" : undefined,
+                      minWidth: 0,
                       overflow: "hidden",
                     }}
                   >
@@ -1612,8 +1615,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           {!isMobile && <div className="chrome-divider" aria-hidden />}
 
           {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
-          <div ref={controlsMenuRef} className="chrome-controls" style={{
-            flex: "0 0 auto",
+          <div ref={controlsMenuRef} className="chrome-controls composer-toolbar-end" style={{
+            flex: isMobile ? "0 0 auto" : undefined,
             justifyContent: "flex-end",
             position: "relative",
           }}>
@@ -1877,12 +1880,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               <div style={{ position: "relative" }}>
                 {compactError && (
                   <div role="alert" style={{
-                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
+                    position: "fixed",
+                    bottom: 72,
+                    right: 24,
                     background: "var(--bg-panel)", color: "var(--destructive)",
                     fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-sm)",
                     maxWidth: "min(420px, 80vw)", overflowWrap: "break-word",
                     border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
-                    boxShadow: "var(--shadow-md)", zIndex: 50,
+                    boxShadow: "var(--shadow-md)", zIndex: 500,
                   }}>
                     {compactError}
                   </div>
