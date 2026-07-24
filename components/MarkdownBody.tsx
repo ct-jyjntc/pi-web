@@ -2,11 +2,9 @@
 
 import { useLocale } from "@/hooks/useLocale";
 
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, memo, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { SyntaxHighlighter, vs, vscDarkPlus } from "@/lib/syntax-highlighter";
 import { useTheme } from "@/hooks/useTheme";
 import { copyText } from "@/lib/clipboard";
 import { resolveLocalFileHref } from "@/lib/file-links";
@@ -208,7 +206,9 @@ function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boole
   );
 }
 
-function CodeBlock({ code, lang, headerAction }: { code: string; lang: string; headerAction?: ReactNode }) {
+// Memoized so that during streaming, already-complete code blocks skip
+// re-tokenizing on every markdown re-parse (props are primitive strings).
+const CodeBlock = memo(function CodeBlock({ code, lang, headerAction }: { code: string; lang: string; headerAction?: ReactNode }) {
   const { isDark } = useTheme();
   const [copied, setCopied] = useState(false);
 
@@ -252,4 +252,4 @@ function CodeBlock({ code, lang, headerAction }: { code: string; lang: string; h
       </SyntaxHighlighter>
     </div>
   );
-}
+});

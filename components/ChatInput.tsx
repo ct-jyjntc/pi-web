@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, forwardRef, memo, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
@@ -194,7 +194,9 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
   );
 }
 
-export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+// Memoized: this is a 2000-line component that must not re-render on every
+// streaming token reaching ChatWindow.
+export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   onPermissionModeApplied,
@@ -217,6 +219,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [permissionDropdownOpen, setPermissionDropdownOpen] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
   const [permissionBusy, setPermissionBusy] = useState(false);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? getDraft(draftKey)?.images.map(draftImageToAttachedImage) ?? [] : []
@@ -816,7 +819,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [slashActiveIndex, slashMenuOpen]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
-  const modelOptions: ModelOption[] = (() => {
+  const modelOptions: ModelOption[] = useMemo(() => {
     if (modelList && modelList.length > 0) {
       return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name })).sort(compareModelOptions);
     }
@@ -825,15 +828,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       modelId,
       name,
     })).sort(compareModelOptions);
-  })();
+  }, [modelList, modelNames, model?.provider]);
 
   // Group options by provider, preserving insertion order
-  const modelsByProvider: { provider: string; options: ModelOption[] }[] = [];
-  for (const opt of modelOptions) {
-    const group = modelsByProvider.find((g) => g.provider === opt.provider);
-    if (group) group.options.push(opt);
-    else modelsByProvider.push({ provider: opt.provider, options: [opt] });
-  }
+  const modelsByProvider: { provider: string; options: ModelOption[] }[] = useMemo(() => {
+    const groups: { provider: string; options: ModelOption[] }[] = [];
+    for (const opt of modelOptions) {
+      const group = groups.find((g) => g.provider === opt.provider);
+      if (group) group.options.push(opt);
+      else groups.push({ provider: opt.provider, options: [opt] });
+    }
+    return groups;
+  }, [modelOptions]);
 
   const displayModelName = model
     ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
@@ -877,6 +883,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return;
     }
     setPermissionBusy(true);
+    setPermissionError(null);
     setPermissionDropdownOpen(false);
     try {
       const res = await fetch("/api/permissions", {
@@ -890,10 +897,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       onPermissionModeApplied?.();
     } catch (e) {
       console.error("Failed to set permission mode:", e);
+      setPermissionError(e instanceof Error ? e.message : String(e));
     } finally {
       setPermissionBusy(false);
     }
   }, [onPermissionModeApplied, permissionBusy, permissionMode]);
+
+  useEffect(() => {
+    if (!permissionError) return;
+    const timer = window.setTimeout(() => setPermissionError(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [permissionError]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -1809,6 +1823,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </svg>
                 {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{permissionLabel}</span>}
               </button>
+              {permissionError && (
+                <div role="alert" style={{
+                  position: "absolute", bottom: "calc(100% + 6px)", right: 0,
+                  background: "var(--bg-panel)", color: "var(--destructive)",
+                  fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-sm)",
+                  maxWidth: "min(420px, 80vw)", overflowWrap: "break-word",
+                  border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
+                  boxShadow: "var(--shadow-md)", zIndex: 50,
+                }}>
+                  {t("chat.permissionChangeFailed")}: {permissionError}
+                </div>
+              )}
               {permissionDropdownOpen && (
                 <div className="menu-card" style={{
                   position: "absolute", bottom: "calc(100% + 6px)", right: 0,
@@ -1926,13 +1952,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {!isStreaming && onCompact && (
               <div style={{ position: "relative" }}>
                 {compactError && (
-                  <div style={{
+                  <div role="alert" style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
                     background: "var(--bg-panel)", color: "var(--destructive)",
                     fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-sm)",
-                    whiteSpace: "nowrap", pointerEvents: "none",
+                    maxWidth: "min(420px, 80vw)", overflowWrap: "break-word",
                     border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
-                    boxShadow: "0 2px 8px color-mix(in oklab, var(--text) 10%, transparent)", zIndex: 50,
+                    boxShadow: "var(--shadow-md)", zIndex: 50,
                   }}>
                     {compactError}
                   </div>
@@ -2095,4 +2121,4 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       </div>
     </div>
   );
-});
+}));

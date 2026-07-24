@@ -4,12 +4,12 @@ import { useLocale } from "@/hooks/useLocale";
 
 import { useEffect, useState, useRef, useCallback, type CSSProperties, type MouseEvent } from "react";
 import {
-  Prism as SyntaxHighlighter,
-  createElement as renderSyntaxNode,
+  SyntaxHighlighter,
+  createSyntaxElement as renderSyntaxNode,
+  vs,
+  vscDarkPlus,
   type SyntaxHighlighterProps,
-} from "react-syntax-highlighter";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+} from "@/lib/syntax-highlighter";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
 import {

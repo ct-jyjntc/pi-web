@@ -61,7 +61,7 @@ const CHAT_INPUT_RIGHT_PADDING = CHAT_COLUMN_PADDING + CHAT_MINIMAP_WIDTH;
 
 function hasFinalAssistantAnswer(message: AgentMessage): boolean {
   if (message.role !== "assistant") return false;
-  return splitFinalAssistantBlocks(message as AssistantMessage).answerBlocks.some((block) => (
+  return getFinalAssistantParts(message as AssistantMessage).answerBlocks.some((block) => (
     block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
   ));
 }
@@ -101,6 +101,37 @@ function withAssistantBlocks(
   const next = { ...message, content };
   if (options.omitUsage) next.usage = undefined;
   return next;
+}
+
+// Derived process/answer messages must keep a stable identity across renders,
+// otherwise MessageView's memo (which compares `message` by reference) is
+// defeated and every completed turn re-renders on each streaming token.
+interface FinalAssistantParts {
+  processBlocks: AssistantContentBlock[];
+  answerBlocks: AssistantContentBlock[];
+  processMessage: AssistantMessage | null;
+  answerMessage: AssistantMessage | null;
+}
+
+const finalAssistantPartsCache = new WeakMap<AssistantMessage, FinalAssistantParts>();
+
+function getFinalAssistantParts(message: AssistantMessage): FinalAssistantParts {
+  let parts = finalAssistantPartsCache.get(message);
+  if (!parts) {
+    const split = splitFinalAssistantBlocks(message);
+    parts = {
+      processBlocks: split.processBlocks,
+      answerBlocks: split.answerBlocks,
+      processMessage: split.processBlocks.length > 0
+        ? withAssistantBlocks(message, split.processBlocks, { omitUsage: true })
+        : null,
+      answerMessage: split.answerBlocks.length > 0
+        ? withAssistantBlocks(message, split.answerBlocks)
+        : null,
+    };
+    finalAssistantPartsCache.set(message, parts);
+  }
+  return parts;
 }
 
 function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
@@ -296,6 +327,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
 
+  const handlePermissionModeApplied = useCallback(() => {
+    void handleBuiltinSlashCommand("/reload");
+  }, [handleBuiltinSlashCommand]);
+
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
@@ -317,7 +352,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
-      onPermissionModeApplied={session || isNew ? () => { void handleBuiltinSlashCommand("/reload"); } : undefined}
+      onPermissionModeApplied={session || isNew ? handlePermissionModeApplied : undefined}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}
@@ -582,13 +617,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 }
                 const visibleProcessIndices = processIndices.filter((processIdx) => hasDisplayableProcessMessage(messages[processIdx]));
                 const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
-                const finalSplit = splitFinalAssistantBlocks(finalAssistant);
-                const finalProcessMessage = finalSplit.processBlocks.length > 0
-                  ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, { omitUsage: true })
-                  : null;
-                const finalAnswerMessage = finalSplit.answerBlocks.length > 0
-                  ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
-                  : null;
+                const finalSplit = getFinalAssistantParts(finalAssistant);
+                const finalProcessMessage = finalSplit.processMessage;
+                const finalAnswerMessage = finalSplit.answerMessage;
 
                 const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
                 if (processCount > 0) {
@@ -701,7 +732,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             color: stickToBottom
               ? "var(--text-muted)"
               : "var(--accent-fg)",
-            boxShadow: "0 2px 10px color-mix(in oklab, var(--text) 10%, transparent)",
+            boxShadow: "var(--shadow-md)",
             cursor: "pointer",
             opacity: stickToBottom ? 0.72 : 1,
             transition: "background 120ms ease, color 120ms ease, opacity 120ms ease",
@@ -874,7 +905,7 @@ function ExtensionDialog({
         alignItems: "center",
         justifyContent: "center",
         padding: 20,
-        background: "color-mix(in oklab, var(--text) 18%, transparent)",
+        background: "var(--overlay-bg)",
         backdropFilter: "blur(6px)",
       }}
     >

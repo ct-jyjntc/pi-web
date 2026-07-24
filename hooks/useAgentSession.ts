@@ -875,6 +875,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
+  // Coalesce high-frequency streaming updates: dispatch at most once per
+  // 80ms window (leading + trailing) so each SSE token doesn't re-render
+  // the whole chat tree.
+  const pendingStreamUpdateRef = useRef<AgentMessage | null>(null);
+  const streamUpdateTimerRef = useRef<number | null>(null);
+  const clearPendingStreamUpdate = useCallback(() => {
+    pendingStreamUpdateRef.current = null;
+    if (streamUpdateTimerRef.current !== null) {
+      window.clearTimeout(streamUpdateTimerRef.current);
+      streamUpdateTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => clearPendingStreamUpdate, [clearPendingStreamUpdate]);
+
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "agent_start":
@@ -888,6 +902,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // already finished this run — don't re-trigger completion.
         if (!agentRunningRef.current) break;
         agentRunningRef.current = false;
+        clearPendingStreamUpdate();
         setAgentRunning(false);
         setAgentPhase(null);
         setRetryInfo(null);
@@ -933,7 +948,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           break;
         }
         if (msg) {
-          dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
+          const normalized = normalizeToolCalls(msg as AgentMessage);
+          if (streamUpdateTimerRef.current === null) {
+            dispatch({ type: "update", message: normalized });
+            streamUpdateTimerRef.current = window.setTimeout(() => {
+              streamUpdateTimerRef.current = null;
+              const pending = pendingStreamUpdateRef.current;
+              pendingStreamUpdateRef.current = null;
+              if (pending && agentRunningRef.current) {
+                dispatch({ type: "update", message: pending });
+              }
+            }, 80);
+          } else {
+            pendingStreamUpdateRef.current = normalized;
+          }
         }
         setAgentPhase(null);
         break;
@@ -943,6 +971,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
         if (!agentRunningRef.current) break;
+        clearPendingStreamUpdate();
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
@@ -1022,7 +1051,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd]);
+  }, [addNotice, clearPendingStreamUpdate, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

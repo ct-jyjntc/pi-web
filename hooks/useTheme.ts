@@ -22,6 +22,22 @@ function getServerSnapshot(): Theme {
   return "light";
 }
 
+// Users with no stored preference follow the OS theme, including live
+// changes. An explicit toggle (which writes "pi-theme") opts out.
+if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+  window
+    .matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener?.("change", (e) => {
+      try {
+        if (localStorage.getItem("pi-theme")) return;
+      } catch {
+        // ignore storage errors — fall through and follow the OS
+      }
+      document.documentElement.classList.toggle("dark", e.matches);
+      listeners.forEach((cb) => cb());
+    });
+}
+
 type ToggleOrigin = { x: number; y: number };
 
 export function useTheme() {

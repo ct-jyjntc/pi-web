@@ -260,6 +260,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [wtError, setWtError] = useState<string | null>(null);
   const [wtBusy, setWtBusy] = useState(false);
   const [wtConfirmRemove, setWtConfirmRemove] = useState<string | null>(null);
+  // false: first-stage confirm for a clean worktree; true: server reported
+  // uncommitted changes and the next confirm force-removes.
+  const [wtConfirmForce, setWtConfirmForce] = useState(false);
   const [worktreeLoadingCwd, setWorktreeLoadingCwd] = useState<string | null>(null);
   const wtDropdownRef = useRef<HTMLDivElement>(null);
   const wtNewInputRef = useRef<HTMLInputElement>(null);
@@ -592,12 +595,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         if (data.dirty && !force) {
           // Dirty worktree — ask the user to confirm a force removal
           setWtConfirmRemove(path);
+          setWtConfirmForce(true);
           return;
         }
         setWtError(data.error ?? `HTTP ${res.status}`);
         return;
       }
       setWtConfirmRemove(null);
+      setWtConfirmForce(false);
       if (selectedCwd === path) setSelectedCwd(worktreeState.projectRoot);
       setWtRefreshKey((k) => k + 1);
     } catch (e) {
@@ -1152,17 +1157,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         return (
                           <div key={wt.path} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderBottom: "1px solid var(--border)", background: "var(--destructive-bg)" }}>
                             <span style={{ flex: 1, fontSize: 11, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {t("sidebar.forceRemoveDirty")}
+                              {wtConfirmForce ? t("sidebar.forceRemoveDirty") : t("sidebar.confirmRemoveWorktree")}
                             </span>
                             <button
-                              onClick={() => void handleRemoveWorktree(wt.path, true)}
+                              onClick={() => void handleRemoveWorktree(wt.path, wtConfirmForce)}
                               disabled={wtBusy}
                               style={{ padding: "3px 9px", background: "var(--destructive)", border: "none", borderRadius: "var(--radius-pill)", color: "var(--accent-fg)", fontSize: 11, fontWeight: 500, cursor: "pointer", flexShrink: 0 }}
                             >
-                              {t("common.force")}
+                              {wtConfirmForce ? t("common.force") : t("common.delete")}
                             </button>
                             <button
-                              onClick={() => setWtConfirmRemove(null)}
+                              onClick={() => { setWtConfirmRemove(null); setWtConfirmForce(false); }}
                               style={{ padding: "3px 9px", background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--text-muted)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}
                             >
                               {t("common.cancel")}
@@ -1211,7 +1216,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                           </button>
                           {!wt.isMain && (
                             <button
-                              onClick={() => void handleRemoveWorktree(wt.path, false)}
+                              onClick={() => { setWtConfirmRemove(wt.path); setWtConfirmForce(false); }}
                               disabled={wtBusy}
                               title={t("sidebar.removeWorktree", { path: wt.path })}
                               aria-label={t("sidebar.removeWorktree", { path: wt.path })}
