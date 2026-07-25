@@ -231,4 +231,5 @@ if (!existsSync(oauthJs)) {
   process.exit(1);
 }
 
-console.log("Standalone bundle ready for electron-builder.");
+console.log("Standalone bundle ready — next: bundle-runtime-node.mjs (ships Node so users need no system Node).");
+console.log("Standalone package tree prepared for electron-builder.");

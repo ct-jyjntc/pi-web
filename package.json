@@ -31,7 +31,7 @@
     "postinstall": "node scripts/fix-node-pty-perms.mjs",
     "dev": "node scripts/fix-node-pty-perms.mjs && next dev -p 30141",
     "build": "node scripts/fix-node-pty-perms.mjs && next build --webpack",
-    "build:electron": "npm run build && node scripts/prepare-electron-standalone.mjs",
+    "build:electron": "npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs",
     "start": "node scripts/fix-node-pty-perms.mjs && next start -p 30141",
     "lint": "eslint .",
     "electron": "node scripts/fix-node-pty-perms.mjs && electron .",
@@ -139,6 +139,7 @@
     "undici": "8.5.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
     "@lobehub/icons": "^5.6.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25",

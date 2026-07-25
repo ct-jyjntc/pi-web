@@ -39,9 +39,32 @@ function resolveNextBin() {
   }
 }
 
+function resolveBundledNodeBinary() {
+  // Packaged apps ship Node next to the standalone server so end users do not
+  // need a system Node install. See scripts/bundle-runtime-node.mjs.
+  const name = process.platform === "win32" ? "node.exe" : "node";
+  const candidates = [
+    path.join(appRoot, "bin", name),
+    // Some layouts nest standalone under resources differently
+    isPackaged ? path.join(process.resourcesPath, "standalone", "bin", name) : "",
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
 function resolveNodeBinary() {
-  // Never spawn process.execPath / Electron as node — that creates a Dock "exec" icon
-  // and uses Electron's ABI (breaks native modules like node-pty).
+  // Prefer the app-bundled Node (packaged self-contained runtime).
+  const bundled = resolveBundledNodeBinary();
+  if (bundled) return bundled;
+
+  // Dev / unpackaged: use the developer's Node. Never Electron as node
+  // (Dock "exec" icon + wrong ABI for native modules).
   if (process.env.npm_node_execpath && fs.existsSync(process.env.npm_node_execpath)) {
     return process.env.npm_node_execpath;
   }
@@ -49,6 +72,7 @@ function resolveNodeBinary() {
   const home = process.env.HOME || process.env.USERPROFILE || "";
   const candidates = [
     process.env.PI_WEB_NODE_BINARY,
+    process.env.PI_WEB_BUNDLE_NODE_BINARY,
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",
     home ? path.join(home, ".local/bin/node") : "",
@@ -62,9 +86,8 @@ function resolveNodeBinary() {
   for (const candidate of candidates) {
     try {
       if (candidate.includes(path.sep) || candidate.includes("/") || candidate.includes("\\")) {
-        if (fs.existsSync(candidate)) return candidate;
+        if (fs.existsSync(candidate) && !/Electron\.app/i.test(candidate)) return candidate;
       } else {
-        // bare "node" — let PATH resolution handle it at spawn time
         return candidate;
       }
     } catch {
@@ -228,19 +251,18 @@ function startNextServer(port) {
 
   if (isPackaged) {
     const serverEntry = path.join(appRoot, "server.js");
-    // Prefer real system Node so native modules (node-pty prebuilds) match ABI.
-    // utilityProcess uses Electron's Node ABI, which cannot load plain node-pty
-    // prebuilds and breaks the integrated terminal.
-    const systemNode = resolveNodeBinary();
-    const systemNodeOk =
-      systemNode &&
-      systemNode !== process.execPath &&
-      !/Electron\.app/i.test(systemNode) &&
-      fs.existsSync(systemNode);
+    // Self-contained runtime: always prefer the Node binary we ship inside the
+    // app (bundled at package time). End users should only need Pi Web + pi CLI.
+    const runtimeNode = resolveBundledNodeBinary() || resolveNodeBinary();
+    const useBundledNode =
+      runtimeNode &&
+      runtimeNode !== process.execPath &&
+      !/Electron\.app/i.test(runtimeNode) &&
+      (path.isAbsolute(runtimeNode) ? fs.existsSync(runtimeNode) : true);
 
-    if (systemNodeOk) {
-      console.log(`[electron] Starting standalone via system Node (${systemNode}) on http://${HOST}:${port}`);
-      const child = spawn(systemNode, [serverEntry], {
+    if (useBundledNode) {
+      console.log(`[electron] Starting standalone via bundled Node (${runtimeNode}) on http://${HOST}:${port}`);
+      const child = spawn(runtimeNode, [serverEntry], {
         cwd: appRoot,
         env,
         stdio: ["ignore", "pipe", "pipe"],
@@ -252,8 +274,9 @@ function startNextServer(port) {
       return child;
     }
 
-    // Fallback: utilityProcess (no Dock icon) — terminal PTY may be unavailable.
-    console.log(`[electron] Starting standalone via utilityProcess on http://${HOST}:${port}`);
+    // Last resort: Electron utilityProcess (no system Node). Native modules like
+    // node-pty may fail under Electron's ABI — terminal features degrade.
+    console.warn("[electron] Bundled Node missing; falling back to utilityProcess (terminal may not work)");
     const child = utilityProcess.fork(serverEntry, [], {
       cwd: appRoot,
       env,
