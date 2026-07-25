@@ -9,6 +9,7 @@ import {
   isWindowsAbsolutePath,
 } from "@/lib/file-access";
 import { buildEntriesFromFiles, filterFileEntries, type FileIndexEntry } from "@/lib/file-fuzzy";
+import { gitProcessEnv, resolveGitBinary } from "@/lib/resolve-git";
 
 const execFileAsync = promisify(execFile);
 
@@ -61,9 +62,9 @@ function getIndexCache(): Map<string, CacheEntry> {
 async function listWithGit(cwd: string): Promise<FileListing | null> {
   try {
     const { stdout } = await execFileAsync(
-      "git",
+      resolveGitBinary(),
       ["-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-      { timeout: 10_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, LC_ALL: "C" } },
+      { timeout: 10_000, maxBuffer: 64 * 1024 * 1024, env: gitProcessEnv() },
     );
     const all = stdout.split("\0").filter(Boolean);
     if (all.length > GIT_HARD_CAP) {

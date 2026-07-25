@@ -13,6 +13,7 @@ import {
   parseGitPorcelainV1,
   type GitPorcelainEntry,
 } from "./git-status";
+import { gitProcessEnv, resolveGitBinary } from "./resolve-git";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
@@ -26,10 +27,10 @@ async function git(
   timeout = GIT_TIMEOUT_MS,
 ): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
+    const { stdout } = await execFileAsync(resolveGitBinary(), ["-C", cwd, ...args], {
       timeout,
       maxBuffer,
-      env: { ...process.env, LC_ALL: "C" },
+      env: gitProcessEnv(),
     });
     return stdout;
   } catch (error) {

@@ -63,4 +63,20 @@ export default async function afterPack(context) {
     rmSync(destLib, { recursive: true, force: true });
     cpSync(srcLib, destLib, { recursive: true });
   }
+
+  // Portable Git (dugite-native)
+  const srcGit = join(srcStandalone, "git");
+  if (existsSync(srcGit)) {
+    const destGit = join(destStandalone, "git");
+    console.log(`[afterPack] Copying bundled Git → ${destGit}`);
+    rmSync(destGit, { recursive: true, force: true });
+    cpSync(srcGit, destGit, { recursive: true });
+    const gitName = process.platform === "win32" ? "git.exe" : "git";
+    if (!existsSync(join(destGit, "bin", gitName))) {
+      throw new Error(`afterPack: bundled ${gitName} missing — run bundle-git.mjs`);
+    }
+    console.log("[afterPack] standalone/git/bin/git OK");
+  } else {
+    console.warn("[afterPack] Warning: standalone/git missing — Git features need system git");
+  }
 }
