@@ -242,8 +242,6 @@ function startNextServer(port) {
   const bundledPi = bundledBinDir
     ? path.join(bundledBinDir, process.platform === "win32" ? "pi.cmd" : "pi")
     : null;
-  const bundledGit = path.join(appRoot, "git", "bin", process.platform === "win32" ? "git.exe" : "git");
-  const bundledGitOk = fs.existsSync(bundledGit);
 
   const env = augmentPathForNodeTools({
     ...process.env,
@@ -252,34 +250,28 @@ function startNextServer(port) {
     PI_WEB_NO_OPEN: "1",
     BROWSER: "none",
     NODE_ENV: "production",
-    // Point child tools at the runtime we ship (no system Node / pi / git required).
+    // Point child tools at the runtime we ship (Node / pi). Git always uses the system install
+    // so macOS Keychain / credential helpers work for https remotes.
     ...(bundledNode ? { PI_WEB_NODE: bundledNode, PI_WEB_BUNDLE_NODE_BINARY: bundledNode } : {}),
     ...(bundledPi && fs.existsSync(bundledPi)
       ? { PI_WEB_PI_BINARY: bundledPi, PI_SUBAGENT_PI_BINARY: bundledPi }
-      : {}),
-    ...(bundledGitOk
-      ? {
-          PI_WEB_GIT_BINARY: bundledGit,
-          GIT_EXEC_PATH: path.join(appRoot, "git", "libexec", "git-core"),
-          GIT_TEMPLATE_DIR: path.join(appRoot, "git", "share", "git-core", "templates"),
-        }
       : {}),
     // Never set ELECTRON_RUN_AS_NODE on a spawn of process.execPath — that
     // creates a second Dock icon labeled "exec" on macOS.
   });
   delete env.ELECTRON_RUN_AS_NODE;
+  // Ensure we never inherit a packaged portable-git override.
+  delete env.PI_WEB_GIT_BINARY;
+  delete env.GIT_EXEC_PATH;
+  delete env.GIT_TEMPLATE_DIR;
 
-  // Prefer app-local bin/ + git/bin on PATH so `pi`, `node`, `npm`, `git` resolve to bundled tools.
-  {
+  // Prefer app-local bin/ on PATH so `pi`, `node`, `npm` resolve to bundled tools.
+  // System `git` stays on PATH after that (not overridden).
+  if (bundledBinDir) {
     const pathKey = process.platform === "win32" ? "Path" : "PATH";
     const sep = process.platform === "win32" ? ";" : ":";
     const parts = String(env[pathKey] || "").split(sep).filter(Boolean);
-    const prepend = [];
-    if (bundledGitOk) prepend.push(path.dirname(bundledGit));
-    if (bundledBinDir) prepend.push(bundledBinDir);
-    for (const dir of prepend.reverse()) {
-      if (dir && !parts.includes(dir)) parts.unshift(dir);
-    }
+    if (!parts.includes(bundledBinDir)) parts.unshift(bundledBinDir);
     env[pathKey] = parts.join(sep);
   }
 
