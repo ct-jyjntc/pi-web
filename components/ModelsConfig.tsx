@@ -157,30 +157,37 @@ const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messag
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <label style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500, letterSpacing: "-0.01em" }}>{label}</label>
+    <div className="modal-field">
+      <label className="modal-field-label">{label}</label>
       {children}
     </div>
   );
 }
 
-/** Quiet console field: transparent bg, fine border — matches main app inputs */
+/** Quiet strip-chrome field control */
 const inputStyle: React.CSSProperties = {
-  padding: "7px 10px",
-  background: "var(--bg)",
+  padding: "6px 10px",
+  background: "var(--bg-panel)",
   border: "1px solid var(--border)",
-  borderRadius: "var(--radius-sm)",
+  borderRadius: "var(--radius-xs)",
   color: "var(--text)",
-  fontSize: 13,
+  fontSize: 12.5,
   outline: "none",
   width: "100%",
   boxSizing: "border-box",
-  transition: "border-color 0.12s ease",
+  transition: "border-color 0.12s ease, background 0.12s ease",
 };
 
 function TextInput({ value, onChange, placeholder, mono }: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
-  return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-    style={{ ...inputStyle, fontFamily: mono ? "var(--font-mono)" : "inherit" }} />;
+  return (
+    <input
+      className={`input-base${mono ? " input-mono" : ""}`}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{ fontFamily: mono ? "var(--font-mono)" : "inherit" }}
+    />
+  );
 }
 
 function SecretTextInput({
@@ -286,17 +293,7 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      fontSize: 12,
-      fontWeight: 600,
-      color: "var(--text)",
-      letterSpacing: "-0.01em",
-      lineHeight: 1,
-    }}>
-      {children}
-    </div>
-  );
+  return <div className="modal-section-title">{children}</div>;
 }
 
 /** Detail strip: title left, actions right — matches app chrome headers */
@@ -308,35 +305,16 @@ function DetailStrip({
   actions?: React.ReactNode;
 }) {
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 10,
-      minHeight: 32,
-      margin: "-4px 0 4px",
-      paddingBottom: 10,
-      borderBottom: "1px solid var(--border)",
-    }}>
+    <div className="modal-detail-strip">
       <SectionTitle>{title}</SectionTitle>
       {actions ? <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>{actions}</div> : null}
     </div>
   );
 }
 
-/** Sidebar nav row — same grammar as session list */
-function navRowStyle(selected: boolean): React.CSSProperties {
-  return {
-    display: "flex",
-    alignItems: "center",
-    gap: 7,
-    minHeight: 30,
-    padding: "5px 8px",
-    borderRadius: 0,
-    cursor: "pointer",
-    background: selected ? "var(--bg-selected)" : "transparent",
-    transition: "background 0.1s ease",
-  };
+/** Sidebar nav row class — same grammar as session/git lists */
+function navRowClass(selected: boolean, child = false): string {
+  return `modal-nav-item${selected ? " is-active" : ""}${child ? " is-child" : ""}`;
 }
 
 // ── Provider detail ───────────────────────────────────────────────────────────
@@ -1269,7 +1247,7 @@ function AddProviderPicker({
         style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))" }}
       >
         {/* Search */}
-        <div className="modal-header" style={{ height: 44, padding: "0 14px", gap: 8 }}>
+        <div className="modal-header" style={{ gap: 8, padding: "0 12px" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
             <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -1569,16 +1547,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     <>
     <div
       className="modal-backdrop"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "var(--overlay-bg)",
-        backdropFilter: "blur(6px)",
-      }}
       onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
     >
       <div
@@ -1590,107 +1558,44 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           maxWidth: "calc(100vw - 16px)",
           height: isMobile ? "calc(100dvh - 16px)" : "78vh",
           maxHeight: "calc(100dvh - 16px)",
-          display: "flex",
-          flexDirection: "column",
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "var(--shadow-lg)",
-          overflow: "hidden",
         }}
       >
 
-        {/* Header */}
-        <div
-          className="modal-header"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            height: 44,
-            minHeight: 44,
-            padding: "0 8px 0 16px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
-              {t("modal.models")}
-            </span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              ~/.pi/agent/models.json
-            </code>
+        {/* Header — strip chrome */}
+        <div className="modal-header">
+          <div className="modal-header-meta">
+            <span className="modal-title">{t("modal.models")}</span>
+            <code className="modal-subtitle">~/.pi/agent/models.json</code>
           </div>
           <button
             type="button"
             className="chrome-btn is-icon"
             onClick={requestClose}
             aria-label={t("common.close")}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 32,
-              height: 32,
-              padding: 0,
-              border: "none",
-              borderRadius: "var(--radius-xs)",
-              background: "transparent",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 18,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
           >
             ×
           </button>
         </div>
 
         {/* Body */}
-        <div
-          className="modal-body"
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: "flex",
-            flexDirection: isMobile ? "column" : "row",
-            overflow: "hidden",
-          }}
-        >
+        <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row" }}>
 
           {/* Left: tree */}
-          <div
-            className="modal-sidebar"
-            style={{
-              width: isMobile ? "100%" : 210,
-              maxHeight: isMobile ? "40vh" : undefined,
-              flexShrink: 0,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              background: "var(--bg-panel)",
-              borderRight: isMobile ? "none" : "1px solid var(--border)",
-              borderBottom: isMobile ? "1px solid var(--border)" : "none",
-            }}
-          >
-            <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
+          <div className="modal-sidebar" style={isMobile ? { width: "100%", maxHeight: "40vh" } : undefined}>
+            <div className="modal-sidebar-scroll">
               {/* Active OAuth subscriptions */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
                 return (
                   <div
                     key={p.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelection({ type: "oauth", providerId: p.id })}
-                    style={navRowStyle(isSelected)}
-                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+                    className={navRowClass(isSelected)}
                   >
                     <ProviderIcon id={p.id} size={16} />
-                    <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                    <span className={`modal-nav-label${isSelected ? " is-strong" : ""}`}>{p.name}</span>
                   </div>
                 );
               })}
@@ -1701,13 +1606,13 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 return (
                   <div
                     key={p.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelection({ type: "apikey", providerId: p.id })}
-                    style={navRowStyle(isSelected)}
-                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+                    className={navRowClass(isSelected)}
                   >
                     <ProviderIcon id={p.id} size={16} />
-                    <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</span>
+                    <span className={`modal-nav-label${isSelected ? " is-strong" : ""}`}>{p.displayName}</span>
                   </div>
                 );
               })}
@@ -1727,10 +1632,10 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                   <div key={pName}>
                     {/* Provider row */}
                     <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSelection({ type: "provider", name: pName })}
-                      style={navRowStyle(isProviderSelected)}
-                      onMouseEnter={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                      onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "transparent"; }}
+                      className={navRowClass(isProviderSelected)}
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
                         <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
@@ -1739,9 +1644,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                         <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
                         <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                       </svg>
-                      <span style={{ fontSize: 12, fontWeight: isProviderSelected ? 600 : 400, color: "var(--text)", fontFamily: "var(--font-mono)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {pName}
-                      </span>
+                      <span className={`modal-nav-label is-mono${isProviderSelected ? " is-strong" : ""}`}>{pName}</span>
                     </div>
 
                     {/* Model rows */}
@@ -1750,12 +1653,12 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                       return (
                         <div
                           key={i}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-                          style={{ ...navRowStyle(isModelSelected), paddingLeft: 28, minHeight: 28 }}
-                          onMouseEnter={(e) => { if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "transparent"; }}
+                          className={navRowClass(isModelSelected, true)}
                         >
-                          <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: m.id ? "var(--text-muted)" : "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span className="modal-nav-label is-mono" style={{ color: m.id ? undefined : "var(--text-dim)" }}>
                             {m.id || t("models.newModel")}
                           </span>
                           {m.reasoning && (
@@ -1767,12 +1670,12 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
 
                     {/* Add model button */}
                     <div
+                      role="button"
+                      tabIndex={0}
                       onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-                      style={{ ...navRowStyle(false), paddingLeft: 28, minHeight: 28, color: "var(--text-dim)" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "transparent"; }}
+                      className={navRowClass(false, true)}
                     >
-                      <span style={{ fontSize: 12 }}>{t("models.addModel")}</span>
+                      <span className="modal-nav-label">{t("models.addModel")}</span>
                     </div>
                   </div>
                 );
@@ -1780,19 +1683,11 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             </div>
 
             {/* Add provider — strip footer action */}
-            <div style={{ borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+            <div className="modal-sidebar-footer">
               <button
                 type="button"
                 onClick={() => setPickerOpen(true)}
                 className="chrome-btn"
-                style={{
-                  width: "100%",
-                  height: 36,
-                  minHeight: 36,
-                  justifyContent: "center",
-                  color: "var(--text-muted)",
-                  borderRadius: 0,
-                }}
               >
                 {t("modal.addProvider")}
               </button>
@@ -1800,35 +1695,17 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           </div>
 
           {/* Right: detail */}
-          <div
-            className="modal-main"
-            style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", background: "var(--bg)", padding: 20 }}
-          >
+          <div className="modal-main">
             {loading ? null : detailContent ?? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
-                {t("models.selectHint")}
-              </div>
+              <div className="modal-empty">{t("models.selectHint")}</div>
             )}
           </div>
         </div>
 
-        {/* Footer */}
-        <div
-          className="modal-footer"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: 8,
-            minHeight: 52,
-            padding: "0 16px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            flexShrink: 0,
-          }}
-        >
+        {/* Footer — strip chrome */}
+        <div className="modal-footer">
           {saveError && <span style={{ fontSize: 12, color: "var(--destructive)", flex: 1, minWidth: 0 }}>{saveError}</span>}
-          <button type="button" onClick={requestClose} className="btn-ghost">
+          <button type="button" onClick={requestClose} className="chrome-btn">
             {t("common.cancel")}
           </button>
           <button
@@ -1837,7 +1714,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             onClick={handleSave}
             disabled={saving || savedOk}
             style={{
-              minWidth: 92,
+              minWidth: 88,
               background: savedOk ? "var(--success)" : undefined,
               animation: savedOk ? "saved-pop 0.45s ease" : undefined,
             }}
@@ -1856,36 +1733,20 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     {confirmDiscard && (
       <div
         className="modal-backdrop"
-        style={{
-          position: "fixed", inset: 0, zIndex: 1100, display: "flex",
-          alignItems: "center", justifyContent: "center",
-          background: "var(--overlay-bg)", backdropFilter: "blur(6px)",
-        }}
+        style={{ zIndex: 1100 }}
         onClick={(e) => { if (e.target === e.currentTarget) setConfirmDiscard(false); }}
       >
         <div
           role="dialog"
           aria-modal="true"
           className="modal-shell"
-          style={{
-            width: "min(360px, calc(100vw - 32px))",
-            display: "flex", flexDirection: "column",
-            background: "var(--bg)", border: "1px solid var(--border)",
-            borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", overflow: "hidden",
-          }}
+          style={{ width: "min(360px, calc(100vw - 32px))" }}
         >
-          <div style={{ padding: "16px 18px", fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
+          <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
             {t("models.unsavedChanges")}
           </div>
-          <div
-            className="modal-footer"
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8,
-              minHeight: 52, padding: "0 16px", borderTop: "1px solid var(--border)",
-              background: "var(--bg-panel)", flexShrink: 0,
-            }}
-          >
-            <button type="button" onClick={() => setConfirmDiscard(false)} className="btn-ghost">{t("common.cancel")}</button>
+          <div className="modal-footer">
+            <button type="button" onClick={() => setConfirmDiscard(false)} className="chrome-btn">{t("common.cancel")}</button>
             <button type="button" onClick={() => { setConfirmDiscard(false); onClose(); }} className="btn-danger">{t("models.discardChanges")}</button>
           </div>
         </div>

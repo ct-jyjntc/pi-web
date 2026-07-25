@@ -46,6 +46,7 @@ function Toggle({
   const { t } = useLocale();
   return (
     <button
+      type="button"
       onClick={onToggle}
       disabled={loading}
       title={
@@ -55,29 +56,30 @@ function Toggle({
       }
       style={{
         flexShrink: 0,
-        width: 40,
-        height: 22,
+        width: 34,
+        height: 18,
         borderRadius: "var(--radius-pill)",
-        border: "none",
+        border: "1px solid var(--border)",
         padding: 0,
         cursor: loading ? "wait" : "pointer",
-        background: enabled ? "var(--accent)" : "var(--border)",
+        // Quiet monochrome switch — filled only when on, no loud accent pill
+        background: enabled ? "var(--text)" : "var(--bg-subtle)",
         position: "relative",
-        transition: "background 0.18s",
+        transition: "background 0.15s ease",
         outline: "none",
+        opacity: loading ? 0.6 : 1,
       }}
     >
       <span
         style={{
           position: "absolute",
-          top: 3,
-          left: enabled ? 21 : 3,
-          width: 16,
-          height: 16,
+          top: 1,
+          left: enabled ? 17 : 1,
+          width: 14,
+          height: 14,
           borderRadius: "50%",
-          background: "var(--bg)",
-          boxShadow: "var(--shadow-sm)",
-          transition: "left 0.18s cubic-bezier(.4,0,.2,1)",
+          background: enabled ? "var(--bg)" : "var(--text-muted)",
+          transition: "left 0.15s ease, background 0.15s ease",
         }}
       />
     </button>
@@ -832,113 +834,42 @@ export function SkillsConfig({
   return (
     <div
       className="modal-backdrop"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "var(--overlay-bg)",
-        backdropFilter: "blur(6px)",
-      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
         className="modal-shell"
+        role="dialog"
+        aria-modal="true"
         style={{
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",
           height: isMobile ? "calc(100dvh - 16px)" : "78vh",
           maxHeight: "calc(100dvh - 16px)",
-          display: "flex",
-          flexDirection: "column",
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "var(--shadow-lg)",
-          overflow: "hidden",
         }}
       >
-        {/* Header */}
-        <div
-          className="modal-header"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            height: 44,
-            minHeight: 44,
-            padding: "0 8px 0 16px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
-              {t("modal.skills")}
-            </span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {shortenPath(cwd)}
-            </code>
+        {/* Header — strip chrome */}
+        <div className="modal-header">
+          <div className="modal-header-meta">
+            <span className="modal-title">{t("modal.skills")}</span>
+            <code className="modal-subtitle">{shortenPath(cwd)}</code>
           </div>
           <button
             type="button"
             className="chrome-btn is-icon"
             onClick={onClose}
             aria-label={t("common.close")}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 32,
-              height: 32,
-              padding: 0,
-              border: "none",
-              borderRadius: "var(--radius-xs)",
-              background: "transparent",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 18,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
           >
             ×
           </button>
         </div>
 
         {/* Body */}
-        <div
-          className="modal-body"
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: "flex",
-            flexDirection: isMobile ? "column" : "row",
-            overflow: "hidden",
-          }}
-        >
+        <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row" }}>
           {/* Left: skill list */}
-          <div
-            className="modal-sidebar"
-            style={{
-              width: isMobile ? "100%" : 210,
-              maxHeight: isMobile ? "40vh" : undefined,
-              flexShrink: 0,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              background: "var(--bg-panel)",
-              borderRight: isMobile ? "none" : "1px solid var(--border)",
-              borderBottom: isMobile ? "1px solid var(--border)" : "none",
-            }}
-          >
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+          <div className="modal-sidebar" style={isMobile ? { width: "100%", maxHeight: "40vh" } : undefined}>
+            <div className="modal-sidebar-scroll">
               {loading ? (
                 <div
                   style={{
@@ -1009,18 +940,8 @@ export function SkillsConfig({
                   }
                   return groups.map(
                     ({ label: grpLabel, skills: grpSkills }) => (
-                      <div key={grpLabel} style={{ marginBottom: 6 }}>
-                        <div
-                          style={{
-                            padding: "8px 10px 4px",
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: "var(--text-muted)",
-                            letterSpacing: "-0.01em",
-                          }}
-                        >
-                          {grpLabel}
-                        </div>
+                      <div key={grpLabel}>
+                        <div className="modal-group-label">{grpLabel}</div>
                         {grpSkills.map((skill) => {
                           const isSelected =
                             !addMode && selected === skill.filePath;
@@ -1028,33 +949,13 @@ export function SkillsConfig({
                           return (
                             <div
                               key={skill.filePath}
+                              role="button"
+                              tabIndex={0}
                               onClick={() => {
                                 setSelected(skill.filePath);
                                 setAddMode(false);
                               }}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 7,
-                                minHeight: 30,
-                                padding: "5px 10px",
-                                borderRadius: 0,
-                                cursor: "pointer",
-                                background: isSelected
-                                  ? "var(--bg-selected)"
-                                  : "transparent",
-                                transition: "background 0.1s ease",
-                              }}
-                              onMouseEnter={(e) => {
-                                if (!isSelected)
-                                  e.currentTarget.style.background =
-                                    "var(--bg-hover)";
-                              }}
-                              onMouseLeave={(e) => {
-                                if (!isSelected)
-                                  e.currentTarget.style.background =
-                                    "transparent";
-                              }}
+                              className={`modal-nav-item${isSelected ? " is-active" : ""}`}
                             >
                               <span
                                 style={{
@@ -1069,17 +970,11 @@ export function SkillsConfig({
                                 }}
                               />
                               <span
+                                className={`modal-nav-label is-mono${isSelected ? " is-strong" : ""}`}
                                 style={{
-                                  fontSize: 12,
-                                  fontWeight: isSelected ? 600 : 400,
                                   color: disabled
                                     ? "var(--text-dim)"
-                                    : "var(--text)",
-                                  fontFamily: "var(--font-mono)",
-                                  flex: 1,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
+                                    : undefined,
                                 }}
                               >
                                 {skill.name}
@@ -1112,40 +1007,11 @@ export function SkillsConfig({
               )}
             </div>
             {/* Add skill — strip footer action */}
-            <div
-              style={{
-                borderTop: "1px solid var(--border)",
-                flexShrink: 0,
-              }}
-            >
-              <div
+            <div className="modal-sidebar-footer">
+              <button
+                type="button"
+                className={`chrome-btn${addMode ? " is-active" : ""}`}
                 onClick={() => setAddMode(true)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  height: 36,
-                  padding: "0 10px",
-                  borderRadius: 0,
-                  cursor: "pointer",
-                  background: addMode ? "var(--bg-selected)" : "transparent",
-                  color: addMode ? "var(--text)" : "var(--text-muted)",
-                  fontSize: 12,
-                  transition: "background 0.1s ease, color 0.1s ease",
-                }}
-                onMouseEnter={(e) => {
-                  if (!addMode) {
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.color = "var(--text)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!addMode) {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = "var(--text-muted)";
-                  }
-                }}
               >
                 <svg
                   width="13"
@@ -1161,15 +1027,12 @@ export function SkillsConfig({
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
                 {t("skills.addSkill")}
-              </div>
+              </button>
             </div>
           </div>
 
           {/* Right: detail or add panel */}
-          <div
-            className="modal-main"
-            style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", background: "var(--bg)", padding: 20 }}
-          >
+          <div className="modal-main">
             {addMode ? (
               <AddSkillPanel
                 cwd={cwd}
@@ -1213,42 +1076,18 @@ export function SkillsConfig({
                 onUpdate={() => void updateInstalledSkill(selectedSkill)}
               />
             ) : (
-              <div
-                style={{
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-dim)",
-                  fontSize: 13,
-                }}
-              >
-                {t("skills.selectSkill")}
-              </div>
+              <div className="modal-empty">{t("skills.selectSkill")}</div>
             )}
           </div>
         </div>
 
-        {/* Footer */}
-        <div
-          className="modal-footer"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            minHeight: 52,
-            padding: "0 16px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        {/* Footer — strip chrome */}
+        <div className="modal-footer" style={{ justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             {skills.some((skill) => Boolean(skill.install)) && (
               <button
                 type="button"
-                className="btn-ghost"
+                className="chrome-btn"
                 onClick={() => void checkForUpdates()}
                 disabled={checkingAll || updatingSkill !== null}
               >
@@ -1258,7 +1097,7 @@ export function SkillsConfig({
             {Object.values(updateStatuses).filter(
               (status) => status.state === "update-available",
             ).length > 0 && (
-              <span style={{ fontSize: 12, color: "var(--text)" }}>
+              <span style={{ fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
                 {
                   Object.values(updateStatuses).filter(
                     (status) => status.state === "update-available",
@@ -1272,7 +1111,7 @@ export function SkillsConfig({
               </span>
             )}
           </div>
-          <button type="button" className="btn-ghost" onClick={onClose}>
+          <button type="button" className="chrome-btn" onClick={onClose}>
             {t("common.close")}
           </button>
         </div>

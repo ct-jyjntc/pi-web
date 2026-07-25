@@ -1018,18 +1018,8 @@ function ExtensionDialog({
 
   return (
     <div
-      className="modal-backdrop"
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 90,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        background: "var(--overlay-bg)",
-        backdropFilter: "blur(6px)",
-      }}
+      className="modal-backdrop modal-backdrop-local"
+      style={{ position: "absolute", zIndex: 90, padding: 20 }}
     >
       <div
         role="dialog"
@@ -1038,79 +1028,50 @@ function ExtensionDialog({
         style={{
           width: isPermissionLike ? "min(640px, 100%)" : "min(520px, 100%)",
           maxHeight: "min(80vh, 720px)",
-          display: "flex",
-          flexDirection: "column",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg)",
-          background: "var(--bg)",
-          boxShadow: "var(--shadow-lg)",
-          overflow: "hidden",
         }}
       >
-        {/* Header strip */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            minHeight: 44,
-            height: 44,
-            padding: "0 16px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            flexShrink: 0,
-          }}
-        >
+        {/* Header — strip chrome */}
+        <div className="modal-header" style={{ gap: 10, padding: "0 12px" }}>
           {isPermissionLike && (
             <span
+              aria-hidden
               style={{
-                width: 22,
-                height: 22,
-                borderRadius: "var(--radius-sm)",
+                width: 20,
+                height: 20,
+                borderRadius: "var(--radius-xs)",
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: "color-mix(in oklab, var(--destructive) 12%, var(--bg))",
-                color: "var(--destructive)",
-                fontSize: 12,
-                fontWeight: 700,
+                border: "1px solid var(--border)",
+                background: "var(--bg-subtle)",
+                color: "var(--text-muted)",
+                fontSize: 11,
+                fontWeight: 600,
                 flexShrink: 0,
               }}
             >
               !
             </span>
           )}
-          <div
-            style={{
-              minWidth: 0,
-              color: "var(--text)",
-              fontSize: 14,
-              fontWeight: 600,
-              letterSpacing: "-0.01em",
-              lineHeight: 1.3,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={heading}
-          >
+          <div className="modal-title" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }} title={heading}>
             {heading}
           </div>
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="modal-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {showBodyPanel && bodyText && (
             <div
+              className={isPermissionLike ? "ext-dialog-code" : undefined}
               style={{
                 color: "var(--text)",
-                fontSize: isPermissionLike ? 12 : 13.5,
+                fontSize: isPermissionLike ? 12 : 13,
                 lineHeight: 1.55,
                 whiteSpace: "pre-wrap",
                 overflowWrap: "anywhere",
                 wordBreak: "break-word",
                 padding: isPermissionLike ? "10px 12px" : 0,
-                borderRadius: isPermissionLike ? "var(--radius-sm)" : 0,
+                borderRadius: isPermissionLike ? "var(--radius-xs)" : 0,
                 background: isPermissionLike ? "var(--bg-panel)" : "transparent",
                 border: isPermissionLike ? "1px solid var(--border)" : "none",
                 fontFamily: isPermissionLike ? "var(--font-mono)" : "inherit",
@@ -1123,42 +1084,22 @@ function ExtensionDialog({
           )}
 
           {request.method === "select" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ display: "flex", flexDirection: "column" }}>
               {request.options.map((option) => {
-                const isAllow = /^(yes|allow|允许|是)/i.test(option.trim());
                 const isDeny = /^(no|deny|拒绝|否)/i.test(option.trim());
                 return (
                   <button
                     key={option}
                     type="button"
+                    className={`modal-nav-item${isDeny ? " is-danger-text" : ""}`}
                     onClick={() => onRespond(request, { value: option })}
                     style={{
-                      width: "100%",
-                      minHeight: 36,
-                      padding: "8px 12px",
-                      borderRadius: "var(--radius-sm)",
-                      border: "1px solid var(--border)",
-                      background: "var(--bg)",
-                      color: isDeny ? "var(--destructive)" : "var(--text)",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      fontSize: 13,
-                      lineHeight: 1.4,
-                      fontWeight: isAllow ? 500 : 400,
-                      transition: "background 0.1s ease, border-color 0.1s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "var(--bg-hover)";
-                      e.currentTarget.style.borderColor = isDeny
-                        ? "var(--destructive-border)"
-                        : "var(--border)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "var(--bg)";
-                      e.currentTarget.style.borderColor = "var(--border)";
+                      minHeight: 34,
+                      borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
+                      color: isDeny ? "var(--destructive)" : undefined,
                     }}
                   >
-                    {option}
+                    <span className="modal-nav-label">{option}</span>
                   </button>
                 );
               })}
@@ -1168,6 +1109,7 @@ function ExtensionDialog({
           {request.method === "input" && (
             <input
               autoFocus
+              className="input-base"
               value={value}
               placeholder={request.placeholder}
               onChange={(e) => setValue(e.target.value)}
@@ -1175,23 +1117,13 @@ function ExtensionDialog({
                 if (e.key === "Enter") submitValue();
                 if (e.key === "Escape") onRespond(request, { cancelled: true });
               }}
-              style={{
-                width: "100%",
-                padding: "7px 10px",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--border)",
-                background: "var(--bg)",
-                color: "var(--text)",
-                outline: "none",
-                fontSize: 13,
-                boxSizing: "border-box",
-              }}
             />
           )}
 
           {request.method === "editor" && (
             <textarea
               autoFocus
+              className="input-base input-mono"
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => {
@@ -1199,41 +1131,20 @@ function ExtensionDialog({
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
               }}
               style={{
-                width: "100%",
                 minHeight: 200,
-                padding: "10px 12px",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--border)",
-                background: "var(--bg)",
-                color: "var(--text)",
-                outline: "none",
                 resize: "vertical",
-                fontSize: 13,
                 lineHeight: 1.55,
                 fontFamily: "var(--font-mono)",
-                boxSizing: "border-box",
               }}
             />
           )}
         </div>
 
         {/* Footer strip */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            alignItems: "center",
-            gap: 8,
-            minHeight: 52,
-            padding: "0 16px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            flexShrink: 0,
-          }}
-        >
+        <div className="modal-footer">
           <button
             type="button"
-            className="btn-ghost"
+            className="chrome-btn"
             onClick={() => onRespond(request, { cancelled: true })}
           >
             {t("common.cancel")}
@@ -1243,9 +1154,8 @@ function ExtensionDialog({
               {isPermissionLike && (
                 <button
                   type="button"
-                  className="btn-ghost"
+                  className="chrome-btn is-danger"
                   onClick={() => onRespond(request, { confirmed: false })}
-                  style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
                 >
                   {t("ext.deny")}
                 </button>
@@ -1293,21 +1203,13 @@ function ExtensionCustomPanel({
 
   return (
     <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 95,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        background: "var(--overlay-bg)",
-        backdropFilter: "blur(6px)",
-      }}
+      className="modal-backdrop modal-backdrop-local"
+      style={{ position: "absolute", zIndex: 95, padding: 20 }}
     >
       <div
         role="dialog"
         aria-modal="true"
+        className="modal-shell"
         onClick={(event) => {
           if (!(event.target as HTMLElement).closest("button")) inputRef.current?.focus();
         }}
@@ -1315,11 +1217,6 @@ function ExtensionCustomPanel({
           position: "relative",
           width: "min(920px, 100%)",
           maxHeight: "min(760px, calc(100vh - 40px))",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg)",
-          background: "var(--bg)",
-          boxShadow: "var(--shadow-lg)",
-          overflow: "hidden",
           outline: "none",
         }}
       >
@@ -1371,30 +1268,23 @@ function ExtensionCustomPanel({
             pointerEvents: "none",
           }}
         />
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{t("window.extensionPanel")}</div>
+        <div className="modal-header" style={{ padding: "0 10px 0 12px" }}>
+          <span className="modal-title">{t("window.extensionPanel")}</span>
           <button
+            type="button"
+            className="chrome-btn"
             onClick={() => onInput(request, "\x03")}
-            style={{
-              padding: "5px 9px",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border)",
-              background: "var(--bg-panel)",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 12,
-            }}
           >
-            Close
+            {t("common.close")}
           </button>
         </div>
         <pre
           style={{
             margin: 0,
-            padding: 14,
-            maxHeight: "calc(min(760px, 100vh - 40px) - 48px)",
+            padding: 12,
+            maxHeight: "calc(min(760px, 100vh - 40px) - 40px)",
             overflow: "auto",
-            background: "var(--bg-panel)",
+            background: "var(--bg)",
             color: "var(--text)",
             fontFamily: "var(--font-mono)",
             fontSize: 12.5,

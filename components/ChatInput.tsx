@@ -1960,24 +1960,23 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       transform: "translateY(-100%)",
                       zIndex: 600,
                       width: "min(280px, calc(100vw - 24px))",
-                      padding: 12,
+                      padding: 0,
                       display: "flex",
                       flexDirection: "column",
-                      gap: 10,
+                      overflow: "hidden",
                     }}
                   >
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-                      {t("chat.compactConfirmTitle")}
+                    <div className="modal-header" style={{ height: 36, minHeight: 36, padding: "0 12px" }}>
+                      <span className="modal-title" style={{ fontSize: 12 }}>{t("chat.compactConfirmTitle")}</span>
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45 }}>
+                    <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45 }}>
                       {t("chat.compactConfirmBody")}
                     </div>
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+                    <div className="modal-footer" style={{ height: 36, minHeight: 36 }}>
                       <button
                         type="button"
-                        className="btn-ghost"
+                        className="chrome-btn"
                         onClick={() => setCompactConfirmOpen(false)}
-                        style={{ fontSize: 12, padding: "4px 10px" }}
                       >
                         {t("common.cancel")}
                       </button>
@@ -1988,7 +1987,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                           setCompactConfirmOpen(false);
                           onCompact();
                         }}
-                        style={{ fontSize: 12, padding: "4px 10px" }}
+                        style={{ height: 28, padding: "0 12px", fontSize: 12 }}
                       >
                         {t("chat.compactConfirmAction")}
                       </button>
