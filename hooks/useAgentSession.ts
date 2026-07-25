@@ -978,7 +978,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               if (pending && agentRunningRef.current) {
                 dispatch({ type: "update", message: pending });
               }
-            }, 80);
+            }, 100); // slightly longer coalesce window = fewer full-tree paints while typing tokens
           } else {
             pendingStreamUpdateRef.current = normalized;
           }

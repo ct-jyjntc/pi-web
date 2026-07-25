@@ -18,16 +18,13 @@ interface MarkdownBodyProps {
   onOpenFile?: (filePath: string) => void;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
 
-  return (
-    <div className={["markdown-body", className].filter(Boolean).join(" ")}>
-      <ReactMarkdown
-        remarkPlugins={markdownRemarkPlugins}
-        rehypePlugins={markdownRehypePlugins}
-        components={{
-          code({ className, children, ...props }) {
+  // Stable components map — recreating this every render forces ReactMarkdown to
+  // drop internal memoization and re-walk the whole AST on every token.
+  const components = useMemo(() => ({
+          code({ className, children, ...props }: { className?: string; children?: ReactNode; node?: unknown }) {
             const lang = className?.replace("language-", "").toLowerCase() ?? "";
             const raw = String(children);
             const isBlock = className?.includes("language-") || raw.includes("\n");
@@ -46,10 +43,10 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
               </code>
             );
           },
-          pre({ children }) {
+          pre({ children }: { children?: ReactNode }) {
             return <>{children}</>;
           },
-          a({ href, children, ...props }) {
+          a({ href, children, ...props }: { href?: string; children?: ReactNode; node?: unknown }) {
             // `node` is react-markdown metadata, not a DOM attribute.
             delete props.node;
             const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
@@ -77,20 +74,27 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
               </a>
             );
           },
-          table({ children }) {
+          table({ children }: { children?: ReactNode }) {
             return (
               <div className="markdown-table-wrap">
                 <table>{children}</table>
               </div>
             );
           },
-        }}
+  }), [cwd, isStreaming, onOpenFile]);
+
+  return (
+    <div className={["markdown-body", className].filter(Boolean).join(" ")}>
+      <ReactMarkdown
+        remarkPlugins={markdownRemarkPlugins}
+        rehypePlugins={markdownRehypePlugins}
+        components={components}
       >
         {normalizedMarkdown}
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 function normalizeDisplayMath(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";

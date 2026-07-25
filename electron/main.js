@@ -40,9 +40,36 @@ function resolveNextBin() {
 }
 
 function resolveNodeBinary() {
-  // Only used for unpackaged dev — never spawn process.execPath (creates Dock "exec" icon).
+  // Never spawn process.execPath / Electron as node — that creates a Dock "exec" icon
+  // and uses Electron's ABI (breaks native modules like node-pty).
   if (process.env.npm_node_execpath && fs.existsSync(process.env.npm_node_execpath)) {
     return process.env.npm_node_execpath;
+  }
+
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  const candidates = [
+    process.env.PI_WEB_NODE_BINARY,
+    "/opt/homebrew/bin/node",
+    "/usr/local/bin/node",
+    home ? path.join(home, ".local/bin/node") : "",
+    home ? path.join(home, ".nvm/current/bin/node") : "",
+    home ? path.join(home, ".fnm/current/bin/node") : "",
+    home ? path.join(home, ".volta/bin/node") : "",
+    home ? path.join(home, ".asdf/shims/node") : "",
+    process.platform === "win32" ? "node.exe" : "node",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      if (candidate.includes(path.sep) || candidate.includes("/") || candidate.includes("\\")) {
+        if (fs.existsSync(candidate)) return candidate;
+      } else {
+        // bare "node" — let PATH resolution handle it at spawn time
+        return candidate;
+      }
+    } catch {
+      // try next
+    }
   }
   return process.platform === "win32" ? "node.exe" : "node";
 }
@@ -200,8 +227,32 @@ function startNextServer(port) {
   delete env.ELECTRON_RUN_AS_NODE;
 
   if (isPackaged) {
-    // utilityProcess is a Node child of Electron — no separate Dock icon.
     const serverEntry = path.join(appRoot, "server.js");
+    // Prefer real system Node so native modules (node-pty prebuilds) match ABI.
+    // utilityProcess uses Electron's Node ABI, which cannot load plain node-pty
+    // prebuilds and breaks the integrated terminal.
+    const systemNode = resolveNodeBinary();
+    const systemNodeOk =
+      systemNode &&
+      systemNode !== process.execPath &&
+      !/Electron\.app/i.test(systemNode) &&
+      fs.existsSync(systemNode);
+
+    if (systemNodeOk) {
+      console.log(`[electron] Starting standalone via system Node (${systemNode}) on http://${HOST}:${port}`);
+      const child = spawn(systemNode, [serverEntry], {
+        cwd: appRoot,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      child.stdout?.on("data", (chunk) => process.stdout.write(chunk));
+      child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+      attachServerExitHandler(child);
+      serverProcess = child;
+      return child;
+    }
+
+    // Fallback: utilityProcess (no Dock icon) — terminal PTY may be unavailable.
     console.log(`[electron] Starting standalone via utilityProcess on http://${HOST}:${port}`);
     const child = utilityProcess.fork(serverEntry, [], {
       cwd: appRoot,

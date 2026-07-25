@@ -28,15 +28,16 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "next dev -p 30141",
-    "build": "next build --webpack",
+    "postinstall": "node scripts/fix-node-pty-perms.mjs",
+    "dev": "node scripts/fix-node-pty-perms.mjs && next dev -p 30141",
+    "build": "node scripts/fix-node-pty-perms.mjs && next build --webpack",
     "build:electron": "npm run build && node scripts/prepare-electron-standalone.mjs",
-    "start": "next start -p 30141",
+    "start": "node scripts/fix-node-pty-perms.mjs && next start -p 30141",
     "lint": "eslint .",
-    "electron": "electron .",
-    "electron:dev": "electron .",
-    "electron:prod": "npm run build:electron && electron .",
-    "electron:rebuild": "npm run build:electron && electron .",
+    "electron": "node scripts/fix-node-pty-perms.mjs && electron .",
+    "electron:dev": "node scripts/fix-node-pty-perms.mjs && electron .",
+    "electron:prod": "npm run build:electron && npm run electron",
+    "electron:rebuild": "npm run build:electron && npm run electron",
     "dist:dmg": "npm run build:electron && electron-builder --mac dmg",
     "dist:mac": "npm run build:electron && electron-builder --mac dmg zip",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
@@ -127,7 +128,12 @@
     "@earendil-works/pi-ai": "0.81.1",
     "@earendil-works/pi-coding-agent": "0.81.1",
     "@earendil-works/pi-tui": "0.81.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "lightningcss-darwin-arm64": "^1.33.0",
     "next": "16.2.9",
+    "node-pty": "^1.1.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "undici": "8.5.0"
@@ -136,7 +142,7 @@
     "@lobehub/icons": "^5.6.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25",
-    "@types/react": "^19",
+    "@types/react": "19.2.17",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
     "electron": "^37.10.3",
@@ -156,6 +162,6 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   }
 }

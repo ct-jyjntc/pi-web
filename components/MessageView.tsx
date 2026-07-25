@@ -1245,29 +1245,34 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
 
 function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: string[]; modifiedFiles: string[] }) {
   const { t } = useLocale();
-  const total = readFiles.length + modifiedFiles.length;
+  const uniqueRead = Array.from(new Set(readFiles));
+  const uniqueModified = Array.from(new Set(modifiedFiles));
+  const total = uniqueRead.length + uniqueModified.length;
   if (total === 0) return null;
 
   const parts = [];
-  if (readFiles.length > 0) parts.push(`${readFiles.length} ${t("msg.readFiles").toLowerCase()}`);
-  if (modifiedFiles.length > 0) parts.push(`${modifiedFiles.length} ${t("msg.modifiedFiles").toLowerCase()}`);
+  if (uniqueRead.length > 0) parts.push(`${uniqueRead.length} ${t("msg.readFiles").toLowerCase()}`);
+  if (uniqueModified.length > 0) parts.push(`${uniqueModified.length} ${t("msg.modifiedFiles").toLowerCase()}`);
 
   return (
     <details className="compaction-file-details">
       <summary>{t("msg.fileContext", { parts: parts.join(", ") })}</summary>
-      {modifiedFiles.length > 0 && <CompactionFileList title={t("msg.modifiedFiles")} files={modifiedFiles} />}
-      {readFiles.length > 0 && <CompactionFileList title={t("msg.readFiles")} files={readFiles} />}
+      {uniqueModified.length > 0 && <CompactionFileList title={t("msg.modifiedFiles")} files={uniqueModified} />}
+      {uniqueRead.length > 0 && <CompactionFileList title={t("msg.readFiles")} files={uniqueRead} />}
     </details>
   );
 }
 
 function CompactionFileList({ title, files }: { title: string; files: string[] }) {
+  // Compaction summaries can list the same path more than once — keep order,
+  // drop exact duplicates so React keys stay unique.
+  const uniqueFiles = Array.from(new Set(files));
   return (
     <div className="compaction-file-section">
       <div className="compaction-file-title">{title}</div>
       <ul className="compaction-file-list">
-        {files.map((file) => (
-          <li key={file}>{file}</li>
+        {uniqueFiles.map((file, index) => (
+          <li key={`${index}:${file}`}>{file}</li>
         ))}
       </ul>
     </div>

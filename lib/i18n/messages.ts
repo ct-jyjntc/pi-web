@@ -486,6 +486,11 @@ const en = {
   "git.terminal": "Terminal",
   "git.newTerminal": "New terminal",
   "git.terminalPlaceholder": "Run a command…",
+  "git.terminalNoCwd": "Open a project first to use the terminal",
+  "git.terminalBusyHint": "Stop is not available yet for this runner",
+  "git.terminalConnecting": "Starting shell…",
+  "git.terminalExited": "Shell exited — reopen the tab to start a new session",
+  "git.terminalDisconnected": "Terminal disconnected",
   "git.loadingDiff": "Loading diff…",
   "git.noDiff": "No text diff available",
 
@@ -1007,6 +1012,11 @@ const zh: Record<MessageKey, string> = {
   "git.terminal": "终端",
   "git.newTerminal": "新建终端",
   "git.terminalPlaceholder": "运行命令…",
+  "git.terminalNoCwd": "请先打开项目再使用终端",
+  "git.terminalBusyHint": "当前运行器暂不支持中断",
+  "git.terminalConnecting": "正在启动 shell…",
+  "git.terminalExited": "Shell 已退出 — 重新打开标签页可新建会话",
+  "git.terminalDisconnected": "终端连接已断开",
   "git.loadingDiff": "加载差异中…",
   "git.noDiff": "无文本差异",
 

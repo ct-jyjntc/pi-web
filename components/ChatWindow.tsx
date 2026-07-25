@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
@@ -23,6 +23,7 @@ import {
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
 import { SpecializedExtensionWidget, SpecializedStatusChip } from "./extension/ExtensionWidgetViews";
+import { clearSessionMetrics, setContextUsageMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 
 interface Props {
   session: SessionInfo | null;
@@ -268,8 +269,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     container.scrollTop = restoreScrollTop(container.scrollHeight, prevScrollDistanceRef.current);
     prevScrollDistanceRef.current = null;
   }, [visibleCount, scrollContainerRef]);
-  // Push session stats up to AppShell for the top bar.
-  // Compare scalar fields to avoid loops from new object identity each render.
+  // Push session metrics to an external store so AppShell/right-panel chrome
+  // does not re-render on every streaming token / stats tick.
   const statsKey = sessionStats
     ? [
       sessionStats.sessionId,
@@ -291,20 +292,25 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const sessionStatsRef = useRef(sessionStats);
   sessionStatsRef.current = sessionStats;
   useEffect(() => {
+    setSessionStatsMetric(sessionStatsRef.current);
     onSessionStatsChange?.(sessionStatsRef.current);
   }, [statsKey, onSessionStatsChange]);
-  useEffect(() => () => { onSessionStatsChange?.(null); }, [onSessionStatsChange]);
 
-  // Push context usage up to AppShell as well.
   const ctxKey = contextUsage
     ? `${contextUsage.percent ?? "null"}|${contextUsage.contextWindow}|${contextUsage.tokens ?? "null"}`
     : null;
   const contextUsageRef = useRef(contextUsage);
   contextUsageRef.current = contextUsage;
   useEffect(() => {
+    setContextUsageMetric(contextUsageRef.current);
     onContextUsageChange?.(contextUsageRef.current);
   }, [ctxKey, onContextUsageChange]);
-  useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
+
+  useEffect(() => () => {
+    clearSessionMetrics();
+    onSessionStatsChange?.(null);
+    onContextUsageChange?.(null);
+  }, [onSessionStatsChange, onContextUsageChange]);
 
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
   const messageRefs = useMessageRefs(visibleMessages.length);
@@ -324,6 +330,198 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     ? modelImageSupport[`${displayModelValue.provider}:${displayModelValue.modelId}`] === true
       || modelList.some((m) => m.provider === displayModelValue.provider && m.id === displayModelValue.modelId && m.supportsImage)
     : false;
+
+  // Stable across streaming tokens (stream lives in streamState, not messages).
+  // Avoids re-running process/answer grouping on every SSE tick.
+  const toolResultsMap = useMemo(() => {
+    const map = new Map<string, ToolResultMessage>();
+    for (const msg of messages) {
+      if (msg.role === "toolResult") {
+        map.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage);
+      }
+    }
+    return map;
+  }, [messages]);
+
+  const historicalMessageNodes = useMemo(() => {
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") { lastUserIdx = i; break; }
+    }
+
+    const visibleRefIndexByMessage = new Map<number, number>();
+    let refIdx = 0;
+    messages.forEach((msg, idx) => {
+      if (msg.role === "user" || msg.role === "assistant") {
+        visibleRefIndexByMessage.set(idx, refIdx++);
+      }
+    });
+
+    const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
+      messageRefs.current[refIndex] = el;
+      if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
+    };
+
+    const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
+      const msg = options.messageOverride ?? messages[idx];
+      const prevAssistantEntryId =
+        msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
+          ? entryIds[idx - 1]
+          : undefined;
+      const isVisible = msg.role === "user" || msg.role === "assistant";
+      const currentRefIdx = visibleRefIndexByMessage.get(idx);
+      const keyPrefix = options.keyPrefix ?? "message";
+      let showTimestamp = false;
+      if (msg.role === "assistant") {
+        showTimestamp = true;
+        for (let j = idx + 1; j < messages.length; j++) {
+          const r = messages[j].role;
+          if (r === "user") break;
+          if (r === "assistant") { showTimestamp = false; break; }
+        }
+        // Streaming bubble owns the live timestamp for the unfinished tail.
+        if (showTimestamp && streamState.isStreaming && idx === messages.length - 1) {
+          showTimestamp = false;
+        }
+      }
+      if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+      const view = (
+        <MessageView
+          key={`${keyPrefix}-view-${idx}`}
+          message={msg}
+          toolResults={toolResultsMap}
+          modelNames={modelNames}
+          cwd={messageCwd}
+          onOpenFile={onOpenFile}
+          entryId={entryIds[idx]}
+          onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
+          forking={forkingEntryId === entryIds[idx]}
+          onNavigate={sessionBusy ? undefined : handleNavigate}
+          prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
+          onEditContent={handleEditContent}
+          showTimestamp={showTimestamp}
+          prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
+          sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+        />
+      );
+      if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
+      return (
+        <div key={`${keyPrefix}-${idx}`} className="chat-message-item" ref={attachVisibleRef(idx, currentRefIdx)}>
+          {view}
+        </div>
+      );
+    };
+
+    const rendered: ReactNode[] = [];
+    for (let idx = 0; idx < messages.length;) {
+      const msg = messages[idx];
+      if (msg.role !== "user") {
+        rendered.push(renderMessage(idx));
+        idx += 1;
+        continue;
+      }
+
+      const userIdx = idx;
+      let endIdx = userIdx + 1;
+      while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1;
+
+      const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
+
+      if (finalAssistantIdx === -1) {
+        for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
+          rendered.push(renderMessage(renderIdx));
+        }
+        idx = endIdx;
+        continue;
+      }
+
+      const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastUserIdx;
+      if (isLiveTail) {
+        for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
+          rendered.push(renderMessage(renderIdx));
+        }
+        idx = endIdx;
+        continue;
+      }
+
+      rendered.push(renderMessage(userIdx));
+
+      const processIndices: number[] = [];
+      for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
+        processIndices.push(processIdx);
+      }
+      const visibleProcessIndices = processIndices.filter((processIdx) => hasDisplayableProcessMessage(messages[processIdx]));
+      const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
+      const finalSplit = getFinalAssistantParts(finalAssistant);
+      const finalProcessMessage = finalSplit.processMessage;
+      const finalAnswerMessage = finalSplit.answerMessage;
+
+      const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
+      if (processCount > 0) {
+        const processRefIdx = visibleProcessIndices
+          .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
+          .find((value): value is number => typeof value === "number")
+          ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
+        const processGroup = (
+          <ProcessDetailsGroup
+            messageCount={processCount}
+            toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
+          >
+            {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
+            {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
+          </ProcessDetailsGroup>
+        );
+        rendered.push(
+          <div
+            key={`process-group-${userIdx}-${finalAssistantIdx}`}
+            className="chat-message-item"
+            ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
+          >
+            {processGroup}
+          </div>,
+        );
+      }
+
+      if (finalAnswerMessage) {
+        rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
+      }
+      for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
+        rendered.push(renderMessage(renderIdx));
+      }
+      idx = endIdx;
+    }
+
+    const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
+    return (
+      <>
+        {hasMore && (
+          <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
+            Scroll up to load earlier messages ({startIndex} hidden)
+          </div>
+        )}
+        {rendered.slice(startIndex)}
+      </>
+    );
+  }, [
+    messages,
+    entryIds,
+    toolResultsMap,
+    modelNames,
+    messageCwd,
+    onOpenFile,
+    sessionBusy,
+    isNew,
+    handleFork,
+    forkingEntryId,
+    handleNavigate,
+    handleEditContent,
+    session?.id,
+    sessionIdRef,
+    streamState.isStreaming,
+    visibleCount,
+    messageRefs,
+    lastUserMsgRef,
+  ]);
 
   const onDrop = useCallback((files: File[]) => {
     if (sessionBusy || !supportsImageInput) return;
@@ -551,173 +749,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               <ExtensionStatusBar statuses={extensionStatuses} />
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
-            {(() => {
-              const toolResultsMap = new Map<string, ToolResultMessage>();
-              for (const msg of messages) {
-                if (msg.role === "toolResult") {
-                  toolResultsMap.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage);
-                }
-              }
-
-              let lastUserIdx = -1;
-              for (let i = messages.length - 1; i >= 0; i--) {
-                if (messages[i].role === "user") { lastUserIdx = i; break; }
-              }
-
-              const visibleRefIndexByMessage = new Map<number, number>();
-              let refIdx = 0;
-              messages.forEach((msg, idx) => {
-                if (msg.role === "user" || msg.role === "assistant") {
-                  visibleRefIndexByMessage.set(idx, refIdx++);
-                }
-              });
-
-              const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
-                messageRefs.current[refIndex] = el;
-                if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
-              };
-
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
-                const msg = options.messageOverride ?? messages[idx];
-                const prevAssistantEntryId =
-                  msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
-                    ? entryIds[idx - 1]
-                    : undefined;
-                const isVisible = msg.role === "user" || msg.role === "assistant";
-                const currentRefIdx = visibleRefIndexByMessage.get(idx);
-                const keyPrefix = options.keyPrefix ?? "message";
-                let showTimestamp = false;
-                if (msg.role === "assistant") {
-                  showTimestamp = true;
-                  for (let j = idx + 1; j < messages.length; j++) {
-                    const r = messages[j].role;
-                    if (r === "user") break;
-                    if (r === "assistant") { showTimestamp = false; break; }
-                  }
-                  // Hide on the currently-streaming tail (the streaming bubble owns the live timestamp)
-                  if (showTimestamp && streamState.isStreaming && idx === messages.length - 1) {
-                    showTimestamp = false;
-                  }
-                }
-                if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
-                const view = (
-                  <MessageView
-                    key={`${keyPrefix}-view-${idx}`}
-                    message={msg}
-                    toolResults={toolResultsMap}
-                    modelNames={modelNames}
-                    cwd={messageCwd}
-                    onOpenFile={onOpenFile}
-                    entryId={entryIds[idx]}
-                    onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
-                    forking={forkingEntryId === entryIds[idx]}
-                    onNavigate={sessionBusy ? undefined : handleNavigate}
-                    prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
-                    onEditContent={handleEditContent}
-                    showTimestamp={showTimestamp}
-                    prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
-                    sessionId={session?.id ?? sessionIdRef.current ?? undefined}
-                  />
-                );
-                if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
-                return (
-                  <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(idx, currentRefIdx)}>
-                    {view}
-                  </div>
-                );
-              };
-
-              const rendered: ReactNode[] = [];
-              for (let idx = 0; idx < messages.length;) {
-                const msg = messages[idx];
-                if (msg.role !== "user") {
-                  rendered.push(renderMessage(idx));
-                  idx += 1;
-                  continue;
-                }
-
-                const userIdx = idx;
-                let endIdx = userIdx + 1;
-                while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1;
-
-                const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
-
-                if (finalAssistantIdx === -1) {
-                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
-                  }
-                  idx = endIdx;
-                  continue;
-                }
-
-                const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastUserIdx;
-                if (isLiveTail) {
-                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
-                  }
-                  idx = endIdx;
-                  continue;
-                }
-
-                rendered.push(renderMessage(userIdx));
-
-                const processIndices: number[] = [];
-                for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
-                  processIndices.push(processIdx);
-                }
-                const visibleProcessIndices = processIndices.filter((processIdx) => hasDisplayableProcessMessage(messages[processIdx]));
-                const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
-                const finalSplit = getFinalAssistantParts(finalAssistant);
-                const finalProcessMessage = finalSplit.processMessage;
-                const finalAnswerMessage = finalSplit.answerMessage;
-
-                const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
-                if (processCount > 0) {
-                  const processRefIdx = visibleProcessIndices
-                    .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
-                    .find((value): value is number => typeof value === "number")
-                    ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
-                  const processGroup = (
-                    <ProcessDetailsGroup
-                      messageCount={processCount}
-                      toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
-                    >
-                      {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
-                      {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
-                    </ProcessDetailsGroup>
-                  );
-                  rendered.push(
-                    <div
-                      key={`process-group-${userIdx}-${finalAssistantIdx}`}
-                      ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
-                    >
-                      {processGroup}
-                    </div>,
-                  );
-                }
-
-                if (finalAnswerMessage) {
-                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
-                }
-                for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
-                  rendered.push(renderMessage(renderIdx));
-                }
-                idx = endIdx;
-              }
-              const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
-              return (
-                <>
-                  {hasMore && (
-                    <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
-                      Scroll up to load earlier messages ({startIndex} hidden)
-                    </div>
-                  )}
-                  {rendered.slice(startIndex)}
-                </>
-              );
-            })()}
+            {historicalMessageNodes}
             {streamState.isStreaming && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
+              <div className="chat-message-item is-streaming">
+                <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
+              </div>
             )}
 
             {agentRunning && !streamState.streamingMessage && (

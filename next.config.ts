@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: [
     "undici",
+    "node-pty",
     "@earendil-works/pi-coding-agent",
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",

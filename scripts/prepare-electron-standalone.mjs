@@ -7,7 +7,7 @@
  * imports modules like pi-ai/dist/oauth.js at runtime, which causes HTTP 500 in the
  * packaged app unless we overlay full package dist trees.
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { join, basename } from "path";
 
 const root = process.cwd();
@@ -165,6 +165,59 @@ if (existsSync(nestedSrc)) {
 }
 
 console.log(`Nested agent deps: copied ${copiedNested}, skipped hoisted ${skippedHoisted}`);
+
+// node-pty: Next file-tracing keeps only package.json + lib/, but the native
+// prebuilds/ (pty.node + spawn-helper) are required at runtime in the packaged app.
+const nodePtySrc = join(root, "node_modules", "node-pty");
+const nodePtyDest = join(standaloneNm, "node-pty");
+if (existsSync(nodePtySrc)) {
+  rmSync(nodePtyDest, { recursive: true, force: true });
+  // Full package (prebuilds are platform binaries — keep them).
+  cpSync(nodePtySrc, nodePtyDest, {
+    recursive: true,
+    filter: (src) => {
+      const name = basename(src);
+      // Drop docs / types only; keep prebuilds, src binding metadata, scripts.
+      if (name === "README.md" || name === "CHANGELOG.md" || name === "LICENSE") return false;
+      if (name.endsWith(".map") || name.endsWith(".d.ts")) return false;
+      if (name === "docs" || name === "examples" || name === "test" || name === "tests") return false;
+      return true;
+    },
+  });
+
+  // npm/cp can strip +x from spawn-helper → opaque "posix_spawnp failed".
+  const fixHelper = (dir) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        fixHelper(full);
+        continue;
+      }
+      if (entry.name === "spawn-helper") {
+        try {
+          const mode = statSync(full).mode;
+          chmodSync(full, mode | 0o755);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  };
+  fixHelper(join(nodePtyDest, "prebuilds"));
+  fixHelper(join(nodePtyDest, "build"));
+
+  const armHelper = join(nodePtyDest, "prebuilds", "darwin-arm64", "pty.node");
+  const x64Helper = join(nodePtyDest, "prebuilds", "darwin-x64", "pty.node");
+  const winHelper = join(nodePtyDest, "prebuilds", "win32-x64", "pty.node");
+  if (!existsSync(armHelper) && !existsSync(x64Helper) && !existsSync(winHelper)) {
+    console.error("node-pty prebuilds missing after overlay — aborting.");
+    process.exit(1);
+  }
+  console.log("Overlaid node-pty with native prebuilds");
+} else {
+  console.warn("Warning: node_modules/node-pty not found — terminal PTY will not work in package");
+}
 
 // Critical asset checks
 const darkTheme = join(agentDest, "dist/modes/interactive/theme/dark.json");
