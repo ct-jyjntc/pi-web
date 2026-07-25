@@ -237,6 +237,12 @@ function startNextServer(port) {
     );
   }
 
+  const bundledNode = resolveBundledNodeBinary();
+  const bundledBinDir = bundledNode ? path.dirname(bundledNode) : null;
+  const bundledPi = bundledBinDir
+    ? path.join(bundledBinDir, process.platform === "win32" ? "pi.cmd" : "pi")
+    : null;
+
   const env = augmentPathForNodeTools({
     ...process.env,
     PORT: String(port),
@@ -244,10 +250,24 @@ function startNextServer(port) {
     PI_WEB_NO_OPEN: "1",
     BROWSER: "none",
     NODE_ENV: "production",
+    // Point child tools at the runtime we ship (no system Node / pi required).
+    ...(bundledNode ? { PI_WEB_NODE: bundledNode, PI_WEB_BUNDLE_NODE_BINARY: bundledNode } : {}),
+    ...(bundledPi && fs.existsSync(bundledPi)
+      ? { PI_WEB_PI_BINARY: bundledPi, PI_SUBAGENT_PI_BINARY: bundledPi }
+      : {}),
     // Never set ELECTRON_RUN_AS_NODE on a spawn of process.execPath — that
     // creates a second Dock icon labeled "exec" on macOS.
   });
   delete env.ELECTRON_RUN_AS_NODE;
+
+  // Prefer app-local bin/ on PATH so `pi`, `node`, `npm` resolve to bundled tools.
+  if (bundledBinDir) {
+    const pathKey = process.platform === "win32" ? "Path" : "PATH";
+    const sep = process.platform === "win32" ? ";" : ":";
+    const parts = String(env[pathKey] || "").split(sep).filter(Boolean);
+    if (!parts.includes(bundledBinDir)) parts.unshift(bundledBinDir);
+    env[pathKey] = parts.join(sep);
+  }
 
   if (isPackaged) {
     const serverEntry = path.join(appRoot, "server.js");

@@ -127,17 +127,65 @@ async function installOfficialNodeDist() {
   }
 
   ensureDir(outDir);
-  // Clean previous bundle
+  // Clean previous runtime bits (keep pi shims if already written)
   for (const name of readdirSync(outDir)) {
-    if (name === "node" || name === "node.exe" || name.startsWith("libnode") || name === "node-version.txt") {
+    if (
+      name === "node" ||
+      name === "node.exe" ||
+      name === "npm" ||
+      name === "npm.cmd" ||
+      name === "npx" ||
+      name === "npx.cmd" ||
+      name === "corepack" ||
+      name.startsWith("libnode") ||
+      name === "node-version.txt" ||
+      name === "node_modules"
+    ) {
       rmSync(join(outDir, name), { force: true, recursive: true });
     }
   }
   cpSync(binSrc, outNode);
   if (!isWin) chmodSync(outNode, 0o755);
 
-  // Do not ship npm/npx from the official dist — users only need the runtime.
-  // Keep bin/ lean (single node binary + optional libnode).
+  // Ship npm package + portable shims (official bin/npm is often a symlink into
+  // the extract tree — resolve and rewrite so the packaged app stays relocatable).
+  const npmLib = join(extractRoot, "lib", "node_modules", "npm");
+  if (existsSync(npmLib)) {
+    const destNpmLib = join(standalone, "lib", "node_modules", "npm");
+    rmSync(destNpmLib, { recursive: true, force: true });
+    mkdirSync(join(standalone, "lib", "node_modules"), { recursive: true });
+    cpSync(npmLib, destNpmLib, { recursive: true });
+    console.log("Bundled npm package under standalone/lib/node_modules/npm");
+
+    if (!isWin) {
+      const npmShim = `#!/bin/sh
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$DIR/node" "$DIR/../lib/node_modules/npm/bin/npm-cli.js" "$@"
+`;
+      const npxShim = `#!/bin/sh
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$DIR/node" "$DIR/../lib/node_modules/npm/bin/npx-cli.js" "$@"
+`;
+      writeFileSync(join(outDir, "npm"), npmShim, { mode: 0o755 });
+      writeFileSync(join(outDir, "npx"), npxShim, { mode: 0o755 });
+      try { chmodSync(join(outDir, "npm"), 0o755); } catch { /* ignore */ }
+      try { chmodSync(join(outDir, "npx"), 0o755); } catch { /* ignore */ }
+    } else {
+      writeFileSync(
+        join(outDir, "npm.cmd"),
+        `@echo off
+"%~dp0node.exe" "%~dp0..\lib\node_modules\npm\bin\npm-cli.js" %*
+`,
+      );
+      writeFileSync(
+        join(outDir, "npx.cmd"),
+        `@echo off
+"%~dp0node.exe" "%~dp0..\lib\node_modules\npm\bin\npx-cli.js" %*
+`,
+      );
+    }
+    console.log("Bundled portable npm/npx shims");
+  }
 
   return { version: nodeVersion, source: url };
 }

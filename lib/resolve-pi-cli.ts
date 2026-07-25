@@ -17,13 +17,23 @@ export function resolvePiBinary(): string | null {
     return env.PI_WEB_PI_BINARY;
   }
 
+  // Packaged app: pi shim lives next to the bundled Node runtime.
   const home = homedir();
-  const candidates: string[] = [
+  const candidates: string[] = [];
+  if (env.PI_WEB_NODE && existsSync(env.PI_WEB_NODE)) {
+    candidates.push(join(dirname(env.PI_WEB_NODE), platform === "win32" ? "pi.cmd" : "pi"));
+  }
+  // When the Next server is started from standalone/, bin/pi is a sibling of node.
+  candidates.push(
+    join(process.cwd(), "bin", platform === "win32" ? "pi.cmd" : "pi"),
+    join(process.cwd(), "..", "bin", platform === "win32" ? "pi.cmd" : "pi"),
+  );
+  candidates.push(
     "/opt/homebrew/bin/pi",
     "/usr/local/bin/pi",
     join(home, ".local", "bin", "pi"),
     join(home, ".hermes", "node", "bin", "pi"),
-  ];
+  );
 
   const pathEnv = env.PATH ?? env.Path ?? "";
   for (const dir of pathEnv.split(delimiter)) {
@@ -55,6 +65,12 @@ export function resolvePiBinary(): string | null {
 
 export function resolveRealNodeBinary(): string | null {
   if (env.PI_WEB_NODE && existsSync(env.PI_WEB_NODE)) return env.PI_WEB_NODE;
+  if (env.PI_WEB_BUNDLE_NODE_BINARY && existsSync(env.PI_WEB_BUNDLE_NODE_BINARY)) {
+    return env.PI_WEB_BUNDLE_NODE_BINARY;
+  }
+  // Packaged standalone layout
+  const bundled = join(process.cwd(), "bin", platform === "win32" ? "node.exe" : "node");
+  if (existsSync(bundled)) return bundled;
   if (env.npm_node_execpath && existsSync(env.npm_node_execpath)) return env.npm_node_execpath;
 
   const home = homedir();
