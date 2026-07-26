@@ -1,5 +1,12 @@
 import { EventEmitter } from "node:events";
-import * as undici from "undici";
+import {
+  Client,
+  EnvHttpProxyAgent,
+  Pool,
+  setGlobalDispatcher,
+  install as installUndici,
+  type Dispatcher,
+} from "undici";
 
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
 
@@ -28,27 +35,27 @@ function parseHttpIdleTimeoutMs(value: unknown): number | undefined {
 // Undici can emit an internal Client error while terminating a response body.
 // The body stream still rejects; this prevents the EventEmitter error from
 // terminating the Next.js process first.
-function withUndiciErrorListener<T extends undici.Dispatcher>(dispatcher: T): T {
+function withUndiciErrorListener<T extends Dispatcher>(dispatcher: T): T {
   if (dispatcher instanceof EventEmitter) {
     EventEmitter.prototype.on.call(dispatcher, "error", ignoreUndiciDispatcherError);
   }
   return dispatcher;
 }
 
-function createUndiciClient(origin: string | URL, options: object): undici.Dispatcher {
+function createUndiciClient(origin: string | URL, options: object): Dispatcher {
   return withUndiciErrorListener(
-    new undici.Client(origin, options as undici.Client.Options),
+    new Client(origin, options as ConstructorParameters<typeof Client>[1]),
   );
 }
 
-function createUndiciOriginDispatcher(origin: string | URL, options: object): undici.Dispatcher {
-  const dispatcherOptions = options as undici.Pool.Options;
-  if (dispatcherOptions.connections === 1) {
+function createUndiciOriginDispatcher(origin: string | URL, options: object): Dispatcher {
+  const dispatcherOptions = options as ConstructorParameters<typeof Pool>[1];
+  if (dispatcherOptions?.connections === 1) {
     return createUndiciClient(origin, dispatcherOptions);
   }
 
   return withUndiciErrorListener(
-    new undici.Pool(origin, {
+    new Pool(origin, {
       ...dispatcherOptions,
       factory: createUndiciClient,
     }),
@@ -66,7 +73,7 @@ export function configureHttpDispatcher(
   }
 
   const dispatcher = withUndiciErrorListener(
-    new undici.EnvHttpProxyAgent({
+    new EnvHttpProxyAgent({
       allowH2: false,
       bodyTimeout: normalizedTimeoutMs,
       headersTimeout: normalizedTimeoutMs,
@@ -74,12 +81,12 @@ export function configureHttpDispatcher(
       factory: createUndiciOriginDispatcher,
     }),
   );
-  undici.setGlobalDispatcher(dispatcher);
+  setGlobalDispatcher(dispatcher);
 
   // Keep fetch and the dispatcher on the same undici implementation. Preserve
   // an intentional fetch override installed after this module was loaded.
   if (globalThis.fetch === originalGlobalFetch) {
-    undici.install?.();
+    installUndici?.();
   }
 
   dispatcherGlobal.__piWebHttpDispatcherConfigured = true;

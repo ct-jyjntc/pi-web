@@ -12,6 +12,10 @@ try {
 const nextConfig: NextConfig = {
   // Minimal server bundle for Electron packaging (see electron/main.js + dist:dmg)
   output: "standalone",
+  // Parent Desktop/ sometimes has a package-lock.json — pin Turbopack root to this app.
+  turbopack: {
+    root: __dirname,
+  },
   experimental: {
     optimizePackageImports: ["@lobehub/icons"],
   },
