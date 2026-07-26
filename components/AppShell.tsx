@@ -156,20 +156,75 @@ export function AppShell() {
   const rightPanelWidthRef = useRef(rightPanelWidth);
   rightPanelWidthRef.current = rightPanelWidth;
   const rightPanelResizeCleanupRef = useRef<(() => void) | null>(null);
-  /** Right workspace: review + files + context + optional terminals */
+  /** Right workspace: permanent Review | Files | Context | Terminal (like Files, always present) */
   type WorkspaceTab =
     | { id: "review"; kind: "review" }
     | { id: "files"; kind: "files" }
     | { id: "context"; kind: "context" }
-    | { id: string; kind: "terminal"; label: string };
-  const [workspaceTabs, setWorkspaceTabs] = useState<WorkspaceTab[]>([
+    | { id: "terminal"; kind: "terminal" };
+  const workspaceTabs: WorkspaceTab[] = [
     { id: "review", kind: "review" },
     { id: "files", kind: "files" },
     { id: "context", kind: "context" },
-  ]);
+    { id: "terminal", kind: "terminal" },
+  ];
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string>("review");
-  const [gitFocusPath, setGitFocusPath] = useState<string | null>(null);
+  // Terminal sessions live inside the permanent Terminal workspace (like file subtabs).
+  type TerminalSessionTab = { id: string; label: string };
   const terminalSeqRef = useRef(1);
+  const [terminalTabs, setTerminalTabs] = useState<TerminalSessionTab[]>([]);
+  const terminalTabsRef = useRef(terminalTabs);
+  terminalTabsRef.current = terminalTabs;
+  const [activeTerminalTabId, setActiveTerminalTabId] = useState<string | null>(null);
+  // Only mount a session once selected (correct xterm size); keep mounted after for keep-alive.
+  const [mountedTerminalIds, setMountedTerminalIds] = useState<string[]>([]);
+  const [gitFocusPath, setGitFocusPath] = useState<string | null>(null);
+
+  const addTerminalSession = useCallback(() => {
+    // Synchronous id/label so we can activate + mount in the same click (instant show).
+    const prev = terminalTabsRef.current;
+    if (prev.length === 0) terminalSeqRef.current = 1;
+    const n = terminalSeqRef.current++;
+    const id = `term-${n}`;
+    const label = `${t("git.terminal")} ${prev.length + 1}`;
+    setTerminalTabs([...prev, { id, label }]);
+    setActiveTerminalTabId(id);
+    setMountedTerminalIds((mounted) => (mounted.includes(id) ? mounted : [...mounted, id]));
+    setActiveWorkspaceTabId("terminal");
+    setRightPanelOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile, t]);
+
+  const closeTerminalSession = useCallback((tabId: string) => {
+    setTerminalTabs((prev) => {
+      const next = prev.filter((tab) => tab.id !== tabId);
+      // Renumber remaining tabs 1..n so labels stay contiguous.
+      const renumbered = next.map((tab, index) => ({
+        ...tab,
+        label: `${t("git.terminal")} ${index + 1}`,
+      }));
+      if (renumbered.length === 0) {
+        terminalSeqRef.current = 1;
+        setActiveTerminalTabId(null);
+        setMountedTerminalIds([]);
+      } else {
+        setActiveTerminalTabId((cur) => {
+          if (cur !== tabId && renumbered.some((tab) => tab.id === cur)) return cur;
+          return renumbered[renumbered.length - 1].id;
+        });
+        setMountedTerminalIds((mounted) => mounted.filter((id) => id !== tabId));
+      }
+      return renumbered;
+    });
+  }, [t]);
+
+  // Ensure active session is in the mounted set (e.g. after switch).
+  useEffect(() => {
+    if (!activeTerminalTabId) return;
+    setMountedTerminalIds((prev) =>
+      prev.includes(activeTerminalTabId) ? prev : [...prev, activeTerminalTabId],
+    );
+  }, [activeTerminalTabId]);
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -416,21 +471,6 @@ export function AppShell() {
     setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
-
-  const addTerminalTab = useCallback(() => {
-    const n = terminalSeqRef.current++;
-    const id = `terminal-${n}`;
-    setWorkspaceTabs((prev) => [...prev, { id, kind: "terminal", label: `${t("git.terminal")} ${n}` }]);
-    setActiveWorkspaceTabId(id);
-    setRightPanelOpen(true);
-    if (isMobile) setSidebarOpen(false);
-  }, [isMobile, t]);
-
-  const closeWorkspaceTab = useCallback((tabId: string) => {
-    if (tabId === "review" || tabId === "files") return;
-    setWorkspaceTabs((prev) => prev.filter((tab) => tab.id !== tabId));
-    setActiveWorkspaceTabId((cur) => (cur === tabId ? "review" : cur));
-  }, []);
 
   // Load persisted width after mount (avoid SSR hydration mismatch)
   useEffect(() => {
@@ -1074,7 +1114,7 @@ export function AppShell() {
           ["--right-panel-width" as string]: `${rightPanelWidth}px`,
         }}
       >
-        {/* Workspace tabs: Review + Files + terminals + add */}
+        {/* Workspace tabs: Review | Files | Context | Terminal — all permanent */}
         <div className="app-topbar titlebar-drag desktop-top-chrome" style={{ display: "flex", flexDirection: "row", alignItems: "stretch", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: "var(--titlebar-height)" }}>
           <div
             className="titlebar-no-drag right-workspace-tabs"
@@ -1086,7 +1126,7 @@ export function AppShell() {
                 tab.kind === "review" ? t("git.review")
                   : tab.kind === "files" ? t("git.files")
                     : tab.kind === "context" ? t("shell.contextTab")
-                      : tab.label;
+                      : t("git.terminal");
               return (
                 <button
                   key={tab.id}
@@ -1151,106 +1191,259 @@ export function AppShell() {
                       {fileTabs.length}
                     </span>
                   )}
-                  {tab.kind === "terminal" && (
+                  {tab.kind === "terminal" && terminalTabs.length > 0 && (
                     <span
-                      role="button"
-                      tabIndex={0}
-                      className="file-subtab-close"
-                      onClick={(e) => { e.stopPropagation(); closeWorkspaceTab(tab.id); }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          closeWorkspaceTab(tab.id);
-                        }
-                      }}
-                      title={t("tab.close")}
-                      aria-label={t("tab.close")}
+                      className="right-workspace-tab-count"
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: 20,
-                        height: 20,
-                        borderRadius: "var(--radius-xs)",
+                        fontSize: 10,
+                        fontVariantNumeric: "tabular-nums",
                         color: "var(--text-dim)",
+                        background: "var(--bg-subtle)",
+                        borderRadius: "var(--radius-pill)",
+                        padding: "0 6px",
+                        minWidth: 16,
+                        textAlign: "center",
+                        lineHeight: "16px",
                         flexShrink: 0,
                       }}
                     >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ display: "block" }}>
-                        <line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" />
-                      </svg>
+                      {terminalTabs.length}
                     </span>
                   )}
                 </button>
               );
             })}
-            <button
-              type="button"
-              className="chrome-btn is-icon right-workspace-add"
-              onClick={addTerminalTab}
-              title={t("git.newTerminal")}
-              aria-label={t("git.newTerminal")}
-              style={{ width: 36, minWidth: 36, height: "100%", minHeight: 0, borderRadius: 0, borderRight: "1px solid var(--border)" }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ display: "block" }}>
-                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
             <div className="titlebar-drag" style={{ flex: 1, height: "100%" }} aria-hidden />
           </div>
         </div>
 
-        <div style={{ flex: 1, overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column" }}>
-          {activeWorkspaceTabId === "review" ? (
+        <div style={{ flex: 1, overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+          {/* Keep Terminal mounted when hidden so the shell session stays alive (Files-like permanence). */}
+          <div style={{
+            display: activeWorkspaceTabId === "review" ? "flex" : "none",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+            overflow: "hidden",
+          }}>
             <GitPanel
               cwd={activeCwd}
               refreshKey={explorerRefreshKey}
               focusPath={gitFocusPath}
               defaultExpanded
               onOpenFile={(filePath, fileName) => {
-                // From review: open the file in the Files tab for full source view.
                 handleOpenFile(filePath, fileName);
               }}
             />
-          ) : activeWorkspaceTabId === "files" ? (
-            <>
-              {fileTabs.length > 0 && (
-                <TabBar
-                  tabs={fileTabs}
-                  activeTabId={activeFileTabId ?? ""}
-                  onSelectTab={setActiveFileTabId}
-                  onCloseTab={handleCloseFileTab}
+          </div>
+
+          <div style={{
+            display: activeWorkspaceTabId === "files" ? "flex" : "none",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+            overflow: "hidden",
+          }}>
+            {fileTabs.length > 0 && (
+              <TabBar
+                tabs={fileTabs}
+                activeTabId={activeFileTabId ?? ""}
+                onSelectTab={setActiveFileTabId}
+                onCloseTab={handleCloseFileTab}
+              />
+            )}
+            <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
+              {activeFileTab?.filePath ? (
+                <FileViewer
+                  filePath={activeFileTab.filePath}
+                  cwd={activeCwd ?? undefined}
+                  sourceSessionId={activeFileTab.sourceSessionId}
+                  gitRefreshKey={explorerRefreshKey}
+                  onOpenFile={(filePath) => handleOpenFile(
+                    filePath,
+                    getFileName(filePath),
+                    activeFileTab.sourceSessionId,
+                  )}
                 />
+              ) : (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+                  {t("shell.noFileOpen")}
+                </div>
               )}
-              <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
-                {activeFileTab?.filePath ? (
-                  <FileViewer
-                    filePath={activeFileTab.filePath}
-                    cwd={activeCwd ?? undefined}
-                    sourceSessionId={activeFileTab.sourceSessionId}
-                    gitRefreshKey={explorerRefreshKey}
-                    onOpenFile={(filePath) => handleOpenFile(
-                      filePath,
-                      getFileName(filePath),
-                      activeFileTab.sourceSessionId,
-                    )}
-                  />
-                ) : (
-                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
-                    {t("shell.noFileOpen")}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : activeWorkspaceTabId === "context" ? (
+            </div>
+          </div>
+
+          <div style={{
+            display: activeWorkspaceTabId === "context" ? "flex" : "none",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+            overflow: "hidden",
+          }}>
             <ContextPanel />
-          ) : (
-            <TerminalPanel
-              key={activeWorkspaceTabId}
-              cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
-            />
-          )}
+          </div>
+
+          <div style={{
+            display: activeWorkspaceTabId === "terminal" ? "flex" : "none",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+            overflow: "hidden",
+          }}>
+            {/* Terminal subtabs — same strip language as Files */}
+            <div
+              className="file-subtabs titlebar-no-drag"
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "stretch",
+                background: "var(--bg-panel)",
+                overflowX: "auto",
+                flexShrink: 0,
+                height: 32,
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              {terminalTabs.map((tab) => {
+                const isActive = tab.id === activeTerminalTabId;
+                return (
+                  <div
+                    key={tab.id}
+                    className={`file-subtab${isActive ? " is-active" : ""}`}
+                    onClick={() => setActiveTerminalTabId(tab.id)}
+                    onMouseDown={(e) => {
+                      if (e.button === 1) e.preventDefault();
+                    }}
+                    onAuxClick={(e) => {
+                      if (e.button !== 1) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      closeTerminalSession(tab.id);
+                    }}
+                    style={{
+                      display: "flex",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      height: "100%",
+                      padding: "0 8px 0 10px",
+                      borderRight: "1px solid var(--border)",
+                      background: isActive ? "var(--bg)" : "transparent",
+                      color: isActive ? "var(--text)" : "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: isActive ? 500 : 400,
+                      whiteSpace: "nowrap",
+                      maxWidth: 180,
+                      minWidth: 72,
+                      flexShrink: 0,
+                      userSelect: "none",
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: isActive ? 0.9 : 0.65 }}>
+                      <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+                    </svg>
+                    <span className="file-subtab-label" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+                      {tab.label}
+                    </span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="file-subtab-close"
+                      title={t("tab.close")}
+                      aria-label={t("tab.close")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTerminalSession(tab.id);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          closeTerminalSession(tab.id);
+                        }
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 18,
+                        height: 18,
+                        borderRadius: "var(--radius-xs)",
+                        color: "var(--text-dim)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                        <line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" />
+                      </svg>
+                    </span>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                className="chrome-btn is-icon"
+                onClick={addTerminalSession}
+                title={t("git.newTerminal")}
+                aria-label={t("git.newTerminal")}
+                style={{
+                  width: 32,
+                  minWidth: 32,
+                  height: "100%",
+                  minHeight: 0,
+                  borderRadius: 0,
+                  borderRight: "1px solid var(--border)",
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+            </div>
+
+            <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+              {terminalTabs.length === 0 ? (
+                <div style={{
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  color: "var(--text-dim)",
+                  fontSize: 12,
+                }}>
+                  <span>{t("git.terminal")}</span>
+                  <button type="button" className="chrome-btn" onClick={addTerminalSession}>
+                    {t("git.newTerminal")}
+                  </button>
+                </div>
+              ) : (
+                terminalTabs.map((tab) => {
+                  if (!mountedTerminalIds.includes(tab.id)) return null;
+                  const active = tab.id === activeTerminalTabId;
+                  return (
+                    <div
+                      key={tab.id}
+                      style={{
+                        display: active ? "flex" : "none",
+                        flexDirection: "column",
+                        position: "absolute",
+                        inset: 0,
+                        minHeight: 0,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <TerminalPanel
+                        cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
