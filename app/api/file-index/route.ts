@@ -77,7 +77,7 @@ async function listWithGit(cwd: string): Promise<FileListing | null> {
   }
 }
 
-function listWithWalk(cwd: string): FileListing {
+async function listWithWalk(cwd: string): Promise<FileListing> {
   const files: string[] = [];
   // BFS so shallow files win when the cap truncates the listing.
   const queue: Array<{ abs: string; rel: string; depth: number }> = [{ abs: cwd, rel: "", depth: 0 }];
@@ -85,7 +85,7 @@ function listWithWalk(cwd: string): FileListing {
     const { abs, rel, depth } = queue.shift()!;
     let dirents: fs.Dirent[];
     try {
-      dirents = fs.readdirSync(abs, { withFileTypes: true });
+      dirents = await fs.promises.readdir(abs, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
 
     let stat: fs.Stats;
     try {
-      stat = fs.statSync(cwd);
+      stat = await fs.promises.stat(cwd);
     } catch {
       return NextResponse.json({ error: "Directory not found" }, { status: 404 });
     }
@@ -141,7 +141,7 @@ export async function GET(req: NextRequest) {
     const now = Date.now();
     let cached = cache.get(cwd);
     if (!cached || cached.expiresAt <= now) {
-      const listing = (await listWithGit(cwd)) ?? listWithWalk(cwd);
+      const listing = (await listWithGit(cwd)) ?? (await listWithWalk(cwd));
       for (const [key, entry] of cache) {
         if (entry.expiresAt <= now) cache.delete(key);
       }

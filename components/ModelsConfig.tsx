@@ -125,6 +125,28 @@ interface ModelEntry {
   compat?: Record<string, unknown>;
 }
 
+/** Cost must always include all four numbers — blank/missing → 0 (never omit keys). */
+type ModelCost = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
+function parseCostNumber(value: string | number | undefined | null): number {
+  if (value === undefined || value === null || value === "") return 0;
+  const n = typeof value === "number" ? value : parseFloat(String(value));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeModelCost(cost?: ModelEntry["cost"] | null): ModelCost {
+  return {
+    input: parseCostNumber(cost?.input),
+    output: parseCostNumber(cost?.output),
+    cacheRead: parseCostNumber(cost?.cacheRead),
+    cacheWrite: parseCostNumber(cost?.cacheWrite),
+  };
+}
+
+function normalizeModelEntry(model: ModelEntry): ModelEntry {
+  return { ...model, cost: normalizeModelCost(model.cost) };
+}
+
 interface ProviderEntry {
   baseUrl?: string;
   api?: string;
@@ -568,10 +590,14 @@ function ModelDetail({
   const { t } = useLocale();
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
-  const costVal = (k: keyof NonNullable<ModelEntry["cost"]>) => model.cost?.[k] !== undefined ? String(model.cost[k]) : "";
-  const setCost = (k: keyof NonNullable<ModelEntry["cost"]>, v: string) => {
-    const n = parseFloat(v);
-    onChange({ ...model, cost: { ...(model.cost ?? {}), [k]: isNaN(n) ? undefined : n } });
+  const costVal = (k: keyof ModelCost) => {
+    const n = model.cost?.[k];
+    return n !== undefined && n !== null ? String(n) : "";
+  };
+  const setCost = (k: keyof ModelCost, v: string) => {
+    // Empty / invalid → 0; always keep full cost object with all four keys.
+    const next = normalizeModelCost({ ...(model.cost ?? {}), [k]: v.trim() === "" ? 0 : parseCostNumber(v) });
+    onChange({ ...model, cost: next });
   };
   const testSummary = (() => {
     if (testState.phase === "idle") return null;
@@ -1425,7 +1451,10 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const addModel = useCallback((providerName: string) => {
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
-      const models = [...(provider.models ?? []), { id: "" }];
+      const models = [
+        ...(provider.models ?? []),
+        { id: "", cost: normalizeModelCost(null) },
+      ];
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
     setConfig((prev) => {
@@ -1458,16 +1487,27 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setSaveError(null);
     setSavedOk(false);
+    // Normalize every model cost so blank prices become 0 and all four keys exist.
+    const providers = { ...(config.providers ?? {}) };
+    for (const [name, provider] of Object.entries(providers)) {
+      if (!provider?.models?.length) continue;
+      providers[name] = {
+        ...provider,
+        models: provider.models.map((m) => normalizeModelEntry(m)),
+      };
+    }
+    const payload = { ...config, providers };
     try {
       const res = await fetch("/api/models-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
+        body: JSON.stringify(payload),
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
       else {
-        savedConfigJsonRef.current = JSON.stringify(config);
+        setConfig(payload);
+        savedConfigJsonRef.current = JSON.stringify(payload);
         setSavedOk(true);
         setTimeout(() => setSavedOk(false), 2000);
       }

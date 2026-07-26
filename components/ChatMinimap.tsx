@@ -114,6 +114,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       const newNodes: NodeInfo[] = [];
       let refIndex = 0;
       const allMessages = allMessagesRef.current;
+      const containerRect = scrollEl.getBoundingClientRect();
 
       for (let i = 0; i < allMessages.length; i++) {
         const msg = allMessages[i];
@@ -123,7 +124,6 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         if (!hasTextContent(msg)) continue;
         if (el) {
           const elRect = el.getBoundingClientRect();
-          const containerRect = scrollEl.getBoundingClientRect();
           const top = elRect.top - containerRect.top + scrollEl.scrollTop;
           const h = elRect.height;
           newNodes.push({

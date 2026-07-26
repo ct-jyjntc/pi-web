@@ -83,18 +83,80 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
           },
   }), [cwd, isStreaming, onOpenFile]);
 
+  // While streaming, split the document at the last "safe" paragraph boundary
+  // and render the stable prefix as a memoized segment. Each 100ms stream tick
+  // then only re-runs the remark/rehype pipeline over the short tail being
+  // typed, instead of the whole (growing) message.
+  const { stable, tail } = useMemo(
+    () => (isStreaming ? splitStreamingMarkdown(normalizedMarkdown) : { stable: normalizedMarkdown, tail: "" }),
+    [isStreaming, normalizedMarkdown],
+  );
+
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
-      <ReactMarkdown
-        remarkPlugins={markdownRemarkPlugins}
-        rehypePlugins={markdownRehypePlugins}
-        components={components}
-      >
-        {normalizedMarkdown}
-      </ReactMarkdown>
+      <MarkdownSegment text={stable} components={components} />
+      {tail && <MarkdownSegment text={tail} components={components} />}
     </div>
   );
 });
+
+type MarkdownComponents = NonNullable<Parameters<typeof ReactMarkdown>[0]["components"]>;
+
+const MarkdownSegment = memo(function MarkdownSegment({ text, components }: { text: string; components: MarkdownComponents }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={markdownRemarkPlugins}
+      rehypePlugins={markdownRehypePlugins}
+      components={components}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+});
+
+// A blank-line boundary is only safe to split at when the content after it
+// cannot continue a construct from before it: list items (loose lists share
+// numbering/markers across blank lines), indented continuations, and tables.
+const UNSAFE_BLOCK_START = /^(\s|[-*+]\s|\d+[.)]\s|\||\$\$)/;
+
+/**
+ * Split markdown at the last safe paragraph boundary outside code fences.
+ * `stable` only changes when a new paragraph completes, so a memoized segment
+ * rendering it is a cache hit on almost every streaming tick.
+ */
+function splitStreamingMarkdown(markdown: string): { stable: string; tail: string } {
+  const lines = markdown.split(/\r?\n/);
+  let fence: { marker: string; size: number } | null = null;
+  let splitLine = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      const size = fenceMatch[1].length;
+      if (!fence) fence = { marker, size };
+      else if (marker === fence.marker && size >= fence.size) fence = null;
+      continue;
+    }
+    if (fence || line.trim() !== "") continue;
+
+    // Blank line outside a fence: safe iff the next non-blank line starts a
+    // fresh top-level block.
+    let next = i + 1;
+    while (next < lines.length && lines[next].trim() === "") next++;
+    if (next < lines.length && !UNSAFE_BLOCK_START.test(lines[next])) {
+      splitLine = next;
+    }
+  }
+
+  if (splitLine <= 0) return { stable: markdown, tail: "" };
+  const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
+  return {
+    stable: lines.slice(0, splitLine).join(lineBreak),
+    tail: lines.slice(splitLine).join(lineBreak),
+  };
+}
 
 function normalizeDisplayMath(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";

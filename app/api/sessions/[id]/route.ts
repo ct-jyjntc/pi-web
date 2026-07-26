@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { statSync, unlinkSync, promises as fsp } from "fs";
 import { join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
@@ -209,21 +209,26 @@ export async function DELETE(
     const parentSessionPath = readSessionHeader(filePath)?.parentSession;
 
     // Re-attach all direct children to this session's parent (cascade re-parent)
-    // Scan sibling files in the same directory
+    // Scan sibling files in the same directory. Async + header-probe first so a
+    // large session directory doesn't block the event loop reading whole files.
     const dir = filePath.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
     try {
-      const files = readdirSync(dir).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== filePath);
+      const files = (await fsp.readdir(dir)).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== filePath);
       for (const file of files) {
         const childPath = join(dir, file);
         try {
-          const content = readFileSync(childPath, "utf8");
+          // Cheap probe: the session header is always line 1 — only rewrite
+          // files whose header actually points at the deleted session.
+          const probe = readSessionHeader(childPath) as { type?: string; parentSession?: string } | null;
+          if (!probe || probe.type !== "session" || probe.parentSession !== filePath) continue;
+          const content = await fsp.readFile(childPath, "utf8");
           const lines = content.split("\n");
           const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
           if (header.type === "session" && header.parentSession === filePath) {
             // Rewrite header with new parentSession
             header.parentSession = parentSessionPath;
             lines[0] = JSON.stringify(header);
-            writeFileSync(childPath, lines.join("\n"));
+            await fsp.writeFile(childPath, lines.join("\n"));
           }
         } catch { /* skip malformed */ }
       }

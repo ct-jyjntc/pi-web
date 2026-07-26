@@ -12,6 +12,9 @@ try {
 const nextConfig: NextConfig = {
   // Minimal server bundle for Electron packaging (see electron/main.js + dist:dmg)
   output: "standalone",
+  experimental: {
+    optimizePackageImports: ["@lobehub/icons"],
+  },
   serverExternalPackages: [
     "undici",
     "node-pty",

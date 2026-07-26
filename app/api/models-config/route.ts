@@ -31,10 +31,49 @@ export async function GET() {
   return NextResponse.json(readModelsJson());
 }
 
+function parseCostNumber(value: unknown): number {
+  if (value === undefined || value === null || value === "") return 0;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Ensure every model.cost has input/output/cacheRead/cacheWrite as numbers (default 0). */
+function normalizeProvidersCost(data: Record<string, unknown>): Record<string, unknown> {
+  const providers = data.providers;
+  if (!providers || typeof providers !== "object" || Array.isArray(providers)) return data;
+  const nextProviders: Record<string, unknown> = {};
+  for (const [name, rawProvider] of Object.entries(providers as Record<string, unknown>)) {
+    if (!rawProvider || typeof rawProvider !== "object" || Array.isArray(rawProvider)) {
+      nextProviders[name] = rawProvider;
+      continue;
+    }
+    const provider = { ...(rawProvider as Record<string, unknown>) };
+    const models = provider.models;
+    if (Array.isArray(models)) {
+      provider.models = models.map((rawModel) => {
+        if (!rawModel || typeof rawModel !== "object" || Array.isArray(rawModel)) return rawModel;
+        const model = { ...(rawModel as Record<string, unknown>) };
+        const cost = (model.cost && typeof model.cost === "object" && !Array.isArray(model.cost))
+          ? (model.cost as Record<string, unknown>)
+          : {};
+        model.cost = {
+          input: parseCostNumber(cost.input),
+          output: parseCostNumber(cost.output),
+          cacheRead: parseCostNumber(cost.cacheRead),
+          cacheWrite: parseCostNumber(cost.cacheWrite),
+        };
+        return model;
+      });
+    }
+    nextProviders[name] = provider;
+  }
+  return { ...data, providers: nextProviders };
+}
+
 export async function PUT(req: Request) {
   try {
     const body = await req.json() as Record<string, unknown>;
-    writeModelsJson(body);
+    writeModelsJson(normalizeProvidersCost(body));
     invalidateModelsCache();
     return NextResponse.json({ success: true });
   } catch (error) {

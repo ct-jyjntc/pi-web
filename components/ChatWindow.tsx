@@ -271,7 +271,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [visibleCount, scrollContainerRef]);
   // Push session metrics to an external store so AppShell/right-panel chrome
   // does not re-render on every streaming token / stats tick.
-  const statsKey = sessionStats
+  const statsKey = useMemo(() => sessionStats
     ? [
       sessionStats.sessionId,
       sessionStats.sessionFile ?? "",
@@ -288,7 +288,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       sessionStats.tokens.total,
       sessionStats.cost ?? 0,
     ].join("|")
-    : null;
+    : null, [sessionStats]);
   const sessionStatsRef = useRef(sessionStats);
   sessionStatsRef.current = sessionStats;
   useEffect(() => {
@@ -312,7 +312,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     onContextUsageChange?.(null);
   }, [onSessionStatsChange, onContextUsageChange]);
 
-  const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
+  // Memoized: runs on every streaming tick otherwise (fresh array each render).
+  const visibleMessages = useMemo(
+    () => messages.filter((m) => m.role === "user" || m.role === "assistant"),
+    [messages],
+  );
   const messageRefs = useMessageRefs(visibleMessages.length);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
