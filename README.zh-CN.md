@@ -2,25 +2,31 @@
 
 # Pi Web
 
-**pi 编程智能体的本地 Web UI 与桌面壳**
+**本地智能体工作区 — 对话、文件、Git、终端一体化**
+
+Web UI + Electron 桌面端 · `@agegr/pi-web`
 
 [![npm](https://img.shields.io/npm/v/@agegr/pi-web?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/@agegr/pi-web)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Platform](https://img.shields.io/badge/Web%20%2B%20Electron-111111?style=for-the-badge)](#桌面端)
 
-[English](./README.md) · [npm 包](https://www.npmjs.com/package/@agegr/pi-web) · [Worktree 说明](./docs/worktrees.zh-CN.md) · [Issues](https://github.com/agegr/pi-web/issues)
+[English](./README.md)
+·
+[npm](https://www.npmjs.com/package/@agegr/pi-web)
+·
+[Issues](https://github.com/agegr/pi-web/issues)
 
 <br/>
 
 <table>
   <tr>
     <td width="50%">
-      <img src="./docs/screenshot-light.png" alt="Pi Web — 浅色主题" />
+      <img src="./docs/screenshot-light.png" alt="Pi Web 浅色主题" />
       <p align="center"><sub>浅色</sub></p>
     </td>
     <td width="50%">
-      <img src="./docs/screenshot-dark.png" alt="Pi Web — 深色主题" />
+      <img src="./docs/screenshot-dark.png" alt="Pi Web 深色主题" />
       <p align="center"><sub>深色</sub></p>
     </td>
   </tr>
@@ -30,164 +36,86 @@
 
 ---
 
-Pi Web 把本机 pi 会话变成完整工作区：实时对话、会话树、模型与技能配置、Git 审查、内置终端、文件预览 —— 浏览器或 Electron 桌面端均可。
+Pi Web 是跑在你本机上的 **local-first 编程智能体工作区**。  
+打开项目、和智能体对话、审查 Git 变更、浏览文件、开终端 —— 不必在一堆工具之间来回切换。
 
-## 目录
+| | |
+| :--- | :--- |
+| 包名 | [`@agegr/pi-web`](https://www.npmjs.com/package/@agegr/pi-web) |
+| 命令 | `pi-web` |
+| 默认地址 | `http://127.0.0.1:30141` |
+| 桌面端口 | `30142`（Electron） |
+| Node | **≥ 22.19.0** |
+| 许可 | MIT |
 
-- [为什么用 Pi Web](#为什么用-pi-web)
-- [快速开始](#快速开始)
-- [命令行参数](#命令行参数)
-- [桌面端](#桌面端)
-- [功能一览](#功能一览)
-- [架构关系](#架构关系)
-- [HTTP 代理](#http-代理)
-- [路径与注意点](#路径与注意点)
-- [开发](#开发)
-- [项目结构](#项目结构)
-- [许可证](#许可证)
+## 能力一览
 
-## 为什么用 Pi Web
+- **智能体对话** — 流式输出、工具调用 / 结果、thinking、上下文与花费、压缩
+- **会话中心** — 按项目分组、重命名 / 删除 / 导出 HTML、自动标题、Fork 与会话内分支
+- **Git 审查** — 状态、暂存 / 取消暂存、丢弃、提交、提交并推送、拉取、建分支、**AI 生成 commit message**
+- **Worktree** — 侧边栏切换 / 创建 / 删除（[说明](./docs/worktrees.zh-CN.md)）
+- **终端** — 多标签 PTY（xterm + node-pty），cwd 跟随项目
+- **文件** — 资源管理器、模糊索引、源码 / Markdown / 图片 / 音频 / PDF / DOCX 预览
+- **模型与鉴权** — 供应商、OAuth / API key、`models.json` 编辑、模型连通测试
+- **Skills** — 列表、搜索、安装、更新、启停
+- **权限** — 输入栏 ask / full
+- **设置** — 主题、语言、工具模型（会话标题 + commit message）、应用内检查更新
+- **中英文与体验** — EN / 中文、明暗主题、聊天 minimap、快捷键、完成提示音
+- **桌面端** — Electron + 原生窗口控件；macOS DMG、Windows NSIS
 
-| | 只用 CLI | **Pi Web** |
-| :--- | :--- | :--- |
-| 历史会话 | 翻终端 / 记路径 | 按**项目树**浏览 |
-| 流式输出 | TUI 文本流 | 结构化 Markdown、tool call、minimap |
-| 分支探索 | 手动折腾 | **Fork** 新会话或切换**会话内分支** |
-| 看代码 | 来回切应用 | 对话旁 **Explorer + 预览** |
-| Git | 另开 shell | **审查面板** + worktree 切换 |
-| 终端 | 单独窗口 | 多标签**项目终端** |
-| 配置 | 改配置文件 | 模型 / 鉴权 / 技能 / 权限都在 UI |
+```text
+┌────────────────┬─────────────────────┬──────────────────────┐
+│  项目与会话    │  对话 + 工具        │  审查工作区          │
+│                │  模型 · 权限        │  Git · 文件 · 终端   │
+└────────────────┴─────────────────────┴──────────────────────┘
+```
 
-## 快速开始
+## 安装与运行
 
-> [!IMPORTANT]
-> 需要 **Node.js 20+**，以及可用的 pi agent 环境（默认 `~/.pi/agent`：会话、模型、鉴权等）。
+> 需要 Node.js **22.19.0+**（`package.json` → `engines`，CLI 也会校验）。
 
-### 一行启动
+### npx
 
 ```bash
 npx @agegr/pi-web@latest
 ```
 
-### 全局安装
+### 全局 CLI
 
 ```bash
 npm install -g @agegr/pi-web
 pi-web
 ```
 
-然后打开 **[http://127.0.0.1:30141](http://127.0.0.1:30141)** —— 服务就绪后 CLI 会尝试自动打开浏览器。Pi Web 默认仅监听 `127.0.0.1`。
+然后打开 [http://127.0.0.1:30141](http://127.0.0.1:30141)。  
+默认绑定 **`127.0.0.1`**，服务就绪后可自动打开浏览器。
 
-## 命令行参数
-
-<details>
-<summary><b>端口、绑定地址、环境变量</b></summary>
-
-<br/>
+### 命令行参数
 
 ```bash
-pi-web --port 8080              # 自定义端口
-pi-web --hostname 0.0.0.0       # 在可信网络中开放访问
-pi-web -p 8080 -H 0.0.0.0       # 组合使用
-pi-web --no-open                # 不自动打开浏览器
+pi-web --port 8080
+pi-web --hostname 0.0.0.0          # 仅可信网络
+pi-web -p 8080 -H 0.0.0.0
+pi-web --no-open
 
-PORT=8080 pi-web                # 也支持环境变量
-PI_WEB_HOSTNAME=0.0.0.0 pi-web  # 显式开放网络访问
-PI_WEB_NO_OPEN=1 pi-web         # 后台服务 / 不自动打开
+PORT=8080 pi-web
+PI_WEB_HOSTNAME=0.0.0.0 pi-web
+PI_WEB_NO_OPEN=1 pi-web
 ```
 
 | 参数 / 环境变量 | 含义 | 默认 |
 | --- | --- | --- |
-| `-p` / `--port` / `PORT` | 监听端口 | `30141` |
+| `-p` / `--port` / `PORT` | HTTP 端口 | `30141` |
 | `-H` / `--hostname` / `PI_WEB_HOSTNAME` | 绑定地址 | `127.0.0.1` |
-| `--no-open` / `PI_WEB_NO_OPEN=1` | 跳过打开浏览器 | Ready 时打开 |
-| `PI_CODING_AGENT_DIR` | 覆盖 pi agent 目录 | `~/.pi/agent` |
-
-</details>
+| `--no-open` / `PI_WEB_NO_OPEN` | 不打开浏览器 | 关 |
+| `PI_CODING_AGENT_DIR` | 本地智能体数据目录 | `~/.pi/agent` |
 
 > [!WARNING]
-> 应用**没有登录鉴权**，且可调用高权限智能体。请勿暴露到互联网；仅在可信网络使用非 loopback 绑定。Electron 桌面版默认只监听本机回环地址。
+> **没有登录**。绑定到非回环地址等于暴露高权限智能体接口，只在可信网络使用。非 loopback 绑定时 CLI 会打印警告。
 
-## 桌面端
+### HTTP 代理
 
-作为原生应用运行（当前以 macOS DMG 为主要打包路径）。
-
-```bash
-npm install
-npm run electron:dev      # 本地源码 + Electron
-npm run electron:prod     # 生产 standalone → Electron
-npm run dist:dmg          # 打包 macOS arm64 DMG
-```
-
-<details>
-<summary><b>桌面端环境变量</b></summary>
-
-<br/>
-
-| 变量 | 作用 | 默认 |
-| --- | --- | --- |
-| `PI_WEB_ELECTRON_PORT` / `PI_WEB_PORT` | 优先使用的本地端口 | `30142` |
-| `PI_WEB_NODE_BINARY` | 系统 Node 路径（供 `node-pty` 等） | 自动探测 |
-
-</details>
-
-## 功能一览
-
-```text
-┌──────────────┬─────────────────────┬──────────────────────┐
-│  按项目会话  │  实时 Agent 对话    │  Git + 终端          │
-│  树状浏览    │  SSE · 工具 · 花费  │  审查 · 多标签       │
-├──────────────┼─────────────────────┼──────────────────────┤
-│  Worktree    │  文件浏览与预览     │  模型 · Skills       │
-│  切换 cwd    │  源码 · PDF · DOCX  │  OAuth · API key     │
-├──────────────┼─────────────────────┼──────────────────────┤
-│  Fork /      │  权限模式           │  中 EN · 主题        │
-│  会话内分支  │  ask · full/YOLO    │  minimap · 提示音    │
-└──────────────┴─────────────────────┴──────────────────────┘
-```
-
-- **会话工作区** — 重命名、删除、导出 HTML；不用再翻路径找历史
-- **实时对话** — SSE 流、tool call/result、thinking、压缩与上下文占用
-- **安全分支** — Fork 出新 `.jsonl`，或在同一会话内 Continue / 切换分支
-- **Git Worktree** — 侧边栏切换 checkout，会话仍按项目聚合；见 [Worktree 说明](./docs/worktrees.zh-CN.md)
-- **Git 审查** — 状态、diff、跳转打开文件，和对话并排
-- **内置终端** — 多个项目 cwd 终端（xterm + node-pty）
-- **文件浏览与预览** — 源码、Markdown、图片、音频、PDF、DOCX
-- **模型与鉴权** — 编辑 `models.json`、OAuth / API key、连通性测试
-- **Skills** — 按运行时加载方式列出、搜索、安装与开关
-- **权限模式** — 输入栏切换 ask / full
-- **中英文** — 应用内切换，偏好持久化
-- **体验细节** — 明暗主题、聊天 minimap、完成提示音、快捷键（<kbd>Esc</kbd> 中止）
-
-## 架构关系
-
-```mermaid
-flowchart LR
-  Browser["浏览器 / Electron"]
-  Next["Next.js 服务端"]
-  Agent["AgentSession\n(进程内)"]
-  Disk["~/.pi/agent\n会话 · 模型 · 技能"]
-
-  Browser -->|"REST + SSE"| Next
-  Next -->|"startRpcSession / prompt"| Agent
-  Next -->|"读 / 写"| Disk
-  Agent -->|"subscribe 事件"| Next
-  Next -->|"data: …"| Browser
-```
-
-| 场景 | 行为 |
-| --- | --- |
-| 会话列表 / 历史 | 通过 `SessionManager` 读 `.jsonl` —— **不**拉起 agent |
-| 发送消息 | `startRpcSession()` 创建进程内 `AgentSession` |
-| 实时更新 | `GET /api/agent/[id]/events` SSE |
-| 运行中徽章 | `/api/agent/running/events` 驱动侧边栏状态 |
-
-## HTTP 代理
-
-服务端模型与 API 请求会读取 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`。
-
-<details>
-<summary><b>macOS / Linux</b></summary>
+服务端模型请求遵循 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`。
 
 ```bash
 HTTP_PROXY=http://127.0.0.1:7890 \
@@ -196,106 +124,117 @@ NO_PROXY=localhost,127.0.0.1 \
 npx @agegr/pi-web@latest
 ```
 
-</details>
+## 桌面端
 
-<details>
-<summary><b>Windows PowerShell</b></summary>
-
-```powershell
-$env:HTTP_PROXY = "http://127.0.0.1:7890"
-$env:HTTPS_PROXY = "http://127.0.0.1:7890"
-$env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-web@latest
+```bash
+npm install
+npm run electron:dev       # 开发 UI + Electron
+npm run electron:prod      # 生产 standalone + 应用
+npm run dist:dmg           # macOS arm64 DMG
+npm run dist:mac           # DMG + zip
+npm run dist:win           # Windows NSIS
 ```
 
-</details>
+| 环境变量 | 作用 | 默认 |
+| --- | --- | --- |
+| `PI_WEB_ELECTRON_PORT` / `PI_WEB_PORT` | 应用内本地端口 | `30142` |
+| `PI_WEB_NODE_BINARY` | 原生模块用的系统 Node | 自动 |
 
-## 路径与注意点
+`npm run build:electron` 会构建 Next standalone，并打包运行时 Node 等相关资源。
 
-| 主题 | 说明 |
+## 应用结构
+
+```mermaid
+flowchart LR
+  Client["浏览器 / Electron"]
+  Next["Next.js API"]
+  Runtime["进程内智能体运行时"]
+  Disk["本地数据目录\n~/.pi/agent"]
+  Git["Git · PTY · 文件"]
+
+  Client -->|"REST + SSE"| Next
+  Next --> Runtime
+  Next --> Disk
+  Next --> Git
+  Runtime -->|"事件"| Next
+  Next -->|"SSE"| Client
+```
+
+| 模块 | 本仓库实现 |
 | --- | --- |
-| 数据目录 | `~/.pi/agent` · 可用 `PI_CODING_AGENT_DIR` 覆盖 |
-| 会话文件 | `~/.pi/agent/sessions/<编码后的 cwd>/<时间戳>_<uuid>.jsonl` |
-| 模型配置 | Models 面板 ↔ agent 目录下的 `models.json` |
-| 文件访问 | 限定在会话 cwd、项目根、`~/pi-cwd-*`、显式允许根 |
-| Fork vs 分支 | **Fork** → 新 `.jsonl` · **Continue** → 同一文件内共享 `parentId` |
-| 内置包 | permission、subagents、todo、ask-user、better-compaction 等启动时自动安装 |
+| 会话 | `app/api/sessions/*` · `lib/session-reader.ts` |
+| 实时智能体 | `app/api/agent/*` · `lib/rpc-manager.ts` |
+| Git | `app/api/git/*` · `components/GitPanel.tsx` |
+| 终端 | `app/api/cwd/pty/*` · `lib/pty-sessions.ts` · `TerminalPanel.tsx` |
+| 文件 | `app/api/files/*` · `file-index` · `FileExplorer` / `FileViewer` |
+| 模型 / 鉴权 | `app/api/models*` · `app/api/auth/*` · `ModelsConfig.tsx` |
+| Skills | `app/api/skills/*` · `SkillsConfig.tsx` |
+| 设置 | `app/api/web-settings` · `SettingsConfig.tsx` |
+| Worktree | `app/api/worktrees` · `lib/worktree.ts` |
+| 更新检查 | `app/api/app-update`（GitHub releases） |
+| 国际化 | `lib/i18n/messages.ts` · `hooks/useLocale.ts` |
 
-> [!TIP]
-> 会话头里的 `parentSession` 只是**展示元数据** —— 删除后级联改父节点时整文件重写是安全的。
+## 本地数据
+
+| 路径 | 作用 |
+| --- | --- |
+| `~/.pi/agent` | 默认数据根目录（`PI_CODING_AGENT_DIR` 可覆盖） |
+| `…/sessions/…/*.jsonl` | 会话历史 |
+| `…/models.json` | 模型 / 供应商配置（也可在 UI 编辑） |
+| 内置包 | 启动时为 Web/桌面自动安装（权限、subagents、todo、ask-user、better-compaction 等） |
+
+文件访问限定在会话 cwd、项目根、`~/pi-cwd-*` 以及显式允许的根目录。
 
 ## 开发
 
 ```bash
+git clone https://github.com/agegr/pi-web.git
+cd pi-web
 npm install
-npm run dev    # → http://127.0.0.1:30141
-```
-
-```bash
-node_modules/.bin/tsc --noEmit
-npm run lint
+npm run dev          # http://127.0.0.1:30141
 ```
 
 | 脚本 | 作用 |
 | --- | --- |
-| `npm run dev` | Next.js 开发服务 · 端口 `30141` |
-| `npm run build` | 生产构建 *（仅发布 / Electron）* |
-| `npm run start` | 启动生产构建 |
-| `npm run electron` / `electron:dev` | 启动桌面壳 |
-| `npm run build:electron` | 构建并准备 Electron standalone |
-| `npm run dist:dmg` | 打包 macOS DMG |
-| `npm run release` | 递增 patch · 构建 · 发布 npm |
+| `npm run dev` | 本机 `:30141` 开发服务 |
+| `npm run dev:lan` | `0.0.0.0:30141` 开发服务 |
+| `npm run start` / `start:lan` | 生产服务 |
+| `npm run build` | Next 生产构建 |
+| `npm run build:electron` | Web 构建 + Electron standalone + 运行时打包 |
+| `npm run electron` / `electron:dev` / `electron:prod` | 桌面端 |
+| `npm run dist:dmg` / `dist:mac` / `dist:win` | 安装包 |
+| `npm run lint` | ESLint |
+| `npm run verify` | 离线（+ 可选 HTTP）冒烟检查 |
+| `npm run release` | 升 patch · 构建 · 发 npm |
+
+```bash
+npm run verify
+# 服务已启动时可做在线检查：
+VERIFY_HTTP=1 npm run verify
+```
 
 > [!CAUTION]
-> **用 `npm run dev` 迭代时不要执行 `next build` / `npm run build`。** 构建会写入 `.next/`，容易干扰开发服务器；生产构建留给发布或 Electron 打包。
-
-## 项目结构
+> **`npm run dev` 运行时不要执行 `npm run build`。** 两者都会写 `.next/`，会互相踩。构建只用于发布或 Electron 打包。
 
 <details>
-<summary><b>展开目录地图</b></summary>
+<summary><b>源码目录</b></summary>
 
 ```text
-app/api/
-  agent/          # AgentSession + SSE
-  auth/           # OAuth + API key
-  cwd/            # 工作目录校验
-  default-cwd/    # ~/pi-cwd-* 辅助
-  file-index/     # 模糊文件索引
-  files/          # 列表 · 读取 · 预览 · watch
-  git/            # 审查面板 status + diff
-  home/           # 用户 home
-  models/         # 目录 · 默认 · thinking levels
-  models-config/  # models.json + 测试
-  permissions/    # ask / full 模式
-  sessions/       # 列表 · 重命名 · 删除 · 上下文 · 导出
-  skills/         # 列表 · 搜索 · 安装 · 开关
-  worktrees/      # 列表 · 创建 · 删除
-
-components/
-  AppShell.tsx · SessionSidebar.tsx · ChatWindow.tsx · ChatInput.tsx
-  MessageView.tsx · GitPanel.tsx · TerminalPanel.tsx
-  ModelsConfig.tsx · SkillsConfig.tsx · FileExplorer.tsx · FileViewer.tsx
-
-lib/
-  rpc-manager.ts · session-reader.ts · pty-sessions.ts · worktree.ts
-  permission-mode.ts · http-dispatcher.ts · file-access.ts
-  i18n/ · ensure-builtin-packages.ts
-
-hooks/
-  useAgentSession.ts · useLocale.ts · useKeyboardShortcuts.ts
-  useTheme.ts · useAudio.ts · useDragDrop.ts · useIsMobile.ts
-
-electron/         # 桌面 main + preload
-bin/pi-web.js     # npm CLI 入口
-scripts/          # 打包 + node-pty 修复
-instrumentation.ts
+app/api/           REST + SSE（agent、git、pty、sessions、skills…）
+components/        AppShell、对话、GitPanel、TerminalPanel、设置…
+hooks/             会话 SSE、语言、快捷键、主题、音频
+lib/               运行时、安全、git、pty、i18n、会话 IO
+electron/          桌面 main + preload
+bin/               pi-web CLI
+scripts/           打包、node-pty 权限、verify
+docs/              worktree 说明 + 截图
 ```
 
 </details>
 
-## 相关链接
+## 文档
 
-- [Pi Web 里的 Worktree](./docs/worktrees.zh-CN.md)
+- [Worktree 说明](./docs/worktrees.zh-CN.md)
 - [English README](./README.md)
 
 ---

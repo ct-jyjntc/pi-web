@@ -2,25 +2,31 @@
 
 # Pi Web
 
-**Local web UI & desktop shell for the pi coding agent**
+**Local agent workspace — chat, files, Git, and terminals in one app**
+
+Web UI + Electron desktop · `@agegr/pi-web`
 
 [![npm](https://img.shields.io/npm/v/@agegr/pi-web?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/@agegr/pi-web)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Platform](https://img.shields.io/badge/Web%20%2B%20Electron-111111?style=for-the-badge)](#desktop)
 
-[中文文档](./README.zh-CN.md) · [npm package](https://www.npmjs.com/package/@agegr/pi-web) · [Worktrees](./docs/worktrees.md) · [Issues](https://github.com/agegr/pi-web/issues)
+[中文](./README.zh-CN.md)
+·
+[npm](https://www.npmjs.com/package/@agegr/pi-web)
+·
+[Issues](https://github.com/agegr/pi-web/issues)
 
 <br/>
 
 <table>
   <tr>
     <td width="50%">
-      <img src="./docs/screenshot-light.png" alt="Pi Web — light theme" />
+      <img src="./docs/screenshot-light.png" alt="Pi Web light theme" />
       <p align="center"><sub>Light</sub></p>
     </td>
     <td width="50%">
-      <img src="./docs/screenshot-dark.png" alt="Pi Web — dark theme" />
+      <img src="./docs/screenshot-dark.png" alt="Pi Web dark theme" />
       <p align="center"><sub>Dark</sub></p>
     </td>
   </tr>
@@ -30,164 +36,86 @@
 
 ---
 
-Pi Web turns your local pi sessions into a full workspace: live chat, session tree, model & skill config, Git review, integrated terminals, and file preview — in the browser or as an Electron desktop app.
+Pi Web is a **local-first coding-agent workspace** you run on your machine.  
+Open a project, talk to the agent, review Git changes, browse files, and open terminals — without juggling a pile of separate tools.
 
-## Table of Contents
+| | |
+| :--- | :--- |
+| Package | [`@agegr/pi-web`](https://www.npmjs.com/package/@agegr/pi-web) |
+| CLI | `pi-web` |
+| Default URL | `http://127.0.0.1:30141` |
+| Desktop port | `30142` (Electron) |
+| Node | **≥ 22.19.0** |
+| License | MIT |
 
-- [Why Pi Web](#why-pi-web)
-- [Quick Start](#quick-start)
-- [CLI Options](#cli-options)
-- [Desktop App](#desktop-app)
-- [Features](#features)
-- [How it fits together](#how-it-fits-together)
-- [HTTP Proxy](#http-proxy)
-- [Notes & paths](#notes--paths)
-- [Development](#development)
-- [Project structure](#project-structure)
-- [License](#license)
+## Highlights
 
-## Why Pi Web
+- **Agent chat** — streaming replies, tool calls / results, thinking, context & cost, compaction
+- **Session hub** — project-grouped history, rename / delete / export HTML, auto title, fork & in-session branches
+- **Git review** — status, stage / unstage, discard, commit, commit & push, pull, branch create, **AI commit messages**
+- **Worktrees** — switch / create / remove Git worktrees from the sidebar ([guide](./docs/worktrees.md))
+- **Terminals** — multi-tab PTY shells (xterm + node-pty) rooted at the project cwd
+- **Files** — explorer, fuzzy index, preview for source / Markdown / images / audio / PDF / DOCX
+- **Models & auth** — providers, OAuth / API keys, `models.json` editor, model smoke tests
+- **Skills** — list, search, install, update, enable / disable
+- **Permissions** — ask / full mode from the input bar
+- **Settings** — theme, language, utility models (session title + commit message), in-app update check
+- **i18n & polish** — English / 中文, light / dark, chat minimap, shortcuts, completion sound
+- **Desktop** — Electron shell with native window controls; macOS DMG & Windows NSIS builds
 
-| | CLI alone | **Pi Web** |
-| :--- | :--- | :--- |
-| History | dig through terminal / session paths | browse by **project tree** |
-| Streaming | TUI stream | structured Markdown, tool calls, minimap |
-| Branching | manual | **fork** new sessions or switch **in-session** branches |
-| Code | switch apps | Explorer + preview **beside** chat |
-| Git | shell | **review panel** + worktree switcher |
-| Terminal | separate window | multi-tab **project terminals** |
-| Config | edit files | models, auth, skills, permissions in UI |
+```text
+┌────────────────┬─────────────────────┬──────────────────────┐
+│  Projects &    │  Chat + tools       │  Review workspace    │
+│  sessions      │  model · perms      │  Git · files · tty   │
+└────────────────┴─────────────────────┴──────────────────────┘
+```
 
-## Quick Start
+## Install & run
 
-> [!IMPORTANT]
-> Requires **Node.js 20+** and a working pi agent setup under `~/.pi/agent` (sessions, models, auth).
+> Node.js **22.19.0+** is required (`package.json` → `engines`, enforced by the CLI).
 
-### One-liner
+### npx
 
 ```bash
 npx @agegr/pi-web@latest
 ```
 
-### Global install
+### Global CLI
 
 ```bash
 npm install -g @agegr/pi-web
 pi-web
 ```
 
-Then open **[http://127.0.0.1:30141](http://127.0.0.1:30141)** — the CLI auto-opens the browser when the server is ready. Pi Web listens on `127.0.0.1` by default.
+Then open [http://127.0.0.1:30141](http://127.0.0.1:30141).  
+The process binds **`127.0.0.1` by default** and can open the browser when Ready.
 
-## CLI Options
-
-<details>
-<summary><b>Ports, host binding, env vars</b></summary>
-
-<br/>
+### CLI options
 
 ```bash
-pi-web --port 8080              # custom port
-pi-web --hostname 0.0.0.0       # expose on a trusted network
-pi-web -p 8080 -H 0.0.0.0       # combine options
-pi-web --no-open                # do not open the browser
+pi-web --port 8080
+pi-web --hostname 0.0.0.0          # trusted network only
+pi-web -p 8080 -H 0.0.0.0
+pi-web --no-open
 
-PORT=8080 pi-web                # env vars also work
-PI_WEB_HOSTNAME=0.0.0.0 pi-web  # explicit network exposure
-PI_WEB_NO_OPEN=1 pi-web         # background service / no auto-open
+PORT=8080 pi-web
+PI_WEB_HOSTNAME=0.0.0.0 pi-web
+PI_WEB_NO_OPEN=1 pi-web
 ```
 
-| Flag / Env | Meaning | Default |
+| Option / env | Meaning | Default |
 | --- | --- | --- |
-| `-p` / `--port` / `PORT` | Listen port | `30141` |
+| `-p` / `--port` / `PORT` | HTTP port | `30141` |
 | `-H` / `--hostname` / `PI_WEB_HOSTNAME` | Bind address | `127.0.0.1` |
-| `--no-open` / `PI_WEB_NO_OPEN=1` | Skip opening browser | open on Ready |
-| `PI_CODING_AGENT_DIR` | Override pi agent dir | `~/.pi/agent` |
-
-</details>
+| `--no-open` / `PI_WEB_NO_OPEN` | Skip opening browser | off |
+| `PI_CODING_AGENT_DIR` | Local agent data directory | `~/.pi/agent` |
 
 > [!WARNING]
-> There is **no app-level login** and the agent is high-privilege. Do not expose Pi Web to the internet; only use non-loopback bindings on a trusted network. The Electron build binds loopback by default.
+> There is **no login**. Binding outside loopback exposes a high-privilege agent surface. Only do that on a network you trust. Non-loopback binds log a warning.
 
-## Desktop App
+### HTTP proxy
 
-Run Pi Web as a native shell (macOS DMG is the primary packaging path).
-
-```bash
-npm install
-npm run electron:dev      # Next + Electron against local sources
-npm run electron:prod     # production standalone → Electron
-npm run dist:dmg          # package macOS arm64 DMG
-```
-
-<details>
-<summary><b>Desktop environment variables</b></summary>
-
-<br/>
-
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `PI_WEB_ELECTRON_PORT` / `PI_WEB_PORT` | Preferred local port | `30142` |
-| `PI_WEB_NODE_BINARY` | System Node for native modules (`node-pty`) | auto-detect |
-
-</details>
-
-## Features
-
-```text
-┌──────────────┬─────────────────────┬──────────────────────┐
-│  Sessions    │  Live agent chat    │  Git + Terminals     │
-│  by project  │  SSE · tools · cost │  review · multi-tab  │
-├──────────────┼─────────────────────┼──────────────────────┤
-│  Worktrees   │  Files & preview    │  Models · Skills     │
-│  switch cwd  │  src · PDF · DOCX   │  OAuth · API keys    │
-├──────────────┼─────────────────────┼──────────────────────┤
-│  Fork /      │  Permissions        │  EN 中 · themes      │
-│  branches    │  ask · full/YOLO    │  minimap · sound     │
-└──────────────┴─────────────────────┴──────────────────────┘
-```
-
-- **Session workspace** — rename, delete, export HTML; pick work back up without hunting paths
-- **Live agent chat** — SSE stream, tool calls/results, thinking, compaction, context usage
-- **Safe branching** — fork into a new `.jsonl`, or continue / navigate in-session branches
-- **Git worktrees** — sidebar switcher keeps sessions grouped; see [Worktrees](./docs/worktrees.md)
-- **Git review** — status, diffs, jump-to-file next to the conversation
-- **Integrated terminals** — multiple project-cwd terminals (xterm + node-pty)
-- **File explorer & preview** — source, Markdown, images, audio, PDF, DOCX
-- **Models & auth** — edit `models.json`, OAuth / API keys, smoke-test models
-- **Skills** — list, search, install, toggle the same way the runtime loads them
-- **Permission modes** — ask / full from the input bar
-- **EN / 中文** — in-app locale toggle with persistent preference
-- **Polish** — light/dark themes, chat minimap, completion sound, shortcuts (<kbd>Esc</kbd> abort)
-
-## How it fits together
-
-```mermaid
-flowchart LR
-  Browser["Browser / Electron"]
-  Next["Next.js server"]
-  Agent["AgentSession\n(in-process)"]
-  Disk["~/.pi/agent\nsessions · models · skills"]
-
-  Browser -->|"REST + SSE"| Next
-  Next -->|"startRpcSession / prompt"| Agent
-  Next -->|"read / write"| Disk
-  Agent -->|"subscribe events"| Next
-  Next -->|"data: …"| Browser
-```
-
-| Surface | Behavior |
-| --- | --- |
-| Session list / history | reads `.jsonl` via `SessionManager` helpers — **no** live agent |
-| Send a message | `startRpcSession()` creates an in-process `AgentSession` |
-| Live updates | `GET /api/agent/[id]/events` SSE stream |
-| Running badges | `/api/agent/running/events` for sidebar status |
-
-## HTTP Proxy
-
-Server-side model and API traffic honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
-
-<details>
-<summary><b>macOS / Linux</b></summary>
+Server-side model traffic respects `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`.
 
 ```bash
 HTTP_PROXY=http://127.0.0.1:7890 \
@@ -196,107 +124,118 @@ NO_PROXY=localhost,127.0.0.1 \
 npx @agegr/pi-web@latest
 ```
 
-</details>
+## Desktop
 
-<details>
-<summary><b>Windows PowerShell</b></summary>
-
-```powershell
-$env:HTTP_PROXY = "http://127.0.0.1:7890"
-$env:HTTPS_PROXY = "http://127.0.0.1:7890"
-$env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-web@latest
+```bash
+npm install
+npm run electron:dev       # dev UI + Electron
+npm run electron:prod      # production standalone + app
+npm run dist:dmg           # macOS arm64 DMG
+npm run dist:mac           # DMG + zip
+npm run dist:win           # Windows NSIS
 ```
 
-</details>
+| Env | Purpose | Default |
+| --- | --- | --- |
+| `PI_WEB_ELECTRON_PORT` / `PI_WEB_PORT` | Local server port inside the app | `30142` |
+| `PI_WEB_NODE_BINARY` | System Node for native modules | auto |
 
-## Notes & paths
+Packaged builds bundle a Next standalone server, runtime Node helpers, and related tooling via `npm run build:electron`.
 
-| Topic | Detail |
+## How the app is wired
+
+```mermaid
+flowchart LR
+  Client["Browser / Electron"]
+  Next["Next.js API"]
+  Runtime["In-process agent runtime"]
+  Disk["Local data dir\n~/.pi/agent"]
+  Git["Git · PTY · files"]
+
+  Client -->|"REST + SSE"| Next
+  Next --> Runtime
+  Next --> Disk
+  Next --> Git
+  Runtime -->|"events"| Next
+  Next -->|"SSE streams"| Client
+```
+
+| Area | Implementation (this repo) |
 | --- | --- |
-| Data dir | `~/.pi/agent` · override with `PI_CODING_AGENT_DIR` |
-| Sessions | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl` |
-| Models | Models panel ↔ `models.json` in the agent dir |
-| File access | scoped to session cwds, project roots, `~/pi-cwd-*`, allowed roots |
-| Fork vs branch | **Fork** → new `.jsonl` · **Continue** → same file, shared `parentId`s |
-| Built-in packages | permission, subagents, todo, ask-user, better-compaction, … auto-installed on boot |
+| Sessions | `app/api/sessions/*` · `lib/session-reader.ts` |
+| Live agent | `app/api/agent/*` · `lib/rpc-manager.ts` |
+| Git | `app/api/git/*` · `components/GitPanel.tsx` |
+| Terminals | `app/api/cwd/pty/*` · `lib/pty-sessions.ts` · `TerminalPanel.tsx` |
+| Files | `app/api/files/*` · `file-index` · `FileExplorer` / `FileViewer` |
+| Models / auth | `app/api/models*` · `app/api/auth/*` · `ModelsConfig.tsx` |
+| Skills | `app/api/skills/*` · `SkillsConfig.tsx` |
+| Settings | `app/api/web-settings` · `SettingsConfig.tsx` |
+| Worktrees | `app/api/worktrees` · `lib/worktree.ts` |
+| Updates | `app/api/app-update` (GitHub releases check) |
+| i18n | `lib/i18n/messages.ts` · `hooks/useLocale.ts` |
 
-> [!TIP]
-> `parentSession` in the session header is **display metadata only** — safe to rewrite when cascade-reparenting children after delete.
+## Local data
+
+| Path | Role |
+| --- | --- |
+| `~/.pi/agent` | Default data root (`PI_CODING_AGENT_DIR` overrides) |
+| `…/sessions/…/*.jsonl` | Conversation history |
+| `…/models.json` | Model / provider config (also edited in UI) |
+| Built-in packages | Auto-installed on boot for web/desktop UX (permissions, subagents, todo, ask-user, better-compaction) |
+
+File browsing is scoped to session cwds, resolved project roots, `~/pi-cwd-*`, and explicitly allowed roots.
 
 ## Development
 
 ```bash
+git clone https://github.com/agegr/pi-web.git
+cd pi-web
 npm install
-npm run dev    # → http://127.0.0.1:30141
-```
-
-```bash
-node_modules/.bin/tsc --noEmit
-npm run lint
+npm run dev          # http://127.0.0.1:30141
 ```
 
 | Script | What it does |
 | --- | --- |
-| `npm run dev` | Next.js dev server · port `30141` |
-| `npm run build` | Production Next build *(release / Electron only)* |
-| `npm run start` | Serve the production build |
-| `npm run electron` / `electron:dev` | Launch the desktop shell |
-| `npm run build:electron` | Build + prepare Electron standalone |
-| `npm run dist:dmg` | Package macOS DMG |
-| `npm run release` | Bump patch · build · publish npm |
+| `npm run dev` | Next dev on loopback `:30141` |
+| `npm run dev:lan` | Next dev on `0.0.0.0:30141` |
+| `npm run start` / `start:lan` | Production server |
+| `npm run build` | Next production build |
+| `npm run build:electron` | Web build + Electron standalone + runtime bundles |
+| `npm run electron` / `electron:dev` / `electron:prod` | Desktop |
+| `npm run dist:dmg` / `dist:mac` / `dist:win` | Installers |
+| `npm run lint` | ESLint |
+| `npm run verify` | Offline (+ optional HTTP) smoke checks |
+| `npm run release` | Patch version · build · publish npm |
+
+```bash
+npm run verify
+# optional live HTTP checks when the server is up:
+VERIFY_HTTP=1 npm run verify
+```
 
 > [!CAUTION]
-> **Do not run `next build` / `npm run build` while using `npm run dev`.** Builds write into `.next/` and can break the dev server. Leave production builds for release or Electron packaging.
-
-## Project structure
+> Do **not** run `npm run build` while `npm run dev` is running. Both write `.next/` and will break each other. Build only for release or Electron packaging.
 
 <details>
-<summary><b>Expand directory map</b></summary>
+<summary><b>Source layout</b></summary>
 
 ```text
-app/api/
-  agent/          # AgentSession + SSE
-  auth/           # OAuth + API keys
-  cwd/            # working directory validation
-  default-cwd/    # ~/pi-cwd-* helper
-  file-index/     # fuzzy file index
-  files/          # list · read · preview · watch
-  git/            # status + diff for review panel
-  home/           # user home
-  models/         # catalog · defaults · thinking levels
-  models-config/  # models.json + tests
-  permissions/    # ask / full mode
-  sessions/       # list · rename · delete · context · export
-  skills/         # list · search · install · toggle
-  worktrees/      # list · create · remove
-
-components/
-  AppShell.tsx · SessionSidebar.tsx · ChatWindow.tsx · ChatInput.tsx
-  MessageView.tsx · GitPanel.tsx · TerminalPanel.tsx
-  ModelsConfig.tsx · SkillsConfig.tsx · FileExplorer.tsx · FileViewer.tsx
-
-lib/
-  rpc-manager.ts · session-reader.ts · pty-sessions.ts · worktree.ts
-  permission-mode.ts · http-dispatcher.ts · file-access.ts
-  i18n/ · ensure-builtin-packages.ts
-
-hooks/
-  useAgentSession.ts · useLocale.ts · useKeyboardShortcuts.ts
-  useTheme.ts · useAudio.ts · useDragDrop.ts · useIsMobile.ts
-
-electron/         # desktop main + preload
-bin/pi-web.js     # npm CLI entry
-scripts/          # packaging + node-pty fixes
-instrumentation.ts
+app/api/           REST + SSE routes (agent, git, pty, sessions, skills, …)
+components/        AppShell, chat, GitPanel, TerminalPanel, settings, …
+hooks/             session SSE, locale, shortcuts, theme, audio
+lib/               runtime, security, git, pty, i18n, session IO
+electron/          desktop main + preload
+bin/               pi-web CLI
+scripts/           packaging, node-pty perms, verify
+docs/              worktrees guide + screenshots
 ```
 
 </details>
 
-## Related
+## Docs
 
-- [Worktrees in Pi Web](./docs/worktrees.md)
-- [中文文档](./README.zh-CN.md)
+- [Worktrees](./docs/worktrees.md)
+- [中文 README](./README.zh-CN.md)
 
 ---
 
