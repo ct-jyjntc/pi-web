@@ -1,7 +1,51 @@
 // electron-builder afterPack: force-copy Next standalone node_modules + bundled Node.
 // FileMatcher injects an exclude for node_modules which strips deps from extraResources.
-import { cpSync, existsSync, rmSync } from "fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "fs";
 import { join } from "path";
+
+function ensureElectronLocales(projectDir, appOutDir, electronPlatformName, productFilename) {
+  // electronLanguages uses mac-style names (en / zh_CN) that do not match Chromium
+  // locale file names on Windows/Linux (en-US.pak / zh-CN.pak). If the filter
+  // empties locales/, Electron paints a blank window.
+  const destLocales =
+    electronPlatformName === "darwin"
+      ? join(appOutDir, `${productFilename}.app`, "Contents", "Resources", "locales")
+      : join(appOutDir, "locales");
+
+  let hasLocale = false;
+  try {
+    hasLocale = existsSync(destLocales) && readdirSync(destLocales).some((n) => n.endsWith(".pak"));
+  } catch {
+    hasLocale = false;
+  }
+  if (hasLocale) return;
+
+  const srcLocales = join(projectDir, "node_modules", "electron", "dist", "locales");
+  if (!existsSync(srcLocales)) {
+    console.warn(`[afterPack] Warning: missing Electron locales at ${srcLocales}`);
+    return;
+  }
+
+  const wanted = new Set([
+    "en-US.pak",
+    "en-GB.pak",
+    "zh-CN.pak",
+    "zh-TW.pak",
+  ]);
+  mkdirSync(destLocales, { recursive: true });
+  let copied = 0;
+  for (const name of readdirSync(srcLocales)) {
+    if (!wanted.has(name)) continue;
+    cpSync(join(srcLocales, name), join(destLocales, name));
+    copied += 1;
+  }
+  // Always keep en-US as a last-resort fallback.
+  if (!existsSync(join(destLocales, "en-US.pak")) && existsSync(join(srcLocales, "en-US.pak"))) {
+    cpSync(join(srcLocales, "en-US.pak"), join(destLocales, "en-US.pak"));
+    copied += 1;
+  }
+  console.log(`[afterPack] Restored ${copied} Electron locale pak(s) → ${destLocales}`);
+}
 
 export default async function afterPack(context) {
   const projectDir = context.packager.projectDir;
@@ -71,4 +115,11 @@ export default async function afterPack(context) {
     rmSync(destGit, { recursive: true, force: true });
     console.log("[afterPack] Removed packaged portable git (system git only)");
   }
+
+  ensureElectronLocales(
+    projectDir,
+    appOutDir,
+    context.electronPlatformName,
+    productFilename,
+  );
 }

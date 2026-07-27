@@ -46,6 +46,7 @@
     "electron:rebuild": "npm run build:electron && npm run electron",
     "dist:dmg": "npm run build:electron && electron-builder --mac dmg",
     "dist:mac": "npm run build:electron && electron-builder --mac dmg zip",
+    "dist:win": "npm run build:electron && electron-builder --win nsis",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "build": {
@@ -81,8 +82,12 @@
     "npmRebuild": false,
     "electronLanguages": [
       "en",
+      "en-US",
+      "en-GB",
       "zh_CN",
-      "zh_TW"
+      "zh-CN",
+      "zh_TW",
+      "zh-TW"
     ],
     "mac": {
       "icon": "electron/icons/icon.icns",
@@ -125,8 +130,21 @@
     "win": {
       "icon": "electron/icons/icon.ico",
       "target": [
-        "nsis"
-      ]
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Pi-Web-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Pi Web"
     }
   },
   "dependencies": {
