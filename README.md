@@ -2,7 +2,7 @@
 
 # Pi Web
 
-**Local web UI & desktop shell for the [pi coding agent](https://github.com/badlogic/pi-mono)**
+**Local web UI & desktop shell for the pi coding agent**
 
 [![npm](https://img.shields.io/npm/v/@agegr/pi-web?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/@agegr/pi-web)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -31,9 +31,6 @@
 ---
 
 Pi Web turns your local pi sessions into a full workspace: live chat, session tree, model & skill config, Git review, integrated terminals, and file preview — in the browser or as an Electron desktop app.
-
-> [!NOTE]
-> This repo is a **maintained fork** with desktop packaging, Git/terminal workspace panels, EN/中文 UI, and other UI-side enhancements on top of the upstream pi web experience.
 
 ## Table of Contents
 
@@ -64,7 +61,7 @@ Pi Web turns your local pi sessions into a full workspace: live chat, session tr
 ## Quick Start
 
 > [!IMPORTANT]
-> Requires **Node.js 20+** and a working [pi](https://github.com/badlogic/pi-mono) setup under `~/.pi/agent` (sessions, models, auth).
+> Requires **Node.js 20+** and a working pi agent setup under `~/.pi/agent` (sessions, models, auth).
 
 ### One-liner
 
@@ -300,12 +297,11 @@ instrumentation.ts
 
 - [Worktrees in Pi Web](./docs/worktrees.md)
 - [中文文档](./README.zh-CN.md)
-- Upstream agent: [badlogic/pi-mono](https://github.com/badlogic/pi-mono)
 
 ---
 
 <div align="center">
 
-**MIT** © [agegr](https://github.com/agegr) · built for the pi coding agent
+**MIT** © [agegr](https://github.com/agegr)
 
 </div>

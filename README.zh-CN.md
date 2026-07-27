@@ -2,7 +2,7 @@
 
 # Pi Web
 
-**[pi 编程智能体](https://github.com/badlogic/pi-mono) 的本地 Web UI 与桌面壳**
+**pi 编程智能体的本地 Web UI 与桌面壳**
 
 [![npm](https://img.shields.io/npm/v/@agegr/pi-web?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/@agegr/pi-web)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -31,9 +31,6 @@
 ---
 
 Pi Web 把本机 pi 会话变成完整工作区：实时对话、会话树、模型与技能配置、Git 审查、内置终端、文件预览 —— 浏览器或 Electron 桌面端均可。
-
-> [!NOTE]
-> 本仓库是**维护中的二开版本**：在上游 pi web 能力之上，增加了桌面打包、Git/终端工作区、中英文界面等增强。
 
 ## 目录
 
@@ -64,7 +61,7 @@ Pi Web 把本机 pi 会话变成完整工作区：实时对话、会话树、模
 ## 快速开始
 
 > [!IMPORTANT]
-> 需要 **Node.js 20+**，以及可用的 [pi](https://github.com/badlogic/pi-mono) 环境（默认 `~/.pi/agent`：会话、模型、鉴权等）。
+> 需要 **Node.js 20+**，以及可用的 pi agent 环境（默认 `~/.pi/agent`：会话、模型、鉴权等）。
 
 ### 一行启动
 
@@ -300,12 +297,11 @@ instrumentation.ts
 
 - [Pi Web 里的 Worktree](./docs/worktrees.zh-CN.md)
 - [English README](./README.md)
-- 上游智能体：[badlogic/pi-mono](https://github.com/badlogic/pi-mono)
 
 ---
 
 <div align="center">
 
-**MIT** © [agegr](https://github.com/agegr) · 为 pi coding agent 打造
+**MIT** © [agegr](https://github.com/agegr)
 
 </div>
