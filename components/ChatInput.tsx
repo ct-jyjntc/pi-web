@@ -4,6 +4,11 @@ import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, u
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
+  MAX_ATTACHED_IMAGE_BYTES,
+  MAX_ATTACHED_IMAGES,
+  isBase64ImageWithinLimits,
+} from "@/lib/image-attachments";
+import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
@@ -35,6 +40,8 @@ interface Props {
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string }[];
+  modelError?: string | null;
+  inputHistory?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
@@ -157,6 +164,13 @@ function draftImageToAttachedImage(image: ChatDraftImage): AttachedImage {
   };
 }
 
+function draftImagesToAttachedImages(images: ChatDraftImage[] | undefined): AttachedImage[] {
+  return (images ?? [])
+    .filter(isBase64ImageWithinLimits)
+    .slice(0, MAX_ATTACHED_IMAGES)
+    .map(draftImageToAttachedImage);
+}
+
 function revokeImagePreview(image: AttachedImage): void {
   if (image.previewUrl.startsWith("blob:")) {
     URL.revokeObjectURL(image.previewUrl);
@@ -196,15 +210,61 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
   );
 }
 
+export function ModelErrorBanner({ error }: { error?: string | null }) {
+  const { t } = useLocale();
+  if (!error) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 8,
+        maxHeight: 120,
+        marginBottom: 8,
+        padding: "7px 10px",
+        overflowY: "auto",
+        border: "1px solid var(--destructive-border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--destructive-bg)",
+        color: "var(--destructive)",
+        fontSize: 11,
+        lineHeight: 1.45,
+      }}
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ flexShrink: 0, marginTop: 1 }}
+        aria-hidden="true"
+      >
+        <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600 }}>{t("chat.modelError")}</div>
+        <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{error}</div>
+      </div>
+    </div>
+  );
+}
+
 // Memoized: this is a 2000-line component that must not re-render on every
 // streaming token reaching ChatWindow.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   onPermissionModeApplied,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   supportsImageInput = false,
-  retryInfo, queuedMessages, onRecallQueue,
+  retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
@@ -233,7 +293,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const compactBtnRef = useRef<HTMLButtonElement>(null);
   const compactConfirmRef = useRef<HTMLDivElement>(null);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
-    draftKey ? getDraft(draftKey)?.images.map(draftImageToAttachedImage) ?? [] : []
+    draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
@@ -243,6 +303,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [atQuery, setAtQuery] = useState<AtQueryMatch | null>(null);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [atActiveIndex, setAtActiveIndex] = useState(0);
+  const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
+  const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
@@ -254,17 +316,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const permissionDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
+  const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const atItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const historyItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fileIndexMetaRef = useRef<{ cwd: string; fetchedAt: number } | null>(null);
   const fileIndexFetchingRef = useRef<string | null>(null);
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
+  const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
 
@@ -329,25 +394,40 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const processImageFiles = useCallback(async (files: File[]) => {
     if (isStreaming || !supportsImageInput) return;
-    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
-    if (!imageFiles.length) return;
-    const newImages = await Promise.all(
-      imageFiles.map(
-        (file) =>
-          new Promise<AttachedImage>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const result = reader.result as string;
-              // result is "data:<mime>;base64,<data>"
-              const base64 = result.split(",")[1];
-              resolve({ data: base64, mimeType: file.type, previewUrl: URL.createObjectURL(file) });
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          })
-      )
+    const remaining = Math.max(
+      0,
+      MAX_ATTACHED_IMAGES - attachedImagesRef.current.length - pendingImageCountRef.current,
     );
-    setAttachedImages((prev) => [...prev, ...newImages]);
+    const imageFiles = files
+      .filter((f) => f.type.startsWith("image/") && f.size <= MAX_ATTACHED_IMAGE_BYTES)
+      .slice(0, remaining);
+    if (!imageFiles.length) return;
+    pendingImageCountRef.current += imageFiles.length;
+    try {
+      const newImages = await Promise.all(
+        imageFiles.map(
+          (file) =>
+            new Promise<AttachedImage>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const result = reader.result as string;
+                // result is "data:<mime>;base64,<data>"
+                const base64 = result.split(",")[1];
+                resolve({ data: base64, mimeType: file.type, previewUrl: URL.createObjectURL(file) });
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            })
+        )
+      );
+      setAttachedImages((prev) => {
+        const accepted = newImages.slice(0, Math.max(0, MAX_ATTACHED_IMAGES - prev.length));
+        newImages.slice(accepted.length).forEach(revokeImagePreview);
+        return [...prev, ...accepted];
+      });
+    } finally {
+      pendingImageCountRef.current -= imageFiles.length;
+    }
   }, [isStreaming, supportsImageInput]);
 
   // Drop attached images when switching to a model without vision.
@@ -381,6 +461,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const clearInput = useCallback(() => {
     setValue("");
     setAtQuery(null);
+    setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
@@ -412,9 +493,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     draftKeyRef.current = draftKey;
     setValue(draft?.value ?? "");
     setAtQuery(null);
+    setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
       prev.forEach(revokeImagePreview);
-      return draft?.images.map(draftImageToAttachedImage) ?? [];
+      return draftImagesToAttachedImages(draft?.images);
     });
   }, [draftKey]);
 
@@ -639,6 +721,36 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     atItemRefs.current[atActiveIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [atActiveIndex, atMenuOpen]);
 
+  useEffect(() => {
+    if (historyActiveIndex >= inputHistory.length) {
+      setHistoryActiveIndex(Math.max(0, inputHistory.length - 1));
+    }
+  }, [inputHistory.length, historyActiveIndex]);
+
+  useEffect(() => {
+    historyItemRefs.current.length = inputHistory.length;
+  }, [inputHistory.length]);
+
+  useEffect(() => {
+    if (!historyMenuOpen) return;
+    historyItemRefs.current[historyActiveIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [historyActiveIndex, historyMenuOpen]);
+
+  const applyHistoryInput = useCallback((text: string) => {
+    setValue(text);
+    setHistoryMenuOpen(false);
+    setHistoryActiveIndex(0);
+    setAtQuery(null);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(text.length, text.length);
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    });
+  }, []);
+
   const applySlashCommand = useCallback((command: SlashCommandPaletteItem) => {
     const nextValue = `/${command.name} `;
     setValue(nextValue);
@@ -730,6 +842,29 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         return;
       }
 
+      if (historyMenuOpen && !isComposing) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setHistoryActiveIndex((i) => Math.min(Math.max(0, inputHistory.length - 1), i + 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setHistoryActiveIndex((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setHistoryMenuOpen(false);
+          return;
+        }
+        if ((e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) && inputHistory[historyActiveIndex]) {
+          e.preventDefault();
+          applyHistoryInput(inputHistory[historyActiveIndex]);
+          return;
+        }
+      }
+
       if (slashMenuOpen && slashQuery !== null) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -788,7 +923,16 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }
       }
 
-      // Esc stops the agent when no slash/@ menu or IME composition is active.
+      if (e.key === "ArrowUp" && !isComposing && !isStreaming && inputHistory.length > 0 && value.trim().length === 0) {
+        e.preventDefault();
+        setSlashMenuOpen(false);
+        setAtMenuOpen(false);
+        setHistoryActiveIndex(inputHistory.length - 1);
+        setHistoryMenuOpen(true);
+        return;
+      }
+
+      // Esc stops the agent when no slash/@/history menu or IME composition is active.
       if (e.key === "Escape" && !isComposing && isStreaming && onAbort) {
         e.preventDefault();
         onAbort();
@@ -805,7 +949,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion]
+    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
   );
 
   const handleInput = useCallback(() => {
@@ -969,6 +1113,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (controlsMenuRef.current && !controlsMenuRef.current.contains(e.target as Node)) {
         setControlsMenuOpen(false);
       }
+      if (historyMenuRef.current && !historyMenuRef.current.contains(e.target as Node) && !textareaRef.current?.contains(e.target as Node)) {
+        setHistoryMenuOpen(false);
+      }
       const target = e.target as Node;
       const inCompactBtn = compactBtnRef.current?.contains(target);
       const inCompactConfirm = compactConfirmRef.current?.contains(target);
@@ -1044,6 +1191,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }}
       />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
+        <ModelErrorBanner error={modelError} />
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
@@ -1174,6 +1322,78 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
         {/* Main input */}
         <div style={{ position: "relative" }}>
+          {historyMenuOpen && inputHistory.length > 0 && (
+            <div
+              ref={historyMenuRef}
+              className="menu-card"
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: "calc(100% + 8px)",
+                zIndex: 120,
+                maxHeight: "min(44vh, 360px)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "8px 10px",
+                  borderBottom: "1px solid var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                }}
+              >
+                <span>{t("chat.inputHistory", { n: String(inputHistory.length) })}</span>
+                <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.enterToUse")}</span>
+              </div>
+              <div style={{ maxHeight: "calc(min(44vh, 360px) - 34px)", overflowY: "auto", padding: 4 }}>
+                {inputHistory.map((item, index) => {
+                  const active = index === historyActiveIndex;
+                  return (
+                    <button
+                      key={`${index}:${item}`}
+                      ref={(node) => {
+                        historyItemRefs.current[index] = node;
+                      }}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyHistoryInput(item);
+                      }}
+                      onMouseEnter={() => setHistoryActiveIndex(index)}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 8,
+                        padding: "7px 8px",
+                        border: "none",
+                        borderRadius: "var(--radius-sm)",
+                        background: active ? "var(--bg-selected)" : "none",
+                        color: "var(--text)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        fontSize: 12.5,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)", paddingTop: 1 }}>
+                        {index + 1}
+                      </span>
+                      <span style={{ minWidth: 0, display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", overflowWrap: "anywhere" }}>
+                        {item}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {slashMenuOpen && slashQuery !== null && (
             <div
               className="menu-card"
@@ -1403,6 +1623,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             value={value}
             onChange={(e) => {
               setValue(e.target.value);
+              setHistoryMenuOpen(false);
               updateAtQuery(e.target.value, e.target.selectionStart);
             }}
             onSelect={(e) => {
@@ -1530,7 +1751,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </svg>
             </button>
             {/* Model selector — visible always, disabled during streaming */}
-            {modelOptions.length > 0 && currentName && onModelChange && (
+            {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
                 <div ref={dropdownRef} style={{ position: "relative", flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
                   <button
                     type="button"
@@ -1541,8 +1762,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       setModelDropdownOpen((v) => !v);
                     }}
                     disabled={isStreaming}
-                    title={currentName}
-                    aria-label={currentName}
+                    title={modelOptions.length > 0 ? (currentName ?? t("chat.changeModel")) : t("chat.noAvailableModels")}
+                    aria-label={modelOptions.length > 0 ? (currentName ?? t("chat.changeModel")) : t("chat.noAvailableModels")}
                     style={{
                       justifyContent: isMobile ? "flex-start" : undefined,
                       width: isMobile ? "100%" : undefined,
@@ -1559,7 +1780,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
                       <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                     </svg>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                      {currentName ?? (modelOptions.length > 0 ? t("chat.selectModel") : t("chat.noModels"))}
+                    </span>
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
                     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -1578,7 +1801,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       zIndex: 500,
                       maxHeight: maxH, overflowY: "auto",
                       }}>
-                      {modelsByProvider.map((group, gi) => (
+                      {modelsByProvider.length === 0 ? (
+                        <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
+                          {t("chat.noAvailableModels")}
+                        </div>
+                      ) : modelsByProvider.map((group, gi) => (
                         <div key={group.provider}>
                           {(modelsByProvider.length > 1) && (
                             <div style={{

@@ -79,7 +79,7 @@ npm install -g @agegr/pi-web
 pi-web
 ```
 
-Then open **[http://localhost:30141](http://localhost:30141)** — the CLI auto-opens the browser when the server is ready.
+Then open **[http://127.0.0.1:30141](http://127.0.0.1:30141)** — the CLI auto-opens the browser when the server is ready. Pi Web listens on `127.0.0.1` by default.
 
 ## CLI Options
 
@@ -90,25 +90,26 @@ Then open **[http://localhost:30141](http://localhost:30141)** — the CLI auto-
 
 ```bash
 pi-web --port 8080              # custom port
-pi-web --hostname 127.0.0.1     # local access only (recommended)
-pi-web -p 8080 -H 127.0.0.1     # combine options
+pi-web --hostname 0.0.0.0       # expose on a trusted network
+pi-web -p 8080 -H 0.0.0.0       # combine options
 pi-web --no-open                # do not open the browser
 
 PORT=8080 pi-web                # env vars also work
+PI_WEB_HOSTNAME=0.0.0.0 pi-web  # explicit network exposure
 PI_WEB_NO_OPEN=1 pi-web         # background service / no auto-open
 ```
 
 | Flag / Env | Meaning | Default |
 | --- | --- | --- |
 | `-p` / `--port` / `PORT` | Listen port | `30141` |
-| `-H` / `--hostname` / `HOSTNAME` | Bind address | all interfaces |
+| `-H` / `--hostname` / `PI_WEB_HOSTNAME` | Bind address | `127.0.0.1` |
 | `--no-open` / `PI_WEB_NO_OPEN=1` | Skip opening browser | open on Ready |
 | `PI_CODING_AGENT_DIR` | Override pi agent dir | `~/.pi/agent` |
 
 </details>
 
 > [!WARNING]
-> There is **no app-level login**. Prefer `--hostname 127.0.0.1` on machines reachable from untrusted networks. The Electron build binds loopback by default.
+> There is **no app-level login** and the agent is high-privilege. Do not expose Pi Web to the internet; only use non-loopback bindings on a trusted network. The Electron build binds loopback by default.
 
 ## Desktop App
 
@@ -230,7 +231,7 @@ npx @agegr/pi-web@latest
 
 ```bash
 npm install
-npm run dev    # → http://localhost:30141
+npm run dev    # → http://127.0.0.1:30141
 ```
 
 ```bash

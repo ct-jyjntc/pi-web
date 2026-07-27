@@ -11,6 +11,9 @@
     "url": "https://github.com/agegr/pi-web/issues"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
@@ -29,11 +32,14 @@
   ],
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.mjs",
-    "dev": "node scripts/fix-node-pty-perms.mjs && next dev -p 30141",
+    "dev": "node scripts/fix-node-pty-perms.mjs && next dev -H 127.0.0.1 -p 30141",
+    "dev:lan": "node scripts/fix-node-pty-perms.mjs && next dev -H 0.0.0.0 -p 30141",
     "build": "node scripts/fix-node-pty-perms.mjs && next build --webpack",
     "build:electron": "npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
-    "start": "node scripts/fix-node-pty-perms.mjs && next start -p 30141",
+    "start": "node scripts/fix-node-pty-perms.mjs && next start -H 127.0.0.1 -p 30141",
+    "start:lan": "node scripts/fix-node-pty-perms.mjs && next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
+    "verify": "node scripts/verify.mjs",
     "electron": "node scripts/fix-node-pty-perms.mjs && electron .",
     "electron:dev": "node scripts/fix-node-pty-perms.mjs && electron .",
     "electron:prod": "npm run build:electron && npm run electron",
@@ -124,10 +130,10 @@
     }
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.81.1",
-    "@earendil-works/pi-ai": "0.81.1",
-    "@earendil-works/pi-coding-agent": "0.81.1",
-    "@earendil-works/pi-tui": "0.81.1",
+    "@earendil-works/pi-agent-core": "^0.82.1",
+    "@earendil-works/pi-ai": "^0.82.1",
+    "@earendil-works/pi-coding-agent": "^0.82.1",
+    "@earendil-works/pi-tui": "^0.82.1",
     "@lobehub/icons": "^5.6.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",

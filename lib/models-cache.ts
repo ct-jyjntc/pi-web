@@ -6,6 +6,7 @@ export interface ModelsData {
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
   /** `${provider}:${modelId}` → model accepts image input */
   imageSupport: Record<string, boolean>;
+  modelError?: string;
 }
 
 interface ModelsCacheState {
@@ -37,6 +38,10 @@ export function invalidateModelsCache(): void {
   state.generation += 1;
   state.entries.clear();
   state.inFlight.clear();
+}
+
+export function withModelRuntimeError(data: ModelsData, modelError: string | undefined): ModelsData {
+  return modelError ? { ...data, modelError } : data;
 }
 
 export function loadModelsWithCache(cwd: string, loader: () => Promise<ModelsData>): Promise<ModelsData> {

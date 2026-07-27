@@ -8,6 +8,7 @@ import { SyntaxHighlighter, vs, vscDarkPlus } from "@/lib/syntax-highlighter";
 import { useTheme } from "@/hooks/useTheme";
 import { copyText } from "@/lib/clipboard";
 import { resolveLocalFileHref } from "@/lib/file-links";
+import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins } from "@/lib/markdown";
 
 interface MarkdownBodyProps {
@@ -72,6 +73,21 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
               <a href={href} {...props} onClick={handleClick}>
                 {children}
               </a>
+            );
+          },
+          img({ src, alt, ...props }: { src?: string | Blob; alt?: string; node?: unknown }) {
+            delete props.node;
+            const srcString = typeof src === "string" ? src : undefined;
+            const filePath = srcString ? resolveLocalFileHref(srcString, cwd) : null;
+            const imageSrc = filePath
+              ? `/api/files/${encodeFilePathForApi(filePath)}?type=read`
+              : srcString;
+            return (
+              <MarkdownImage
+                src={imageSrc}
+                alt={alt ?? ""}
+                {...props}
+              />
             );
           },
           table({ children }: { children?: ReactNode }) {
@@ -185,6 +201,58 @@ function normalizeDisplayMath(markdown: string): string {
       return `${displayMathMatch[1]}$$${lineBreak}${math}${lineBreak}${displayMathMatch[1]}$$`;
     })
     .join(lineBreak);
+}
+
+function MarkdownImage({
+  src,
+  alt,
+  ...props
+}: {
+  src?: string;
+  alt?: string;
+  [key: string]: unknown;
+}) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  if (!src) return null;
+
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt ?? ""}
+        loading="lazy"
+        onClick={() => setOpen(true)}
+        {...props}
+      />
+      {open && (
+        <div
+          className="markdown-image-preview-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label={alt || "Image preview"}
+          onClick={() => setOpen(false)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt ?? ""}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
+  );
 }
 
 function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boolean }) {

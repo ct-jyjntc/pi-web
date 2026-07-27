@@ -373,6 +373,35 @@ pre, code {
   text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .markdown-body a:hover { text-decoration-color: var(--accent); }
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+.markdown-image-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--overlay-bg);
+  cursor: zoom-out;
+}
+.markdown-image-preview-backdrop img {
+  max-width: min(96vw, 1400px);
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  margin: 0;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  cursor: default;
+}
 .markdown-body .markdown-inline-code {
   background: var(--bg-subtle);
   border-radius: var(--radius-sm);
@@ -676,12 +705,18 @@ pre, code {
   flex-shrink: 0;
 }
 
-.file-viewer-action-slot {
+.file-viewer-action-slot,
+.file-viewer-actions {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
   height: 24px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.file-viewer-action-slot {
+  width: 24px;
   flex: 0 0 24px;
 }
 
@@ -734,6 +769,17 @@ pre, code {
 .file-viewer-icon-button:hover {
   background: var(--bg-hover) !important;
   color: var(--text);
+}
+
+.file-viewer-icon-button:disabled {
+  color: var(--text-dim);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.file-viewer-icon-button:disabled:hover {
+  background: transparent !important;
+  color: var(--text-dim);
 }
 
 .file-viewer-mode-button:focus-visible,

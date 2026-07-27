@@ -2,7 +2,7 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { loadModelsWithCache, type ModelsData } from "@/lib/models-cache";
+import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +49,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const agentDir = getAgentDir();
   const services = await createAgentSessionServices({ cwd, agentDir });
   const available = await services.modelRuntime.getAvailable();
+  const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
   const enabledModels = settings.getEnabledModels();
   const visible = filterByExactEnabledModels(available, enabledModels);
@@ -72,7 +73,10 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     defaultModel = { provider, modelId };
   }
 
-  return { models: Object.fromEntries(nameMap), modelList, defaultModel, thinkingLevels, thinkingLevelMaps, imageSupport };
+  return withModelRuntimeError(
+    { models: Object.fromEntries(nameMap), modelList, defaultModel, thinkingLevels, thinkingLevelMaps, imageSupport },
+    modelError,
+  );
 }
 
 const EMPTY_MODELS: ModelsData = {

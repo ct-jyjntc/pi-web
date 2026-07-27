@@ -3,10 +3,19 @@ import fs from "fs";
 import path from "path";
 import {
   getAllowedFileRoots,
+  isExistingFilePathAllowed,
   isFilePathAllowed,
   isWindowsAbsolutePath,
   normalizeSlashes,
 } from "@/lib/file-access";
+import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
+import {
+  MAX_UPLOAD_FILE_BYTES,
+  MAX_UPLOAD_REQUEST_BYTES,
+  MAX_UPLOAD_TOTAL_BYTES,
+  UPLOAD_FILE_TOO_LARGE_ERROR,
+  UPLOAD_TOTAL_TOO_LARGE_ERROR,
+} from "@/lib/upload-limits";
 import {
   DOCX_PREVIEW_MAX_BYTES,
   IMAGE_PREVIEW_MAX_BYTES,
@@ -148,8 +157,26 @@ export async function POST(
       return NextResponse.json({ error: "Invalid conflict strategy" }, { status: 400 });
     }
 
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await parseFormDataWithinLimit(request, MAX_UPLOAD_REQUEST_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        return NextResponse.json({ error: UPLOAD_TOTAL_TOO_LARGE_ERROR }, { status: 413 });
+      }
+      // Truncated / invalid multipart (e.g. framework body cap) should not become a 500.
+      if (error instanceof TypeError || (error instanceof Error && /formdata|body/i.test(error.message))) {
+        return NextResponse.json({ error: UPLOAD_TOTAL_TOO_LARGE_ERROR }, { status: 413 });
+      }
+      throw error;
+    }
     const files = formData.getAll("files").filter((entry): entry is File => typeof entry !== "string");
+    if (files.some((file) => file.size > MAX_UPLOAD_FILE_BYTES)) {
+      return NextResponse.json({ error: UPLOAD_FILE_TOO_LARGE_ERROR }, { status: 413 });
+    }
+    if (files.reduce((total, file) => total + file.size, 0) > MAX_UPLOAD_TOTAL_BYTES) {
+      return NextResponse.json({ error: UPLOAD_TOTAL_TOO_LARGE_ERROR }, { status: 413 });
+    }
     const fileNames = files.map((file) => file.name);
     const validationError = validateUploadFileNames(fileNames);
     if (validationError) {
@@ -415,6 +442,10 @@ export async function GET(
       stat = fs.statSync(filePath);
     } catch {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    if (!allowedBySessionReference && !isExistingFilePathAllowed(filePath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
     if (type === "read") {

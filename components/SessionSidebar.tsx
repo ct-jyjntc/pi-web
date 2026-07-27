@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { DirectoryPicker } from "./DirectoryPicker";
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
 
@@ -258,10 +259,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
-  const [customPathValue, setCustomPathValue] = useState("");
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
-  const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
@@ -487,9 +486,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
 
-  const commitCustomPath = useCallback(async (candidate?: string) => {
-    const path = (candidate ?? customPathValue).trim();
-    if (!path || customPathValidating) return;
+  const commitCustomPath = useCallback(async (candidate: string): Promise<boolean> => {
+    const path = candidate.trim();
+    if (!path || customPathValidating) return false;
 
     setCustomPathValidating(true);
     setCustomPathError(null);
@@ -502,41 +501,40 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const data = await res.json().catch(() => ({})) as { cwd?: string; error?: string };
       if (!res.ok || data.error) {
         setCustomPathError(data.error ?? `HTTP ${res.status}`);
-        return;
+        return false;
       }
       setSelectedCwd(data.cwd ?? path);
       setCustomPathOpen(false);
-      setCustomPathValue("");
       setDropdownOpen(false);
+      return true;
     } catch (e) {
       setCustomPathError(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setCustomPathValidating(false);
     }
-  }, [customPathValue, customPathValidating]);
+  }, [customPathValidating]);
 
   const handleCustomPathClick = useCallback(async () => {
     const desktop = window.piDesktop;
-    if (!desktop) {
-      setCustomPathOpen(true);
-      setCustomPathError(null);
-      setTimeout(() => customPathInputRef.current?.focus(), 0);
+    // Electron: native folder dialog. Browser: browsable DirectoryPicker modal.
+    if (desktop?.selectDirectory) {
+      try {
+        setCustomPathError(null);
+        const path = await desktop.selectDirectory();
+        if (path === null) return;
+        const ok = await commitCustomPath(path);
+        if (!ok) setCustomPathOpen(true);
+      } catch (e) {
+        setCustomPathOpen(true);
+        setCustomPathError(e instanceof Error ? e.message : String(e));
+      }
       return;
     }
 
-    try {
-      setCustomPathError(null);
-      const path = await desktop.selectDirectory();
-      if (path === null) return;
-
-      setCustomPathValue(path);
-      setCustomPathOpen(true);
-      await commitCustomPath(path);
-    } catch (e) {
-      setCustomPathOpen(true);
-      setCustomPathError(e instanceof Error ? e.message : String(e));
-      setTimeout(() => customPathInputRef.current?.focus(), 0);
-    }
+    setCustomPathOpen(true);
+    setCustomPathError(null);
+    setDropdownOpen(false);
   }, [commitCustomPath]);
 
   const handleDefaultCwd = useCallback(async () => {
@@ -546,7 +544,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (data.cwd) {
         setSelectedCwd(data.cwd);
         setCustomPathOpen(false);
-        setCustomPathValue("");
         setCustomPathError(null);
         setDropdownOpen(false);
       }
@@ -629,9 +626,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
         setProjectFilter("");
-        setCustomPathOpen(false);
-        setCustomPathValue("");
-        setCustomPathError(null);
+        // DirectoryPicker is a body portal — do not close it from sidebar outside-click.
+        if (!customPathOpen) {
+          setCustomPathError(null);
+        }
       }
       if (wtDropdownRef.current && !wtDropdownRef.current.contains(e.target as Node)) {
         setWtDropdownOpen(false);
@@ -643,7 +641,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [customPathOpen]);
 
   // Clicking a session moves the effective cwd to that session's worktree.
   // Done on the click path (not via the selectedCwd prop sync) so it also
@@ -709,6 +707,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+      {customPathOpen && (
+        <DirectoryPicker
+          busy={customPathValidating}
+          error={customPathError}
+          onCancel={() => {
+            setCustomPathOpen(false);
+            setCustomPathError(null);
+          }}
+          onSelect={(path) => void commitCustomPath(path)}
+        />
+      )}
       {/* Header mirrors AppShell top bar: flat 36px strips + vertical dividers.
           Project/worktree pickers MUST stay titlebar-no-drag or Electron steals clicks. */}
       <div
@@ -793,7 +802,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       setSelectedCwd(project);
                       setProjectFilter("");
                       setCustomPathOpen(false);
-                      setCustomPathValue("");
                       setCustomPathError(null);
                       setDropdownOpen(false);
                     }}
@@ -829,75 +837,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </button>
               )}
 
-              {/* Custom path entry */}
-              {!customPathOpen ? (
-                <button
-                  className="sidebar-menu-item"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleCustomPathClick();
-                  }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" style={{ flexShrink: 0 }}>
-                    <line x1="5" y1="1" x2="5" y2="9" />
-                    <line x1="1" y1="5" x2="9" y2="5" />
-                  </svg>
-                  <span>{t("sidebar.customPath")}</span>
-                </button>
-              ) : (
-                <div style={{ padding: "6px 8px", borderTop: "1px solid var(--border)" }}>
-                  <input
-                    ref={customPathInputRef}
-                    className="input-base input-mono"
-                    value={customPathValue}
-                    onChange={(e) => {
-                      setCustomPathValue(e.target.value);
-                      setCustomPathError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void commitCustomPath();
-                      }
-                      if (e.key === "Escape") {
-                        setCustomPathOpen(false);
-                        setCustomPathValue("");
-                        setCustomPathError(null);
-                      }
-                    }}
-                    placeholder={t("sidebar.customPathPlaceholder")}
-                    style={{ borderColor: "var(--accent)" }}
-                  />
-                  {customPathError && (
-                    <div style={{
-                      marginTop: 5,
-                      color: "var(--destructive)",
-                      fontSize: 11,
-                      lineHeight: 1.35,
-                      overflowWrap: "anywhere",
-                    }}>
-                      {customPathError}
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: 5, marginTop: 6 }}>
-                    <button
-                      className="btn-primary btn-compact"
-                      onClick={() => void commitCustomPath()}
-                      disabled={customPathValidating || !customPathValue.trim()}
-                      style={{ flex: 1 }}
-                    >
-                      {customPathValidating ? t("common.checking") : t("common.open")}
-                    </button>
-                    <button
-                      className="btn-ghost btn-compact"
-                      onClick={() => { setCustomPathOpen(false); setCustomPathValue(""); setCustomPathError(null); }}
-                      style={{ flex: 1 }}
-                    >
-                      {t("common.cancel")}
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Custom path / directory picker */}
+              <button
+                className="sidebar-menu-item"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleCustomPathClick();
+                }}
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" style={{ flexShrink: 0 }}>
+                  <line x1="5" y1="1" x2="5" y2="9" />
+                  <line x1="1" y1="5" x2="9" y2="5" />
+                </svg>
+                <span>{t("sidebar.customPath")}</span>
+              </button>
             </AnimatedDropdown>
           </div>
 

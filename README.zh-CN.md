@@ -79,7 +79,7 @@ npm install -g @agegr/pi-web
 pi-web
 ```
 
-然后打开 **[http://localhost:30141](http://localhost:30141)** —— 服务就绪后 CLI 会尝试自动打开浏览器。
+然后打开 **[http://127.0.0.1:30141](http://127.0.0.1:30141)** —— 服务就绪后 CLI 会尝试自动打开浏览器。Pi Web 默认仅监听 `127.0.0.1`。
 
 ## 命令行参数
 
@@ -90,25 +90,26 @@ pi-web
 
 ```bash
 pi-web --port 8080              # 自定义端口
-pi-web --hostname 127.0.0.1     # 仅本机访问（推荐）
-pi-web -p 8080 -H 127.0.0.1     # 组合使用
+pi-web --hostname 0.0.0.0       # 在可信网络中开放访问
+pi-web -p 8080 -H 0.0.0.0       # 组合使用
 pi-web --no-open                # 不自动打开浏览器
 
 PORT=8080 pi-web                # 也支持环境变量
+PI_WEB_HOSTNAME=0.0.0.0 pi-web  # 显式开放网络访问
 PI_WEB_NO_OPEN=1 pi-web         # 后台服务 / 不自动打开
 ```
 
 | 参数 / 环境变量 | 含义 | 默认 |
 | --- | --- | --- |
 | `-p` / `--port` / `PORT` | 监听端口 | `30141` |
-| `-H` / `--hostname` / `HOSTNAME` | 绑定地址 | 全部网卡 |
+| `-H` / `--hostname` / `PI_WEB_HOSTNAME` | 绑定地址 | `127.0.0.1` |
 | `--no-open` / `PI_WEB_NO_OPEN=1` | 跳过打开浏览器 | Ready 时打开 |
 | `PI_CODING_AGENT_DIR` | 覆盖 pi agent 目录 | `~/.pi/agent` |
 
 </details>
 
 > [!WARNING]
-> 应用**没有登录鉴权**。若主机对不可信网络可达，请使用 `--hostname 127.0.0.1`。Electron 桌面版默认只监听本机回环地址。
+> 应用**没有登录鉴权**，且可调用高权限智能体。请勿暴露到互联网；仅在可信网络使用非 loopback 绑定。Electron 桌面版默认只监听本机回环地址。
 
 ## 桌面端
 
@@ -230,7 +231,7 @@ npx @agegr/pi-web@latest
 
 ```bash
 npm install
-npm run dev    # → http://localhost:30141
+npm run dev    # → http://127.0.0.1:30141
 ```
 
 ```bash

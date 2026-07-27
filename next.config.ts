@@ -12,12 +12,17 @@ try {
 const nextConfig: NextConfig = {
   // Minimal server bundle for Electron packaging (see electron/main.js + dist:dmg)
   output: "standalone",
+  // Keep output tracing inside pi-web. On Windows, an inferred workspace root
+  // can traverse protected user-profile junctions such as Application Data.
+  outputFileTracingRoot: __dirname,
   // Parent Desktop/ sometimes has a package-lock.json — pin Turbopack root to this app.
   turbopack: {
     root: __dirname,
   },
   experimental: {
     optimizePackageImports: ["@lobehub/icons"],
+    // Default is 10MB; uploads allow up to ~101MB wire body before our 413 checks run.
+    proxyClientMaxBodySize: "105mb",
   },
   serverExternalPackages: [
     "undici",

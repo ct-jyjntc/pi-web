@@ -106,6 +106,31 @@ export function SettingsConfig({
   const [loadingModels, setLoadingModels] = useState(true);
   const [savingKey, setSavingKey] = useState<"titleModel" | "commitModel" | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<
+    | { kind: "idle" }
+    | { kind: "latest" }
+    | { kind: "available"; version: string; releaseUrl: string }
+    | { kind: "empty" }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/app-update")
+      .then(async (res) => {
+        const data = await res.json() as { currentVersion?: string; error?: string };
+        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+        if (!cancelled) setCurrentVersion(data.currentVersion ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentVersion(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,6 +191,49 @@ export function SettingsConfig({
       setSavingKey(null);
     }
   }, [commitModelRef, titleModelRef]);
+
+  const checkForAppUpdate = useCallback(async () => {
+    setUpdateChecking(true);
+    setUpdateStatus({ kind: "idle" });
+    try {
+      const res = await fetch("/api/app-update", { method: "POST" });
+      const data = await res.json() as {
+        currentVersion?: string;
+        latestVersion?: string | null;
+        updateAvailable?: boolean;
+        releaseUrl?: string;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.currentVersion) setCurrentVersion(data.currentVersion);
+
+      if (data.message === "no_releases") {
+        setUpdateStatus({ kind: "empty" });
+        return;
+      }
+
+      if (data.updateAvailable && data.latestVersion && data.releaseUrl) {
+        setUpdateStatus({
+          kind: "available",
+          version: data.latestVersion,
+          releaseUrl: data.releaseUrl,
+        });
+        // Jump to the latest GitHub release so the user can download/update.
+        window.open(data.releaseUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      setUpdateStatus({ kind: "latest" });
+    } catch (error) {
+      setUpdateStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setUpdateChecking(false);
+    }
+  }, []);
 
   const modelSelect = (
     value: string,
@@ -374,6 +442,63 @@ export function SettingsConfig({
                 </button>
               }
             />
+
+            <div className="modal-section-title" style={{ marginTop: 18, marginBottom: 4 }}>
+              {t("settings.about")}
+            </div>
+
+            <SettingsRow
+              title={t("settings.version")}
+              description={
+                currentVersion
+                  ? t("settings.versionCurrent", { version: currentVersion })
+                  : t("common.loading")
+              }
+              action={
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {updateStatus.kind === "available" && (
+                    <button
+                      type="button"
+                      className="btn-primary btn-compact"
+                      onClick={() => {
+                        window.open(updateStatus.releaseUrl, "_blank", "noopener,noreferrer");
+                      }}
+                    >
+                      {t("settings.updateOpen")}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-ghost btn-compact"
+                    onClick={() => void checkForAppUpdate()}
+                    disabled={updateChecking}
+                  >
+                    {updateChecking ? t("settings.checkingUpdate") : t("settings.checkUpdate")}
+                  </button>
+                </div>
+              }
+            />
+
+            {updateStatus.kind === "available" && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--success)", lineHeight: 1.4 }}>
+                {t("settings.updateAvailable", { version: updateStatus.version })}
+              </div>
+            )}
+            {updateStatus.kind === "latest" && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                {t("settings.updateLatest")}
+              </div>
+            )}
+            {updateStatus.kind === "empty" && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                {t("settings.updateNoReleases")}
+              </div>
+            )}
+            {updateStatus.kind === "error" && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--destructive)", lineHeight: 1.4 }}>
+                {t("settings.updateError")}: {updateStatus.message}
+              </div>
+            )}
           </div>
         </div>
       </div>
