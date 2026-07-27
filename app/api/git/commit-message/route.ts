@@ -1,11 +1,20 @@
 import fs from "fs";
 import { NextRequest, NextResponse } from "next/server";
 import { getAllowedFileRoots, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
-import { draftCommitMessage } from "@/lib/git-changes";
+import {
+  draftCommitMessageHeuristic,
+  draftCommitMessageWithAi,
+} from "@/lib/git-commit-message-ai";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { cwd?: string };
+    const body = await request.json() as {
+      cwd?: string;
+      mode?: string;
+      includeUnstaged?: boolean;
+    };
     const cwd = body.cwd?.trim() ?? "";
     if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {
       return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
@@ -21,9 +30,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Directory not found" }, { status: 404 });
     }
 
-    const message = await draftCommitMessage(cwd);
-    return NextResponse.json({ ok: true, message });
+    const mode = body.mode === "ai" ? "ai" : "heuristic";
+    const includeUnstaged = body.includeUnstaged === true;
+    const draft = mode === "ai"
+      ? await draftCommitMessageWithAi(cwd, { includeUnstaged })
+      : await draftCommitMessageHeuristic(cwd, { includeUnstaged });
+
+    return NextResponse.json({
+      ok: true,
+      message: draft.message,
+      source: draft.source,
+    });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
   }
 }

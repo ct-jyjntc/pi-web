@@ -215,19 +215,27 @@ export function GitPanel({
     void mutate("/api/git/discard", { cwd, paths });
   }, [cwd, mutate, t]);
 
-  const generateMessage = useCallback(async (): Promise<string | null> => {
+  const requestCommitMessage = useCallback(async (
+    mode: "ai" | "heuristic",
+    opts?: { fill?: boolean },
+  ): Promise<string | null> => {
     if (!cwd) return null;
     setGenerating(true);
+    setError(null);
     try {
       const res = await fetch("/api/git/commit-message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd }),
+        body: JSON.stringify({
+          cwd,
+          mode,
+          includeUnstaged,
+        }),
       });
       const data = await res.json() as { message?: string; error?: string };
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
       if (data.message) {
-        setMessage(data.message);
+        if (opts?.fill !== false) setMessage(data.message);
         return data.message;
       }
       return null;
@@ -237,7 +245,12 @@ export function GitPanel({
     } finally {
       setGenerating(false);
     }
-  }, [cwd]);
+  }, [cwd, includeUnstaged]);
+
+  /** Explicit Generate button → AI only. */
+  const generateMessage = useCallback(async () => {
+    await requestCommitMessage("ai", { fill: true });
+  }, [requestCommitMessage]);
 
   const runCommit = useCallback(async (alsoPush: boolean) => {
     if (!cwd) return;
@@ -251,7 +264,8 @@ export function GitPanel({
     }
     let msg = message.trim();
     if (!msg) {
-      msg = (await generateMessage())?.trim() ?? "";
+      // Empty box keeps the fast filename/stat draft — AI is opt-in via Generate.
+      msg = (await requestCommitMessage("heuristic", { fill: false }))?.trim() ?? "";
       if (!msg) return;
     }
     const committed = await mutate("/api/git/commit", { cwd, message: msg });
@@ -261,7 +275,7 @@ export function GitPanel({
     if (alsoPush) {
       await mutate("/api/git/push", { cwd });
     }
-  }, [cwd, generateMessage, includeUnstaged, message, mutate, unstaged]);
+  }, [cwd, includeUnstaged, message, mutate, requestCommitMessage, unstaged]);
 
   const pushOnly = useCallback(async () => {
     await mutate("/api/git/push", { cwd });
@@ -466,7 +480,7 @@ export function GitPanel({
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder={t("git.messageOptional")}
                 rows={3}
-                disabled={busy}
+                disabled={busy || generating}
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -483,6 +497,21 @@ export function GitPanel({
                   outline: "none",
                 }}
               />
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.35 }}>
+                  {t("git.generateHint")}
+                </span>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={busy || generating || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0))}
+                  onClick={() => void generateMessage()}
+                  style={{ height: 28, padding: "0 10px", fontSize: 12, flexShrink: 0 }}
+                >
+                  {generating ? t("git.generating") : t("git.generateMessage")}
+                </button>
+              </div>
 
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" }}>
                 <input
@@ -509,7 +538,7 @@ export function GitPanel({
               <button
                 type="button"
                 className="chrome-btn"
-                disabled={busy || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0) && (status?.ahead ?? 0) === 0)}
+                disabled={busy || generating || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0) && (status?.ahead ?? 0) === 0)}
                 onClick={() => void runCommit(true)}
                 style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
               >

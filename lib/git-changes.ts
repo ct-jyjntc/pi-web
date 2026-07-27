@@ -424,23 +424,142 @@ export async function createGitBranch(cwd: string, branch: string, checkout = tr
   return getGitStatus(cwd);
 }
 
-/** Build a concise commit message from staged changes (no LLM). */
-export async function draftCommitMessage(cwd: string): Promise<string> {
+const COMMIT_DIFF_CONTEXT_MAX_CHARS = 14_000;
+
+export type CommitDiffContext = {
+  summary: string;
+  fileCount: number;
+  hasChanges: boolean;
+  /** Basename-friendly list used by the heuristic drafter. */
+  files: GitFileStatus[];
+};
+
+/** Collect a truncated, model-friendly summary of the changes about to be committed. */
+export async function getCommitDiffContext(
+  cwd: string,
+  options?: { includeUnstaged?: boolean; maxChars?: number },
+): Promise<CommitDiffContext> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) throw new Error("Not a git repository");
+
+  const includeUnstaged = options?.includeUnstaged === true;
+  const maxChars = options?.maxChars ?? COMMIT_DIFF_CONTEXT_MAX_CHARS;
   const status = await getGitStatus(cwd);
-  const staged = status.files.filter((f) => f.staged);
-  if (staged.length === 0) throw new Error("No staged changes");
+  const files = status.files.filter((f) => f.staged || (includeUnstaged && f.unstaged));
+  if (files.length === 0) {
+    return { summary: "", fileCount: 0, hasChanges: false, files: [] };
+  }
+
+  const parts: string[] = [];
+  parts.push(`Branch: ${status.branch ?? "unknown"}`);
+  parts.push("Files:");
+  for (const file of files.slice(0, 40)) {
+    const rel = toGitPath(path.relative(repositoryRoot, file.filePath));
+    const flags = [
+      file.staged ? "staged" : null,
+      file.unstaged ? "unstaged" : null,
+      file.status,
+    ].filter(Boolean).join(",");
+    parts.push(`- ${rel} (${flags}; +${file.insertions}/-${file.deletions})`);
+  }
+  if (files.length > 40) {
+    parts.push(`- …and ${files.length - 40} more files`);
+  }
+
+  const appendSection = async (title: string, args: string[]) => {
+    try {
+      const text = (await git(repositoryRoot, args)).trim();
+      if (!text) return;
+      parts.push("", title, text);
+    } catch {
+      // ignore missing HEAD / empty diffs
+    }
+  };
+
+  if (files.some((f) => f.staged)) {
+    await appendSection("Staged stat:", ["diff", "--cached", "--stat"]);
+    await appendSection("Staged name-status:", ["diff", "--cached", "--name-status"]);
+    await appendSection("Staged patch:", ["diff", "--cached", "--no-color", "--unified=3"]);
+  }
+
+  if (includeUnstaged && files.some((f) => f.unstaged)) {
+    await appendSection("Unstaged stat:", ["diff", "--stat"]);
+    await appendSection("Unstaged name-status:", ["diff", "--name-status"]);
+    await appendSection("Unstaged patch:", ["diff", "--no-color", "--unified=3"]);
+
+    const untracked = files.filter((f) => f.status === "untracked").slice(0, 12);
+    if (untracked.length > 0) {
+      parts.push("", "Untracked previews:");
+      for (const file of untracked) {
+        const rel = toGitPath(path.relative(repositoryRoot, file.filePath));
+        try {
+          const buf = fs.readFileSync(file.filePath);
+          if (buf.includes(0) || buf.length > TEXT_PREVIEW_MAX_BYTES) {
+            parts.push(`--- ${rel} (binary or large, skipped)`);
+            continue;
+          }
+          const text = buf.toString("utf8");
+          const preview = text.split("\n").slice(0, 40).join("\n");
+          parts.push(`--- ${rel}`, preview);
+        } catch {
+          parts.push(`--- ${rel} (unreadable)`);
+        }
+      }
+    }
+  }
+
+  let summary = parts.join("\n").trim();
+  if (summary.length > maxChars) {
+    summary = `${summary.slice(0, maxChars)}\n\n…(truncated)`;
+  }
+
+  return {
+    summary,
+    fileCount: files.length,
+    hasChanges: true,
+    files,
+  };
+}
+
+/** Build a concise commit message from staged changes (no LLM). */
+export async function draftCommitMessage(
+  cwd: string,
+  options?: { includeUnstaged?: boolean },
+): Promise<string> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) throw new Error("Not a git repository");
+  const context = await getCommitDiffContext(cwd, {
+    includeUnstaged: options?.includeUnstaged,
+  });
+  if (!context.hasChanges) {
+    throw new Error(options?.includeUnstaged ? "No changes to commit" : "No staged changes");
+  }
+
+  const target = options?.includeUnstaged
+    ? context.files
+    : context.files.filter((f) => f.staged);
+  if (target.length === 0) throw new Error("No staged changes");
 
   let stat = "";
   try {
-    stat = (await git(repositoryRoot, ["diff", "--cached", "--stat"])).trim();
+    if (target.some((f) => f.staged) && !options?.includeUnstaged) {
+      stat = (await git(repositoryRoot, ["diff", "--cached", "--stat"])).trim();
+    } else {
+      // Combined view when drafting over staged+unstaged without staging yet.
+      const cached = target.some((f) => f.staged)
+        ? (await git(repositoryRoot, ["diff", "--cached", "--stat"]).catch(() => "")).trim()
+        : "";
+      const worktree = target.some((f) => f.unstaged)
+        ? (await git(repositoryRoot, ["diff", "--stat"]).catch(() => "")).trim()
+        : "";
+      stat = [cached, worktree].filter(Boolean).join("\n");
+    }
   } catch {
     stat = "";
   }
 
-  const names = staged.map((f) => path.basename(f.filePath));
-  const kinds = new Set(staged.map((f) => f.status));
+  const names = target.map((f) => path.basename(f.filePath));
+  const kinds = new Set(target.map((f) => f.status));
   let verb = "Update";
   if (kinds.size === 1) {
     const only = [...kinds][0];
