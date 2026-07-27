@@ -11,8 +11,8 @@ import { TerminalPanel } from "./TerminalPanel";
 import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
+import { SettingsConfig } from "./SettingsConfig";
 import { BranchNavigator } from "./BranchNavigator";
-import { useTheme } from "@/hooks/useTheme";
 import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { getFileName } from "@/lib/file-paths";
@@ -33,8 +33,7 @@ export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
-  const { isDark, toggleTheme } = useTheme();
-  const { t, locale, toggleLocale } = useLocale();
+  const { t } = useLocale();
   const isMobile = useIsMobile();
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
@@ -46,6 +45,7 @@ export function AppShell() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
@@ -624,38 +624,6 @@ export function AppShell() {
         onAtMention={handleAtMention}
         onAtMentions={handleAtMentions}
       />
-      <div className="chrome-footer">
-        <button
-          type="button"
-          className="chrome-btn"
-          onClick={() => setModelsConfigOpen(true)}
-          title={t("shell.models")}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-            <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-            <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-            <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-            <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-          </svg>
-          <span>{t("shell.models")}</span>
-        </button>
-        <div className="chrome-divider" aria-hidden />
-        <button
-          type="button"
-          className="chrome-btn"
-          onClick={() => setSkillsConfigOpen(true)}
-          disabled={!activeCwd && !selectedSession?.cwd && !newSessionCwd}
-          title={t("shell.skills")}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
-          <span>{t("shell.skills")}</span>
-        </button>
-      </div>
     </div>
   );
 
@@ -807,39 +775,14 @@ export function AppShell() {
             <button
               type="button"
               className="chrome-btn is-icon"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-              }}
-              title={isDark ? t("shell.switchToLight") : t("shell.switchToDark")}
-              aria-label={isDark ? t("shell.switchToLight") : t("shell.switchToDark")}
-              aria-pressed={isDark}
+              onClick={() => setSettingsOpen(true)}
+              title={t("shell.settings")}
+              aria-label={t("shell.settings")}
             >
-              {isDark ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              )}
-            </button>
-            <button
-              type="button"
-              className="chrome-btn"
-              onClick={toggleLocale}
-              title={`${t("shell.language")}: ${locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}`}
-              aria-label={`${t("shell.language")}: ${locale === "zh" ? t("shell.switchToEn") : t("shell.switchToZh")}`}
-              style={{ minWidth: 44, fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", fontVariantNumeric: "tabular-nums" }}
-            >
-              <span style={{ opacity: locale === "en" ? 1 : 0.45 }}>EN</span>
-              <span style={{ opacity: 0.35 }}>/</span>
-              <span style={{ opacity: locale === "zh" ? 1 : 0.45 }}>中</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
             </button>
           </div>
           <div className="chrome-divider" aria-hidden style={{ flexShrink: 0 }} />
@@ -1046,7 +989,7 @@ export function AppShell() {
                   <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{t("shell.getStarted")}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{t("shell.step1")}<br />
-                    <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{t("shell.step2a")} <strong style={{ color: "var(--text)" }}>{t("shell.models")}</strong> {t("shell.step2b")}
+                    <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{t("shell.step2a")} <strong style={{ color: "var(--text)" }}>{t("shell.settings")}</strong> {t("shell.step2b")}
                   </div>
                 </div>
               </div>
@@ -1447,9 +1390,26 @@ export function AppShell() {
         </div>
       </div>
     </div>
-    {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
+    {settingsOpen && (
+      <SettingsConfig
+        onClose={() => setSettingsOpen(false)}
+        onOpenModels={() => setModelsConfigOpen(true)}
+        onOpenSkills={() => setSkillsConfigOpen(true)}
+        skillsDisabled={!activeCwd && !selectedSession?.cwd && !newSessionCwd}
+        cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd}
+      />
+    )}
+    {modelsConfigOpen && (
+      <ModelsConfig onClose={() => {
+        setModelsConfigOpen(false);
+        setModelsRefreshKey((k) => k + 1);
+      }} />
+    )}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-      <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
+      <SkillsConfig
+        cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
+        onClose={() => setSkillsConfigOpen(false)}
+      />
     )}
     </>
   );

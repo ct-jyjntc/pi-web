@@ -4,7 +4,9 @@ import {
   type AgentOptions,
   type AgentTool,
 } from "@earendil-works/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import { pickLowestThinkingLevel } from "./utility-model";
 
 const TITLE_TIMEOUT_MS = 90_000;
 const MAX_TITLE_LENGTH = 80;
@@ -43,13 +45,18 @@ function createShadowTools(tools: AgentTool[]): AgentTool[] {
  * the source Agent. Tool implementations are replaced without changing their
  * names, descriptions, or schemas, so a naming run cannot mutate the project.
  */
-export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
+export function buildSessionTitleAgentOptions(
+  source: Agent,
+  overrides?: { model?: Model<string> },
+): AgentOptions {
   const state = source.state;
+  const model = overrides?.model ?? state.model;
   return {
     initialState: {
       systemPrompt: state.systemPrompt,
-      model: state.model,
-      thinkingLevel: state.thinkingLevel,
+      model,
+      // Utility title gen always uses the cheapest supported thinking level (none/off first).
+      thinkingLevel: pickLowestThinkingLevel(model as Model<string> | undefined),
       tools: createShadowTools(state.tools),
       messages: state.messages,
     },
@@ -165,7 +172,13 @@ function getAssistantResult(agent: Agent, historyLength: number): GeneratedSessi
   throw new Error("The model did not return a session title");
 }
 
-export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
+export async function generateSessionTitle(
+  source: AgentSession,
+  overrides?: {
+    /** When set, title generation uses this model instead of the session model. */
+    model?: Model<string>;
+  },
+): Promise<GeneratedSessionTitle> {
   const sourceAgent = source.agent;
   await sourceAgent.waitForIdle();
 
@@ -174,7 +187,9 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
     throw new Error("The session has no user messages to name");
   }
 
-  const options = buildSessionTitleAgentOptions(sourceAgent);
+  const options = buildSessionTitleAgentOptions(sourceAgent, {
+    model: overrides?.model,
+  });
   const continuesFromTrailingUser = sourceAgent.state.messages.at(-1)?.role === "user";
   if (continuesFromTrailingUser) {
     options.initialState!.messages = appendTitleRequestToTrailingUser(sourceAgent.state.messages);

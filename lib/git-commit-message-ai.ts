@@ -1,6 +1,7 @@
-import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Context, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { draftCommitMessage, getCommitDiffContext } from "./git-changes";
+import { pickUtilityCompleteReasoning, resolveUtilityModel } from "./utility-model";
+import { readWebSettings } from "./web-settings";
 
 const AI_TIMEOUT_MS = 25_000;
 const AI_MAX_TOKENS = 220;
@@ -10,26 +11,20 @@ export type CommitMessageDraft = {
   source: "ai" | "heuristic";
 };
 
-function stripThinkingSuffix(modelRef: string): string {
-  const trimmed = modelRef.trim();
-  const colonIndex = trimmed.lastIndexOf(":");
-  if (colonIndex === -1) return trimmed;
-  const suffix = trimmed.slice(colonIndex + 1);
-  if (["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(suffix)) {
-    return trimmed.slice(0, colonIndex);
-  }
-  return trimmed;
-}
-
-function filterEnabledModels<T extends { id: string; provider: string }>(
-  available: readonly T[],
-  enabledModels: string[] | undefined,
-): readonly T[] {
-  if (!enabledModels || enabledModels.length === 0) return available;
-  const refs = new Set(enabledModels.map(stripThinkingSuffix).filter(Boolean));
-  const visible = available.filter((m) => refs.has(`${m.provider}/${m.id}`) || refs.has(m.id));
-  return visible.length > 0 ? visible : available;
-}
+type CompleteSimpleFn = (
+  model: Model<string>,
+  context: Context,
+  options?: {
+    maxTokens?: number;
+    temperature?: number;
+    timeoutMs?: number;
+    maxRetries?: number;
+    cacheRetention?: "none" | "short" | "long";
+    signal?: AbortSignal;
+    /** Lowest supported effort; omit when off/none is preferred. */
+    reasoning?: ThinkingLevel;
+  },
+) => Promise<AssistantMessage>;
 
 function getAssistantText(message: AssistantMessage): string {
   return message.content
@@ -71,7 +66,7 @@ function sanitizeCommitMessage(raw: string): string {
 
 /**
  * AI commit message for the Generate button.
- * Uses the user's default/available model and a truncated staged (+ optional unstaged) diff.
+ * Uses Settings → commit model when set, otherwise the app default/available model.
  */
 export async function draftCommitMessageWithAi(
   cwd: string,
@@ -84,29 +79,20 @@ export async function draftCommitMessageWithAi(
     throw new Error(options?.includeUnstaged ? "No changes to commit" : "No staged changes");
   }
 
-  const agentDir = getAgentDir();
-  const services = await createAgentSessionServices({ cwd, agentDir });
-  const settings: SettingsManager = services.settingsManager;
-  const available = await services.modelRuntime.getAvailable();
-  const visible = filterEnabledModels(available, settings.getEnabledModels());
-  if (visible.length === 0) {
-    throw new Error("No available model. Configure auth and a default model first.");
-  }
-
-  const provider = settings.getDefaultProvider();
-  const modelId = settings.getDefaultModel();
-  const model = (provider && modelId
-    ? visible.find((m) => m.provider === provider && m.id === modelId)
-    : undefined) ?? visible[0];
-  if (!model) {
-    throw new Error("No available model. Configure auth and a default model first.");
-  }
+  const prefs = readWebSettings();
+  const resolved = await resolveUtilityModel(cwd, prefs.commitModel);
+  // Keep method receiver so ModelRuntime.completeSimple → this.streamSimple works.
+  const completeSimple = resolved.modelRuntime.completeSimple.bind(
+    resolved.modelRuntime,
+  ) as CompleteSimpleFn;
+  // Prefer none/off when the model supports it; otherwise the lowest supported level.
+  const reasoning = pickUtilityCompleteReasoning(resolved.model);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
 
   try {
-    const response = await services.modelRuntime.completeSimple(model, {
+    const response = await completeSimple(resolved.model, {
       systemPrompt: [
         "You write concise git commit messages.",
         "Rules:",
@@ -133,6 +119,7 @@ export async function draftCommitMessageWithAi(
       maxRetries: 0,
       cacheRetention: "none",
       signal: controller.signal,
+      ...(reasoning ? { reasoning } : {}),
     });
 
     if (response.stopReason === "error" || response.stopReason === "aborted") {

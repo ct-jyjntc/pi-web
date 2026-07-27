@@ -3,6 +3,8 @@ import { SessionManager, type AgentSession } from "@earendil-works/pi-coding-age
 import { generateSessionTitle } from "@/lib/session-title";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
+import { readWebSettings } from "@/lib/web-settings";
+import { resolvePreferredSessionModel, resolveUtilityModel } from "@/lib/utility-model";
 
 export async function POST(
   _req: Request,
@@ -25,7 +27,28 @@ export async function POST(
     // globalThis keeps wrappers alive across dev hot reloads; older instances
     // may predate waitUntilReady(), but those have already completed startup.
     await session.waitUntilReady?.();
-    const result = await generateSessionTitle(session.inner as unknown as AgentSession);
+
+    const inner = session.inner as unknown as AgentSession;
+    const prefs = readWebSettings();
+
+    let modelOverride = null as Awaited<ReturnType<typeof resolvePreferredSessionModel>>;
+    if (prefs.titleModel) {
+      try {
+        modelOverride = await resolvePreferredSessionModel(
+          inner.modelRuntime,
+          inner.settingsManager,
+          prefs.titleModel,
+        );
+      } catch {
+        // If the live session runtime cannot see the preferred model, resolve via a
+        // fresh services load (covers auth/catalog edge cases).
+        modelOverride = (await resolveUtilityModel(cwd, prefs.titleModel)).model;
+      }
+    }
+
+    const result = await generateSessionTitle(inner, {
+      ...(modelOverride ? { model: modelOverride } : {}),
+    });
 
     if (!session.isAlive()) {
       return NextResponse.json(
