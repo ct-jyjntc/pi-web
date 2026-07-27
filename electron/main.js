@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, ipcMain, shell, utilityProcess } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, utilityProcess } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const http = require("http");
@@ -28,6 +28,47 @@ let mainWindow = null;
 let serverProcess = null;
 let quitting = false;
 let activePort = PREFERRED_PORT;
+/** @type {'light' | 'dark'} */
+let windowTheme = "light";
+
+/** Match app/globals.css bg tokens so the window flash matches the UI. */
+function themeBackground(theme) {
+  // Approximate --bg light oklch(0.995) / dark oklch(0.13)
+  return theme === "dark" ? "#212121" : "#f5f5f3";
+}
+
+function applyWindowTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  windowTheme = next;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.setBackgroundColor(themeBackground(next));
+  } catch {
+    // ignore
+  }
+}
+
+function getWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { maximized: false, minimized: false, focused: false, fullscreen: false };
+  }
+  return {
+    maximized: mainWindow.isMaximized(),
+    minimized: mainWindow.isMinimized(),
+    focused: mainWindow.isFocused(),
+    fullscreen: mainWindow.isFullScreen(),
+  };
+}
+
+function broadcastWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const state = getWindowState();
+  try {
+    mainWindow.webContents.send("pi-desktop:window-state", state);
+  } catch {
+    // ignore
+  }
+}
 
 function resolveNextBin() {
   try {
@@ -369,7 +410,7 @@ function createWindow(port) {
     minHeight: 640,
     title: "Pi Web",
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
-    backgroundColor: "#f5f5f3",
+    backgroundColor: themeBackground(windowTheme),
     show: false,
     autoHideMenuBar: true,
     ...(isMac
@@ -380,12 +421,9 @@ function createWindow(port) {
           trafficLightPosition: { x: 16, y: 13 },
         }
       : {
-          titleBarStyle: "hidden",
-          titleBarOverlay: {
-            color: "#f5f5f3",
-            symbolColor: "#1a1a1a",
-            height: 36,
-          },
+          // Fully custom caption buttons drawn by the renderer so colors match
+          // --bg-panel / --text tokens (system titleBarOverlay cannot do that).
+          frame: false,
         }),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -408,6 +446,10 @@ function createWindow(port) {
   mainWindow.webContents.on("did-fail-load", (_e, code, desc, url) => {
     console.error("did-fail-load", code, desc, url);
   });
+
+  for (const eventName of ["maximize", "unmaximize", "minimize", "restore", "enter-full-screen", "leave-full-screen", "focus", "blur"]) {
+    mainWindow.on(eventName, () => broadcastWindowState());
+  }
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -435,9 +477,38 @@ ipcMain.handle("pi-desktop:select-directory", async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle("pi-desktop:set-theme", (_event, theme) => {
+  applyWindowTheme(theme === "dark" ? "dark" : "light");
+  return windowTheme;
+});
+
+ipcMain.handle("pi-desktop:window-minimize", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+});
+
+ipcMain.handle("pi-desktop:window-maximize-toggle", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return getWindowState();
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+  return getWindowState();
+});
+
+ipcMain.handle("pi-desktop:window-close", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+});
+
+ipcMain.handle("pi-desktop:window-is-maximized", () => {
+  return Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMaximized());
+});
+
+ipcMain.handle("pi-desktop:window-state", () => getWindowState());
+
 app.whenReady().then(() => {
   // Do NOT call dock.setIcon(png) — flat PNG overrides the macOS icns mask
   // and produces the unmasked "π only" dock icon. Bundle icon.icns is enough.
+
+  // Best-effort initial caption colors before renderer localStorage is known.
+  windowTheme = nativeTheme.shouldUseDarkColors ? "dark" : "light";
 
   bootstrap().catch((err) => {
     console.error(err);

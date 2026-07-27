@@ -133,16 +133,18 @@ html, body {
 /* Electron immersive titlebar
    - Web default sidebar 240px / chrome 36px
    - Desktop mac: leave left pad for traffic lights; slightly wider sidebar
-   - Desktop win/linux: no left pad (window controls are on the right) */
+   - Desktop win/linux: custom caption buttons painted in the renderer */
 :root {
   --titlebar-height: 36px;
   --traffic-lights-pad: 0px;
+  --window-controls-pad: 0px;
   --sidebar-width: 240px;
 }
 
 html.pi-desktop {
   --titlebar-height: 36px;
   --traffic-lights-pad: 0px;
+  --window-controls-pad: 0px;
   --sidebar-width: 248px;
 }
 
@@ -150,7 +152,16 @@ html.pi-desktop.pi-desktop-mac {
   /* 3 traffic lights (~52) + x offset 16 + breathing room */
   --titlebar-height: 40px;
   --traffic-lights-pad: 80px;
+  --window-controls-pad: 0px;
   --sidebar-width: 272px;
+}
+
+html.pi-desktop.pi-desktop-win,
+html.pi-desktop.pi-desktop-linux {
+  --titlebar-height: 36px;
+  --traffic-lights-pad: 0px;
+  /* Custom caption cluster width (3 × 46px) — used only as a sizing hint */
+  --window-controls-pad: 138px;
 }
 
 html.pi-desktop body {
@@ -234,6 +245,54 @@ html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row.sidebar-toolbar-row {
 }
 html.pi-desktop .traffic-lights-spacer {
   -webkit-app-region: drag;
+}
+
+/* Custom Windows/Linux caption buttons — inherit theme tokens, not system chrome. */
+.window-controls {
+  display: none;
+  flex: 0 0 auto;
+  align-items: stretch;
+  height: 100%;
+  margin-left: 2px;
+  -webkit-app-region: no-drag;
+}
+html.pi-desktop.pi-desktop-win .window-controls,
+html.pi-desktop.pi-desktop-linux .window-controls {
+  display: flex;
+}
+.window-control-btn {
+  appearance: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  width: 46px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: default;
+  flex: 0 0 46px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.window-control-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.window-control-btn:active {
+  background: var(--bg-selected);
+}
+.window-control-btn.is-close:hover {
+  background: var(--destructive);
+  color: #fff;
+}
+.window-control-btn.is-close:active {
+  background: color-mix(in oklab, var(--destructive) 85%, black);
+}
+html.pi-desktop .window-controls,
+html.pi-desktop .window-controls * {
+  -webkit-app-region: no-drag !important;
 }
 
 /* Safety: never let drag regions swallow sidebar pickers / buttons */
