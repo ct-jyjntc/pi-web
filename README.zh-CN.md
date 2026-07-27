@@ -11,6 +11,21 @@
 
 [English](./README.md) · [npm 包](https://www.npmjs.com/package/@agegr/pi-web) · [Worktree 说明](./docs/worktrees.zh-CN.md) · [Issues](https://github.com/agegr/pi-web/issues)
 
+<br/>
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="./docs/screenshot-light.png" alt="Pi Web — 浅色主题" />
+      <p align="center"><sub>浅色</sub></p>
+    </td>
+    <td width="50%">
+      <img src="./docs/screenshot-dark.png" alt="Pi Web — 深色主题" />
+      <p align="center"><sub>深色</sub></p>
+    </td>
+  </tr>
+</table>
+
 </div>
 
 ---
