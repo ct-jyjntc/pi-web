@@ -11,6 +11,16 @@ declare global {
   interface Window {
     piDesktop?: {
       selectDirectory: () => Promise<string | null>;
+      /** Sync window background flash color with app theme. */
+      setTheme?: (theme: "light" | "dark") => Promise<"light" | "dark">;
+      windowMinimize?: () => Promise<void>;
+      windowMaximizeToggle?: () => Promise<{ maximized?: boolean } | void>;
+      windowClose?: () => Promise<void>;
+      windowIsMaximized?: () => Promise<boolean>;
+      windowState?: () => Promise<{ maximized?: boolean }>;
+      onWindowStateChange?: (
+        callback: (state: { maximized?: boolean }) => void,
+      ) => () => void;
       isDesktop?: boolean;
       platform?: string;
     };

@@ -21,6 +21,7 @@ import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import { ContextPanel, ContextTabBadge } from "./ContextPanel";
+import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 
 type AutoNameStatus =
@@ -896,11 +897,8 @@ export function AppShell() {
               </svg>
             </button>
           </div>
-          {/* When right panel is closed, this top bar is the rightmost chrome —
-              reserve space for Windows/Linux caption buttons. */}
-          {!rightPanelOpen && (
-            <div className="window-controls-spacer titlebar-drag" aria-hidden />
-          )}
+          {/* Custom Windows/Linux caption buttons — only when this bar is rightmost. */}
+          {!rightPanelOpen && <WindowControls />}
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
             <div style={{
@@ -1167,8 +1165,8 @@ export function AppShell() {
             })}
             <div className="titlebar-drag" style={{ flex: 1, height: "100%" }} aria-hidden />
           </div>
-          {/* Right panel is the rightmost chrome when open — keep clear of caption buttons. */}
-          <div className="window-controls-spacer titlebar-drag" aria-hidden />
+          {/* Right panel is the rightmost chrome when open — host caption buttons here. */}
+          <WindowControls />
         </div>
 
         <div style={{ flex: 1, overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>

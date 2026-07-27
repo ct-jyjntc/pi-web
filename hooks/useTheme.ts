@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 
@@ -22,6 +22,17 @@ function getServerSnapshot(): Theme {
   return "light";
 }
 
+/** Keep Windows/Linux titleBarOverlay caption buttons in sync with app theme. */
+function notifyDesktopTheme(theme: Theme) {
+  try {
+    const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
+    if (!desktop?.isDesktop || typeof desktop.setTheme !== "function") return;
+    void desktop.setTheme(theme);
+  } catch {
+    // preload / non-desktop — ignore
+  }
+}
+
 // Users with no stored preference follow the OS theme, including live
 // changes. An explicit toggle (which writes "pi-theme") opts out.
 if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
@@ -34,6 +45,7 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
         // ignore storage errors — fall through and follow the OS
       }
       document.documentElement.classList.toggle("dark", e.matches);
+      notifyDesktopTheme(e.matches ? "dark" : "light");
       listeners.forEach((cb) => cb());
     });
 }
@@ -57,6 +69,7 @@ export function useTheme() {
       } catch {
         // ignore storage errors (private mode, quota, etc.)
       }
+      notifyDesktopTheme(next);
       listeners.forEach((cb) => cb());
     };
 
@@ -96,6 +109,11 @@ export function useTheme() {
         // transition cancelled — ignore
       });
   }, []);
+
+  // Sync on mount / external theme flips (settings, OS preference).
+  useEffect(() => {
+    notifyDesktopTheme(theme);
+  }, [theme]);
 
   return { theme, toggleTheme, isDark: theme === "dark" };
 }
