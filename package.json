@@ -1,14 +1,14 @@
 {
-  "name": "@agegr/pi-web",
+  "name": "@ct-jyjntc/pi-web",
   "version": "0.8.1",
   "description": "Web UI for the pi coding agent",
-  "homepage": "https://github.com/agegr/pi-web#readme",
+  "homepage": "https://github.com/ct-jyjntc/pi-web#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agegr/pi-web.git"
+    "url": "git+https://github.com/ct-jyjntc/pi-web.git"
   },
   "bugs": {
-    "url": "https://github.com/agegr/pi-web/issues"
+    "url": "https://github.com/ct-jyjntc/pi-web/issues"
   },
   "license": "MIT",
   "engines": {
@@ -18,7 +18,7 @@
     "pi-web": "bin/pi-web.js"
   },
   "main": "electron/main.js",
-  "author": "agegr",
+  "author": "ct-jyjntc",
   "files": [
     "bin",
     "electron",
@@ -50,9 +50,9 @@
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "build": {
-    "appId": "ai.agegr.pi-web",
+    "appId": "com.ct-jyjntc.pi-web",
     "productName": "Pi Web",
-    "copyright": "Copyright © agegr",
+    "copyright": "Copyright © ct-jyjntc",
     "directories": {
       "output": "dist",
       "buildResources": "electron/icons"
