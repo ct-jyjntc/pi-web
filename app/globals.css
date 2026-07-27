@@ -133,16 +133,18 @@ html, body {
 /* Electron immersive titlebar
    - Web default sidebar 240px / chrome 36px
    - Desktop mac: leave left pad for traffic lights; slightly wider sidebar
-   - Desktop win/linux: no left pad (window controls are on the right) */
+   - Desktop win/linux: leave right pad for caption buttons (titleBarOverlay) */
 :root {
   --titlebar-height: 36px;
   --traffic-lights-pad: 0px;
+  --window-controls-pad: 0px;
   --sidebar-width: 240px;
 }
 
 html.pi-desktop {
   --titlebar-height: 36px;
   --traffic-lights-pad: 0px;
+  --window-controls-pad: 0px;
   --sidebar-width: 248px;
 }
 
@@ -150,7 +152,17 @@ html.pi-desktop.pi-desktop-mac {
   /* 3 traffic lights (~52) + x offset 16 + breathing room */
   --titlebar-height: 40px;
   --traffic-lights-pad: 80px;
+  --window-controls-pad: 0px;
   --sidebar-width: 272px;
+}
+
+/* Win/Linux: titleBarOverlay caption buttons sit on the right of the 36px strip.
+   ~46px × 3 buttons ≈ 138px; keep a little breathing room. */
+html.pi-desktop.pi-desktop-win,
+html.pi-desktop.pi-desktop-linux {
+  --titlebar-height: 36px;
+  --traffic-lights-pad: 0px;
+  --window-controls-pad: 140px;
 }
 
 html.pi-desktop body {
@@ -233,6 +245,18 @@ html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row.sidebar-toolbar-row {
   height: 100%;
 }
 html.pi-desktop .traffic-lights-spacer {
+  -webkit-app-region: drag;
+}
+
+/* Empty pad under Windows/Linux caption buttons — pure drag region. Width is 0 outside win/linux. */
+.window-controls-spacer {
+  width: var(--window-controls-pad);
+  min-width: var(--window-controls-pad);
+  flex: 0 0 var(--window-controls-pad);
+  height: 100%;
+  pointer-events: none;
+}
+html.pi-desktop .window-controls-spacer {
   -webkit-app-region: drag;
 }
 

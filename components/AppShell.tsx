@@ -896,6 +896,11 @@ export function AppShell() {
               </svg>
             </button>
           </div>
+          {/* When right panel is closed, this top bar is the rightmost chrome —
+              reserve space for Windows/Linux caption buttons. */}
+          {!rightPanelOpen && (
+            <div className="window-controls-spacer titlebar-drag" aria-hidden />
+          )}
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
             <div style={{
@@ -1162,6 +1167,8 @@ export function AppShell() {
             })}
             <div className="titlebar-drag" style={{ flex: 1, height: "100%" }} aria-hidden />
           </div>
+          {/* Right panel is the rightmost chrome when open — keep clear of caption buttons. */}
+          <div className="window-controls-spacer titlebar-drag" aria-hidden />
         </div>
 
         <div style={{ flex: 1, overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
