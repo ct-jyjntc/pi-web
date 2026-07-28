@@ -79,12 +79,25 @@ export function TerminalPanel({
     setStatus(t("git.terminalConnecting"));
 
     const theme = readTheme(host);
+    let terminalFont =
+      "var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+    try {
+      // Sync read is not available; font is applied after settings fetch below via option reload.
+      const cached = typeof window !== "undefined"
+        ? localStorage.getItem("pi-terminal-font")
+        : null;
+      if (cached && cached.trim()) {
+        terminalFont = `${cached.trim()}, ${terminalFont}`;
+      }
+    } catch {
+      // ignore
+    }
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: "bar",
       fontSize: 12.5,
       lineHeight: 1.35,
-      fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontFamily: terminalFont,
       scrollback: 5000,
       convertEol: false,
       theme: {
@@ -288,6 +301,27 @@ export function TerminalPanel({
     };
 
     void start();
+
+    // Apply terminal font from web-settings when available.
+    void fetch("/api/web-settings")
+      .then(async (res) => {
+        const data = await res.json() as { settings?: { terminalFont?: string } };
+        const font = data.settings?.terminalFont?.trim();
+        if (!font || disposedRef.current || !termRef.current) return;
+        try {
+          localStorage.setItem("pi-terminal-font", font);
+        } catch {
+          // ignore
+        }
+        termRef.current.options.fontFamily =
+          `${font}, var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+        try {
+          fitRef.current?.fit();
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {});
 
     return () => {
       disposedRef.current = true;

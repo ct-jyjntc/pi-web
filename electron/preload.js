@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("piDesktop", {
   windowClose: () => ipcRenderer.invoke("pi-desktop:window-close"),
   windowIsMaximized: () => ipcRenderer.invoke("pi-desktop:window-is-maximized"),
   windowState: () => ipcRenderer.invoke("pi-desktop:window-state"),
+  notify: (payload) => ipcRenderer.invoke("pi-desktop:notify", payload),
+  getWebSettingsPath: () => ipcRenderer.invoke("pi-desktop:get-web-settings-path"),
   onWindowStateChange: (callback) => {
     if (typeof callback !== "function") return () => {};
     const handler = (_event, state) => callback(state);

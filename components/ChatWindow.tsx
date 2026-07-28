@@ -207,12 +207,51 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   playDoneSoundRef.current = playDoneSound;
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
+  const notifyPrefsRef = useRef({ desktop: true, sound: true });
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/web-settings")
+      .then(async (res) => {
+        const data = await res.json() as {
+          settings?: { desktopNotifications?: boolean; notificationSound?: boolean; soundEnabled?: boolean };
+        };
+        if (cancelled || !data.settings) return;
+        notifyPrefsRef.current = {
+          desktop: data.settings.desktopNotifications !== false,
+          sound: data.settings.notificationSound !== false,
+        };
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const wrappedOnAgentEnd = useCallback(() => {
-    if (soundEnabledRef.current) {
+    if (soundEnabledRef.current && notifyPrefsRef.current.sound) {
       playDoneSoundRef.current();
     }
+    if (notifyPrefsRef.current.desktop && typeof window !== "undefined") {
+      const desktop = window.piDesktop as
+        | { isDesktop?: boolean; notify?: (p: { title: string; body: string; silent?: boolean }) => Promise<unknown> }
+        | undefined;
+      if (desktop?.isDesktop && typeof desktop.notify === "function") {
+        void desktop.notify({
+          title: "Pi Web",
+          body: t("notify.taskComplete"),
+          silent: !notifyPrefsRef.current.sound,
+        });
+      } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try {
+          new Notification("Pi Web", { body: t("notify.taskComplete"), silent: !notifyPrefsRef.current.sound });
+        } catch {
+          // ignore
+        }
+      } else if (typeof Notification !== "undefined" && Notification.permission === "default") {
+        void Notification.requestPermission();
+      }
+    }
     onAgentEnd?.();
-  }, [onAgentEnd]);
+  }, [onAgentEnd, t]);
 
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
   const handleEditContent = useCallback((content: string) => {

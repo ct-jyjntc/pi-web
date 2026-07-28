@@ -21,6 +21,7 @@ declare global {
       onWindowStateChange?: (
         callback: (state: { maximized?: boolean }) => void,
       ) => () => void;
+      notify?: (payload: { title: string; body: string; silent?: boolean }) => Promise<{ ok?: boolean }>;
       isDesktop?: boolean;
       platform?: string;
     };

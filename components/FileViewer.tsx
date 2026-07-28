@@ -7,12 +7,12 @@ import { useEffect, useState, useRef, useCallback, type CSSProperties, type Mous
 import {
   SyntaxHighlighter,
   createSyntaxElement as renderSyntaxNode,
-  vs,
-  vscDarkPlus,
+  getCodeThemeStyle,
   type SyntaxHighlighterProps,
 } from "@/lib/syntax-highlighter";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
+import { useAppearance } from "@/lib/appearance-store";
 import {
   DOCX_PREVIEW_MAX_BYTES,
   getFileExt,
@@ -798,6 +798,11 @@ export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMenti
 function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey }: Props) {
   const { t } = useLocale();
   const { isDark } = useTheme();
+  const appearance = useAppearance();
+  const codeThemeStyle = getCodeThemeStyle(
+    isDark ? appearance.codeThemeDark : appearance.codeThemeLight,
+    isDark,
+  );
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1140,20 +1145,22 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
           </div>
         ) : (
           <SyntaxHighlighter
-            className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
+            className={(wrapLines || appearance.wrapCodeLines) ? "file-source-view is-wrapped" : "file-source-view"}
             language={data.language === "text" ? "plaintext" : data.language}
-            style={isDark ? vscDarkPlus : vs}
-            showLineNumbers
+            style={codeThemeStyle}
+            showLineNumbers={appearance.showCodeLineNumbers}
             lineNumberStyle={{
               ...FILE_LINE_NUMBER_STYLE,
+              fontSize: appearance.codeFontSize,
             }}
             customStyle={{
               margin: 0,
               padding: 0,
               border: 0,
-              background: "var(--bg)",
+              backgroundColor: "var(--bg)",
               ...FILE_CODE_STYLE,
-              width: wrapLines ? "100%" : "max-content",
+              fontSize: appearance.codeFontSize,
+              width: (wrapLines || appearance.wrapCodeLines) ? "100%" : "max-content",
               minWidth: "100%",
               minHeight: "100%",
               overflow: "visible",
@@ -1161,13 +1168,14 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
             codeTagProps={{
               style: {
                 fontFamily: "var(--font-mono)",
-                overflowWrap: wrapLines ? "anywhere" : "normal",
+                fontSize: appearance.codeFontSize,
+                overflowWrap: (wrapLines || appearance.wrapCodeLines) ? "anywhere" : "normal",
               },
             }}
             renderer={(rendererProps) => (
-              <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} />
+              <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines || appearance.wrapCodeLines} />
             )}
-            wrapLongLines={wrapLines}
+            wrapLongLines={wrapLines || appearance.wrapCodeLines}
           >
             {data.content}
           </SyntaxHighlighter>

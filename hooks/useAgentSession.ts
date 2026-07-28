@@ -395,6 +395,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Always use full built-in tools (UI selector removed).
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("full");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
+  // Apply default thinking level for brand-new sessions from web-settings.
+  useEffect(() => {
+    if (!isNew) return;
+    let cancelled = false;
+    fetch("/api/web-settings")
+      .then(async (res) => {
+        const data = await res.json() as { settings?: { defaultThinkingLevel?: string } };
+        const level = data.settings?.defaultThinkingLevel;
+        if (cancelled || !level) return;
+        const allowed: ThinkingLevelOption[] = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
+        if (allowed.includes(level as ThinkingLevelOption)) {
+          setThinkingLevel(level as ThinkingLevelOption);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isNew]);
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);

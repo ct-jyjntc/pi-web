@@ -7,7 +7,15 @@
 // back to plain text.
 import type { CSSProperties } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
-import { vs as vsRaw, vscDarkPlus as vscDarkPlusRaw } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+  vs as vsRaw,
+  vscDarkPlus as vscDarkPlusRaw,
+  oneLight as oneLightRaw,
+  oneDark as oneDarkRaw,
+  ghcolors as ghcolorsRaw,
+  materialDark as materialDarkRaw,
+} from "react-syntax-highlighter/dist/esm/styles/prism";
+import type { CodeThemeId } from "@/lib/web-settings";
 
 import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
 import c from "react-syntax-highlighter/dist/esm/languages/prism/c";
@@ -137,3 +145,30 @@ function normalizePrismBackground(
 
 export const vs = normalizePrismBackground(vsRaw as Record<string, CSSProperties>);
 export const vscDarkPlus = normalizePrismBackground(vscDarkPlusRaw as Record<string, CSSProperties>);
+export const oneLight = normalizePrismBackground(oneLightRaw as Record<string, CSSProperties>);
+export const oneDark = normalizePrismBackground(oneDarkRaw as Record<string, CSSProperties>);
+export const ghcolors = normalizePrismBackground(ghcolorsRaw as Record<string, CSSProperties>);
+export const materialDark = normalizePrismBackground(materialDarkRaw as Record<string, CSSProperties>);
+
+const THEME_MAP: Record<CodeThemeId, Record<string, CSSProperties>> = {
+  vs,
+  ghcolors,
+  oneLight,
+  vscDarkPlus,
+  oneDark,
+  materialDark,
+};
+
+export const CODE_THEME_OPTIONS: Array<{ id: CodeThemeId; label: string; mode: "light" | "dark" }> = [
+  { id: "vs", label: "VS Light", mode: "light" },
+  { id: "ghcolors", label: "GitHub Light", mode: "light" },
+  { id: "oneLight", label: "One Light", mode: "light" },
+  { id: "vscDarkPlus", label: "VS Dark+", mode: "dark" },
+  { id: "oneDark", label: "One Dark", mode: "dark" },
+  { id: "materialDark", label: "Material Dark", mode: "dark" },
+];
+
+export function getCodeThemeStyle(id: CodeThemeId | undefined, isDark: boolean): Record<string, CSSProperties> {
+  if (id && THEME_MAP[id]) return THEME_MAP[id];
+  return isDark ? vscDarkPlus : vs;
+}

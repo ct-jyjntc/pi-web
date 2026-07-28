@@ -4,8 +4,9 @@ import { useLocale } from "@/hooks/useLocale";
 
 import { useEffect, useMemo, useState, memo, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
-import { SyntaxHighlighter, vs, vscDarkPlus } from "@/lib/syntax-highlighter";
+import { getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { useTheme } from "@/hooks/useTheme";
+import { useAppearance } from "@/lib/appearance-store";
 import { copyText } from "@/lib/clipboard";
 import { resolveLocalFileHref } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
@@ -344,7 +345,12 @@ function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boole
 // re-tokenizing on every markdown re-parse (props are primitive strings).
 const CodeBlock = memo(function CodeBlock({ code, lang, headerAction }: { code: string; lang: string; headerAction?: ReactNode }) {
   const { isDark } = useTheme();
+  const appearance = useAppearance();
   const [copied, setCopied] = useState(false);
+  const themeStyle = getCodeThemeStyle(
+    isDark ? appearance.codeThemeDark : appearance.codeThemeLight,
+    isDark,
+  );
 
   const copy = () => {
     copyText(code).then(() => {
@@ -369,23 +375,25 @@ const CodeBlock = memo(function CodeBlock({ code, lang, headerAction }: { code: 
       </div>
       <SyntaxHighlighter
         language={lang || "text"}
-        style={isDark ? vscDarkPlus : vs}
-        showLineNumbers
-        lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
+        style={themeStyle}
+        showLineNumbers={appearance.showCodeLineNumbers}
+        wrapLongLines={appearance.wrapCodeLines}
+        lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal", fontSize: appearance.codeFontSize }}
         customStyle={{
           margin: 0,
           padding: "11px 13px",
-          fontSize: 12.5,
+          fontSize: appearance.codeFontSize,
           lineHeight: 1.62,
           borderRadius: 0,
-          // Only backgroundColor — themes are normalized the same way in
-          // lib/syntax-highlighter.ts (avoids React warn on theme toggle).
           backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
+          whiteSpace: appearance.wrapCodeLines ? "pre-wrap" : "pre",
         }}
         codeTagProps={{
           style: {
             fontFamily: "var(--font-mono)",
             backgroundColor: "transparent",
+            fontSize: appearance.codeFontSize,
+            whiteSpace: appearance.wrapCodeLines ? "pre-wrap" : "pre",
           },
         }}
       >

@@ -142,6 +142,17 @@ function resolveShell(): string {
   return "/bin/sh";
 }
 
+function shouldUseLoginShell(): boolean {
+  try {
+    // Lazy require to avoid circular deps with web-settings in edge cases.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readWebSettings } = require("./web-settings") as typeof import("./web-settings");
+    return readWebSettings().inheritTerminalEnv !== false;
+  } catch {
+    return true;
+  }
+}
+
 function buildEnv(cwd: string, extra?: NodeJS.ProcessEnv): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -328,6 +339,7 @@ export async function createPtySession(options: {
   let term: IPty;
   try {
     const env = buildEnv(cwd, options.env);
+    const login = shouldUseLoginShell();
     if (command) {
       // One-shot command in a real TTY so the Terminal UI can attach + intervene.
       term = process.platform === "win32"
@@ -339,7 +351,7 @@ export async function createPtySession(options: {
             env,
             useConpty: true,
           })
-        : pty.spawn(shell, ["-lc", command], {
+        : pty.spawn(shell, login ? ["-lc", command] : ["-c", command], {
             name: "xterm-256color",
             cols,
             rows,
@@ -356,7 +368,7 @@ export async function createPtySession(options: {
             env,
             useConpty: true,
           })
-        : pty.spawn(shell, ["-l"], {
+        : pty.spawn(shell, login ? ["-l"] : [], {
             name: "xterm-256color",
             cols,
             rows,

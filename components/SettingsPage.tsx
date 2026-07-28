@@ -8,8 +8,11 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { McpConfig } from "./McpConfig";
+import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
+import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
+import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 
-export type SettingsSection = "general" | "models" | "skills" | "mcp";
+export type SettingsSection = "general" | "appearance" | "models" | "skills" | "mcp";
 
 type ModelOption = {
   provider: string;
@@ -71,6 +74,51 @@ function sectionTitle(text: string) {
   return <div className="settings-section-title">{text}</div>;
 }
 
+function SettingsToggle({
+  enabled,
+  onChange,
+  disabled,
+}: {
+  enabled: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      disabled={disabled}
+      onClick={() => onChange(!enabled)}
+      style={{
+        flexShrink: 0,
+        width: 34,
+        height: 18,
+        borderRadius: "var(--radius-pill)",
+        border: "1px solid var(--border)",
+        padding: 0,
+        cursor: disabled ? "not-allowed" : "pointer",
+        background: enabled ? "var(--text)" : "var(--bg-subtle)",
+        position: "relative",
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 1,
+          left: enabled ? 17 : 1,
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
+          background: enabled ? "var(--bg)" : "var(--text-muted)",
+          transition: "left 0.15s ease",
+        }}
+      />
+    </button>
+  );
+}
+
 export function SettingsPage({
   onClose,
   cwd = null,
@@ -85,7 +133,8 @@ export function SettingsPage({
   onModelsChanged?: () => void;
 }) {
   const { t, locale, setLocale } = useLocale();
-  const { isDark, toggleTheme } = useTheme();
+  const { isDark, setThemeMode, themeMode } = useTheme();
+  const appearance = useAppearance();
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -113,6 +162,24 @@ export function SettingsPage({
     | { kind: "empty" }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const [prefs, setPrefs] = useState({
+    httpProxy: "",
+    proxyBypass: "",
+    customCaCerts: "",
+    soundEnabled: true,
+    desktopNotifications: true,
+    notificationSound: true,
+    defaultThinkingLevel: "auto",
+    showThinking: true,
+    showTodos: true,
+    terminalFont: "",
+    inheritTerminalEnv: true,
+    disableHardwareAcceleration: false,
+    autoCheckUpdates: true,
+    autoDownloadUpdates: false,
+  });
+  const [restartHint, setRestartHint] = useState(false);
+  const isDesktop = typeof window !== "undefined" && Boolean(window.piDesktop?.isDesktop);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -134,7 +201,10 @@ export function SettingsPage({
     fetch(`/api/web-settings?${params.toString()}`)
       .then(async (res) => {
         const data = await res.json() as {
-          settings?: { titleModelRef?: string; commitModelRef?: string };
+          settings?: Record<string, unknown> & {
+            titleModelRef?: string;
+            commitModelRef?: string;
+          };
           models?: ModelOption[];
           error?: string;
         };
@@ -143,6 +213,30 @@ export function SettingsPage({
         setModels(data.models ?? []);
         setTitleModelRef(data.settings?.titleModelRef ?? "");
         setCommitModelRef(data.settings?.commitModelRef ?? "");
+        const s = data.settings ?? {};
+        setPrefs((prev) => ({
+          ...prev,
+          httpProxy: typeof s.httpProxy === "string" ? s.httpProxy : prev.httpProxy,
+          proxyBypass: typeof s.proxyBypass === "string" ? s.proxyBypass : prev.proxyBypass,
+          customCaCerts: typeof s.customCaCerts === "string" ? s.customCaCerts : prev.customCaCerts,
+          soundEnabled: typeof s.soundEnabled === "boolean" ? s.soundEnabled : prev.soundEnabled,
+          desktopNotifications: typeof s.desktopNotifications === "boolean" ? s.desktopNotifications : prev.desktopNotifications,
+          notificationSound: typeof s.notificationSound === "boolean" ? s.notificationSound : prev.notificationSound,
+          defaultThinkingLevel: typeof s.defaultThinkingLevel === "string" ? s.defaultThinkingLevel : prev.defaultThinkingLevel,
+          showThinking: typeof s.showThinking === "boolean" ? s.showThinking : prev.showThinking,
+          showTodos: typeof s.showTodos === "boolean" ? s.showTodos : prev.showTodos,
+          terminalFont: typeof s.terminalFont === "string" ? s.terminalFont : prev.terminalFont,
+          inheritTerminalEnv: typeof s.inheritTerminalEnv === "boolean" ? s.inheritTerminalEnv : prev.inheritTerminalEnv,
+          disableHardwareAcceleration: typeof s.disableHardwareAcceleration === "boolean" ? s.disableHardwareAcceleration : prev.disableHardwareAcceleration,
+          autoCheckUpdates: typeof s.autoCheckUpdates === "boolean" ? s.autoCheckUpdates : prev.autoCheckUpdates,
+          autoDownloadUpdates: typeof s.autoDownloadUpdates === "boolean" ? s.autoDownloadUpdates : prev.autoDownloadUpdates,
+        }));
+        if (typeof s.terminalFont === "string") {
+          try { localStorage.setItem("pi-terminal-font", s.terminalFont); } catch { /* ignore */ }
+        }
+        if (typeof s.soundEnabled === "boolean") {
+          try { localStorage.setItem("pi-sound-enabled", String(s.soundEnabled)); } catch { /* ignore */ }
+        }
       })
       .catch((error) => {
         if (cancelled) return;
@@ -197,6 +291,82 @@ export function SettingsPage({
       setSavingKey(null);
     }
   }, [commitModelRef, titleModelRef]);
+
+  const patchPref = useCallback(async (patch: Record<string, unknown>, opts?: { restart?: boolean }) => {
+    setSaveError(null);
+    setPrefs((prev) => ({ ...prev, ...patch } as typeof prev));
+    try {
+      const res = await fetch("/api/web-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json() as { error?: string; settings?: Record<string, unknown> };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (opts?.restart) setRestartHint(true);
+      if (typeof patch.soundEnabled === "boolean") {
+        try { localStorage.setItem("pi-sound-enabled", String(patch.soundEnabled)); } catch { /* ignore */ }
+      }
+      if (typeof patch.terminalFont === "string") {
+        try { localStorage.setItem("pi-terminal-font", patch.terminalFont); } catch { /* ignore */ }
+      }
+      // Live appearance
+      const appearancePatch: Record<string, unknown> = {};
+      for (const key of [
+        "themeMode", "uiFontSize", "codeThemeLight", "codeThemeDark",
+        "showCodeLineNumbers", "wrapCodeLines", "codeFontSize",
+      ] as const) {
+        if (key in patch) appearancePatch[key] = patch[key];
+      }
+      if (Object.keys(appearancePatch).length > 0) {
+        setAppearanceSnapshot(appearancePatch as Parameters<typeof setAppearanceSnapshot>[0]);
+        try {
+          localStorage.setItem("pi-appearance", JSON.stringify({
+            ...appearance,
+            ...appearancePatch,
+          }));
+        } catch { /* ignore */ }
+      }
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    }
+  }, [appearance]);
+
+  // Background update check when enabled.
+  useEffect(() => {
+    if (!prefs.autoCheckUpdates) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const res = await fetch("/api/app-update", { method: "POST" });
+        const data = await res.json() as {
+          updateAvailable?: boolean;
+          latestVersion?: string;
+          releaseUrl?: string;
+          currentVersion?: string;
+        };
+        if (cancelled) return;
+        if (data.currentVersion) setCurrentVersion(data.currentVersion);
+        if (data.updateAvailable && data.latestVersion && data.releaseUrl) {
+          setUpdateStatus({
+            kind: "available",
+            version: data.latestVersion,
+            releaseUrl: data.releaseUrl,
+          });
+          if (prefs.autoDownloadUpdates) {
+            window.open(data.releaseUrl, "_blank", "noopener,noreferrer");
+          }
+        }
+      } catch {
+        // silent background check
+      }
+    };
+    const t = window.setTimeout(() => void run(), 8_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [prefs.autoCheckUpdates, prefs.autoDownloadUpdates]);
 
   const checkForAppUpdate = useCallback(async () => {
     setUpdateChecking(true);
@@ -279,6 +449,7 @@ export function SettingsPage({
     title?: string;
   }> = [
     { id: "general", label: t("settings.general") },
+    { id: "appearance", label: t("settings.appearance") },
     { id: "models", label: t("settings.models") },
     {
       id: "skills",
@@ -301,37 +472,6 @@ export function SettingsPage({
       }}
     >
       {sectionTitle(t("settings.general"))}
-
-      <SettingsRow
-        title={t("settings.theme")}
-        description={t("settings.themeDesc")}
-        action={
-          <div className="settings-segmented">
-            <SegmentedOption
-              active={!isDark}
-              label={t("settings.themeLight")}
-              title={t("shell.switchToLight")}
-              onClick={(e) => {
-                if (isDark) {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-                }
-              }}
-            />
-            <SegmentedOption
-              active={isDark}
-              label={t("settings.themeDark")}
-              title={t("shell.switchToDark")}
-              onClick={(e) => {
-                if (!isDark) {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-                }
-              }}
-            />
-          </div>
-        }
-      />
 
       <SettingsRow
         title={t("settings.language")}
@@ -381,6 +521,205 @@ export function SettingsPage({
       {saveError && (
         <div style={{ marginTop: 10, fontSize: 12, color: "var(--destructive)", lineHeight: 1.4 }}>
           {saveError}
+        </div>
+      )}
+
+      {sectionTitle(t("settings.network"))}
+
+      <SettingsRow
+        stacked
+        title={t("settings.httpProxy")}
+        description={t("settings.httpProxyDesc")}
+        action={
+          <input
+            className="input-base input-mono"
+            value={prefs.httpProxy}
+            placeholder={t("settings.httpProxyPlaceholder")}
+            onChange={(e) => setPrefs((p) => ({ ...p, httpProxy: e.target.value }))}
+            onBlur={() => void patchPref({ httpProxy: prefs.httpProxy }, { restart: true })}
+            style={{ width: "100%", height: 30, fontSize: 12, borderRadius: 0 }}
+          />
+        }
+      />
+      <SettingsRow
+        stacked
+        title={t("settings.proxyBypass")}
+        description={t("settings.proxyBypassDesc")}
+        action={
+          <input
+            className="input-base input-mono"
+            value={prefs.proxyBypass}
+            placeholder={t("settings.proxyBypassPlaceholder")}
+            onChange={(e) => setPrefs((p) => ({ ...p, proxyBypass: e.target.value }))}
+            onBlur={() => void patchPref({ proxyBypass: prefs.proxyBypass }, { restart: true })}
+            style={{ width: "100%", height: 30, fontSize: 12, borderRadius: 0 }}
+          />
+        }
+      />
+      <SettingsRow
+        stacked
+        title={t("settings.customCa")}
+        description={t("settings.customCaDesc")}
+        action={
+          <input
+            className="input-base input-mono"
+            value={prefs.customCaCerts}
+            placeholder={t("settings.customCaPlaceholder")}
+            onChange={(e) => setPrefs((p) => ({ ...p, customCaCerts: e.target.value }))}
+            onBlur={() => void patchPref({ customCaCerts: prefs.customCaCerts }, { restart: true })}
+            style={{ width: "100%", height: 30, fontSize: 12, borderRadius: 0 }}
+          />
+        }
+      />
+
+      {sectionTitle(t("settings.terminalSection"))}
+
+      <SettingsRow
+        title={t("settings.inheritTerminalEnv")}
+        description={t("settings.inheritTerminalEnvDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.inheritTerminalEnv}
+            onChange={(next) => void patchPref({ inheritTerminalEnv: next })}
+          />
+        }
+      />
+      <SettingsRow
+        stacked
+        title={t("settings.terminalFont")}
+        description={t("settings.terminalFontDesc")}
+        action={
+          <input
+            className="input-base input-mono"
+            value={prefs.terminalFont}
+            placeholder={t("settings.terminalFontPlaceholder")}
+            onChange={(e) => setPrefs((p) => ({ ...p, terminalFont: e.target.value }))}
+            onBlur={() => void patchPref({ terminalFont: prefs.terminalFont })}
+            style={{ width: "100%", height: 30, fontSize: 12, borderRadius: 0 }}
+          />
+        }
+      />
+
+      {sectionTitle(t("settings.notificationsSection"))}
+
+      <SettingsRow
+        title={t("settings.desktopNotifications")}
+        description={t("settings.desktopNotificationsDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.desktopNotifications}
+            onChange={(next) => {
+              if (next && typeof Notification !== "undefined" && Notification.permission === "default") {
+                void Notification.requestPermission();
+              }
+              void patchPref({ desktopNotifications: next });
+            }}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.soundEnabled")}
+        description={t("settings.soundEnabledDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.soundEnabled}
+            onChange={(next) => void patchPref({ soundEnabled: next })}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.notificationSound")}
+        description={t("settings.notificationSoundDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.notificationSound}
+            onChange={(next) => void patchPref({ notificationSound: next })}
+          />
+        }
+      />
+
+      {sectionTitle(t("settings.agentBehavior"))}
+
+      <SettingsRow
+        stacked
+        title={t("settings.defaultThinking")}
+        description={t("settings.defaultThinkingDesc")}
+        action={
+          <select
+            className="input-base"
+            value={prefs.defaultThinkingLevel}
+            onChange={(e) => void patchPref({ defaultThinkingLevel: e.target.value })}
+            style={{ width: "100%", maxWidth: 280, height: 30, fontSize: 12, borderRadius: 0 }}
+          >
+            {(["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const).map((level) => (
+              <option key={level} value={level}>{level}</option>
+            ))}
+          </select>
+        }
+      />
+      <SettingsRow
+        title={t("settings.showThinking")}
+        description={t("settings.showThinkingDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.showThinking}
+            onChange={(next) => void patchPref({ showThinking: next })}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.showTodos")}
+        description={t("settings.showTodosDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.showTodos}
+            onChange={(next) => void patchPref({ showTodos: next })}
+          />
+        }
+      />
+
+      {isDesktop && (
+        <>
+          {sectionTitle(t("settings.desktopSection"))}
+          <SettingsRow
+            title={t("settings.disableGpu")}
+            description={t("settings.disableGpuDesc")}
+            action={
+              <SettingsToggle
+                enabled={prefs.disableHardwareAcceleration}
+                onChange={(next) => void patchPref({ disableHardwareAcceleration: next }, { restart: true })}
+              />
+            }
+          />
+          <SettingsRow
+            title={t("settings.autoCheckUpdates")}
+            description={t("settings.autoCheckUpdatesDesc")}
+            action={
+              <SettingsToggle
+                enabled={prefs.autoCheckUpdates}
+                onChange={(next) => void patchPref({ autoCheckUpdates: next })}
+              />
+            }
+          />
+          <SettingsRow
+            title={t("settings.autoDownloadUpdates")}
+            description={t("settings.autoDownloadUpdatesDesc")}
+            action={
+              <SettingsToggle
+                enabled={prefs.autoDownloadUpdates}
+                onChange={(next) => void patchPref({ autoDownloadUpdates: next })}
+              />
+            }
+          />
+        </>
+      )}
+
+      {restartHint && (
+        <div
+          className="settings-status-card"
+          style={{ marginTop: 14, color: "var(--text-muted)" }}
+        >
+          {t("settings.restartRequired")}
         </div>
       )}
 
@@ -438,6 +777,282 @@ export function SettingsPage({
           {t("settings.updateError")}: {updateStatus.message}
         </div>
       )}
+    </div>
+  );
+
+  const previewCode = `const themePreview = {
+  surface: "sidebar",
+  accent: "#339CFF",
+  contrast: 45,
+};`;
+
+  const appearancePanel = (
+    <div
+      className="settings-page-general"
+      style={{
+        boxSizing: "border-box",
+        width: "100%",
+        maxWidth: 820,
+        margin: "0 auto",
+        padding: isMobile ? "12px 14px 28px" : "16px 24px 32px",
+      }}
+    >
+      {sectionTitle(t("settings.appearanceUi"))}
+
+      <SettingsRow
+        title={t("settings.themeMode")}
+        description={t("settings.themeModeDesc")}
+        action={
+          <div className="settings-segmented" style={{ minWidth: 220 }}>
+            {(["light", "dark", "system"] as ThemeMode[]).map((mode) => (
+              <SegmentedOption
+                key={mode}
+                active={(themeMode || appearance.themeMode) === mode}
+                label={
+                  mode === "light"
+                    ? t("settings.themeLight")
+                    : mode === "dark"
+                      ? t("settings.themeDark")
+                      : t("settings.themeSystem")
+                }
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setThemeMode(mode, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+                  void patchPref({ themeMode: mode });
+                }}
+              />
+            ))}
+          </div>
+        }
+      />
+
+      <SettingsRow
+        title={t("settings.uiFontSize")}
+        description={t("settings.uiFontSizeDesc")}
+        action={
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <input
+              className="input-base input-mono"
+              type="number"
+              min={12}
+              max={18}
+              step={1}
+              value={appearance.uiFontSize}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isFinite(n)) return;
+                const clamped = Math.min(18, Math.max(12, Math.round(n)));
+                setAppearanceSnapshot({ uiFontSize: clamped });
+                void patchPref({ uiFontSize: clamped });
+              }}
+              style={{ width: 72, height: 30, fontSize: 12, borderRadius: 0, textAlign: "right" }}
+            />
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>px</span>
+          </div>
+        }
+      />
+
+      {sectionTitle(t("settings.appearanceCode"))}
+
+      <SettingsRow
+        stacked
+        title={t("settings.codeThemeLight")}
+        description={t("settings.codeThemeLightDesc")}
+        action={
+          <select
+            className="input-base"
+            value={appearance.codeThemeLight}
+            onChange={(e) => void patchPref({ codeThemeLight: e.target.value as CodeThemeId })}
+            style={{ width: "100%", maxWidth: 320, height: 30, fontSize: 12, borderRadius: 0 }}
+          >
+            {CODE_THEME_OPTIONS.filter((o) => o.mode === "light").map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+          </select>
+        }
+      />
+      <SettingsRow
+        stacked
+        title={t("settings.codeThemeDark")}
+        description={t("settings.codeThemeDarkDesc")}
+        action={
+          <select
+            className="input-base"
+            value={appearance.codeThemeDark}
+            onChange={(e) => void patchPref({ codeThemeDark: e.target.value as CodeThemeId })}
+            style={{ width: "100%", maxWidth: 320, height: 30, fontSize: 12, borderRadius: 0 }}
+          >
+            {CODE_THEME_OPTIONS.filter((o) => o.mode === "dark").map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+          </select>
+        }
+      />
+      <SettingsRow
+        title={t("settings.showLineNumbers")}
+        description={t("settings.showLineNumbersDesc")}
+        action={
+          <SettingsToggle
+            enabled={appearance.showCodeLineNumbers}
+            onChange={(next) => void patchPref({ showCodeLineNumbers: next })}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.wrapCodeLines")}
+        description={t("settings.wrapCodeLinesDesc")}
+        action={
+          <SettingsToggle
+            enabled={appearance.wrapCodeLines}
+            onChange={(next) => void patchPref({ wrapCodeLines: next })}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.codeFontSize")}
+        description={t("settings.codeFontSizeDesc")}
+        action={
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <input
+              className="input-base input-mono"
+              type="number"
+              min={10}
+              max={18}
+              step={0.5}
+              value={appearance.codeFontSize}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isFinite(n)) return;
+                const clamped = Math.min(18, Math.max(10, Math.round(n * 2) / 2));
+                setAppearanceSnapshot({ codeFontSize: clamped });
+                void patchPref({ codeFontSize: clamped });
+              }}
+              style={{ width: 72, height: 30, fontSize: 12, borderRadius: 0, textAlign: "right" }}
+            />
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>px</span>
+          </div>
+        }
+      />
+
+      {sectionTitle(t("settings.codePreview"))}
+      <div className="settings-row-desc" style={{ marginBottom: 10 }}>
+        {t("settings.codePreviewDesc")}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+        {([
+          {
+            id: appearance.codeThemeLight,
+            label: t("settings.previewLight"),
+            dark: false,
+            // Force true light/dark chrome independent of the app theme.
+            chromeBg: "#f6f8fa",
+            chromeFg: "#656d76",
+            chromeBorder: "#d0d7de",
+            codeBg: "#ffffff",
+          },
+          {
+            id: appearance.codeThemeDark,
+            label: t("settings.previewDark"),
+            dark: true,
+            chromeBg: "#1c2128",
+            chromeFg: "#8b949e",
+            chromeBorder: "#30363d",
+            codeBg: "#0d1117",
+          },
+        ] as const).map((preview) => {
+          const active = isDark === preview.dark;
+          const themeStyle = getCodeThemeStyle(preview.id, preview.dark);
+          const themeBg =
+            (themeStyle["pre[class*=\"language-\"]"] as { backgroundColor?: string } | undefined)?.backgroundColor
+            || (themeStyle.pre as { backgroundColor?: string } | undefined)?.backgroundColor
+            || preview.codeBg;
+          return (
+            <div
+              key={String(preview.dark)}
+              style={{
+                border: `1px solid ${preview.chromeBorder}`,
+                background: preview.chromeBg,
+                overflow: "hidden",
+              }}
+            >
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                padding: "8px 10px",
+                borderBottom: `1px solid ${preview.chromeBorder}`,
+                fontSize: 11,
+                color: preview.chromeFg,
+                background: preview.chromeBg,
+              }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, color: preview.dark ? "#e6edf3" : "#1f2328" }}>{preview.label}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                    {CODE_THEME_OPTIONS.find((o) => o.id === preview.id)?.label}
+                  </span>
+                </div>
+                <span style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                  {active && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        lineHeight: "18px",
+                        height: 18,
+                        padding: "0 7px",
+                        border: `1px solid ${preview.chromeBorder}`,
+                        color: preview.dark ? "#e6edf3" : "#1f2328",
+                        background: preview.dark ? "#21262d" : "#ffffff",
+                      }}
+                    >
+                      {t("settings.previewActive")}
+                    </span>
+                  )}
+                  {!active && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        lineHeight: "18px",
+                        height: 18,
+                        padding: "0 7px",
+                        border: `1px solid ${preview.chromeBorder}`,
+                        color: preview.chromeFg,
+                      }}
+                    >
+                      {preview.dark ? t("settings.themeDark") : t("settings.themeLight")}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div style={{ padding: 10, background: themeBg }}>
+                <SyntaxHighlighter
+                  language="typescript"
+                  style={themeStyle}
+                  showLineNumbers={appearance.showCodeLineNumbers}
+                  wrapLongLines={appearance.wrapCodeLines}
+                  customStyle={{
+                    margin: 0,
+                    padding: "10px 12px",
+                    fontSize: appearance.codeFontSize,
+                    backgroundColor: themeBg,
+                    borderRadius: 0,
+                  }}
+                  codeTagProps={{
+                    style: {
+                      fontFamily: "var(--font-mono)",
+                      fontSize: appearance.codeFontSize,
+                      backgroundColor: "transparent",
+                    },
+                  }}
+                >
+                  {previewCode}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 
@@ -612,6 +1227,7 @@ export function SettingsPage({
 
         <main className={`settings-page-main${section === "general" ? " is-scroll" : ""}`} style={mainStyle}>
           {section === "general" && generalPanel}
+          {section === "appearance" && appearancePanel}
           {section === "models" && (
             <ModelsConfig
               embedded

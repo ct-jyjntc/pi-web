@@ -10,6 +10,7 @@ import { GitPanel } from "./GitPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { TabBar, type Tab } from "./TabBar";
 import { SettingsPage } from "./SettingsPage";
+import { hydrateAppearanceFromServer } from "@/lib/appearance-store";
 import { BranchNavigator } from "./BranchNavigator";
 import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -57,6 +58,9 @@ export function AppShell() {
   }, [isMobile]);
   useEffect(() => {
     setMobileSidebarReady(true);
+  }, []);
+  useEffect(() => {
+    hydrateAppearanceFromServer();
   }, []);
   // Electron immersive chrome: mark html so CSS can pad under traffic lights / enable drag.
   useEffect(() => {

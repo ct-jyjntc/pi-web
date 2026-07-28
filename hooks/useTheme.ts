@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { ThemeMode } from "@/lib/web-settings";
+import { hydrateAppearanceFromServer, setAppearanceSnapshot } from "@/lib/appearance-store";
 
 type Theme = "light" | "dark";
 
@@ -22,31 +24,68 @@ function getServerSnapshot(): Theme {
   return "light";
 }
 
-/** Keep Windows/Linux titleBarOverlay caption buttons in sync with app theme. */
 function notifyDesktopTheme(theme: Theme) {
   try {
     const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
     if (!desktop?.isDesktop || typeof desktop.setTheme !== "function") return;
     void desktop.setTheme(theme);
   } catch {
-    // preload / non-desktop — ignore
+    // ignore
   }
 }
 
-// Users with no stored preference follow the OS theme, including live
-// changes. An explicit toggle (which writes "pi-theme") opts out.
+function osPrefersDark(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function readStoredThemeMode(): ThemeMode {
+  try {
+    const mode = localStorage.getItem("pi-theme-mode");
+    if (mode === "light" || mode === "dark" || mode === "system") return mode;
+    const legacy = localStorage.getItem("pi-theme");
+    if (legacy === "light" || legacy === "dark") return legacy;
+  } catch {
+    // ignore
+  }
+  return "system";
+}
+
+function resolveTheme(mode: ThemeMode): Theme {
+  if (mode === "system") return osPrefersDark() ? "dark" : "light";
+  return mode;
+}
+
+function applyResolvedTheme(theme: Theme) {
+  document.documentElement.classList.toggle("dark", theme === "dark");
+  notifyDesktopTheme(theme);
+  listeners.forEach((cb) => cb());
+}
+
+export function applyThemeMode(mode: ThemeMode) {
+  try {
+    localStorage.setItem("pi-theme-mode", mode);
+    if (mode === "system") localStorage.removeItem("pi-theme");
+    else localStorage.setItem("pi-theme", mode);
+  } catch {
+    // ignore
+  }
+  applyResolvedTheme(resolveTheme(mode));
+  setAppearanceSnapshot({ themeMode: mode });
+}
+
+// Follow OS when mode is system (or legacy empty preference).
 if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
   window
     .matchMedia("(prefers-color-scheme: dark)")
     .addEventListener?.("change", (e) => {
       try {
-        if (localStorage.getItem("pi-theme")) return;
+        if (readStoredThemeMode() !== "system") return;
       } catch {
-        // ignore storage errors — fall through and follow the OS
+        // ignore
       }
-      document.documentElement.classList.toggle("dark", e.matches);
-      notifyDesktopTheme(e.matches ? "dark" : "light");
-      listeners.forEach((cb) => cb());
+      applyResolvedTheme(e.matches ? "dark" : "light");
     });
 }
 
@@ -55,28 +94,17 @@ type ToggleOrigin = { x: number; y: number };
 export function useTheme() {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const toggleTheme = useCallback((origin?: ToggleOrigin) => {
-    const next: Theme = getSnapshot() === "dark" ? "light" : "dark";
+  useEffect(() => {
+    hydrateAppearanceFromServer();
+  }, []);
 
-    const apply = () => {
-      if (next === "dark") {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
-      try {
-        localStorage.setItem("pi-theme", next);
-      } catch {
-        // ignore storage errors (private mode, quota, etc.)
-      }
-      notifyDesktopTheme(next);
-      listeners.forEach((cb) => cb());
-    };
+  const setThemeMode = useCallback((mode: ThemeMode, origin?: ToggleOrigin) => {
+    const next = resolveTheme(mode);
+    const apply = () => applyThemeMode(mode);
 
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const supportsVT = typeof document.startViewTransition === "function";
-
-    if (!supportsVT || reduceMotion) {
+    if (!supportsVT || reduceMotion || next === getSnapshot()) {
       apply();
       return;
     }
@@ -87,7 +115,6 @@ export function useTheme() {
       Math.max(x, window.innerWidth - x),
       Math.max(y, window.innerHeight - y),
     );
-
     const transition = document.startViewTransition(apply);
     transition.ready
       .then(() => {
@@ -105,15 +132,23 @@ export function useTheme() {
           },
         );
       })
-      .catch(() => {
-        // transition cancelled — ignore
-      });
+      .catch(() => {});
   }, []);
 
-  // Sync on mount / external theme flips (settings, OS preference).
+  const toggleTheme = useCallback((origin?: ToggleOrigin) => {
+    const next: Theme = getSnapshot() === "dark" ? "light" : "dark";
+    setThemeMode(next, origin);
+  }, [setThemeMode]);
+
   useEffect(() => {
     notifyDesktopTheme(theme);
   }, [theme]);
 
-  return { theme, toggleTheme, isDark: theme === "dark" };
+  return {
+    theme,
+    themeMode: readStoredThemeMode(),
+    toggleTheme,
+    setThemeMode,
+    isDark: theme === "dark",
+  };
 }

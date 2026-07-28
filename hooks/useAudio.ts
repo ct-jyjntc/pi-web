@@ -21,19 +21,37 @@ function playTone(ctx: AudioContext) {
   });
 }
 
+function readLocalSoundPref(): boolean {
+  if (typeof window === "undefined") return true;
+  const stored = localStorage.getItem("pi-sound-enabled");
+  return stored === null ? true : stored === "true";
+}
+
 export function useAudio() {
-  const [enabled, setEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    const stored = localStorage.getItem("pi-sound-enabled");
-    return stored === null ? true : stored === "true";
-  });
+  const [enabled, setEnabled] = useState<boolean>(() => readLocalSoundPref());
 
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
 
-  // Reuse a single AudioContext so it can be resumed if the browser
-  // autoplay policy suspends it (contexts created outside user gestures
-  // start in "suspended" state and produce no sound).
+  // Hydrate from server web-settings (source of truth across devices/restarts).
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/web-settings")
+      .then(async (res) => {
+        const data = await res.json() as { settings?: { soundEnabled?: boolean } };
+        if (cancelled || typeof data.settings?.soundEnabled !== "boolean") return;
+        enabledRef.current = data.settings.soundEnabled;
+        localStorage.setItem("pi-sound-enabled", String(data.settings.soundEnabled));
+        setEnabled(data.settings.soundEnabled);
+      })
+      .catch(() => {
+        // keep localStorage value
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const ctxRef = useRef<AudioContext | null>(null);
   const getCtx = useCallback((): AudioContext | null => {
     if (ctxRef.current && ctxRef.current.state !== "closed") return ctxRef.current;
@@ -58,6 +76,18 @@ export function useAudio() {
     enabledRef.current = next;
     localStorage.setItem("pi-sound-enabled", String(next));
     setEnabled(next);
+    void fetch("/api/web-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ soundEnabled: next }),
+    }).catch(() => {});
+  }, [unlockAudio]);
+
+  const setSoundEnabled = useCallback((next: boolean) => {
+    if (next) unlockAudio(true);
+    enabledRef.current = next;
+    localStorage.setItem("pi-sound-enabled", String(next));
+    setEnabled(next);
   }, [unlockAudio]);
 
   const playDone = useCallback(() => {
@@ -78,5 +108,12 @@ export function useAudio() {
     play();
   }, [getCtx]);
 
-  return { soundEnabled: enabled, onSoundToggle: toggle, playDoneSound: playDone, unlockAudio, soundEnabledRef: enabledRef };
+  return {
+    soundEnabled: enabled,
+    onSoundToggle: toggle,
+    setSoundEnabled,
+    playDoneSound: playDone,
+    unlockAudio,
+    soundEnabledRef: enabledRef,
+  };
 }

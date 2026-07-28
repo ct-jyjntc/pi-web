@@ -1,14 +1,65 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, utilityProcess } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, shell, utilityProcess } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const http = require("http");
 const net = require("net");
 const fs = require("fs");
+const os = require("os");
 
 const HOST = "127.0.0.1";
 const isPackaged = app.isPackaged;
+
+/** Read ~/.pi/agent/pi-web.json (same file as lib/web-settings.ts). */
+function readPiWebSettingsFile() {
+  try {
+    const agentDir = process.env.PI_CODING_AGENT_DIR
+      || path.join(os.homedir(), ".pi", "agent");
+    const file = path.join(agentDir, "pi-web.json");
+    if (!fs.existsSync(file)) return {};
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function applyNetworkEnvFromSettings(targetEnv, settings) {
+  const proxy = typeof settings.httpProxy === "string" ? settings.httpProxy.trim() : "";
+  const bypass = typeof settings.proxyBypass === "string" ? settings.proxyBypass.trim() : "";
+  const ca = typeof settings.customCaCerts === "string" ? settings.customCaCerts.trim() : "";
+  if (proxy) {
+    targetEnv.HTTP_PROXY = proxy;
+    targetEnv.http_proxy = proxy;
+    targetEnv.HTTPS_PROXY = proxy;
+    targetEnv.https_proxy = proxy;
+    targetEnv.ALL_PROXY = proxy;
+    targetEnv.all_proxy = proxy;
+    const noProxy = bypass || "localhost,127.0.0.1,::1";
+    targetEnv.NO_PROXY = noProxy;
+    targetEnv.no_proxy = noProxy;
+  }
+  if (ca && fs.existsSync(ca)) {
+    targetEnv.NODE_EXTRA_CA_CERTS = ca;
+  }
+  return targetEnv;
+}
+
+// GPU flag must be set before app ready.
+{
+  const early = readPiWebSettingsFile();
+  if (early.disableHardwareAcceleration === true) {
+    try {
+      app.disableHardwareAcceleration();
+      console.log("[electron] Hardware acceleration disabled (pi-web.json)");
+    } catch (e) {
+      console.warn("[electron] disableHardwareAcceleration failed:", e);
+    }
+  }
+  // Apply proxy/CA to this process so Chromium network respects them where possible.
+  applyNetworkEnvFromSettings(process.env, early);
+}
 // Prefer a dedicated Electron port so we don't fight the browser `next dev` instance.
 const PREFERRED_PORT = Number(process.env.PI_WEB_ELECTRON_PORT || process.env.PI_WEB_PORT || 30142);
 
@@ -284,6 +335,7 @@ function startNextServer(port) {
     ? path.join(bundledBinDir, process.platform === "win32" ? "pi.cmd" : "pi")
     : null;
 
+  const webSettings = readPiWebSettingsFile();
   const env = augmentPathForNodeTools({
     ...process.env,
     PORT: String(port),
@@ -300,6 +352,7 @@ function startNextServer(port) {
     // Never set ELECTRON_RUN_AS_NODE on a spawn of process.execPath — that
     // creates a second Dock icon labeled "exec" on macOS.
   });
+  applyNetworkEnvFromSettings(env, webSettings);
   delete env.ELECTRON_RUN_AS_NODE;
   // Ensure we never inherit a packaged portable-git override.
   delete env.PI_WEB_GIT_BINARY;
@@ -502,6 +555,27 @@ ipcMain.handle("pi-desktop:window-is-maximized", () => {
 });
 
 ipcMain.handle("pi-desktop:window-state", () => getWindowState());
+
+ipcMain.handle("pi-desktop:notify", (_event, payload = {}) => {
+  try {
+    if (!Notification.isSupported()) return { ok: false, reason: "unsupported" };
+    const title = typeof payload.title === "string" && payload.title.trim()
+      ? payload.title.trim()
+      : "Pi Web";
+    const body = typeof payload.body === "string" ? payload.body : "";
+    const n = new Notification({ title, body, silent: Boolean(payload.silent) });
+    n.show();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle("pi-desktop:get-web-settings-path", () => {
+  const agentDir = process.env.PI_CODING_AGENT_DIR
+    || path.join(os.homedir(), ".pi", "agent");
+  return path.join(agentDir, "pi-web.json");
+});
 
 app.whenReady().then(() => {
   // Do NOT call dock.setIcon(png) — flat PNG overrides the macOS icns mask

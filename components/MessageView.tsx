@@ -682,6 +682,36 @@ function ThinkingBlock({
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoOpenTried = useRef(false);
+
+  // Honor settings.showThinking: expand thinking by default when enabled.
+  useEffect(() => {
+    if (autoOpenTried.current) return;
+    autoOpenTried.current = true;
+    let cancelled = false;
+    fetch("/api/web-settings")
+      .then(async (res) => {
+        const data = await res.json() as { settings?: { showThinking?: boolean } };
+        if (cancelled || data.settings?.showThinking === false) return;
+        // Expand (and load deferred content if needed).
+        setExpanded(true);
+        if (!block.deferred) return;
+        if (!sessionId || !entryId) return;
+        setLoading(true);
+        try {
+          const text = await loadThinkingContent(sessionId, entryId, blockIndex);
+          if (!cancelled) setContent(text);
+        } catch (err) {
+          if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [block.deferred, blockIndex, entryId, sessionId]);
 
   const toggle = async () => {
     const nextExpanded = !expanded;
