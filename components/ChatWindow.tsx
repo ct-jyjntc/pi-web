@@ -23,6 +23,7 @@ import {
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
 import { SpecializedExtensionWidget } from "./extension/ExtensionWidgetViews";
+import { classifyWidgetKey } from "@/lib/extension-widgets";
 import { clearSessionMetrics, setContextUsageMetric, setExtensionStatusesMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { setCompactHandlers } from "@/lib/compact-action-store";
 
@@ -208,19 +209,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
   const notifyPrefsRef = useRef({ desktop: true, notifSound: true });
+  const [showTodos, setShowTodos] = useState(true);
   useEffect(() => {
     let cancelled = false;
     const load = () => {
       fetch("/api/web-settings")
         .then(async (res) => {
           const data = await res.json() as {
-            settings?: { desktopNotifications?: boolean; notificationSound?: boolean };
+            settings?: { desktopNotifications?: boolean; notificationSound?: boolean; showTodos?: boolean };
           };
           if (cancelled || !data.settings) return;
           notifyPrefsRef.current = {
             desktop: data.settings.desktopNotifications !== false,
             notifSound: data.settings.notificationSound !== false,
           };
+          setShowTodos(data.settings.showTodos !== false);
         })
         .catch(() => {});
     };
@@ -683,8 +686,27 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     />
   );
 
-  const aboveEditorWidgets = extensionWidgets.filter((widget) => widget.placement !== "belowEditor");
-  const belowEditorWidgets = extensionWidgets.filter((widget) => widget.placement === "belowEditor");
+  // The todo extension's store is session-long, but the card should only
+  // reflect the latest turn: derive "todo used after the last user message"
+  // from the transcript (works for reload, streaming, and history alike).
+  const todoUsedInLatestTurn = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "user") return false;
+      if (m.role === "assistant"
+        && m.content.some((c) => c.type === "toolCall" && c.toolName === "todo")) {
+        return true;
+      }
+    }
+    return false;
+  }, [messages]);
+
+  const visibleWidgets = extensionWidgets.filter((widget) => {
+    if (classifyWidgetKey(widget.key) !== "todo") return true;
+    return showTodos && todoUsedInLatestTurn;
+  });
+  const aboveEditorWidgets = visibleWidgets.filter((widget) => widget.placement !== "belowEditor");
+  const belowEditorWidgets = visibleWidgets.filter((widget) => widget.placement === "belowEditor");
 
   if (loading) {
     return (

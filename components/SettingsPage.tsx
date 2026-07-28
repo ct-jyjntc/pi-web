@@ -98,7 +98,7 @@ function SettingsToggle({
         border: "1px solid var(--border)",
         padding: 0,
         cursor: disabled ? "not-allowed" : "pointer",
-        background: enabled ? "var(--text)" : "var(--bg-subtle)",
+        background: enabled ? "var(--accent)" : "var(--bg-subtle)",
         position: "relative",
         opacity: disabled ? 0.55 : 1,
       }}
@@ -111,7 +111,7 @@ function SettingsToggle({
           width: 14,
           height: 14,
           borderRadius: "50%",
-          background: enabled ? "var(--bg)" : "var(--text-muted)",
+          background: enabled ? "var(--accent-fg)" : "var(--text-muted)",
           transition: "left 0.15s ease",
         }}
       />
@@ -423,7 +423,6 @@ export function SettingsPage({
         height: 30,
         minHeight: 30,
         fontSize: 12,
-        borderRadius: 0,
       }}
       aria-label={key === "titleModel" ? t("settings.titleModel") : t("settings.commitModel")}
     >
@@ -537,7 +536,7 @@ export function SettingsPage({
             placeholder={t("settings.httpProxyPlaceholder")}
             onChange={(e) => setPrefs((p) => ({ ...p, httpProxy: e.target.value }))}
             onBlur={() => void patchPref({ httpProxy: prefs.httpProxy }, { restart: true })}
-            style={{ width: "100%", height: 30, fontSize: 12, borderRadius: 0 }}
+            style={{ width: "100%", height: 30, fontSize: 12 }}
           />
         }
       />
@@ -552,7 +551,7 @@ export function SettingsPage({
             placeholder={t("settings.proxyBypassPlaceholder")}
             onChange={(e) => setPrefs((p) => ({ ...p, proxyBypass: e.target.value }))}
             onBlur={() => void patchPref({ proxyBypass: prefs.proxyBypass }, { restart: true })}
-            style={{ width: "100%", height: 30, fontSize: 12, borderRadius: 0 }}
+            style={{ width: "100%", height: 30, fontSize: 12 }}
           />
         }
       />
@@ -567,7 +566,7 @@ export function SettingsPage({
             placeholder={t("settings.customCaPlaceholder")}
             onChange={(e) => setPrefs((p) => ({ ...p, customCaCerts: e.target.value }))}
             onBlur={() => void patchPref({ customCaCerts: prefs.customCaCerts }, { restart: true })}
-            style={{ width: "100%", height: 30, fontSize: 12, borderRadius: 0 }}
+            style={{ width: "100%", height: 30, fontSize: 12 }}
           />
         }
       />
@@ -595,7 +594,7 @@ export function SettingsPage({
             placeholder={t("settings.terminalFontPlaceholder")}
             onChange={(e) => setPrefs((p) => ({ ...p, terminalFont: e.target.value }))}
             onBlur={() => void patchPref({ terminalFont: prefs.terminalFont })}
-            style={{ width: "100%", height: 30, fontSize: 12, borderRadius: 0 }}
+            style={{ width: "100%", height: 30, fontSize: 12 }}
           />
         }
       />
@@ -673,7 +672,7 @@ export function SettingsPage({
             className="input-base"
             value={prefs.defaultThinkingLevel}
             onChange={(e) => void patchPref({ defaultThinkingLevel: e.target.value })}
-            style={{ width: "100%", maxWidth: 280, height: 30, fontSize: 12, borderRadius: 0 }}
+            style={{ width: "100%", maxWidth: 280, height: 30, fontSize: 12 }}
           >
             {(["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const).map((level) => (
               <option key={level} value={level}>{level}</option>
@@ -869,7 +868,7 @@ export function SettingsPage({
                 setAppearanceSnapshot({ uiFontSize: clamped });
                 void patchPref({ uiFontSize: clamped });
               }}
-              style={{ width: 72, height: 30, fontSize: 12, borderRadius: 0, textAlign: "right" }}
+              style={{ width: 72, height: 30, fontSize: 12, textAlign: "right" }}
             />
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>px</span>
           </div>
@@ -887,7 +886,7 @@ export function SettingsPage({
             className="input-base"
             value={appearance.codeThemeLight}
             onChange={(e) => void patchPref({ codeThemeLight: e.target.value as CodeThemeId })}
-            style={{ width: "100%", maxWidth: 320, height: 30, fontSize: 12, borderRadius: 0 }}
+            style={{ width: "100%", maxWidth: 320, height: 30, fontSize: 12 }}
           >
             {CODE_THEME_OPTIONS.filter((o) => o.mode === "light").map((o) => (
               <option key={o.id} value={o.id}>{o.label}</option>
@@ -904,7 +903,7 @@ export function SettingsPage({
             className="input-base"
             value={appearance.codeThemeDark}
             onChange={(e) => void patchPref({ codeThemeDark: e.target.value as CodeThemeId })}
-            style={{ width: "100%", maxWidth: 320, height: 30, fontSize: 12, borderRadius: 0 }}
+            style={{ width: "100%", maxWidth: 320, height: 30, fontSize: 12 }}
           >
             {CODE_THEME_OPTIONS.filter((o) => o.mode === "dark").map((o) => (
               <option key={o.id} value={o.id}>{o.label}</option>
@@ -951,7 +950,7 @@ export function SettingsPage({
                 setAppearanceSnapshot({ codeFontSize: clamped });
                 void patchPref({ codeFontSize: clamped });
               }}
-              style={{ width: 72, height: 30, fontSize: 12, borderRadius: 0, textAlign: "right" }}
+              style={{ width: 72, height: 30, fontSize: 12, textAlign: "right" }}
             />
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>px</span>
           </div>
@@ -995,6 +994,7 @@ export function SettingsPage({
               key={String(preview.dark)}
               style={{
                 border: `1px solid ${preview.chromeBorder}`,
+                borderRadius: "var(--radius-sm)",
                 background: preview.chromeBg,
                 overflow: "hidden",
               }}
@@ -1025,6 +1025,7 @@ export function SettingsPage({
                         lineHeight: "18px",
                         height: 18,
                         padding: "0 7px",
+                        borderRadius: "var(--radius-xs)",
                         border: `1px solid ${preview.chromeBorder}`,
                         color: preview.dark ? "#e6edf3" : "#1f2328",
                         background: preview.dark ? "#21262d" : "#ffffff",
@@ -1040,6 +1041,7 @@ export function SettingsPage({
                         lineHeight: "18px",
                         height: 18,
                         padding: "0 7px",
+                        borderRadius: "var(--radius-xs)",
                         border: `1px solid ${preview.chromeBorder}`,
                         color: preview.chromeFg,
                       }}
@@ -1060,7 +1062,7 @@ export function SettingsPage({
                     padding: "10px 12px",
                     fontSize: appearance.codeFontSize,
                     backgroundColor: themeBg,
-                    borderRadius: 0,
+                    borderRadius: "var(--radius-xs)",
                   }}
                   codeTagProps={{
                     style: {

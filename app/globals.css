@@ -2706,7 +2706,7 @@ span.linenumber {
   height: 28px;
   min-width: 140px;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--bg-panel);
 }
@@ -2739,7 +2739,7 @@ span.linenumber {
   min-height: 36px;
   padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: var(--bg-panel);
   font-size: 12px;
 }
@@ -2777,7 +2777,7 @@ span.linenumber {
   color: var(--text-dim);
   background: var(--bg-subtle);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius-xs);
   padding: 0 6px;
   line-height: 16px;
   height: 16px;
