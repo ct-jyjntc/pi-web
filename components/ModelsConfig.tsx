@@ -1400,15 +1400,27 @@ export function ModelsConfig({
 
   useEffect(() => {
     fetch("/api/models-config")
-      .then((r) => r.json())
-      .then((d: ModelsJson) => {
+      .then(async (r) => {
+        const d = await r.json() as ModelsJson & { error?: string; corrupt?: boolean };
+        if (!r.ok) {
+          // Corrupt models.json: keep editor empty/read-only of empty defaults but do not
+          // mark it as a clean saved baseline the user can casually overwrite.
+          setConfig({ providers: {} });
+          savedConfigJsonRef.current = "";
+          console.error("Failed to load models.json:", d.error ?? r.status);
+          return;
+        }
         const normalized = d.providers ? d : { ...d, providers: {} };
         setConfig(normalized);
         savedConfigJsonRef.current = JSON.stringify(normalized);
         const keys = Object.keys(normalized.providers ?? {});
         if (keys.length > 0) setSelection({ type: "provider", name: keys[0] });
       })
-      .catch(() => setConfig({ providers: {} }))
+      .catch((e) => {
+        console.error("Failed to load models.json:", e);
+        setConfig({ providers: {} });
+        savedConfigJsonRef.current = "";
+      })
       .finally(() => setLoading(false));
     loadOAuthProviders();
     loadApiKeyProviders();

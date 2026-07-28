@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, forwardRef, memo, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
-import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
+import { clearDraft, getDraft, setDraft, transferDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
   MAX_ATTACHED_IMAGES,
@@ -512,7 +512,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       });
     }
 
-    const draft = draftKey ? getDraft(draftKey) : null;
+    // Promote new-session drafts (`new:<cwd>`) onto the real session id so text
+    // typed after the first send is not wiped when the draft key switches.
+    let draft = draftKey ? getDraft(draftKey) : null;
+    if (!draft && previousDraftKey && draftKey) {
+      draft = transferDraft(previousDraftKey, draftKey);
+    }
     draftKeyRef.current = draftKey;
     setValue(draft?.value ?? "");
     setAtQuery(null);

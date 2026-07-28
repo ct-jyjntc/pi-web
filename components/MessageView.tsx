@@ -157,10 +157,11 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
+  const contentBlocks = Array.isArray(message.content) ? message.content : [];
   const content =
     typeof message.content === "string"
       ? message.content
-      : message.content
+      : contentBlocks
           .filter((b): b is TextContent => b.type === "text")
           .map((b) => b.text)
           .join("\n");
@@ -168,7 +169,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const imageBlocks: ImageContent[] =
     typeof message.content === "string"
       ? []
-      : message.content.filter((b): b is ImageContent => b.type === "image");
+      : contentBlocks.filter((b): b is ImageContent => b.type === "image");
 
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;

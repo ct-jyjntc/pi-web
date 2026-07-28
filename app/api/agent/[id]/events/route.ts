@@ -1,5 +1,6 @@
+import { existsSync } from "fs";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
+import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +13,10 @@ export async function GET(
   const { id } = await params;
 
   // Fast path: already-running session
-  let session = getRpcSession(id);
+  let session: AgentSessionWrapper | undefined = getRpcSession(id);
   if (!session || !session.isAlive()) {
     const filePath = await resolveSessionPath(id);
-    if (!filePath) {
+    if (!filePath || !existsSync(filePath)) {
       return new Response("Session not found", { status: 404 });
     }
     const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
@@ -58,6 +59,16 @@ export async function GET(
       };
 
       const onAbort = () => closeStream();
+
+      // Stream body may start after the GET handler returned. Re-check liveness
+      // so we never subscribe to a wrapper destroyed by concurrent fork/delete/idle.
+      const live = getRpcSession(id);
+      if (!live || !live.isAlive()) {
+        encode({ type: "session_destroyed", sessionId: id });
+        closeStream();
+        return;
+      }
+      session = live;
 
       // Send initial connected event
       encode({ type: "connected", sessionId: id });

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "fs";
 import { join, dirname } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
@@ -10,13 +10,17 @@ function getModelsPath(): string {
   return join(getAgentDir(), "models.json");
 }
 
-function readModelsJson(): Record<string, unknown> {
+function readModelsJson(): { ok: true; data: Record<string, unknown> } | { ok: false; error: string } {
   const path = getModelsPath();
-  if (!existsSync(path)) return { providers: {} };
+  if (!existsSync(path)) return { ok: true, data: { providers: {} } };
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-  } catch {
-    return { providers: {} };
+    const data = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    return { ok: true, data };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -24,11 +28,21 @@ function writeModelsJson(data: Record<string, unknown>): void {
   const path = getModelsPath();
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(path, JSON.stringify(data, null, 2), "utf8");
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
+  renameSync(tmp, path);
 }
 
 export async function GET() {
-  return NextResponse.json(readModelsJson());
+  const result = readModelsJson();
+  if (!result.ok) {
+    // Do not hand the UI an empty config it can save over a corrupt file.
+    return NextResponse.json(
+      { error: `Failed to parse models.json: ${result.error}`, corrupt: true },
+      { status: 500 },
+    );
+  }
+  return NextResponse.json(result.data);
 }
 
 function parseCostNumber(value: unknown): number {

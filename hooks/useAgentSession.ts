@@ -165,6 +165,9 @@ const PROMPT_SETTLE_MAX_MS = 20_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
+const EVENT_STREAM_RECONNECT_BASE_MS = 1_000;
+const EVENT_STREAM_RECONNECT_MAX_MS = 15_000;
+const EVENT_STREAM_RECONNECT_MAX_ATTEMPTS = 6;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
@@ -437,6 +440,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const bashRunningRef = useRef(false);
   const bashRecoveryIdRef = useRef(0);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
+  /** Monotonic id for the active prompt run; used to drop late SSE / loadSession results. */
+  const promptRunIdRef = useRef(0);
+  /** Epoch accepted for streaming message_* events (set on agent_start / local send). */
+  const streamAcceptRunIdRef = useRef(0);
+  const sseReconnectAttemptRef = useRef(0);
+  const sseReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contextRequestIdRef = useRef(0);
+  const mountedRef = useRef(true);
   const initialScrollDoneRef = useRef(false);
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
@@ -448,7 +459,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
   const newSessionPromotedRef = useRef(false);
-  const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
@@ -561,6 +571,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
+    const requestId = ++contextRequestIdRef.current;
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
@@ -571,11 +582,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         context: { messages: AgentMessage[]; entryIds: string[] };
         contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
       };
+      // Drop stale responses from rapid branch switching.
+      if (requestId !== contextRequestIdRef.current) return;
+      if (sessionIdRef.current !== sid) return;
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       if (d.contextUsage) setContextUsage(d.contextUsage);
     } catch (e) {
-      console.error("Failed to load context:", e);
+      if (requestId === contextRequestIdRef.current) {
+        console.error("Failed to load context:", e);
+      }
     }
   }, []);
 
@@ -660,6 +676,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [ensureNewSession]);
 
   const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
+    if (sseReconnectTimerRef.current) {
+      clearTimeout(sseReconnectTimerRef.current);
+      sseReconnectTimerRef.current = null;
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
@@ -680,7 +700,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       es.onmessage = (e) => {
         try {
           const event = JSON.parse(e.data) as AgentEvent;
-          if (event.type === "connected") settle("connected");
+          if (event.type === "connected") {
+            sseReconnectAttemptRef.current = 0;
+            settle("connected");
+          }
           handleAgentEventRef.current?.(event);
         } catch {
           // ignore
@@ -690,13 +713,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (es.readyState === EventSource.CLOSED) {
           // Fatal error (404/500/content-type mismatch): browser won't
           // auto-reconnect. Settle the Promise and manually reconnect for
-          // already-running sessions.
+          // already-running sessions with exponential backoff.
           settle("closed");
-          if (eventSourceRef.current === es && agentRunningRef.current) {
+          if (eventSourceRef.current === es && agentRunningRef.current && mountedRef.current) {
             eventSourceRef.current = null;
-            setTimeout(() => {
-              if (agentRunningRef.current) void connectEvents(sid);
-            }, 1000);
+            const attempt = sseReconnectAttemptRef.current + 1;
+            sseReconnectAttemptRef.current = attempt;
+            if (attempt > EVENT_STREAM_RECONNECT_MAX_ATTEMPTS) {
+              // Give up: clear local running UI. Reconcile/loadSession can still
+              // refresh messages when connectivity returns.
+              agentRunningRef.current = false;
+              setAgentRunning(false);
+              setAgentPhase(null);
+              setRetryInfo(null);
+              dispatch({ type: "end" });
+              return;
+            }
+            const delayMs = Math.min(
+              EVENT_STREAM_RECONNECT_BASE_MS * 2 ** (attempt - 1),
+              EVENT_STREAM_RECONNECT_MAX_MS,
+            );
+            sseReconnectTimerRef.current = setTimeout(() => {
+              sseReconnectTimerRef.current = null;
+              if (agentRunningRef.current && mountedRef.current && sessionIdRef.current === sid) {
+                void connectEvents(sid);
+              }
+            }, delayMs);
           }
         }
         // Recoverable errors (CONNECTING): let EventSource auto-reconnect.
@@ -959,27 +1001,51 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
-      case "agent_start":
+      case "session_destroyed":
+        // Wrapper gone (idle/fork/delete). Stop reconnect thrash and finish the
+        // local run if we still think it's active — do not leave a ghost stream.
+        sseReconnectAttemptRef.current = EVENT_STREAM_RECONNECT_MAX_ATTEMPTS + 1;
+        if (agentRunningRef.current) {
+          void finishPromptWithoutStream(sessionIdRef.current, promptRunIdRef.current);
+        }
+        break;
+      case "agent_start": {
+        // Accept streaming events for the current prompt generation. If this
+        // start is from a remote/reconnect path without a local handleSend,
+        // mint a run id so late events from a prior generation can be dropped.
+        if (!agentRunningRef.current) {
+          promptRunIdRef.current += 1;
+        }
+        streamAcceptRunIdRef.current = promptRunIdRef.current;
         agentRunningRef.current = true;
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
         dispatch({ type: "start" });
         break;
-      case "agent_end":
+      }
+      case "agent_end": {
         // A late agent_end can arrive over SSE after reconcileAgentState
         // already finished this run — don't re-trigger completion.
         if (!agentRunningRef.current) break;
+        const runId = promptRunIdRef.current;
+        // Only end if this still matches the generation that accepted stream events.
+        // If the user already started a newer run, ignore this late end.
+        if (runId !== streamAcceptRunIdRef.current) break;
         agentRunningRef.current = false;
         clearPendingStreamUpdate();
         setAgentRunning(false);
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
-        if (sessionIdRef.current) {
-          loadSession(sessionIdRef.current);
-          fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
-            .then((r) => r.json())
-            .then((d: { state?: AgentStateResponse }) => {
+        const sid = sessionIdRef.current;
+        if (sid) {
+          void (async () => {
+            await loadSession(sid);
+            if (promptRunIdRef.current !== runId || sessionIdRef.current !== sid) return;
+            try {
+              const r = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+              const d = await r.json() as { state?: AgentStateResponse };
+              if (promptRunIdRef.current !== runId || sessionIdRef.current !== sid) return;
               if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
@@ -987,14 +1053,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               // Aborted turns can leave messages queued in pi (delivered with the
               // next turn); dead wrapper (no state) means the queue is gone.
               setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
-            })
-            .catch(() => {});
+            } catch {
+              // ignore
+            }
+          })();
         }
         onAgentEnd?.();
         break;
+      }
       case "prompt_done":
         if (!agentRunningRef.current) break;
-        void finishPromptWithoutStream(sessionIdRef.current);
+        // Bind to the current run so a late prompt_done cannot finish a newer one.
+        void finishPromptWithoutStream(sessionIdRef.current, promptRunIdRef.current);
         break;
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? t("agent.commandFailed") });
@@ -1010,7 +1080,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Ignore streaming events arriving after this run already finished
         // (e.g. SSE data buffered while the tab was frozen, flushed after
         // reconcile) — they would resurrect a ghost streaming bubble.
+        // Also drop events that do not belong to the generation that last
+        // saw agent_start / local send (late events after a new run began).
         if (!agentRunningRef.current) break;
+        if (promptRunIdRef.current !== streamAcceptRunIdRef.current) break;
         const msg = event.message as Partial<AgentMessage> | undefined;
         if (msg?.role === "user") {
           break;
@@ -1039,6 +1112,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
         if (!agentRunningRef.current) break;
+        if (promptRunIdRef.current !== streamAcceptRunIdRef.current) break;
         clearPendingStreamUpdate();
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
@@ -1161,6 +1235,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
     promptRunIdRef.current = promptRunId;
+    // Accept stream events for this generation immediately (before agent_start),
+    // so early tokens are not dropped; late events from prior runs still mismatch.
+    streamAcceptRunIdRef.current = promptRunId;
+    sseReconnectAttemptRef.current = 0;
     agentRunningRef.current = true;
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
@@ -1302,30 +1380,66 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       console.error("Fork failed:", e);
+      addNotice({
+        type: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       setForkingEntryId(null);
     }
-  }, [onSessionForked]);
+  }, [addNotice, onSessionForked]);
 
   const handleNavigate = useCallback(async (entryId: string) => {
-    if (bashRunningRef.current) return;
+    if (bashRunningRef.current || agentRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
-    sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId }).catch(() => {});
+    try {
+      const result = await sendAgentCommand<{ cancelled?: boolean }>(sid, {
+        type: "navigate_tree",
+        targetId: entryId,
+      });
+      if (result?.cancelled) {
+        addNotice({ type: "error", message: t("agent.commandFailed") });
+        return;
+      }
+    } catch (e) {
+      console.error("Navigate failed:", e);
+      addNotice({
+        type: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+      return;
+    }
     setActiveLeafId(entryId);
     await loadContext(sid, entryId);
-  }, [loadContext]);
+  }, [addNotice, loadContext, t]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
-    if (bashRunningRef.current) return;
-    setActiveLeafId(leafId);
+    if (bashRunningRef.current || agentRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
-    await loadContext(sid, leafId);
     if (leafId) {
-      sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId }).catch(() => {});
+      try {
+        const result = await sendAgentCommand<{ cancelled?: boolean }>(sid, {
+          type: "navigate_tree",
+          targetId: leafId,
+        });
+        if (result?.cancelled) {
+          addNotice({ type: "error", message: t("agent.commandFailed") });
+          return;
+        }
+      } catch (e) {
+        console.error("Leaf change failed:", e);
+        addNotice({
+          type: "error",
+          message: e instanceof Error ? e.message : String(e),
+        });
+        return;
+      }
     }
-  }, [loadContext]);
+    setActiveLeafId(leafId);
+    await loadContext(sid, leafId);
+  }, [addNotice, loadContext, t]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     const key = `${provider}:${modelId}`;
@@ -1670,7 +1784,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             dispatch({ type: "start" });
             void connectEvents(session.id);
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
-              void waitForPromptSettlement(session.id);
+              // Bind settlement to a run id so it cannot finish a later user send.
+              const runId = promptRunIdRef.current + 1;
+              promptRunIdRef.current = runId;
+              streamAcceptRunIdRef.current = runId;
+              void waitForPromptSettlement(session.id, runId);
             }
           }
           if (agentState.state?.isBashRunning) {
@@ -1690,8 +1808,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
       });
     }
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       bashRecoveryIdRef.current += 1;
+      if (sseReconnectTimerRef.current) {
+        clearTimeout(sseReconnectTimerRef.current);
+        sseReconnectTimerRef.current = null;
+      }
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
     };

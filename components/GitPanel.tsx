@@ -208,12 +208,28 @@ export function GitPanel({
     }
   }, [cwd, load, onStatusChange, t]);
 
-  const stagePaths = useCallback((paths: string[]) => void mutate("/api/git/stage", { cwd, paths }), [cwd, mutate]);
-  const unstagePaths = useCallback((paths: string[]) => void mutate("/api/git/unstage", { cwd, paths }), [cwd, mutate]);
+  const stagePaths = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    void mutate("/api/git/stage", { cwd, paths });
+  }, [cwd, mutate]);
+  const unstagePaths = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    void mutate("/api/git/unstage", { cwd, paths });
+  }, [cwd, mutate]);
   const discardPaths = useCallback((paths: string[], key: MessageKey) => {
+    if (paths.length === 0) return;
     if (!window.confirm(t(key))) return;
     void mutate("/api/git/discard", { cwd, paths });
   }, [cwd, mutate, t]);
+
+  const stageAll = useCallback(() => {
+    stagePaths(unstaged.map((f) => f.filePath));
+  }, [stagePaths, unstaged]);
+
+  const discardAll = useCallback(() => {
+    // Match confirm copy: discard unstaged working-tree changes (tracked + untracked).
+    discardPaths(unstaged.map((f) => f.filePath), "git.discardAllConfirm");
+  }, [discardPaths, unstaged]);
 
   const requestCommitMessage = useCallback(async (
     mode: "ai" | "heuristic",
@@ -383,6 +399,50 @@ export function GitPanel({
             height: "100%",
           }}
         >
+        <button
+          type="button"
+          className="chrome-btn"
+          disabled={busy || unstaged.length === 0}
+          onClick={stageAll}
+          title={t("git.stageAll")}
+          aria-label={t("git.stageAll")}
+          style={{
+            height: "100%",
+            minHeight: 0,
+            padding: "0 10px",
+            fontSize: 11,
+            borderLeft: "1px solid var(--border)",
+            borderRadius: 0,
+            gap: 6,
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
+          </svg>
+          <span>{t("git.stageAll")}</span>
+        </button>
+        <button
+          type="button"
+          className="chrome-btn is-danger"
+          disabled={busy || unstaged.length === 0}
+          onClick={discardAll}
+          title={t("git.discardAll")}
+          aria-label={t("git.discardAll")}
+          style={{
+            height: "100%",
+            minHeight: 0,
+            padding: "0 10px",
+            fontSize: 11,
+            borderLeft: "1px solid var(--border)",
+            borderRadius: 0,
+            gap: 6,
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" />
+          </svg>
+          <span>{t("git.discardAll")}</span>
+        </button>
         <button
           type="button"
           className="chrome-btn is-icon"

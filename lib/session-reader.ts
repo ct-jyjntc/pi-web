@@ -3,7 +3,7 @@ import {
   buildContextEntries as piBuildContextEntries,
   buildSessionContext as piBuildSessionContext,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, openSync, readSync } from "fs";
+import { closeSync, existsSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
@@ -109,11 +109,22 @@ function getPathToIdCache(): Map<string, string> {
 
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
   const cached = getPathCache().get(sessionId);
-  if (cached) return cached;
+  if (cached) {
+    if (existsSync(cached)) return cached;
+    // Stale path (deleted file / never flushed) — drop and rescan.
+    invalidateSessionPathCache(sessionId);
+  }
 
-  // Cache miss: scan all sessions to populate cache, then retry
+  // Path miss must hit disk even when the session-list TTL is still warm;
+  // otherwise a session created outside this process is invisible for up to 30s.
+  invalidateSessionListCache();
   await listAllSessions();
-  return getPathCache().get(sessionId) ?? null;
+  const resolved = getPathCache().get(sessionId) ?? null;
+  if (resolved && !existsSync(resolved)) {
+    invalidateSessionPathCache(sessionId);
+    return null;
+  }
+  return resolved;
 }
 
 export async function resolveSessionIdByPath(filePath: string): Promise<string | undefined> {
@@ -304,10 +315,13 @@ function entryToUiMessage(
         ? omitToolResultBase64Images(normalizeToolCalls(entry.message))
         : normalizeToolCalls(entry.message);
       if (!options.deferThinking || message.role !== "assistant") return message;
+      const content = Array.isArray(message.content) ? message.content : [];
       return {
         ...message,
-        content: message.content.map((block) => (
-          block.type === "thinking" && block.thinking.trim() !== ""
+        content: content.map((block) => (
+          block.type === "thinking"
+            && typeof (block as { thinking?: unknown }).thinking === "string"
+            && (block as { thinking: string }).thinking.trim() !== ""
             ? { ...block, thinking: "", deferred: true }
             : block
         )),

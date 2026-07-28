@@ -295,8 +295,11 @@ export class AgentSessionWrapper {
   }
 
   private resetIdleTimer(): void {
+    // Never revive timers on a destroyed wrapper (in-flight send after destroy).
+    if (!this._alive) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
+      if (!this._alive) return;
       if (this.isRunning()) {
         this.resetIdleTimer();
         return;
@@ -305,7 +308,13 @@ export class AgentSessionWrapper {
     }, 10 * 60 * 1000);
   }
 
-  private persistBashOnlySession(): void {
+  /**
+   * Ensure the session `.jsonl` exists on disk even before the first assistant
+   * message. Pi delays flush until an assistant turn; without an on-disk file,
+   * idle destroy + reopen regenerates a new session id for the same path and
+   * leaves the client talking to a ghost id.
+   */
+  ensureSessionPersisted(): void {
     const manager = this.inner.sessionManager;
     const sessionFile = manager.getSessionFile();
     if (!sessionFile || existsSync(sessionFile)) return;
@@ -318,11 +327,13 @@ export class AgentSessionWrapper {
       .join("\n") + "\n";
     writeFileSync(sessionFile, content, { encoding: "utf8", flag: "wx" });
 
-    // Pi normally delays the first flush until an assistant message exists.
-    // A leading shell command has no assistant message, so mark this SDK
-    // manager as flushed after writing its own generated entries.
+    // Mark the SDK manager as flushed so later appends use appendFileSync.
     (manager as unknown as { flushed: boolean }).flushed = true;
     cacheSessionPath(this.inner.sessionId, sessionFile);
+  }
+
+  private persistBashOnlySession(): void {
+    this.ensureSessionPersisted();
   }
 
   onEvent(listener: EventListener): () => void {
@@ -339,9 +350,13 @@ export class AgentSessionWrapper {
   }
 
   async send(command: Record<string, unknown>): Promise<unknown> {
+    if (!this._alive) throw new Error("Session destroyed");
     this.resetIdleTimer();
     const type = command.type as string;
-    if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
+    if (this.shouldWaitForExtensions(type)) {
+      await this.waitForExtensionsBound();
+      if (!this._alive) throw new Error("Session destroyed");
+    }
 
     if (type === "prompt" || type === "steer" || type === "follow_up") {
       const imageError = validateAgentImages(command.images);
@@ -350,8 +365,14 @@ export class AgentSessionWrapper {
 
     switch (type) {
       case "prompt": {
+        if (!this._alive) throw new Error("Session destroyed");
         if (this.inner.isBashRunning) {
           throw new Error("Cannot send a prompt while a shell command is running");
+        }
+        // Reject concurrent prompts (multi-tab / overlapping POSTs). Steer/follow_up
+        // remain available for mid-turn queueing via their own commands.
+        if (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting) {
+          throw new Error("Cannot send a prompt while the session is busy");
         }
         // Fire and forget — events come via subscribe
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
@@ -364,10 +385,12 @@ export class AgentSessionWrapper {
           source: "rpc",
         }).then(() => {
           this.promptRunning = false;
+          if (!this._alive) return;
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
           notifyRunningChange();
         }).catch((error) => {
           this.promptRunning = false;
+          if (!this._alive) return;
           invalidateSessionListCache();
           this.emit({
             type: "prompt_error",
@@ -428,6 +451,9 @@ export class AgentSessionWrapper {
       case "fork": {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
+        }
+        if (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting) {
+          throw new Error("Cannot fork while the session is busy");
         }
         const entryId = command.entryId as string;
         const sessionManager = this.inner.sessionManager;
@@ -647,6 +673,7 @@ export class AgentSessionWrapper {
     if (!this._alive) return;
     this._alive = false;
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
     if (this.inner.isBashRunning) this.inner.abortBash();
     // Abort any in-flight prompt/compaction so the SDK stops streaming (and
     // stops writing to a session file that may already be deleted).
@@ -659,6 +686,7 @@ export class AgentSessionWrapper {
       try { this.inner.abortCompaction(); } catch { /* ignore */ }
     }
     this.unsubscribe?.();
+    this.unsubscribe = null;
     // Notify SSE subscribers that this wrapper is gone before dropping them,
     // so open streams can close instead of hanging on the heartbeat.
     this.emit({ type: "session_destroyed", sessionId: this.sessionId });
@@ -667,6 +695,12 @@ export class AgentSessionWrapper {
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
+    for (const [, entry] of this.widgetFactories) {
+      try { entry.component.dispose?.(); } catch { /* ignore */ }
+    }
+    this.widgetFactories.clear();
+    this.extensionWidgets.clear();
+    this.extensionStatuses.clear();
     this.onDestroyCallback?.();
     notifyRunningChange();
   }
@@ -1203,10 +1237,16 @@ export async function startRpcSession(
   const locks = getLocks();
 
   const existing = registry.get(sessionId);
-  if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
+  if (existing?.isAlive()) return { session: existing, realSessionId: existing.sessionId || sessionId };
 
   const inflight = locks.get(sessionId);
   if (inflight) return inflight;
+
+  // Refuse to open a missing session file: SessionManager.open() would silently
+  // newSession() with a different id, desyncing the client and registry.
+  if (sessionFile && !existsSync(sessionFile)) {
+    throw new Error(`Session file not found: ${sessionFile}`);
+  }
 
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
@@ -1216,6 +1256,7 @@ export async function startRpcSession(
     const normalizedCwd = normalizeRpcCwd(cwd);
     startingCwds.set(normalizedCwd, (startingCwds.get(normalizedCwd) ?? 0) + 1);
 
+    let wrapper: AgentSessionWrapper | null = null;
     try {
     const sessionManager = sessionFile
       ? SessionManager.open(sessionFile, undefined)
@@ -1271,7 +1312,7 @@ export async function startRpcSession(
       inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
     }
 
-    const wrapper = new AgentSessionWrapper(inner, cwd);
+    wrapper = new AgentSessionWrapper(inner, cwd);
     try {
       const status = getProjectTrustStatus(cwd, agentDir);
       inner.settingsManager.setProjectTrusted?.(status.trusted);
@@ -1288,13 +1329,37 @@ export async function startRpcSession(
 
     const realSessionId = inner.sessionId as string;
     const realSessionFile = inner.sessionFile as string | undefined;
+    // Flush header (+ any early entries) so idle destroy / server restart can
+    // reopen this id instead of minting a new one for the same path.
+    wrapper.ensureSessionPersisted();
     if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
 
-    wrapper.onDestroy(() => registry.delete(realSessionId));
+    // Replace any live wrapper already registered under the real id without
+    // leaking its timers/subscriptions (e.g. concurrent start under alias keys).
+    const previous = registry.get(realSessionId);
+    if (previous && previous !== wrapper && previous.isAlive()) {
+      previous.destroy();
+    }
+
+    wrapper.onDestroy(() => {
+      if (registry.get(realSessionId) === wrapper) registry.delete(realSessionId);
+      // Drop request-id alias if we registered one.
+      if (sessionId !== realSessionId && registry.get(sessionId) === wrapper) {
+        registry.delete(sessionId);
+      }
+    });
     registry.set(realSessionId, wrapper);
+    // When the caller keyed the start lock by a non-temp id that differs from
+    // the file header id (should be rare after persist), alias for lookups.
+    if (sessionId && sessionId !== realSessionId && !sessionId.startsWith("__new__")) {
+      registry.set(sessionId, wrapper);
+    }
     wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
 
     return { session: wrapper, realSessionId };
+    } catch (error) {
+      try { wrapper?.destroy(); } catch { /* ignore */ }
+      throw error;
     } finally {
       const count = (startingCwds.get(normalizedCwd) ?? 1) - 1;
       if (count <= 0) startingCwds.delete(normalizedCwd);

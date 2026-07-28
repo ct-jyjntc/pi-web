@@ -37,3 +37,16 @@ export function setDraft(key: string, draft: ChatDraft): void {
 export function clearDraft(key: string): void {
   drafts.delete(key);
 }
+
+/** Move a draft from one key to another (e.g. `new:<cwd>` → real session id). */
+export function transferDraft(fromKey: string, toKey: string): ChatDraft | null {
+  if (!fromKey || !toKey || fromKey === toKey) return getDraft(toKey);
+  const existing = drafts.get(toKey);
+  if (existing && !isEmptyDraft(existing)) return cloneDraft(existing);
+  const source = drafts.get(fromKey);
+  if (!source || isEmptyDraft(source)) return existing ? cloneDraft(existing) : null;
+  const moved = cloneDraft(source);
+  drafts.set(toKey, moved);
+  drafts.delete(fromKey);
+  return cloneDraft(moved);
+}

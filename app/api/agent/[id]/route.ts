@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { existsSync } from "fs";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -21,18 +22,23 @@ export async function POST(
     }
 
     const filePath = await resolveSessionPath(id);
-    if (!filePath) {
+    if (!filePath || !existsSync(filePath)) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
 
     const { session } = await startRpcSession(id, filePath, cwd);
+    if (!session.isAlive()) {
+      return NextResponse.json({ error: "Session destroyed" }, { status: 409 });
+    }
     const result = await session.send(body);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message === "Session destroyed" ? 409 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

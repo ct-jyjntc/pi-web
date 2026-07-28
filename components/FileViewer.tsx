@@ -813,12 +813,19 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const gitDiffRequestRef = useRef(0);
+  const contentRequestRef = useRef(0);
+  const contentPathRef = useRef(filePath);
+  contentPathRef.current = filePath;
   const contentRef = useRef<HTMLDivElement | null>(null);
 
-  const fetchContent = useCallback((filePath: string) => {
-    return fetch(getFileApiUrl(filePath, "read", sourceSessionId))
+  const fetchContent = useCallback((targetPath: string) => {
+    const requestId = ++contentRequestRef.current;
+    return fetch(getFileApiUrl(targetPath, "read", sourceSessionId))
       .then((r) => r.json())
       .then((d: FileData & { error?: string }) => {
+        if (requestId !== contentRequestRef.current || contentPathRef.current !== targetPath) {
+          return null;
+        }
         if (d.error) {
           setError(d.error);
           return null;
@@ -828,6 +835,9 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
         return d;
       })
       .catch((e) => {
+        if (requestId !== contentRequestRef.current || contentPathRef.current !== targetPath) {
+          return null;
+        }
         setError(String(e));
         return null;
       });

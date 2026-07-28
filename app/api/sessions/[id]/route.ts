@@ -243,10 +243,15 @@ export async function DELETE(
           const lines = content.split("\n");
           const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
           if (header.type === "session" && header.parentSession === filePath) {
-            // Rewrite header with new parentSession
+            // Stop a live child wrapper before rewriting its file so we don't
+            // race AgentSession appends (which would drop new entries).
+            const childId = await resolveSessionIdByPath(childPath);
+            if (childId) getRpcSession(childId)?.destroy();
             header.parentSession = parentSessionPath;
             lines[0] = JSON.stringify(header);
-            await fsp.writeFile(childPath, lines.join("\n"));
+            const tmpPath = `${childPath}.reparent.${process.pid}.tmp`;
+            await fsp.writeFile(tmpPath, lines.join("\n"));
+            await fsp.rename(tmpPath, childPath);
           }
         } catch { /* skip malformed */ }
       }
