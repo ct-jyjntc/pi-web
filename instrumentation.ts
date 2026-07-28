@@ -8,6 +8,12 @@ export async function register(): Promise<void> {
   const { ensureSubagentSpawnEnv } = await import("@/lib/resolve-pi-cli");
   ensureSubagentSpawnEnv();
 
+  // Subagent delegation assets (managed AGENTS.md block + agent overrides).
+  // Synchronous, idempotent, never throws — deploy before any session starts so
+  // the subagent tool description picks up the proactive trigger language.
+  const { ensureSubagentDelegation } = await import("@/lib/ensure-subagent-delegation");
+  for (const note of ensureSubagentDelegation()) console.log(`[pi-web] ${note}`);
+
   // Builtin packages: install missing + later upgrade to latest — all in background.
   // Must never block / crash process boot (void + internal try/catch).
   const { ensureBuiltinPackages } = await import("@/lib/ensure-builtin-packages");

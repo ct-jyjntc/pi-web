@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { execFile } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -553,6 +554,56 @@ export function subscribePtyRegistry(listener: RegistryListener): () => void {
   };
 }
 
+/** Grace period before escalating a process-group SIGTERM to SIGKILL. */
+const KILL_GRACE_MS = 1_500;
+
+/**
+ * Kill the PTY's whole process tree.
+ *
+ * node-pty's `kill()` only signals the direct child (SIGHUP to the shell),
+ * which is not enough for agent-started services: intermediaries like npm do
+ * not forward signals, so the actual server (next/vite/uvicorn…) survives as
+ * an orphan and keeps holding its port after the user closes the tab.
+ *
+ * The PTY child is a session leader (forkpty → setsid), so on POSIX its pid
+ * equals its process-group id and `kill(-pid, sig)` reaches every descendant.
+ * SIGTERM first, then SIGKILL after a grace period for processes that ignore
+ * TERM. On Windows, taskkill /T walks the tree.
+ */
+function killPtyProcessTree(session: PtySession): void {
+  if (session.exited) return;
+  const pid = session.pty.pid;
+  if (process.platform === "win32") {
+    try {
+      execFile("taskkill", ["/pid", String(pid), "/T", "/F"], () => {});
+    } catch {
+      // fall through to pty.kill()
+    }
+    try {
+      session.pty.kill();
+    } catch {
+      // already dead
+    }
+    return;
+  }
+  const signalGroup = (sig: NodeJS.Signals) => {
+    try {
+      process.kill(-pid, sig);
+    } catch {
+      // process group already gone
+    }
+  };
+  signalGroup("SIGTERM");
+  const timer = setTimeout(() => signalGroup("SIGKILL"), KILL_GRACE_MS);
+  timer.unref?.();
+  // Fallback for setups where the child is somehow not a group leader.
+  try {
+    session.pty.kill();
+  } catch {
+    // already dead
+  }
+}
+
 export function destroyPtySession(id: string, _reason?: string): void {
   const session = sessions().get(id);
   if (!session) return;
@@ -563,9 +614,5 @@ export function destroyPtySession(id: string, _reason?: string): void {
   if (session.published) {
     emitRegistry({ type: "remove", id });
   }
-  try {
-    if (!session.exited) session.pty.kill();
-  } catch {
-    // already dead
-  }
+  killPtyProcessTree(session);
 }

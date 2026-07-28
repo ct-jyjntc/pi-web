@@ -1,5 +1,5 @@
-import { createAgentSessionFromServices, createAgentSessionServices, createBashToolDefinition, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
-import { createAgentPtyBashOperations } from "./agent-bash-pty";
+import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createPiWebBashToolDefinition } from "./agent-bash-pty";
 import { resolveContextUsageForUi } from "./context-usage";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
@@ -15,9 +15,11 @@ import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } fro
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
 import { ensureBuiltinPackages } from "./ensure-builtin-packages";
+import { ensureSubagentDelegation } from "./ensure-subagent-delegation";
 
 // If packages spawn the Pi CLI, never use Electron as process.execPath.
 ensureSubagentSpawnEnv();
+ensureSubagentDelegation();
 void ensureBuiltinPackages();
 
 // ============================================================================
@@ -1254,18 +1256,17 @@ export async function startRpcSession(
       agentDir,
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
-    // Run bash tool commands in a real PTY so the Terminal workspace can show
-    // AI-started shells and the user can type / interrupt them.
-    const agentBashTool = createBashToolDefinition(cwd, {
-      operations: createAgentPtyBashOperations({
-        getAgentSessionId: () => {
-          try {
-            return sessionManager.getSessionId();
-          } catch {
-            return undefined;
-          }
-        },
-      }),
+    // Pi Web bash tool: explicit `background` param + foreground guardrails;
+    // background services run in a real PTY mirrored in the Terminal workspace
+    // so the user can watch, type, or stop them.
+    const agentBashTool = createPiWebBashToolDefinition(cwd, {
+      getAgentSessionId: () => {
+        try {
+          return sessionManager.getSessionId();
+        } catch {
+          return undefined;
+        }
+      },
     });
     const { session: inner } = await createAgentSessionFromServices({
       services,
