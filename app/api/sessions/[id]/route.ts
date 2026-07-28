@@ -10,6 +10,7 @@ import {
   buildSessionContext,
   readSessionHeader,
 } from "@/lib/session-reader";
+import { estimateSessionContextUsage } from "@/lib/context-usage";
 import { getRpcSession } from "@/lib/rpc-manager";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
@@ -156,6 +157,22 @@ export async function GET(
       parentSessionId,
     } : null;
 
+    // Cold open has no live AgentSession — estimate usage from the file so the
+    // context ring/panel don't show 0% until the next reply.
+    let contextUsage: Awaited<ReturnType<typeof estimateSessionContextUsage>> = null;
+    try {
+      const usageMessages = (deferThinking || deferToolResultImages)
+        ? buildSessionContext(entries, leafId).messages
+        : context.messages;
+      contextUsage = await estimateSessionContextUsage({
+        cwd: header?.cwd ?? process.cwd(),
+        model: context.model,
+        messages: usageMessages,
+      });
+    } catch {
+      contextUsage = null;
+    }
+
     return NextResponse.json({
       sessionId: id,
       filePath,
@@ -163,6 +180,7 @@ export async function GET(
       leafId,
       tree,
       context,
+      contextUsage,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

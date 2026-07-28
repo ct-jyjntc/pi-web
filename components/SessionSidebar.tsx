@@ -1436,14 +1436,7 @@ function SessionItem({
     }
   }, [renameValue, session.id, session.name, onRenamed]);
 
-  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmDelete(true);
-  }, []);
-
-  const handleDeleteConfirm = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmDelete(false);
+  const performDelete = useCallback(async () => {
     setDeleting(true);
     try {
       await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
@@ -1452,6 +1445,22 @@ function SessionItem({
       setDeleting(false);
     }
   }, [session.id, onDeleted]);
+
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Shift+click skips confirmation (upstream 0.8.2).
+    if (e.shiftKey) {
+      void performDelete();
+      return;
+    }
+    setConfirmDelete(true);
+  }, [performDelete]);
+
+  const handleDeleteConfirm = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDelete(false);
+    await performDelete();
+  }, [performDelete]);
 
   const handleDeleteCancel = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1617,7 +1626,7 @@ function SessionItem({
                 type="button"
                 className="sidebar-strip-btn sidebar-strip-icon"
                 onClick={handleDeleteClick}
-                title={t("common.delete")}
+                title={`${t("common.delete")} (Shift: skip confirm)`}
                 aria-label={t("common.delete")}
                 style={{ width: 28, flex: "0 0 28px", borderLeft: "1px solid var(--border)", height: "100%" }}
                 onMouseEnter={(e) => {

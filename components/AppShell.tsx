@@ -21,8 +21,10 @@ import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import { ContextPanel, ContextTabBadge } from "./ContextPanel";
+import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
+import type { ProjectTrustStatus } from "@/lib/api-types";
 
 type AutoNameStatus =
   | { kind: "idle" }
@@ -300,11 +302,18 @@ export function AppShell() {
     }
     // Worktrees of one repo share a project root. Moving the effective cwd
     // within the same project (e.g. switching worktree, or clicking a session
-    // that lives in another worktree) must not close the open session.
+    // that lives in another worktree) must not close the open session or wipe
+    // file tabs that still belong to the same project.
     const newProject = projectRoot ?? cwd;
-    if (selectedSession && (selectedSession.projectRoot ?? selectedSession.cwd) === newProject) {
+    const currentProject = selectedSession
+      ? (selectedSession.projectRoot ?? selectedSession.cwd)
+      : (activeCwd ?? null);
+    if (currentProject && currentProject === newProject) {
       return;
     }
+    // Different project: drop open file tabs (paths from the old tree are stale).
+    setFileTabs([]);
+    setActiveFileTabId(null);
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
     setSelectedSession(null);
@@ -318,7 +327,7 @@ export function AppShell() {
     setSystemPrompt(null);
     setActiveTopPanel(null);
     router.replace("/", { scroll: false });
-  }, [router, selectedSession]);
+  }, [router, selectedSession, activeCwd]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     setNewSessionCwd(null);
@@ -591,6 +600,57 @@ export function AppShell() {
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
+  const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
+
+  const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
+  const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
+  const [projectTrustBusy, setProjectTrustBusy] = useState(false);
+  const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProjectTrust(null);
+    setProjectTrustDialogOpen(false);
+    setProjectTrustError(null);
+    if (!projectTrustCwd) return;
+
+    const controller = new AbortController();
+    fetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = await response.json() as ProjectTrustStatus & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        setProjectTrust(data);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error("Failed to load project trust:", error);
+      });
+    return () => controller.abort();
+  }, [projectTrustCwd]);
+
+  const handleTrustProject = useCallback(async () => {
+    if (!projectTrustCwd || projectTrustBusy) return;
+    setProjectTrustBusy(true);
+    setProjectTrustError(null);
+    try {
+      const response = await fetch("/api/project-trust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: projectTrustCwd }),
+      });
+      const data = await response.json() as ProjectTrustStatus & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setProjectTrust(data);
+      setProjectTrustDialogOpen(false);
+      setModelsRefreshKey((key) => key + 1);
+      setSessionKey((key) => key + 1);
+    } catch (error) {
+      setProjectTrustError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProjectTrustBusy(false);
+    }
+  }, [projectTrustBusy, projectTrustCwd]);
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
@@ -945,7 +1005,40 @@ export function AppShell() {
         </div>
 
         {/* Chat content */}
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <div style={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
+          {showChat && projectTrust?.requiresTrust && !projectTrust.trusted && (
+            <button
+              type="button"
+              className="chrome-btn"
+              onClick={() => {
+                setProjectTrustError(null);
+                setProjectTrustDialogOpen(true);
+              }}
+              title={t("trust.resourcesNotLoaded")}
+              aria-label={t("trust.resourcesNotLoaded")}
+              style={{
+                width: "100%",
+                height: 32,
+                minHeight: 32,
+                borderRadius: 0,
+                borderBottom: "1px solid var(--border)",
+                justifyContent: "flex-start",
+                padding: "0 12px",
+                gap: 8,
+                color: "var(--text-muted)",
+                background: "var(--bg-panel)",
+                flexShrink: 0,
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+                <path d="M12 8v4" />
+                <path d="M12 16h.01" />
+              </svg>
+              <span style={{ fontSize: 12 }}>{t("trust.resourcesNotLoaded")}</span>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)" }}>{t("trust.trustProject")}</span>
+            </button>
+          )}
           {showChat ? (
             <ChatWindow
               key={sessionKey}
@@ -1419,6 +1512,17 @@ export function AppShell() {
       <SkillsConfig
         cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
         onClose={() => setSkillsConfigOpen(false)}
+      />
+    )}
+    {projectTrustDialogOpen && projectTrustCwd && (
+      <ProjectTrustDialog
+        cwd={projectTrustCwd}
+        busy={projectTrustBusy}
+        error={projectTrustError}
+        onCancel={() => {
+          if (!projectTrustBusy) setProjectTrustDialogOpen(false);
+        }}
+        onConfirm={() => void handleTrustProject()}
       />
     )}
     </>

@@ -46,3 +46,8 @@ export interface SkillInfo {
   install?: SkillInstallInfo;
 }
 
+export interface ProjectTrustStatus {
+  requiresTrust: boolean;
+  trusted: boolean;
+}
+

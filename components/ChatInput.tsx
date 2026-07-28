@@ -84,8 +84,6 @@ interface Props {
   onModelChange?: (provider: string, modelId: string) => void;
   /** Open right-panel Context workspace (context ring next to send). */
   onOpenContext?: () => void;
-  toolPreset?: "none" | "default" | "full";
-  onToolPresetChange?: (preset: "none" | "default" | "full") => void;
   /** Called after permission mode is persisted so the host can /reload. */
   onPermissionModeApplied?: () => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -116,8 +114,6 @@ export interface ChatInputHandle {
   addImages: (files: File[]) => void;
 }
 
-const TOOL_PRESETS = ["off", "default", "full"] as const;
-const TOOL_PRESET_MAP: Record<"off" | "default" | "full", "none" | "default" | "full"> = { off: "none", default: "default", full: "full" };
 const PERMISSION_MODES = ["ask", "full"] as const;
 type PermissionMode = (typeof PERMISSION_MODES)[number];
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
@@ -290,7 +286,7 @@ export function ModelErrorBanner({ error }: { error?: string | null }) {
 // streaming token reaching ChatWindow.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, onModelChange,
-  onOpenContext, toolPreset, onToolPresetChange,
+  onOpenContext,
   onPermissionModeApplied,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   supportsImageInput = false,
@@ -310,13 +306,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
-  const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [permissionDropdownOpen, setPermissionDropdownOpen] = useState(false);
   // Fixed-position anchors (same pattern as model picker) so menus escape overflow clipping
   const [thinkingMenuRect, setThinkingMenuRect] = useState<{ top: number; right: number } | null>(null);
   const [permissionMenuRect, setPermissionMenuRect] = useState<{ top: number; right: number } | null>(null);
-  const [toolMenuRect, setToolMenuRect] = useState<{ top: number; right: number } | null>(null);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
   const [permissionBusy, setPermissionBusy] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -342,7 +336,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
-  const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const permissionDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
@@ -1064,7 +1057,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (lvl === "auto" || !thinkingLevelMap) return lvl;
     return thinkingLevelMap[lvl] ?? lvl;
   })();
-  const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default";
   const permissionLabel = permissionMode === "full" ? t("chat.permissionFull") : t("chat.permissionAsk");
 
   useEffect(() => {
@@ -1120,9 +1112,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         modelDropdownPanelRef.current && !modelDropdownPanelRef.current.contains(e.target as Node)
       ) {
         setModelDropdownOpen(false);
-      }
-      if (toolDropdownRef.current && !toolDropdownRef.current.contains(e.target as Node)) {
-        setToolDropdownOpen(false);
       }
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
@@ -1673,7 +1662,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {onOpenContext && (
               <button
                 type="button"
-                className="chrome-btn is-icon"
                 onClick={onOpenContext}
                 title={
                   contextPctLabel
@@ -1681,7 +1669,22 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     : t("shell.contextTab")
                 }
                 aria-label={t("shell.contextTab")}
-                style={{ width: 32, height: 32, minHeight: 32 }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 16,
+                  height: 16,
+                  padding: 0,
+                  margin: "0 2px",
+                  border: "none",
+                  borderRadius: "50%",
+                  background: "transparent",
+                  color: "inherit",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  lineHeight: 0,
+                }}
               >
                 <ContextUsageRing percent={contextPct} size={14} />
               </button>
@@ -2077,61 +2080,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               )}
             </div>
 
-            {!isStreaming && onToolPresetChange && (
-              <div ref={toolDropdownRef} style={{ position: "relative" }}>
-                <button
-                  type="button"
-                  className={`chrome-btn${toolDropdownOpen ? " is-active" : ""}`}
-                  onClick={(e) => {
-                    if (isStreaming) return;
-                    openFixedMenu(e, toolDropdownOpen, setToolDropdownOpen, setToolMenuRect);
-                  }}
-                  disabled={isStreaming}
-                  title={t("chat.changeTools", { preset: toolPresetLabel })}
-                  aria-label={t("chat.changeTools", { preset: toolPresetLabel })}
-                  style={isMobile ? { padding: "0 6px" } : undefined}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                  </svg>
-                  {(!isMobile || controlsMenuOpen) && <span>{toolPresetLabel}</span>}
-                </button>
-                {toolDropdownOpen && toolMenuRect && (
-                  <div className="menu-card" style={fixedMenuStyle(toolMenuRect, 160)}>
-                    {TOOL_PRESETS.map((lvl) => {
-                      const preset = TOOL_PRESET_MAP[lvl];
-                      const isActive = (toolPreset ?? "default") === preset;
-                      const desc = lvl === "off" ? t("chat.toolsNone") : lvl === "default" ? t("chat.toolsDefault") : t("chat.toolsFull");
-                      return (
-                        <button
-                          key={lvl}
-                          onClick={() => { setToolDropdownOpen(false); if (!isActive) onToolPresetChange(preset); }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            width: "100%", padding: "7px 12px",
-                            background: isActive ? "var(--bg-selected)" : "none",
-                            border: "none",
-                            color: isActive ? "var(--text)" : "var(--text-muted)",
-                            cursor: "pointer", fontSize: 12, textAlign: "left",
-                            fontWeight: isActive ? 600 : 400,
-                            whiteSpace: "nowrap",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                        >
-                          {isActive
-                            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
-                            : <span style={{ width: 10, flexShrink: 0 }} />}
-                          <span style={{ flex: 1 }}>{lvl}</span>
-                          <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
             {isStreaming && (
               <button
                 type="button"
@@ -2177,7 +2125,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 aria-label={t("chat.collapseControls")}
                 aria-expanded={true}
                 onClick={() => {
-                  setToolDropdownOpen(false);
                   setThinkingDropdownOpen(false);
                   setControlsMenuOpen(false);
                 }}

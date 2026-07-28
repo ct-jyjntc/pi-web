@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
@@ -22,7 +22,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
-import { SpecializedExtensionWidget, SpecializedStatusChip } from "./extension/ExtensionWidgetViews";
+import { SpecializedExtensionWidget } from "./extension/ExtensionWidgetViews";
 import { clearSessionMetrics, setContextUsageMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { setCompactHandlers } from "@/lib/compact-action-store";
 
@@ -225,7 +225,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices, extensionDialog, extensionCustomUi, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -316,7 +316,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     : null;
   const contextUsageRef = useRef(contextUsage);
   contextUsageRef.current = contextUsage;
-  useEffect(() => {
+  // useLayoutEffect: paint the ring/panel with file-estimated usage before the
+  // browser draws, so cold open doesn't flash 0% while waiting for useEffect.
+  useLayoutEffect(() => {
     setContextUsageMetric(contextUsageRef.current);
     onContextUsageChange?.(contextUsageRef.current);
   }, [ctxKey, onContextUsageChange]);
@@ -595,8 +597,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelError={modelError}
       onModelChange={handleModelChange}
       onOpenContext={onSessionStatsPanelOpen}
-      toolPreset={toolPreset}
-      onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
       onPermissionModeApplied={session || isNew ? handlePermissionModeApplied : undefined}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
@@ -789,7 +789,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         >
           <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
-              <ExtensionStatusBar statuses={extensionStatuses} />
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
             {historicalMessageNodes}
@@ -906,31 +905,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       </div>
       </>
       )}
-    </div>
-  );
-}
-
-function isPermissionStatus(status: { key: string; text: string }): boolean {
-  const k = status.key.toLowerCase();
-  const t = status.text.toLowerCase();
-  // Permission mode is already controlled in the composer toolbar — hide the
-  // redundant "Permission / yolo" chip from the chat chrome.
-  return (
-    k.includes("permission")
-    || k.includes("pi-permission")
-    || t === "yolo"
-    || t.includes("yolo mode")
-  );
-}
-
-function ExtensionStatusBar({ statuses }: { statuses: Array<{ key: string; text: string }> }) {
-  const visible = statuses.filter((s) => !isPermissionStatus(s));
-  if (visible.length === 0) return null;
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
-      {visible.map((status) => (
-        <SpecializedStatusChip key={status.key} statusKey={status.key} text={status.text} />
-      ))}
     </div>
   );
 }

@@ -1,10 +1,13 @@
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { resolveContextUsageForUi } from "./context-usage";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, realpathSync, writeFileSync } from "fs";
+import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
@@ -23,6 +26,11 @@ void ensureBuiltinPackages();
 export interface AgentEvent {
   type: string;
   [key: string]: unknown;
+}
+
+function resolveSessionContextUsage(session: AgentSessionLike) {
+  const messages = (session as AgentSessionLike & { messages?: unknown[] }).messages;
+  return resolveContextUsageForUi(session.getContextUsage(), messages);
 }
 
 type EventListener = (event: AgentEvent) => void;
@@ -135,7 +143,10 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
 
-  constructor(public readonly inner: AgentSessionLike) {}
+  constructor(
+    public readonly inner: AgentSessionLike,
+    public readonly cwd: string,
+  ) {}
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -361,7 +372,7 @@ export class AgentSessionWrapper {
 
       case "get_state": {
         const model = this.inner.model;
-        const contextUsage = this.inner.getContextUsage();
+        const contextUsage = resolveSessionContextUsage(this.inner);
         return {
           sessionId: this.inner.sessionId,
           sessionFile: this.inner.sessionFile ?? "",
@@ -378,9 +389,7 @@ export class AgentSessionWrapper {
             steering: [...this.inner.getSteeringMessages()],
             followUp: [...this.inner.getFollowUpMessages()],
           },
-          contextUsage: contextUsage
-            ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
-            : null,
+          contextUsage,
           systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
@@ -463,9 +472,17 @@ export class AgentSessionWrapper {
 
       case "compact": {
         try {
-          return await this.withFinalRunningNotification(() =>
+          const result = await this.withFinalRunningNotification(() =>
             this.inner.compact(command.customInstructions as string | undefined)
           );
+          // Attach post-compaction UI usage so clients don't wait for the next reply.
+          if (result && typeof result === "object") {
+            return {
+              ...(result as Record<string, unknown>),
+              contextUsage: resolveSessionContextUsage(this.inner),
+            };
+          }
+          return result;
         } finally {
           invalidateSessionListCache();
         }
@@ -564,6 +581,7 @@ export class AgentSessionWrapper {
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
+        this.syncProjectTrust();
         await this.inner.reload();
         if (typeof this.inner.bindExtensions !== "function") {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
@@ -1026,6 +1044,7 @@ export class AgentSessionWrapper {
           try { entry.component.dispose?.(); } catch { /* ignore */ }
         }
         this.widgetFactories.clear();
+        this.syncProjectTrust();
         await this.inner.reload({
           beforeSessionStart: () => {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
@@ -1034,6 +1053,15 @@ export class AgentSessionWrapper {
         this.applyForcedEmptySystemPrompt();
       },
     };
+  }
+
+  private syncProjectTrust(): void {
+    try {
+      const status = getProjectTrustStatus(this.cwd, getAgentDir());
+      this.inner.settingsManager.setProjectTrusted?.(status.trusted);
+    } catch {
+      // Older SDK builds without setProjectTrusted — ignore.
+    }
   }
 }
 
@@ -1044,6 +1072,7 @@ export class AgentSessionWrapper {
 declare global {
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
+  var __piStartingSessionCwds: Map<string, number> | undefined;
   var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
 }
 
@@ -1065,6 +1094,36 @@ function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSes
 
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
   return getRegistry().get(sessionId);
+}
+
+function normalizeRpcCwd(cwd: string): string {
+  try {
+    return realpathSync(resolve(cwd));
+  } catch {
+    return resolve(cwd);
+  }
+}
+
+function getStartingSessionCwds(): Map<string, number> {
+  if (!globalThis.__piStartingSessionCwds) globalThis.__piStartingSessionCwds = new Map();
+  return globalThis.__piStartingSessionCwds;
+}
+
+export function hasBusyRpcSessionForCwd(cwd: string): boolean {
+  const targetCwd = normalizeRpcCwd(cwd);
+  if (getStartingSessionCwds().has(targetCwd)) return true;
+  return Array.from(getRegistry().values()).some(
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd && session.isRunning(),
+  );
+}
+
+export function destroyRpcSessionsForCwd(cwd: string): number {
+  const targetCwd = normalizeRpcCwd(cwd);
+  const sessions = Array.from(getRegistry().values()).filter(
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd,
+  );
+  for (const session of sessions) session.destroy();
+  return sessions.length;
 }
 
 export function getRunningRpcSessionIds(): string[] {
@@ -1136,7 +1195,11 @@ export async function startRpcSession(
     // Some extensions access the SDK's global theme even outside the terminal UI.
     initTheme();
     const agentDir = getAgentDir();
+    const startingCwds = getStartingSessionCwds();
+    const normalizedCwd = normalizeRpcCwd(cwd);
+    startingCwds.set(normalizedCwd, (startingCwds.get(normalizedCwd) ?? 0) + 1);
 
+    try {
     const sessionManager = sessionFile
       ? SessionManager.open(sessionFile, undefined)
       : SessionManager.create(cwd, undefined);
@@ -1157,7 +1220,14 @@ export async function startRpcSession(
 
     // Build services first so extension-registered providers are available
     // before the SDK restores the saved model from the session file.
-    const services = await createAgentSessionServices({ cwd, agentDir });
+    // Gate untrusted project extensions so opening a repository does not run
+    // its .pi/extensions code automatically (see lib/project-trust.ts).
+    const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+    const services = await createAgentSessionServices({
+      cwd,
+      agentDir,
+      ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
+    });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -1171,7 +1241,13 @@ export async function startRpcSession(
       inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
     }
 
-    const wrapper = new AgentSessionWrapper(inner);
+    const wrapper = new AgentSessionWrapper(inner, cwd);
+    try {
+      const status = getProjectTrustStatus(cwd, agentDir);
+      inner.settingsManager.setProjectTrusted?.(status.trusted);
+    } catch {
+      // ignore missing setProjectTrusted
+    }
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.
@@ -1189,6 +1265,11 @@ export async function startRpcSession(
     wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
 
     return { session: wrapper, realSessionId };
+    } finally {
+      const count = (startingCwds.get(normalizedCwd) ?? 1) - 1;
+      if (count <= 0) startingCwds.delete(normalizedCwd);
+      else startingCwds.set(normalizedCwd, count);
+    }
   })().finally(() => locks.delete(sessionId));
 
   locks.set(sessionId, starting);

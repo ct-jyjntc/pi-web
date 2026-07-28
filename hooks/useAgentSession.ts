@@ -26,6 +26,8 @@ export interface SessionData {
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
   };
+  /** File-based estimate for cold open (no live AgentSession yet). */
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
 }
 
 interface StreamingState {
@@ -61,6 +63,7 @@ interface AgentEvent {
 interface CompactCommandResult {
   tokensBefore?: number;
   estimatedTokensAfter?: number;
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
 }
 
 interface LastAssistantTextResponse {
@@ -292,6 +295,29 @@ function readCompactResult(result: unknown, reason: string): CompactResultInfo |
   return { reason, tokensBefore: r.tokensBefore, estimatedTokensAfter: r.estimatedTokensAfter };
 }
 
+function readCompactContextUsage(
+  result: unknown,
+  fallbackWindow?: number | null,
+): { percent: number | null; contextWindow: number; tokens: number | null } | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as CompactCommandResult;
+  if (r.contextUsage && typeof r.contextUsage.contextWindow === "number" && r.contextUsage.contextWindow > 0) {
+    return {
+      percent: r.contextUsage.percent ?? null,
+      contextWindow: r.contextUsage.contextWindow,
+      tokens: r.contextUsage.tokens ?? null,
+    };
+  }
+  if (typeof r.estimatedTokensAfter !== "number") return null;
+  const contextWindow = fallbackWindow && fallbackWindow > 0 ? fallbackWindow : null;
+  if (!contextWindow) return null;
+  return {
+    tokens: r.estimatedTokensAfter,
+    contextWindow,
+    percent: (r.estimatedTokensAfter / contextWindow) * 100,
+  };
+}
+
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (content: string) => void;
@@ -366,7 +392,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelImageSupport, setModelImageSupport] = useState<Record<string, boolean>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
-  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
+  // Always use full built-in tools (UI selector removed).
+  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("full");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -479,6 +506,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
         setThinkingLevel(d.context.thinkingLevel as ThinkingLevelOption);
       }
+      // Prefer file estimate immediately so cold open isn't stuck at 0%.
+      // Live agent state (below) overwrites when the RPC session is running.
+      if (d.contextUsage != null) setContextUsage(d.contextUsage);
+      else setContextUsage(null);
 
       messagesLoaded = true;
       if (showLoading) setLoading(false);
@@ -500,6 +531,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
+          // Keep file-based contextUsage when no live session is running.
         }
         return agentState;
       } catch (e) {
@@ -521,9 +553,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
+      const d = await res.json() as {
+        context: { messages: AgentMessage[]; entryIds: string[] };
+        contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+      };
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      if (d.contextUsage) setContextUsage(d.contextUsage);
     } catch (e) {
       console.error("Failed to load context:", e);
     }
@@ -531,13 +567,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const loadTools = useCallback(async (sid: string) => {
     try {
-      const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
-      if (tools) {
-        const { getPresetFromTools } = await import("@/lib/tool-presets");
-        setToolPresetState(getPresetFromTools(tools));
-      }
+      // Force full built-in tool set for every session (no user tool preset UI).
+      const toolNames = getToolNamesForPreset("full");
+      await sendAgentCommand(sid, { type: "set_tools", toolNames });
+      setToolPresetState("full");
     } catch (e) {
-      console.error("Failed to load tools:", e);
+      console.error("Failed to load/set tools:", e);
     }
   }, [setToolPresetState]);
 
@@ -565,7 +600,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const promise = (async () => {
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
-      const toolNames = getToolNamesForPreset(toolPreset);
+      const toolNames = getToolNamesForPreset("full");
       const res = await fetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -590,7 +625,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, toolPreset, thinkingLevel]);
+  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, thinkingLevel]);
 
   const loadSlashCommands = useCallback(async () => {
     const sid = sessionIdRef.current ?? await ensureNewSession();
@@ -1066,7 +1101,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setCompactResult(null);
         } else if (!event.aborted) {
           setCompactResult(readCompactResult(event.result, (event.reason as string | undefined) ?? "auto"));
-          if (sessionIdRef.current) loadSession(sessionIdRef.current);
+          // Refresh branch messages + live usage immediately (SDK leaves
+          // getContextUsage null until the next assistant reply; server
+          // estimates for the UI).
+          const sid = sessionIdRef.current;
+          if (sid) {
+            void (async () => {
+              await loadSession(sid, false, true);
+              // Belt-and-suspenders: apply compact payload usage if state
+              // path was slow/missed.
+              setContextUsage((prev) => readCompactContextUsage(event.result, prev?.contextWindow) ?? prev);
+            })();
+          }
         }
         break;
       case "extension_ui_request":
@@ -1314,7 +1360,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const result = await sendAgentCommand<CompactCommandResult>(sid, { type: "compact" });
       setCompactResult(readCompactResult(result, "manual"));
-      await loadSession(sid, true);
+      // includeState: pull post-compaction estimated usage into the ring/panel
+      await loadSession(sid, true, true);
+      setContextUsage((prev) => readCompactContextUsage(result, prev?.contextWindow) ?? prev);
     } catch (e) {
       setCompactError(e instanceof Error ? e.message : String(e));
       setCompactResult(null);
@@ -1375,7 +1423,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             ...(args ? { customInstructions: args } : {}),
           });
           setCompactResult(readCompactResult(result, "manual"));
-          if (await loadSession(sid, true)) promoteNewSession();
+          if (await loadSession(sid, true, true)) promoteNewSession();
+          setContextUsage((prev) => readCompactContextUsage(result, prev?.contextWindow) ?? prev);
           return complete({ handled: true, message: t("agent.compacted") });
         }
 

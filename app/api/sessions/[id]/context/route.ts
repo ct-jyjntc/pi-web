@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { estimateSessionContextUsage } from "@/lib/context-usage";
 import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
 
 export async function GET(
@@ -19,12 +20,27 @@ export async function GET(
     }
 
     const sm = SessionManager.open(filePath);
-    const context = buildSessionContext(sm.getEntries() as never, leafId, {
+    const entries = sm.getEntries() as never;
+    const context = buildSessionContext(entries, leafId, {
       deferThinking,
       deferToolResultImages,
     });
 
-    return NextResponse.json({ context });
+    let contextUsage: Awaited<ReturnType<typeof estimateSessionContextUsage>> = null;
+    try {
+      const usageMessages = (deferThinking || deferToolResultImages)
+        ? buildSessionContext(entries, leafId).messages
+        : context.messages;
+      contextUsage = await estimateSessionContextUsage({
+        cwd: sm.getHeader()?.cwd ?? process.cwd(),
+        model: context.model,
+        messages: usageMessages,
+      });
+    } catch {
+      contextUsage = null;
+    }
+
+    return NextResponse.json({ context, contextUsage });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
