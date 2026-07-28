@@ -1,10 +1,44 @@
 "use client";
 
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useLocale } from "@/hooks/useLocale";
+import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { copyText } from "@/lib/clipboard";
 import { useSessionMetrics } from "@/lib/session-metrics-store";
 import { getCompactHandlers, requestCompact, subscribeCompactHandlers } from "@/lib/compact-action-store";
+import type { ExtensionStatusItem } from "@/lib/types";
+
+function isPermissionStatus(status: { key: string; text: string }): boolean {
+  const k = status.key.toLowerCase();
+  const t = status.text.toLowerCase();
+  // Permission mode is already controlled in the composer toolbar.
+  return (
+    k.includes("permission")
+    || k.includes("pi-permission")
+    || k.includes("yolo")
+    || t === "yolo"
+    || t.includes("yolo mode")
+    || t.includes("permission")
+  );
+}
+
+function sanitizeStatusText(text: string): string {
+  return text
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/ +/g, " ")
+    .trim();
+}
+
+function visibleExtensionStatuses(statuses: ExtensionStatusItem[]): ExtensionStatusItem[] {
+  return [...statuses]
+    .filter((status) => !isPermissionStatus(status))
+    .map((status) => ({
+      key: status.key,
+      text: sanitizeStatusText(status.text),
+    }))
+    .filter((status) => status.text.length > 0)
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
 
 type SessionCopyField = "file" | "id";
 
@@ -35,11 +69,15 @@ export function ContextTabBadge() {
 
 export function ContextPanel() {
   const { t } = useLocale();
-  const { contextUsage, sessionStats } = useSessionMetrics();
+  const { contextUsage, sessionStats, extensionStatuses } = useSessionMetrics();
   const compactState = useSyncExternalStore(
     subscribeCompactHandlers,
     getCompactHandlers,
     () => null,
+  );
+  const extensionRows = useMemo(
+    () => visibleExtensionStatuses(extensionStatuses),
+    [extensionStatuses],
   );
   const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null);
   const sessionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -319,7 +357,7 @@ export function ContextPanel() {
       )}
 
       <div className="git-panel-body" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        {!sessionStats && !ctx?.contextWindow ? (
+        {!sessionStats && !ctx?.contextWindow && extensionRows.length === 0 ? (
           <div style={{
             padding: "24px 12px",
             textAlign: "center",
@@ -334,6 +372,64 @@ export function ContextPanel() {
               <>
                 {sectionHeader(t("shell.contextUsage"))}
                 {usageRows.map(([label, value]) => kvRow(label, value))}
+              </>
+            )}
+
+            {extensionRows.length > 0 && (
+              <>
+                {sectionHeader(t("shell.extensionStatus"))}
+                {extensionRows.map((status) => {
+                  const plain = stripAnsi(status.text);
+                  const segments = parseAnsiLine(status.text);
+                  return (
+                    <div
+                      key={status.key}
+                      className="context-panel-row"
+                      title={`${status.key}: ${plain}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 12,
+                        minHeight: 32,
+                        padding: "6px 12px",
+                        borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
+                        fontSize: 12,
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: "var(--text-muted)",
+                          flexShrink: 0,
+                          width: 88,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          lineHeight: "20px",
+                        }}
+                      >
+                        {status.key}
+                      </span>
+                      <span
+                        style={{
+                          color: "var(--text)",
+                          minWidth: 0,
+                          flex: 1,
+                          overflowWrap: "anywhere",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          lineHeight: "18px",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {segments.length > 0
+                          ? segments.map((segment, index) => (
+                            <span key={index} style={segment.style}>{segment.text}</span>
+                          ))
+                          : plain}
+                      </span>
+                    </div>
+                  );
+                })}
               </>
             )}
 

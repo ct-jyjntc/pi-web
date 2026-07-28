@@ -9,9 +9,7 @@ import { FileViewer } from "./FileViewer";
 import { GitPanel } from "./GitPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { TabBar, type Tab } from "./TabBar";
-import { ModelsConfig } from "./ModelsConfig";
-import { SkillsConfig } from "./SkillsConfig";
-import { SettingsConfig } from "./SettingsConfig";
+import { SettingsPage } from "./SettingsPage";
 import { BranchNavigator } from "./BranchNavigator";
 import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -49,9 +47,7 @@ export function AppShell() {
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
-  const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -173,7 +169,13 @@ export function AppShell() {
   ];
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string>("review");
   // Terminal sessions live inside the permanent Terminal workspace (like file subtabs).
-  type TerminalSessionTab = { id: string; label: string };
+  type TerminalSessionTab = {
+    id: string;
+    label: string;
+    source: "user" | "agent";
+    attachSessionId?: string;
+    command?: string;
+  };
   const terminalSeqRef = useRef(1);
   const [terminalTabs, setTerminalTabs] = useState<TerminalSessionTab[]>([]);
   const terminalTabsRef = useRef(terminalTabs);
@@ -181,45 +183,108 @@ export function AppShell() {
   const [activeTerminalTabId, setActiveTerminalTabId] = useState<string | null>(null);
   // Only mount a session once selected (correct xterm size); keep mounted after for keep-alive.
   const [mountedTerminalIds, setMountedTerminalIds] = useState<string[]>([]);
+  const knownAgentPtyIdsRef = useRef(new Set<string>());
   const [gitFocusPath, setGitFocusPath] = useState<string | null>(null);
+
+  const renumberTerminalLabels = useCallback((tabs: TerminalSessionTab[]): TerminalSessionTab[] => {
+    let userIndex = 0;
+    return tabs.map((tab) => {
+      if (tab.source === "agent") {
+        const cmd = tab.command?.replace(/\s+/g, " ").trim();
+        const short = cmd && cmd.length > 28 ? `${cmd.slice(0, 25)}…` : cmd;
+        return {
+          ...tab,
+          label: short ? `${t("git.terminalAgent")} · ${short}` : t("git.terminalAgent"),
+        };
+      }
+      userIndex += 1;
+      return { ...tab, label: `${t("git.terminal")} ${userIndex}` };
+    });
+  }, [t]);
 
   const addTerminalSession = useCallback(() => {
     // Synchronous id/label so we can activate + mount in the same click (instant show).
     const prev = terminalTabsRef.current;
-    if (prev.length === 0) terminalSeqRef.current = 1;
+    if (prev.filter((tab) => tab.source === "user").length === 0) terminalSeqRef.current = 1;
     const n = terminalSeqRef.current++;
     const id = `term-${n}`;
-    const label = `${t("git.terminal")} ${prev.length + 1}`;
-    setTerminalTabs([...prev, { id, label }]);
+    const next = renumberTerminalLabels([...prev, { id, label: "", source: "user" }]);
+    setTerminalTabs(next);
     setActiveTerminalTabId(id);
     setMountedTerminalIds((mounted) => (mounted.includes(id) ? mounted : [...mounted, id]));
     setActiveWorkspaceTabId("terminal");
     setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
-  }, [isMobile, t]);
+  }, [isMobile, renumberTerminalLabels]);
 
-  const closeTerminalSession = useCallback((tabId: string) => {
+  const closeTerminalSession = useCallback((tabId: string, options?: { kill?: boolean }) => {
+    const kill = options?.kill !== false;
+    const closing = terminalTabsRef.current.find((tab) => tab.id === tabId);
+    if (closing?.source === "agent" && closing.attachSessionId) {
+      knownAgentPtyIdsRef.current.delete(closing.attachSessionId);
+      if (kill) {
+        void fetch(`/api/cwd/pty/${closing.attachSessionId}`, { method: "DELETE", keepalive: true }).catch(() => {});
+      }
+    }
     setTerminalTabs((prev) => {
-      const next = prev.filter((tab) => tab.id !== tabId);
-      // Renumber remaining tabs 1..n so labels stay contiguous.
-      const renumbered = next.map((tab, index) => ({
-        ...tab,
-        label: `${t("git.terminal")} ${index + 1}`,
-      }));
-      if (renumbered.length === 0) {
+      const next = renumberTerminalLabels(prev.filter((tab) => tab.id !== tabId));
+      if (next.length === 0) {
         terminalSeqRef.current = 1;
         setActiveTerminalTabId(null);
         setMountedTerminalIds([]);
       } else {
         setActiveTerminalTabId((cur) => {
-          if (cur !== tabId && renumbered.some((tab) => tab.id === cur)) return cur;
-          return renumbered[renumbered.length - 1].id;
+          if (cur !== tabId && next.some((tab) => tab.id === cur)) return cur;
+          return next[next.length - 1].id;
         });
         setMountedTerminalIds((mounted) => mounted.filter((id) => id !== tabId));
       }
-      return renumbered;
+      return next;
     });
-  }, [t]);
+  }, [renumberTerminalLabels]);
+
+  const upsertAgentTerminalSession = useCallback((session: {
+    id: string;
+    command?: string;
+    title?: string;
+    exited?: boolean;
+  }) => {
+    const tabId = `agent-${session.id}`;
+    // Stopped process → drop the tab instead of leaving a dead terminal around.
+    if (session.exited) {
+      if (terminalTabsRef.current.some((tab) => tab.id === tabId)) {
+        closeTerminalSession(tabId, { kill: true });
+      } else {
+        knownAgentPtyIdsRef.current.delete(session.id);
+      }
+      return;
+    }
+    knownAgentPtyIdsRef.current.add(session.id);
+    setTerminalTabs((prev) => {
+      const existing = prev.find((tab) => tab.id === tabId);
+      if (existing) {
+        return renumberTerminalLabels(prev.map((tab) => (
+          tab.id === tabId
+            ? { ...tab, command: session.command ?? session.title ?? tab.command }
+            : tab
+        )));
+      }
+      return renumberTerminalLabels([
+        ...prev,
+        {
+          id: tabId,
+          label: "",
+          source: "agent",
+          attachSessionId: session.id,
+          command: session.command ?? session.title,
+        },
+      ]);
+    });
+    setActiveTerminalTabId(tabId);
+    setMountedTerminalIds((mounted) => (mounted.includes(tabId) ? mounted : [...mounted, tabId]));
+    setActiveWorkspaceTabId("terminal");
+    setRightPanelOpen(true);
+  }, [closeTerminalSession, renumberTerminalLabels]);
 
   // Ensure active session is in the mounted set (e.g. after switch).
   useEffect(() => {
@@ -666,6 +731,87 @@ export function AppShell() {
     observer.observe(document.head, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, [windowTitle]);
+
+  // Discover AI-started PTY sessions and surface them in the Terminal workspace.
+  const terminalWatchCwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null;
+  useEffect(() => {
+    if (!terminalWatchCwd) return;
+    let es: EventSource | null = null;
+    let cancelled = false;
+
+    const ingest = (session: {
+      id?: string;
+      source?: string;
+      command?: string;
+      title?: string;
+      exited?: boolean;
+    }) => {
+      if (!session.id || session.source !== "agent") return;
+      // Snapshot may include already-dead sessions — never re-open those.
+      if (session.exited) {
+        const tabId = `agent-${session.id}`;
+        if (terminalTabsRef.current.some((tab) => tab.id === tabId)) {
+          closeTerminalSession(tabId, { kill: true });
+        }
+        return;
+      }
+      upsertAgentTerminalSession({
+        id: session.id,
+        command: session.command,
+        title: session.title,
+        exited: false,
+      });
+    };
+
+    try {
+      es = new EventSource(`/api/cwd/pty/events?cwd=${encodeURIComponent(terminalWatchCwd)}`);
+      es.addEventListener("snapshot", (evt) => {
+        if (cancelled) return;
+        try {
+          const payload = JSON.parse((evt as MessageEvent).data) as {
+            sessions?: Array<{ id: string; source?: string; command?: string; title?: string; exited?: boolean }>;
+          };
+          for (const session of payload.sessions ?? []) ingest(session);
+        } catch {
+          // ignore
+        }
+      });
+      es.addEventListener("upsert", (evt) => {
+        if (cancelled) return;
+        try {
+          const payload = JSON.parse((evt as MessageEvent).data) as {
+            session?: { id: string; source?: string; command?: string; title?: string; exited?: boolean };
+          };
+          if (payload.session) ingest(payload.session);
+        } catch {
+          // ignore
+        }
+      });
+      es.addEventListener("remove", (evt) => {
+        if (cancelled) return;
+        try {
+          const payload = JSON.parse((evt as MessageEvent).data) as { id?: string };
+          if (!payload.id) return;
+          const tabId = `agent-${payload.id}`;
+          if (terminalTabsRef.current.some((tab) => tab.id === tabId)) {
+            // Session already destroyed server-side — just drop the tab.
+            closeTerminalSession(tabId, { kill: false });
+          } else {
+            knownAgentPtyIdsRef.current.delete(payload.id);
+          }
+        } catch {
+          // ignore
+        }
+      });
+    } catch {
+      // EventSource unavailable
+    }
+
+    return () => {
+      cancelled = true;
+      es?.close();
+    };
+  }, [closeTerminalSession, terminalWatchCwd, upsertAgentTerminalSession]);
 
   const sidebarContent = (
     <div
@@ -1483,6 +1629,8 @@ export function AppShell() {
                     >
                       <TerminalPanel
                         cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
+                        attachSessionId={tab.attachSessionId ?? null}
+                        sourceLabel={tab.source === "agent" ? tab.label : null}
                       />
                     </div>
                   );
@@ -1494,24 +1642,11 @@ export function AppShell() {
       </div>
     </div>
     {settingsOpen && (
-      <SettingsConfig
+      <SettingsPage
         onClose={() => setSettingsOpen(false)}
-        onOpenModels={() => setModelsConfigOpen(true)}
-        onOpenSkills={() => setSkillsConfigOpen(true)}
-        skillsDisabled={!activeCwd && !selectedSession?.cwd && !newSessionCwd}
         cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd}
-      />
-    )}
-    {modelsConfigOpen && (
-      <ModelsConfig onClose={() => {
-        setModelsConfigOpen(false);
-        setModelsRefreshKey((k) => k + 1);
-      }} />
-    )}
-    {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-      <SkillsConfig
-        cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
-        onClose={() => setSkillsConfigOpen(false)}
+        skillsDisabled={!activeCwd && !selectedSession?.cwd && !newSessionCwd}
+        onModelsChanged={() => setModelsRefreshKey((k) => k + 1)}
       />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (

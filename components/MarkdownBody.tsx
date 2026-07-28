@@ -378,9 +378,16 @@ const CodeBlock = memo(function CodeBlock({ code, lang, headerAction }: { code: 
           fontSize: 12.5,
           lineHeight: 1.62,
           borderRadius: 0,
-          background: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
+          // Only backgroundColor — themes are normalized the same way in
+          // lib/syntax-highlighter.ts (avoids React warn on theme toggle).
+          backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
         }}
-        codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
+        codeTagProps={{
+          style: {
+            fontFamily: "var(--font-mono)",
+            backgroundColor: "transparent",
+          },
+        }}
       >
         {code}
       </SyntaxHighlighter>

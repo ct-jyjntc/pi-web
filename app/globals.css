@@ -2505,3 +2505,324 @@ span.linenumber {
 .terminal-xterm-host .xterm-viewport::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ── Settings page (full-screen, matches app shell chrome) ─────────────── */
+.settings-page {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+}
+.settings-page-topbar {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow: hidden;
+  min-width: 0;
+}
+.settings-page-topbar-title {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+  border-right: 1px solid var(--border);
+}
+.settings-page-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: row;
+}
+.settings-page-body.is-mobile {
+  flex-direction: column;
+}
+.settings-page-nav {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 8px 0;
+}
+.settings-page-nav.is-mobile {
+  width: 100%;
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0;
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+}
+.settings-page-nav-label {
+  padding: 8px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.settings-page-nav-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+.settings-page-nav.is-mobile .settings-page-nav-item {
+  width: auto;
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
+  border-right: 1px solid var(--border);
+  padding: 0 14px;
+  font-size: 12px;
+}
+.settings-page-nav-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.settings-page-nav-item.is-active {
+  background: var(--bg-selected);
+  color: var(--text);
+  font-weight: 600;
+}
+.settings-page-nav-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.settings-page-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+.settings-page-main.is-scroll {
+  overflow: auto;
+}
+/* Content column: centered like chat (~820), denser console spacing */
+.settings-page-general,
+.settings-page-content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 16px 24px 32px;
+}
+@media (max-width: 640px) {
+  .settings-page-general,
+  .settings-page-content {
+    padding: 12px 14px 28px;
+  }
+}
+.settings-page-empty {
+  padding: 20px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Shared section / row grammar — match main shell density */
+.settings-section-title {
+  margin: 14px 0 0;
+  padding: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.settings-section-title:first-child {
+  margin-top: 0;
+  padding-top: 0;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-row.is-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-height: 0;
+  padding: 8px 0 10px;
+}
+.settings-row-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+.settings-row-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+/* Strip segmented control — same grammar as topbar chrome clusters */
+.settings-segmented {
+  display: inline-flex;
+  align-items: stretch;
+  height: 28px;
+  min-width: 140px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.settings-segmented .chrome-btn {
+  flex: 1 1 0;
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  border: none;
+  border-right: 1px solid var(--border);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+}
+.settings-segmented .chrome-btn:last-child {
+  border-right: none;
+}
+.settings-segmented .chrome-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.settings-segmented .chrome-btn.is-active {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+.settings-status-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-panel);
+  font-size: 12px;
+}
+.settings-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-dim);
+}
+.settings-status-dot.is-ok {
+  background: var(--success);
+}
+.settings-list-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 36px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-list-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.settings-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 6px;
+  line-height: 16px;
+  height: 16px;
+}
+
+/* Embedded dual-pane panels (models / skills): shell-like, no floating card */
+.settings-embedded {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  background: var(--bg);
+}
+.settings-page-main .modal-header,
+.settings-embedded .modal-header {
+  border-radius: 0;
+  background: var(--bg-panel);
+}
+.settings-page-main .modal-footer,
+.settings-embedded .modal-footer {
+  border-radius: 0;
+  background: var(--bg-panel);
+}
+.settings-page-main .modal-sidebar,
+.settings-embedded .modal-sidebar {
+  background: var(--bg-panel);
+  width: min(220px, 32vw);
+}
+.settings-page-main .modal-body,
+.settings-embedded .modal-body {
+  min-height: 0;
+}
+/* Nav rows inside models/skills: slightly denser */
+.settings-embedded .modal-sidebar-scroll {
+  padding: 2px 0;
+}
+.settings-embedded .modal-nav-label {
+  font-size: 12px;
+}
+.settings-page-main .modal-main,
+.settings-embedded .modal-main {
+  background: var(--bg);
+  overflow: hidden; /* skill body scrolls inside detail panel */
+}
+.settings-skill-body .markdown-body {
+  font-size: 13px;
+}
+.settings-skill-body .markdown-body > :first-child {
+  margin-top: 0;
+}
+.settings-page-main .modal-sidebar-footer .chrome-btn,
+.settings-embedded .modal-sidebar-footer .chrome-btn {
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
+}

@@ -10,6 +10,7 @@ import type {
   SkillSearchResult,
   SkillUpdateResult,
 } from "@/lib/api-types";
+import { MarkdownBody } from "./MarkdownBody";
 
 function shortenPath(p: string): string {
   // Match common home dir patterns: /Users/xxx, /home/xxx
@@ -114,6 +115,31 @@ function SkillDetail({
   const { t } = useLocale();
   const label = sourceLabel(skill);
   const enabled = !skill.disableModelInvocation;
+  const [skillBody, setSkillBody] = useState<string | null>(null);
+  const [bodyLoading, setBodyLoading] = useState(false);
+  const [bodyError, setBodyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSkillBody(null);
+    setBodyError(null);
+    setBodyLoading(true);
+    fetch(`/api/skills/content?path=${encodeURIComponent(skill.filePath)}`)
+      .then(async (res) => {
+        const data = await res.json() as { body?: string; error?: string };
+        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+        if (!cancelled) setSkillBody(data.body ?? "");
+      })
+      .catch((error) => {
+        if (!cancelled) setBodyError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setBodyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [skill.filePath]);
 
   function displayPath(p: string): string {
     if (label === "project" && p.startsWith(cwd)) {
@@ -124,7 +150,7 @@ function SkillDetail({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, minHeight: 0, height: "100%" }}>
       {/* Path + tag + toggle */}
       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
         <span
@@ -331,10 +357,64 @@ function SkillDetail({
           {t("skills.description")}
         </span>
         <span
-          style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}
+          style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.55 }}
         >
           {skill.description}
         </span>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          flex: 1,
+          minHeight: 0,
+          borderTop: "1px solid var(--border)",
+          paddingTop: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}>
+            {t("skills.skillMd")}
+          </span>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: "var(--text-dim)",
+            }}
+          >
+            SKILL.md
+          </span>
+        </div>
+        {bodyLoading && (
+          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("common.loading")}</div>
+        )}
+        {bodyError && (
+          <div style={{ fontSize: 12, color: "var(--destructive)", lineHeight: 1.45 }}>{bodyError}</div>
+        )}
+        {!bodyLoading && !bodyError && skillBody !== null && (
+          skillBody.trim()
+            ? (
+              <div
+                className="settings-skill-body"
+                style={{
+                  flex: 1,
+                  minHeight: 120,
+                  overflow: "auto",
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-panel)",
+                  padding: "12px 14px",
+                }}
+              >
+                <MarkdownBody>{skillBody}</MarkdownBody>
+              </div>
+            )
+            : (
+              <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("skills.skillMdEmpty")}</div>
+            )
+        )}
       </div>
     </div>
   );
@@ -661,9 +741,12 @@ function AddSkillPanel({
 export function SkillsConfig({
   cwd,
   onClose,
+  embedded = false,
 }: {
   cwd: string;
   onClose: () => void;
+  /** When true, render as a full-height settings page panel (no modal chrome). */
+  embedded?: boolean;
 }) {
   const { t } = useLocale();
   const isMobile = useIsMobile();
@@ -831,18 +914,19 @@ export function SkillsConfig({
 
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null;
 
-  return (
-    <div
-      className="modal-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+  const panel = (
       <div
-        className="modal-shell"
-        role="dialog"
-        aria-modal="true"
-        style={{
+        className={embedded ? "settings-embedded" : "modal-shell"}
+        role={embedded ? undefined : "dialog"}
+        aria-modal={embedded ? undefined : true}
+        style={embedded ? {
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          minHeight: 0,
+          width: "100%",
+          background: "var(--bg)",
+        } : {
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",
           height: isMobile ? "calc(100dvh - 16px)" : "78vh",
@@ -850,23 +934,25 @@ export function SkillsConfig({
         }}
       >
         {/* Header — strip chrome */}
-        <div className="modal-header">
+        <div className="modal-header" style={embedded ? { borderRadius: 0 } : undefined}>
           <div className="modal-header-meta">
             <span className="modal-title">{t("modal.skills")}</span>
             <code className="modal-subtitle">{shortenPath(cwd)}</code>
           </div>
-          <button
-            type="button"
-            className="chrome-btn is-icon"
-            onClick={onClose}
-            aria-label={t("common.close")}
-          >
-            ×
-          </button>
+          {!embedded && (
+            <button
+              type="button"
+              className="chrome-btn is-icon"
+              onClick={onClose}
+              aria-label={t("common.close")}
+            >
+              ×
+            </button>
+          )}
         </div>
 
         {/* Body */}
-        <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row" }}>
+        <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row", flex: 1, minHeight: 0 }}>
           {/* Left: skill list */}
           <div className="modal-sidebar" style={isMobile ? { width: "100%", maxHeight: "40vh" } : undefined}>
             <div className="modal-sidebar-scroll">
@@ -1032,7 +1118,7 @@ export function SkillsConfig({
           </div>
 
           {/* Right: detail or add panel */}
-          <div className="modal-main">
+          <div className="modal-main" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
             {addMode ? (
               <AddSkillPanel
                 cwd={cwd}
@@ -1053,6 +1139,7 @@ export function SkillsConfig({
                 }}
               />
             ) : loading ? null : selectedSkill ? (
+              <div style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <SkillDetail
                 key={selectedSkill.filePath}
                 skill={selectedSkill}
@@ -1075,6 +1162,7 @@ export function SkillsConfig({
                 onCheckUpdate={() => void checkForUpdates(selectedSkill)}
                 onUpdate={() => void updateInstalledSkill(selectedSkill)}
               />
+              </div>
             ) : (
               <div className="modal-empty">{t("skills.selectSkill")}</div>
             )}
@@ -1111,11 +1199,24 @@ export function SkillsConfig({
               </span>
             )}
           </div>
-          <button type="button" className="chrome-btn" onClick={onClose}>
-            {t("common.close")}
-          </button>
+          {!embedded && (
+            <button type="button" className="chrome-btn" onClick={onClose}>
+              {t("common.close")}
+            </button>
+          )}
         </div>
       </div>
+  );
+
+  if (embedded) return panel;
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      {panel}
     </div>
   );
 }

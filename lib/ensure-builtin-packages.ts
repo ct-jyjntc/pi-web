@@ -21,6 +21,8 @@ export const BUILTIN_PACKAGE_SOURCES = [
   "npm:@juicesharp/rpiv-ask-user-question",
   "npm:@juicesharp/rpiv-todo",
   "npm:@lll9p/pi-better-compaction",
+  // MCP proxy tool (~200 tokens) + lazy servers; standard agent capability.
+  "npm:pi-mcp-adapter",
 ] as const;
 
 /** Previously bundled packages that are TUI-centric / redundant in pi-web. */

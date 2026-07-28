@@ -5,12 +5,34 @@ import path from "path";
 import type { IPty } from "node-pty";
 import { allowFileRoot, getAllowedFileRoots, isFilePathAllowed, isWindowsAbsolutePath } from "./file-access";
 
+export type PtySource = "user" | "agent";
+
 export type PtyEvent =
   | { type: "data"; data: string }
   | { type: "exit"; exitCode: number; signal?: number }
-  | { type: "ready"; pid: number; shell: string; cwd: string; cols: number; rows: number };
+  | { type: "ready"; pid: number; shell: string; cwd: string; cols: number; rows: number; source: PtySource; command?: string; title?: string };
+
+export type PtySessionInfo = {
+  id: string;
+  cwd: string;
+  shell: string;
+  pid: number;
+  cols: number;
+  rows: number;
+  source: PtySource;
+  command?: string;
+  title?: string;
+  agentSessionId?: string;
+  createdAt: number;
+  lastActiveAt: number;
+  exited: boolean;
+  exitCode?: number;
+  /** When false, hidden from Terminal UI (short agent commands). */
+  published: boolean;
+};
 
 type PtyListener = (event: PtyEvent) => void;
+type RegistryListener = (event: { type: "upsert" | "remove"; session?: PtySessionInfo; id?: string }) => void;
 
 interface PtySession {
   id: string;
@@ -19,11 +41,20 @@ interface PtySession {
   pty: IPty;
   cols: number;
   rows: number;
+  source: PtySource;
+  command?: string;
+  title?: string;
+  agentSessionId?: string;
   createdAt: number;
   lastActiveAt: number;
   exited: boolean;
+  exitCode?: number;
+  published: boolean;
+  publishTimer: ReturnType<typeof setTimeout> | null;
   listeners: Set<PtyListener>;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  history: string[];
+  historyBytes: number;
 }
 
 declare global {
@@ -31,19 +62,27 @@ declare global {
   var __piPtySessions: Map<string, PtySession> | undefined;
   // eslint-disable-next-line no-var
   var __piPtyModule: typeof import("node-pty") | null | undefined;
+  // eslint-disable-next-line no-var
+  var __piPtyRegistryListeners: Set<RegistryListener> | undefined;
 }
 
 const IDLE_MS = 30 * 60 * 1000;
+const AGENT_EXIT_KEEP_MS = 30 * 60 * 1000;
+const USER_EXIT_KEEP_MS = 5_000;
 const MAX_SESSIONS = 12;
+const MAX_HISTORY_BYTES = 256 * 1024;
 
 function sessions(): Map<string, PtySession> {
   if (!globalThis.__piPtySessions) globalThis.__piPtySessions = new Map();
   return globalThis.__piPtySessions;
 }
 
+function registryListeners(): Set<RegistryListener> {
+  if (!globalThis.__piPtyRegistryListeners) globalThis.__piPtyRegistryListeners = new Set();
+  return globalThis.__piPtyRegistryListeners;
+}
+
 function ensureSpawnHelperExecutable(): void {
-  // npm/packaging can drop the +x bit on node-pty's macOS spawn-helper, which
-  // then fails with the opaque "posix_spawnp failed" error.
   if (process.platform === "win32") return;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -58,7 +97,6 @@ function ensureSpawnHelperExecutable(): void {
       try {
         if (!fs.existsSync(helper)) continue;
         const mode = fs.statSync(helper).mode;
-        // u+x / g+x / o+x as needed
         if ((mode & 0o111) !== 0o111) {
           fs.chmodSync(helper, mode | 0o755);
         }
@@ -67,7 +105,7 @@ function ensureSpawnHelperExecutable(): void {
       }
     }
   } catch {
-    // ignore resolve failures — spawn will surface a clearer error later
+    // ignore
   }
 }
 
@@ -104,10 +142,16 @@ function resolveShell(): string {
   return "/bin/sh";
 }
 
-function buildEnv(cwd: string): Record<string, string> {
+function buildEnv(cwd: string, extra?: NodeJS.ProcessEnv): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value === "string") env[key] = value;
+  }
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) {
+      if (typeof value === "string") env[key] = value;
+      else if (value === undefined) delete env[key];
+    }
   }
   const extras = process.platform === "win32"
     ? []
@@ -138,9 +182,38 @@ function buildEnv(cwd: string): Record<string, string> {
   env.COLORTERM = env.COLORTERM || "truecolor";
   env.LANG = env.LANG || "en_US.UTF-8";
   env.PWD = cwd;
-  // Avoid leaking Electron-as-node into child shells.
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
+}
+
+function toInfo(session: PtySession): PtySessionInfo {
+  return {
+    id: session.id,
+    cwd: session.cwd,
+    shell: session.shell,
+    pid: session.pty.pid,
+    cols: session.cols,
+    rows: session.rows,
+    source: session.source,
+    command: session.command,
+    title: session.title,
+    agentSessionId: session.agentSessionId,
+    createdAt: session.createdAt,
+    lastActiveAt: session.lastActiveAt,
+    exited: session.exited,
+    exitCode: session.exitCode,
+    published: session.published,
+  };
+}
+
+function emitRegistry(event: { type: "upsert" | "remove"; session?: PtySessionInfo; id?: string }): void {
+  for (const listener of registryListeners()) {
+    try {
+      listener(event);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 function touch(session: PtySession): void {
@@ -149,8 +222,17 @@ function touch(session: PtySession): void {
   session.idleTimer = setTimeout(() => {
     destroyPtySession(session.id, "idle timeout");
   }, IDLE_MS);
-  // Don't keep the process alive solely for idle timers.
   session.idleTimer.unref?.();
+}
+
+function pushHistory(session: PtySession, chunk: string): void {
+  if (!chunk) return;
+  session.history.push(chunk);
+  session.historyBytes += chunk.length;
+  while (session.historyBytes > MAX_HISTORY_BYTES && session.history.length > 1) {
+    const removed = session.history.shift();
+    if (removed) session.historyBytes -= removed.length;
+  }
 }
 
 function emit(session: PtySession, event: PtyEvent): void {
@@ -158,7 +240,7 @@ function emit(session: PtySession, event: PtyEvent): void {
     try {
       listener(event);
     } catch {
-      // ignore subscriber errors
+      // ignore
     }
   }
 }
@@ -204,38 +286,84 @@ export async function assertPtyCwdAllowed(cwd: string): Promise<string> {
   return resolved;
 }
 
+function titleFromCommand(command: string): string {
+  const oneLine = command.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= 36) return oneLine;
+  return `${oneLine.slice(0, 33)}…`;
+}
+
 export async function createPtySession(options: {
   cwd: string;
   cols?: number;
   rows?: number;
-}): Promise<{ id: string; pid: number; shell: string; cwd: string; cols: number; rows: number }> {
+  /** When set, run this command in the PTY and exit when it finishes (agent bash). */
+  command?: string;
+  source?: PtySource;
+  agentSessionId?: string;
+  title?: string;
+  env?: NodeJS.ProcessEnv;
+  /**
+   * Whether Terminal UI should list this session immediately.
+   * - true: show now (user shells / known long-running agent cmds)
+   * - false: hidden until publishPtySession() (short agent cmds stay hidden)
+   * - "delayed": publish after publishAfterMs if still running
+   */
+  publish?: boolean | "delayed";
+  publishAfterMs?: number;
+}): Promise<PtySessionInfo> {
   const cwd = await assertPtyCwdAllowed(options.cwd);
   const cols = Math.max(20, Math.min(400, Math.floor(options.cols ?? 80)));
   const rows = Math.max(5, Math.min(200, Math.floor(options.rows ?? 24)));
   const pty = await loadPtyModule();
   const shell = resolveShell();
+  const source: PtySource = options.source ?? (options.command ? "agent" : "user");
+  const command = options.command?.trim() || undefined;
+  const title = options.title?.trim()
+    || (command ? titleFromCommand(command) : undefined);
+  const publishMode = options.publish ?? (source === "user" ? true : false);
+  const publishedInitially = publishMode === true;
   pruneIfNeeded();
 
   const id = randomBytes(8).toString("hex");
   let term: IPty;
   try {
-    const env = buildEnv(cwd);
-    term = process.platform === "win32"
-      ? pty.spawn(shell, [], {
-          name: "xterm-256color",
-          cols,
-          rows,
-          cwd,
-          env,
-          useConpty: true,
-        })
-      : pty.spawn(shell, ["-l"], {
-          name: "xterm-256color",
-          cols,
-          rows,
-          cwd,
-          env,
-        });
+    const env = buildEnv(cwd, options.env);
+    if (command) {
+      // One-shot command in a real TTY so the Terminal UI can attach + intervene.
+      term = process.platform === "win32"
+        ? pty.spawn(shell, ["/d", "/s", "/c", command], {
+            name: "xterm-256color",
+            cols,
+            rows,
+            cwd,
+            env,
+            useConpty: true,
+          })
+        : pty.spawn(shell, ["-lc", command], {
+            name: "xterm-256color",
+            cols,
+            rows,
+            cwd,
+            env,
+          });
+    } else {
+      term = process.platform === "win32"
+        ? pty.spawn(shell, [], {
+            name: "xterm-256color",
+            cols,
+            rows,
+            cwd,
+            env,
+            useConpty: true,
+          })
+        : pty.spawn(shell, ["-l"], {
+            name: "xterm-256color",
+            cols,
+            rows,
+            cwd,
+            env,
+          });
+    }
   } catch (error) {
     throw Object.assign(
       new Error(`Failed to spawn shell: ${error instanceof Error ? error.message : String(error)}`),
@@ -250,31 +378,104 @@ export async function createPtySession(options: {
     pty: term,
     cols,
     rows,
+    source,
+    command,
+    title,
+    agentSessionId: options.agentSessionId,
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
     exited: false,
+    published: publishedInitially,
+    publishTimer: null,
     listeners: new Set(),
     idleTimer: null,
+    history: [],
+    historyBytes: 0,
   };
+
+  if (command) {
+    const banner = `\r\n\x1b[90m$ ${command}\x1b[0m\r\n`;
+    pushHistory(session, banner);
+  }
 
   term.onData((data) => {
     touch(session);
+    pushHistory(session, data);
     emit(session, { type: "data", data });
   });
   term.onExit(({ exitCode, signal }) => {
     session.exited = true;
+    session.exitCode = exitCode;
+    if (session.publishTimer) {
+      clearTimeout(session.publishTimer);
+      session.publishTimer = null;
+    }
     emit(session, { type: "exit", exitCode, signal: signal ?? undefined });
-    // Keep the record briefly so late subscribers see the exit, then drop.
-    setTimeout(() => destroyPtySession(id), 5_000).unref?.();
+    // Only surface exit updates for sessions the UI already knows about.
+    if (session.published) {
+      emitRegistry({ type: "upsert", session: toInfo(session) });
+    }
+    const keepMs = session.source === "agent" ? AGENT_EXIT_KEEP_MS : USER_EXIT_KEEP_MS;
+    setTimeout(() => destroyPtySession(id), keepMs).unref?.();
   });
 
   sessions().set(id, session);
   touch(session);
-  return { id, pid: term.pid, shell, cwd, cols, rows };
+
+  if (publishMode === "delayed") {
+    const delay = Math.max(250, Math.floor(options.publishAfterMs ?? 2000));
+    session.publishTimer = setTimeout(() => {
+      session.publishTimer = null;
+      publishPtySession(id);
+    }, delay);
+    session.publishTimer.unref?.();
+  }
+
+  const info = toInfo(session);
+  if (session.published) {
+    emitRegistry({ type: "upsert", session: info });
+  }
+  return info;
+}
+
+/** Make a hidden agent PTY visible in the Terminal workspace. */
+export function publishPtySession(id: string): PtySessionInfo | null {
+  const session = sessions().get(id);
+  if (!session || session.exited) return null;
+  if (session.publishTimer) {
+    clearTimeout(session.publishTimer);
+    session.publishTimer = null;
+  }
+  if (session.published) return toInfo(session);
+  session.published = true;
+  const info = toInfo(session);
+  emitRegistry({ type: "upsert", session: info });
+  return info;
 }
 
 export function getPtySession(id: string): PtySession | null {
   return sessions().get(id) ?? null;
+}
+
+export function listPtySessions(filter?: {
+  cwd?: string;
+  source?: PtySource;
+  agentSessionId?: string;
+  /** Default true: only sessions shown in Terminal UI. */
+  publishedOnly?: boolean;
+}): PtySessionInfo[] {
+  const cwd = filter?.cwd ? path.resolve(filter.cwd) : null;
+  const publishedOnly = filter?.publishedOnly !== false;
+  return [...sessions().values()]
+    .filter((session) => {
+      if (publishedOnly && !session.published) return false;
+      if (cwd && path.resolve(session.cwd) !== cwd) return false;
+      if (filter?.source && session.source !== filter.source) return false;
+      if (filter?.agentSessionId && session.agentSessionId !== filter.agentSessionId) return false;
+      return true;
+    })
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map(toInfo);
 }
 
 export function writePtySession(id: string, data: string): void {
@@ -310,7 +511,6 @@ export function subscribePtySession(id: string, listener: PtyListener): () => vo
   }
   session.listeners.add(listener);
   touch(session);
-  // Immediate ready event for late joiners.
   listener({
     type: "ready",
     pid: session.pty.pid,
@@ -318,12 +518,26 @@ export function subscribePtySession(id: string, listener: PtyListener): () => vo
     cwd: session.cwd,
     cols: session.cols,
     rows: session.rows,
+    source: session.source,
+    command: session.command,
+    title: session.title,
   });
+  // Replay buffered output so late Terminal UI attaches still see AI commands.
+  if (session.history.length > 0) {
+    listener({ type: "data", data: session.history.join("") });
+  }
   if (session.exited) {
-    listener({ type: "exit", exitCode: 0 });
+    listener({ type: "exit", exitCode: session.exitCode ?? 0 });
   }
   return () => {
     session.listeners.delete(listener);
+  };
+}
+
+export function subscribePtyRegistry(listener: RegistryListener): () => void {
+  registryListeners().add(listener);
+  return () => {
+    registryListeners().delete(listener);
   };
 }
 
@@ -332,7 +546,11 @@ export function destroyPtySession(id: string, _reason?: string): void {
   if (!session) return;
   sessions().delete(id);
   if (session.idleTimer) clearTimeout(session.idleTimer);
+  if (session.publishTimer) clearTimeout(session.publishTimer);
   session.listeners.clear();
+  if (session.published) {
+    emitRegistry({ type: "remove", id });
+  }
   try {
     if (!session.exited) session.pty.kill();
   } catch {

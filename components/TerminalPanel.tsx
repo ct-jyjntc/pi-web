@@ -9,6 +9,11 @@ import { useLocale } from "@/hooks/useLocale";
 
 interface Props {
   cwd: string | null;
+  /** Attach to an existing server PTY (e.g. AI-started bash). When set, does not create a new shell. */
+  attachSessionId?: string | null;
+  /** When true, closing/unmounting does not kill the remote PTY (used while keeping hidden mounts). Default kill on unmount. */
+  persistRemoteOnUnmount?: boolean;
+  sourceLabel?: string | null;
 }
 
 type ThemeVars = {
@@ -42,7 +47,12 @@ function readTheme(el: HTMLElement | null): ThemeVars {
   };
 }
 
-export function TerminalPanel({ cwd }: Props) {
+export function TerminalPanel({
+  cwd,
+  attachSessionId = null,
+  persistRemoteOnUnmount = false,
+  sourceLabel = null,
+}: Props) {
   const { t } = useLocale();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -59,7 +69,7 @@ export function TerminalPanel({ cwd }: Props) {
     const host = hostRef.current;
     if (!host) return;
 
-    if (!cwd) {
+    if (!cwd && !attachSessionId) {
       setError(null);
       setStatus(t("git.terminalNoCwd"));
       return;
@@ -115,12 +125,15 @@ export function TerminalPanel({ cwd }: Props) {
     let sessionId: string | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    // Attached agent sessions are owned by AppShell tab close — never kill on remount.
+    let killOnDispose = attachSessionId ? false : !persistRemoteOnUnmount;
+    let cleanExit = false;
 
     const queueWrite = (data: string) => {
-      if (!sessionId) return;
+      if (!sessionId || cleanExit) return;
       writeQueueRef.current = writeQueueRef.current
         .then(async () => {
-          if (disposedRef.current || !sessionId) return;
+          if (disposedRef.current || !sessionId || cleanExit) return;
           await fetch(`/api/cwd/pty/${sessionId}/input`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -129,12 +142,12 @@ export function TerminalPanel({ cwd }: Props) {
           });
         })
         .catch(() => {
-          // ignore transient write failures; stream exit will surface hard errors
+          // ignore transient write failures
         });
     };
 
     const sendResize = () => {
-      if (!sessionId || !fitRef.current || !termRef.current) return;
+      if (!sessionId || cleanExit || !fitRef.current || !termRef.current) return;
       try {
         fitRef.current.fit();
       } catch {
@@ -150,29 +163,106 @@ export function TerminalPanel({ cwd }: Props) {
       }).catch(() => {});
     };
 
-    const disposeRemote = () => {
+    const disposeRemote = (forceKill = false) => {
+      // Clear ids first so EventSource onerror after close is not treated as a fault.
+      const id = sessionId;
+      sessionId = null;
+      sessionIdRef.current = null;
       if (es) {
         es.close();
         es = null;
         esRef.current = null;
       }
-      if (sessionId) {
-        const id = sessionId;
-        sessionId = null;
-        sessionIdRef.current = null;
+      if (id && (forceKill || killOnDispose)) {
         void fetch(`/api/cwd/pty/${id}`, { method: "DELETE", keepalive: true }).catch(() => {});
       }
+    };
+
+    const attachToSession = (id: string, meta?: { shell?: string; cwd?: string; command?: string }) => {
+      sessionId = id;
+      sessionIdRef.current = id;
+      cleanExit = false;
+      setStatus(null);
+      setError(null);
+      const label = sourceLabel
+        || (meta?.command ? `${t("git.terminalAgent")} · ${meta.command}` : null);
+      if (label) {
+        term.writeln(`\x1b[90m${label}\x1b[0m`);
+      } else {
+        term.writeln(`\x1b[90m${meta?.shell ?? "shell"} · ${meta?.cwd ?? cwd ?? ""}\x1b[0m`);
+      }
+
+      es = new EventSource(`/api/cwd/pty/${id}/events`);
+      esRef.current = es;
+
+      es.addEventListener("data", (evt) => {
+        try {
+          const payload = JSON.parse((evt as MessageEvent).data) as { data?: string };
+          if (payload.data) term.write(payload.data);
+        } catch {
+          // ignore
+        }
+      });
+      es.addEventListener("exit", (evt) => {
+        cleanExit = true;
+        killOnDispose = false;
+        try {
+          const payload = JSON.parse((evt as MessageEvent).data) as { exitCode?: number };
+          term.writeln("");
+          term.writeln(`\x1b[90m[process exited: ${payload.exitCode ?? 0}]\x1b[0m`);
+        } catch {
+          term.writeln("\r\n\x1b[90m[process exited]\x1b[0m");
+        }
+        setStatus(t("git.terminalExited"));
+        disposeRemote(false);
+      });
+      es.addEventListener("error", (evt) => {
+        const msgEvt = evt as MessageEvent;
+        if (typeof msgEvt.data === "string" && msgEvt.data) {
+          try {
+            const payload = JSON.parse(msgEvt.data) as { error?: string };
+            if (payload.error) {
+              setError(payload.error);
+              term.writeln(`\r\n\x1b[31m${payload.error}\x1b[0m`);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      });
+      es.onerror = () => {
+        if (disposedRef.current || cleanExit) return;
+        // ReadyState CLOSED after intentional dispose is not a fault.
+        if (!sessionIdRef.current) return;
+        if (es && es.readyState === EventSource.CLOSED) {
+          setStatus(t("git.terminalDisconnected"));
+        }
+      };
+
+      term.onData((data) => queueWrite(data));
+      resizeObserver = new ResizeObserver(() => {
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(sendResize, 50);
+      });
+      resizeObserver.observe(host);
+      requestAnimationFrame(sendResize);
     };
 
     const start = async () => {
       try {
         fit.fit();
+        if (attachSessionId) {
+          // Late attach: history is replayed by the server subscribe handler.
+          attachToSession(attachSessionId);
+          return;
+        }
+        if (!cwd) throw new Error(t("git.terminalNoCwd"));
         const cols = Math.max(term.cols || 80, 40);
         const rows = Math.max(term.rows || 24, 12);
         const res = await fetch("/api/cwd/pty", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cwd, cols, rows }),
+          body: JSON.stringify({ cwd, cols, rows, source: "user" }),
         });
         const data = await res.json() as {
           id?: string;
@@ -187,67 +277,7 @@ export function TerminalPanel({ cwd }: Props) {
           void fetch(`/api/cwd/pty/${data.id}`, { method: "DELETE", keepalive: true }).catch(() => {});
           return;
         }
-
-        sessionId = data.id;
-        sessionIdRef.current = data.id;
-        setStatus(null);
-        setError(null);
-        term.writeln(`\x1b[90m${data.shell ?? "shell"} · ${data.cwd ?? cwd}\x1b[0m`);
-
-        es = new EventSource(`/api/cwd/pty/${data.id}/events`);
-        esRef.current = es;
-
-        es.addEventListener("data", (evt) => {
-          try {
-            const payload = JSON.parse((evt as MessageEvent).data) as { data?: string };
-            if (payload.data) term.write(payload.data);
-          } catch {
-            // ignore malformed chunk
-          }
-        });
-        es.addEventListener("exit", (evt) => {
-          try {
-            const payload = JSON.parse((evt as MessageEvent).data) as { exitCode?: number };
-            term.writeln("");
-            term.writeln(`\x1b[90m[process exited: ${payload.exitCode ?? 0}]\x1b[0m`);
-          } catch {
-            term.writeln("\r\n\x1b[90m[process exited]\x1b[0m");
-          }
-          setStatus(t("git.terminalExited"));
-          disposeRemote();
-        });
-        es.addEventListener("error", (evt) => {
-          // EventSource also fires generic error on disconnect; only handle explicit error events with data.
-          const msgEvt = evt as MessageEvent;
-          if (typeof msgEvt.data === "string" && msgEvt.data) {
-            try {
-              const payload = JSON.parse(msgEvt.data) as { error?: string };
-              if (payload.error) {
-                setError(payload.error);
-                term.writeln(`\r\n\x1b[31m${payload.error}\x1b[0m`);
-              }
-            } catch {
-              // ignore
-            }
-          }
-        });
-        es.onerror = () => {
-          if (disposedRef.current) return;
-          // Keep terminal usable for local scroll; remote is gone.
-          if (sessionIdRef.current) {
-            setStatus(t("git.terminalDisconnected"));
-          }
-        };
-
-        term.onData((data) => queueWrite(data));
-
-        resizeObserver = new ResizeObserver(() => {
-          if (resizeTimer) clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(sendResize, 50);
-        });
-        resizeObserver.observe(host);
-        // Initial size sync after first paint.
-        requestAnimationFrame(sendResize);
+        attachToSession(data.id, { shell: data.shell, cwd: data.cwd });
       } catch (e) {
         if (disposedRef.current) return;
         const message = e instanceof Error ? e.message : String(e);
@@ -263,7 +293,7 @@ export function TerminalPanel({ cwd }: Props) {
       disposedRef.current = true;
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver?.disconnect();
-      disposeRemote();
+      disposeRemote(false);
       try {
         term.dispose();
       } catch {
@@ -272,7 +302,7 @@ export function TerminalPanel({ cwd }: Props) {
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [cwd, t]);
+  }, [cwd, attachSessionId, persistRemoteOnUnmount, sourceLabel, t]);
 
   return (
     <div

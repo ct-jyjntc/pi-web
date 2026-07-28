@@ -23,7 +23,7 @@ import {
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
 import { SpecializedExtensionWidget } from "./extension/ExtensionWidgetViews";
-import { clearSessionMetrics, setContextUsageMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
+import { clearSessionMetrics, setContextUsageMetric, setExtensionStatusesMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { setCompactHandlers } from "@/lib/compact-action-store";
 
 interface Props {
@@ -225,7 +225,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -322,6 +322,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     setContextUsageMetric(contextUsageRef.current);
     onContextUsageChange?.(contextUsageRef.current);
   }, [ctxKey, onContextUsageChange]);
+
+  const extensionStatusKey = useMemo(
+    () => extensionStatuses.map((s) => `${s.key}\0${s.text}`).join("\n"),
+    [extensionStatuses],
+  );
+  const extensionStatusesRef = useRef(extensionStatuses);
+  extensionStatusesRef.current = extensionStatuses;
+  useLayoutEffect(() => {
+    setExtensionStatusesMetric(extensionStatusesRef.current);
+  }, [extensionStatusKey]);
 
   useEffect(() => () => {
     clearSessionMetrics();

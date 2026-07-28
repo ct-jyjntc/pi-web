@@ -1,10 +1,11 @@
 /**
- * Session metrics store — keeps context usage / session stats updates out of
- * AppShell React state so streaming token ticks don't re-render the whole shell
- * (sidebar, git panel, file viewer, etc.).
+ * Session metrics store — keeps context usage / session stats / extension
+ * status updates out of AppShell React state so streaming token ticks don't
+ * re-render the whole shell (sidebar, git panel, file viewer, etc.).
  */
 import { useSyncExternalStore } from "react";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { ExtensionStatusItem } from "@/lib/types";
 
 export type ContextUsageInfo = {
   percent: number | null;
@@ -15,6 +16,7 @@ export type ContextUsageInfo = {
 type MetricsSnapshot = {
   contextUsage: ContextUsageInfo | null;
   sessionStats: SessionStatsInfo | null;
+  extensionStatuses: ExtensionStatusItem[];
 };
 
 type Listener = () => void;
@@ -23,6 +25,7 @@ const listeners = new Set<Listener>();
 let snapshot: MetricsSnapshot = {
   contextUsage: null,
   sessionStats: null,
+  extensionStatuses: [],
 };
 
 function emit() {
@@ -40,20 +43,33 @@ function getSnapshot(): MetricsSnapshot {
   return snapshot;
 }
 
-export function setContextUsageMetric(usage: ContextUsageInfo | null): void {
-  if (snapshot.contextUsage === usage) return;
-  // Cheap equality for the common case of identical values under a new object.
-  const prev = snapshot.contextUsage;
-  if (
-    prev &&
-    usage &&
-    prev.percent === usage.percent &&
-    prev.contextWindow === usage.contextWindow &&
-    prev.tokens === usage.tokens
-  ) {
-    return;
+function sameContextUsage(
+  a: ContextUsageInfo | null,
+  b: ContextUsageInfo | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.percent === b.percent
+    && a.contextWindow === b.contextWindow
+    && a.tokens === b.tokens
+  );
+}
+
+function sameExtensionStatuses(
+  a: ExtensionStatusItem[],
+  b: ExtensionStatusItem[],
+): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].key !== b[i].key || a[i].text !== b[i].text) return false;
   }
-  if (!prev && !usage) return;
+  return true;
+}
+
+export function setContextUsageMetric(usage: ContextUsageInfo | null): void {
+  if (sameContextUsage(snapshot.contextUsage, usage)) return;
   snapshot = { ...snapshot, contextUsage: usage };
   emit();
 }
@@ -64,9 +80,22 @@ export function setSessionStatsMetric(stats: SessionStatsInfo | null): void {
   emit();
 }
 
+export function setExtensionStatusesMetric(statuses: ExtensionStatusItem[]): void {
+  const next = Array.isArray(statuses) ? statuses : [];
+  if (sameExtensionStatuses(snapshot.extensionStatuses, next)) return;
+  snapshot = { ...snapshot, extensionStatuses: next };
+  emit();
+}
+
 export function clearSessionMetrics(): void {
-  if (snapshot.contextUsage === null && snapshot.sessionStats === null) return;
-  snapshot = { contextUsage: null, sessionStats: null };
+  if (
+    snapshot.contextUsage === null
+    && snapshot.sessionStats === null
+    && snapshot.extensionStatuses.length === 0
+  ) {
+    return;
+  }
+  snapshot = { contextUsage: null, sessionStats: null, extensionStatuses: [] };
   emit();
 }
 
@@ -90,10 +119,22 @@ export function useSessionStatsMetric(): SessionStatsInfo | null {
   );
 }
 
+export function useExtensionStatusesMetric(): ExtensionStatusItem[] {
+  return useSyncExternalStore(
+    subscribe,
+    () => getSnapshot().extensionStatuses,
+    () => [],
+  );
+}
+
 export function getSessionStatsMetric(): SessionStatsInfo | null {
   return snapshot.sessionStats;
 }
 
 export function getContextUsageMetric(): ContextUsageInfo | null {
   return snapshot.contextUsage;
+}
+
+export function getExtensionStatusesMetric(): ExtensionStatusItem[] {
+  return snapshot.extensionStatuses;
 }

@@ -5,7 +5,9 @@
 // chunk. PrismLight with explicitly registered languages keeps only the
 // languages the app realistically renders; unregistered languages fall
 // back to plain text.
+import type { CSSProperties } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
+import { vs as vsRaw, vscDarkPlus as vscDarkPlusRaw } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
 import c from "react-syntax-highlighter/dist/esm/languages/prism/c";
@@ -104,5 +106,34 @@ for (const [name, lang] of Object.entries(aliases)) {
 
 export { SyntaxHighlighter };
 export { default as createSyntaxElement } from "react-syntax-highlighter/dist/esm/create-element";
-export { vs, vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 export type { SyntaxHighlighterProps } from "react-syntax-highlighter";
+
+/**
+ * Prism themes disagree on background shorthand:
+ * - `vs` uses `backgroundColor`
+ * - `vsc-dark-plus` uses `background`
+ * Switching themes re-renders <pre> and React warns if both exist across updates.
+ * Normalize every style entry to `backgroundColor` only.
+ */
+function normalizePrismBackground(
+  style: Record<string, CSSProperties>,
+): Record<string, CSSProperties> {
+  const next: Record<string, CSSProperties> = {};
+  for (const [selector, rules] of Object.entries(style)) {
+    if (!rules || typeof rules !== "object") {
+      next[selector] = rules;
+      continue;
+    }
+    const copy: CSSProperties = { ...rules };
+    const bg = (copy as { background?: string }).background;
+    if (typeof bg === "string" && bg && !copy.backgroundColor) {
+      copy.backgroundColor = bg;
+    }
+    delete (copy as { background?: string }).background;
+    next[selector] = copy;
+  }
+  return next;
+}
+
+export const vs = normalizePrismBackground(vsRaw as Record<string, CSSProperties>);
+export const vscDarkPlus = normalizePrismBackground(vscDarkPlusRaw as Record<string, CSSProperties>);

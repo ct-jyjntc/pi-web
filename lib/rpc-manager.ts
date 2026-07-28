@@ -1,4 +1,5 @@
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, createBashToolDefinition, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentPtyBashOperations } from "./agent-bash-pty";
 import { resolveContextUsageForUi } from "./context-usage";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
@@ -1228,9 +1229,23 @@ export async function startRpcSession(
       agentDir,
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
+    // Run bash tool commands in a real PTY so the Terminal workspace can show
+    // AI-started shells and the user can type / interrupt them.
+    const agentBashTool = createBashToolDefinition(cwd, {
+      operations: createAgentPtyBashOperations({
+        getAgentSessionId: () => {
+          try {
+            return sessionManager.getSessionId();
+          } catch {
+            return undefined;
+          }
+        },
+      }),
+    });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
+      customTools: [agentBashTool as never],
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 

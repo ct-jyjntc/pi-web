@@ -1359,7 +1359,14 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose }: { onClose: () => void }) {
+export function ModelsConfig({
+  onClose,
+  embedded = false,
+}: {
+  onClose: () => void;
+  /** When true, render as a full-height settings page panel (no modal chrome). */
+  embedded?: boolean;
+}) {
   const { t } = useLocale();
   const isMobile = useIsMobile();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
@@ -1583,17 +1590,19 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     );
   })();
 
-  return (
-    <>
-    <div
-      className="modal-backdrop"
-      onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
-    >
+  const panel = (
       <div
-        role="dialog"
-        aria-modal="true"
-        className="modal-shell"
-        style={{
+        role={embedded ? undefined : "dialog"}
+        aria-modal={embedded ? undefined : true}
+        className={embedded ? "settings-embedded" : "modal-shell"}
+        style={embedded ? {
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          minHeight: 0,
+          width: "100%",
+          background: "var(--bg)",
+        } : {
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",
           height: isMobile ? "calc(100dvh - 16px)" : "78vh",
@@ -1601,24 +1610,26 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         }}
       >
 
-        {/* Header — strip chrome */}
-        <div className="modal-header">
+        {/* Header — strip chrome (page mode keeps a quiet subtitle bar) */}
+        <div className="modal-header" style={embedded ? { borderRadius: 0 } : undefined}>
           <div className="modal-header-meta">
             <span className="modal-title">{t("modal.models")}</span>
             <code className="modal-subtitle">~/.pi/agent/models.json</code>
           </div>
-          <button
-            type="button"
-            className="chrome-btn is-icon"
-            onClick={requestClose}
-            aria-label={t("common.close")}
-          >
-            ×
-          </button>
+          {!embedded && (
+            <button
+              type="button"
+              className="chrome-btn is-icon"
+              onClick={requestClose}
+              aria-label={t("common.close")}
+            >
+              ×
+            </button>
+          )}
         </div>
 
         {/* Body */}
-        <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row" }}>
+        <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row", flex: 1, minHeight: 0 }}>
 
           {/* Left: tree */}
           <div className="modal-sidebar" style={isMobile ? { width: "100%", maxHeight: "40vh" } : undefined}>
@@ -1743,11 +1754,13 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Footer — strip chrome */}
-        <div className="modal-footer">
+        <div className="modal-footer" style={embedded ? { borderRadius: 0 } : undefined}>
           {saveError && <span style={{ fontSize: 12, color: "var(--destructive)", flex: 1, minWidth: 0 }}>{saveError}</span>}
-          <button type="button" onClick={requestClose} className="chrome-btn">
-            {t("common.cancel")}
-          </button>
+          {!embedded && (
+            <button type="button" onClick={requestClose} className="chrome-btn">
+              {t("common.cancel")}
+            </button>
+          )}
           <button
             type="button"
             className="btn-primary"
@@ -1769,7 +1782,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
-    </div>
+  );
+
+  return (
+    <>
+    {embedded ? panel : (
+      <div
+        className="modal-backdrop"
+        onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
+      >
+        {panel}
+      </div>
+    )}
     {confirmDiscard && (
       <div
         className="modal-backdrop"

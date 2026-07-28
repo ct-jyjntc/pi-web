@@ -14,6 +14,7 @@ type Props = {
   onClose: () => void;
   onOpenModels: () => void;
   onOpenSkills: () => void;
+  onOpenMcp?: () => void;
   skillsDisabled?: boolean;
   /** Used to list available models for utility-task pickers. */
   cwd?: string | null;
@@ -95,6 +96,7 @@ export function SettingsConfig({
   onClose,
   onOpenModels,
   onOpenSkills,
+  onOpenMcp,
   skillsDisabled = false,
   cwd = null,
 }: Props) {
@@ -437,6 +439,21 @@ export function SettingsConfig({
                   onClick={onOpenSkills}
                   disabled={skillsDisabled}
                   title={skillsDisabled ? t("settings.skillsNeedCwd") : undefined}
+                >
+                  {t("settings.open")}
+                </button>
+              }
+            />
+
+            <SettingsRow
+              title={t("settings.mcp")}
+              description={t("settings.mcpDesc")}
+              action={
+                <button
+                  type="button"
+                  className="btn-ghost btn-compact"
+                  onClick={onOpenMcp}
+                  disabled={!onOpenMcp}
                 >
                   {t("settings.open")}
                 </button>

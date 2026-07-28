@@ -20,7 +20,12 @@ export async function GET(
     cwd: session.cwd,
     cols: session.cols,
     rows: session.rows,
+    source: session.source,
+    command: session.command,
+    title: session.title,
+    agentSessionId: session.agentSessionId,
     exited: session.exited,
+    exitCode: session.exitCode,
   });
 }
 
