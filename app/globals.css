@@ -2633,6 +2633,7 @@ span.linenumber {
 }
 .settings-page-main.is-scroll {
   overflow: auto;
+  overscroll-behavior: contain;
 }
 /* Content column: centered like chat (~820), denser console spacing */
 .settings-page-general,
@@ -2641,12 +2642,12 @@ span.linenumber {
   width: 100%;
   max-width: 820px;
   margin: 0 auto;
-  padding: 16px 24px 32px;
+  padding: 16px 24px 40px;
 }
 @media (max-width: 640px) {
   .settings-page-general,
   .settings-page-content {
-    padding: 12px 14px 28px;
+    padding: 12px 14px 32px;
   }
 }
 .settings-page-empty {
@@ -2808,11 +2809,14 @@ span.linenumber {
 }
 .settings-page-main .modal-body,
 .settings-embedded .modal-body {
+  flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
-/* Nav rows inside models/skills: slightly denser */
 .settings-embedded .modal-sidebar-scroll {
   padding: 2px 0;
+  overflow: auto;
+  min-height: 0;
 }
 .settings-embedded .modal-nav-label {
   font-size: 12px;
@@ -2820,7 +2824,8 @@ span.linenumber {
 .settings-page-main .modal-main,
 .settings-embedded .modal-main {
   background: var(--bg);
-  overflow: hidden; /* skill body scrolls inside detail panel */
+  overflow: auto;
+  min-height: 0;
 }
 .settings-skill-body .markdown-body {
   font-size: 13px;

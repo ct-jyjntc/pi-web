@@ -563,7 +563,19 @@ ipcMain.handle("pi-desktop:notify", (_event, payload = {}) => {
       ? payload.title.trim()
       : "Pi Web";
     const body = typeof payload.body === "string" ? payload.body : "";
-    const n = new Notification({ title, body, silent: Boolean(payload.silent) });
+    // Focus window when user clicks the notification.
+    const n = new Notification({
+      title,
+      body,
+      silent: Boolean(payload.silent),
+      timeoutType: "default",
+    });
+    n.on("click", () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    });
     n.show();
     return { ok: true };
   } catch (error) {
@@ -578,6 +590,15 @@ ipcMain.handle("pi-desktop:get-web-settings-path", () => {
 });
 
 app.whenReady().then(() => {
+  try {
+    // Helps macOS / Windows associate notifications with the app.
+    if (process.platform === "win32") {
+      app.setAppUserModelId("com.pi.web");
+    }
+    app.setName("Pi Web");
+  } catch {
+    // ignore
+  }
   // Do NOT call dock.setIcon(png) — flat PNG overrides the macOS icns mask
   // and produces the unmasked "π only" dock icon. Bundle icon.icns is enough.
 

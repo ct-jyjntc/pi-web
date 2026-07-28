@@ -207,47 +207,62 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   playDoneSoundRef.current = playDoneSound;
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
-  const notifyPrefsRef = useRef({ desktop: true, sound: true });
+  const notifyPrefsRef = useRef({ desktop: true, notifSound: true });
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/web-settings")
-      .then(async (res) => {
-        const data = await res.json() as {
-          settings?: { desktopNotifications?: boolean; notificationSound?: boolean; soundEnabled?: boolean };
-        };
-        if (cancelled || !data.settings) return;
-        notifyPrefsRef.current = {
-          desktop: data.settings.desktopNotifications !== false,
-          sound: data.settings.notificationSound !== false,
-        };
-      })
-      .catch(() => {});
+    const load = () => {
+      fetch("/api/web-settings")
+        .then(async (res) => {
+          const data = await res.json() as {
+            settings?: { desktopNotifications?: boolean; notificationSound?: boolean };
+          };
+          if (cancelled || !data.settings) return;
+          notifyPrefsRef.current = {
+            desktop: data.settings.desktopNotifications !== false,
+            notifSound: data.settings.notificationSound !== false,
+          };
+        })
+        .catch(() => {});
+    };
+    load();
+    // Re-read when tab becomes visible so settings toggles apply without remount.
+    const onVis = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
   const wrappedOnAgentEnd = useCallback(() => {
-    if (soundEnabledRef.current && notifyPrefsRef.current.sound) {
+    // In-app completion tone (composer sound toggle).
+    if (soundEnabledRef.current) {
       playDoneSoundRef.current();
     }
+    // System / desktop notification (separate preference).
     if (notifyPrefsRef.current.desktop && typeof window !== "undefined") {
+      const body = t("notify.taskComplete");
+      const silent = !notifyPrefsRef.current.notifSound;
       const desktop = window.piDesktop as
         | { isDesktop?: boolean; notify?: (p: { title: string; body: string; silent?: boolean }) => Promise<unknown> }
         | undefined;
       if (desktop?.isDesktop && typeof desktop.notify === "function") {
-        void desktop.notify({
-          title: "Pi Web",
-          body: t("notify.taskComplete"),
-          silent: !notifyPrefsRef.current.sound,
-        });
-      } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        try {
-          new Notification("Pi Web", { body: t("notify.taskComplete"), silent: !notifyPrefsRef.current.sound });
-        } catch {
-          // ignore
+        void desktop.notify({ title: "Pi Web", body, silent });
+      } else if (typeof Notification !== "undefined") {
+        const show = () => {
+          try {
+            new Notification("Pi Web", { body, silent });
+          } catch {
+            // ignore
+          }
+        };
+        if (Notification.permission === "granted") show();
+        else if (Notification.permission === "default") {
+          void Notification.requestPermission().then((p) => {
+            if (p === "granted") show();
+          });
         }
-      } else if (typeof Notification !== "undefined" && Notification.permission === "default") {
-        void Notification.requestPermission();
       }
     }
     onAgentEnd?.();

@@ -609,10 +609,34 @@ export function SettingsPage({
           <SettingsToggle
             enabled={prefs.desktopNotifications}
             onChange={(next) => {
-              if (next && typeof Notification !== "undefined" && Notification.permission === "default") {
-                void Notification.requestPermission();
-              }
-              void patchPref({ desktopNotifications: next });
+              void (async () => {
+                if (next) {
+                  const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
+                  if (desktop?.isDesktop && typeof desktop.notify === "function") {
+                    // Probe Electron notification path with a short sample.
+                    void desktop.notify({
+                      title: "Pi Web",
+                      body: t("notify.taskComplete"),
+                      silent: !prefs.notificationSound,
+                    });
+                  } else if (typeof Notification !== "undefined") {
+                    if (Notification.permission === "default") {
+                      await Notification.requestPermission();
+                    }
+                    if (Notification.permission === "granted") {
+                      try {
+                        new Notification("Pi Web", {
+                          body: t("notify.taskComplete"),
+                          silent: !prefs.notificationSound,
+                        });
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }
+                }
+                void patchPref({ desktopNotifications: next });
+              })();
             }}
           />
         }
@@ -1105,13 +1129,15 @@ export function SettingsPage({
         background: "var(--bg-panel)",
         padding: "8px 0",
       };
+  // Content pages scroll here; dual-pane models/skills manage their own overflow.
+  const mainScrolls = section === "general" || section === "appearance" || section === "mcp";
   const mainStyle: CSSProperties = {
     flex: 1,
     minWidth: 0,
     minHeight: 0,
     display: "flex",
     flexDirection: "column",
-    overflow: section === "general" ? "auto" : "hidden",
+    overflow: mainScrolls ? "auto" : "hidden",
     background: "var(--bg)",
   };
 
@@ -1225,7 +1251,7 @@ export function SettingsPage({
           })}
         </nav>
 
-        <main className={`settings-page-main${section === "general" ? " is-scroll" : ""}`} style={mainStyle}>
+        <main className={`settings-page-main${mainScrolls ? " is-scroll" : ""}`} style={mainStyle}>
           {section === "general" && generalPanel}
           {section === "appearance" && appearancePanel}
           {section === "models" && (
