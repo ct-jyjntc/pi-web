@@ -240,6 +240,10 @@ export class AgentSessionWrapper {
       this.applyForcedEmptySystemPrompt();
       console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
+      // Clear the cached promise so the next command retries the binding
+      // instead of rethrowing this failure forever. Concurrent callers still
+      // share the in-flight promise; only a failure clears the cache.
+      this.extensionBindingPromise = null;
       this.extensionBindingError = err;
       throw err;
     });
@@ -248,15 +252,16 @@ export class AgentSessionWrapper {
   }
 
   private async waitForExtensionsBound(): Promise<void> {
+    if (!this.extensionBindingPromise) {
+      // No binding in flight — (re)try it now. Since a failed attempt clears
+      // its cached promise, this is also the retry path after a failure.
+      if (!this.extensionsBound) await this.ensureExtensionsBound();
+      return;
+    }
     try {
-      if (this.extensionBindingPromise) await this.extensionBindingPromise;
+      await this.extensionBindingPromise;
     } catch (err) {
       throw err instanceof Error ? err : new Error(String(err));
-    }
-    if (this.extensionBindingError) {
-      throw this.extensionBindingError instanceof Error
-        ? this.extensionBindingError
-        : new Error(String(this.extensionBindingError));
     }
   }
 
@@ -279,7 +284,13 @@ export class AgentSessionWrapper {
   }
 
   private emit(event: AgentEvent): void {
-    for (const l of this.listeners) l(event);
+    for (const l of this.listeners) {
+      try {
+        l(event);
+      } catch {
+        // A broken listener must not disrupt other listeners or the SDK.
+      }
+    }
   }
 
   private resetIdleTimer(): void {
@@ -646,7 +657,21 @@ export class AgentSessionWrapper {
     this._alive = false;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.inner.isBashRunning) this.inner.abortBash();
+    // Abort any in-flight prompt/compaction so the SDK stops streaming (and
+    // stops writing to a session file that may already be deleted).
+    if (this.promptRunning || this.inner.isStreaming) {
+      void this.inner.abort().catch(() => {
+        // Best effort — the session is being torn down either way.
+      });
+    }
+    if (this.inner.isCompacting) {
+      try { this.inner.abortCompaction(); } catch { /* ignore */ }
+    }
     this.unsubscribe?.();
+    // Notify SSE subscribers that this wrapper is gone before dropping them,
+    // so open streams can close instead of hanging on the heartbeat.
+    this.emit({ type: "session_destroyed", sessionId: this.sessionId });
+    this.listeners = [];
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();

@@ -28,36 +28,59 @@ export async function GET(
 
   const stream = new ReadableStream({
     start(controller) {
+      const encoder = new TextEncoder();
+      let closed = false;
+      let unsubscribe: (() => void) | null = null;
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
+
       const encode = (data: unknown) => {
-        const text = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(new TextEncoder().encode(text));
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          // client already disconnected
+        }
       };
+
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        req.signal?.removeEventListener("abort", onAbort);
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = null;
+        unsubscribe?.();
+        unsubscribe = null;
+      };
+
+      const closeStream = () => {
+        cleanup();
+        try { controller.close(); } catch { /* ignore */ }
+      };
+
+      const onAbort = () => closeStream();
 
       // Send initial connected event
       encode({ type: "connected", sessionId: id });
 
-      const unsubscribe = session.onEvent((event) => {
+      unsubscribe = session.onEvent((event) => {
         encode(event);
+        // The wrapper was destroyed (idle timeout, fork, delete) — close the
+        // stream cleanly so the client's EventSource reconnects to the new wrapper.
+        if (event.type === "session_destroyed") closeStream();
       });
 
       // Heartbeat every 30s to prevent server/proxy timeout (Next.js default ~120-150s)
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
+        if (closed) return;
         try {
-          controller.enqueue(new TextEncoder().encode(":\n\n"));
+          controller.enqueue(encoder.encode(":\n\n"));
         } catch {
           // controller already closed
         }
       }, 30_000);
 
-      // Cleanup when client disconnects
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        unsubscribe();
-        controller.close();
-      };
-
       // Detect client disconnect via abort signal
-      req.signal?.addEventListener("abort", cleanup);
+      req.signal?.addEventListener("abort", onAbort);
     },
   });
 

@@ -1218,27 +1218,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       console.error("Failed to send message:", e);
-      if (e instanceof EventStreamConnectionError) {
-        const optimisticKey = optimisticUserMessageKeyRef.current;
-        if (optimisticKey) {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            return last?.role === "user" && userMessageKey(last) === optimisticKey
-              ? prev.slice(0, -1)
-              : prev;
-          });
-        }
-        addNotice({
-          type: "error",
-          message: e.message === "agent.sseTimeout" || e.message === "agent.sseFailed"
-            ? t(e.message)
-            : e.message,
+      // Any failure here means the prompt never reached the agent (HTTP error,
+      // SSE connection failure, ...). Roll back the optimistic bubble so a
+      // failed send never looks delivered, and restore the user's text into
+      // the input instead of losing it (insertIfEmpty avoids clobbering
+      // anything typed since). Mirrors the shell-command recovery in
+      // executeBash.
+      const optimisticKey = optimisticUserMessageKeyRef.current;
+      if (optimisticKey) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          return last?.role === "user" && userMessageKey(last) === optimisticKey
+            ? prev.slice(0, -1)
+            : prev;
         });
-        // The prompt never reached the agent, so restore the user's text into
-        // the input instead of losing it. Mirrors the shell-command recovery in
-        // executeBash; insertIfEmpty avoids clobbering anything typed since.
-        if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
       }
+      addNotice({
+        type: "error",
+        message: e instanceof EventStreamConnectionError && (e.message === "agent.sseTimeout" || e.message === "agent.sseFailed")
+          ? t(e.message)
+          : e instanceof Error ? e.message : String(e),
+      });
+      if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
       optimisticUserMessageKeyRef.current = null;
       agentRunningRef.current = false;
       setAgentRunning(false);
@@ -1512,8 +1513,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     } catch (e) {
       console.error("Failed to steer:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
     }
-  }, []);
+  }, [addNotice, opts.chatInputRef]);
 
   const handlePromptWithStreamingBehavior = useCallback(async (
     message: string,
@@ -1532,8 +1535,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     } catch (e) {
       console.error("Failed to queue prompt:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
     }
-  }, []);
+  }, [addNotice, opts.chatInputRef]);
 
   const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[]) => {
     const sid = sessionIdRef.current;
@@ -1547,8 +1552,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     } catch (e) {
       console.error("Failed to follow up:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
     }
-  }, []);
+  }, [addNotice, opts.chatInputRef]);
 
   const handleAbortCompaction = useCallback(async () => {
     const sid = sessionIdRef.current;

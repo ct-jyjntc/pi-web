@@ -113,8 +113,19 @@ export function createAgentPtyBashOperations(options?: {
       startupTimer = setTimeout(() => {
         if (settled || sawExit) return;
         const still = getPtySession(info.id);
-        if (!still || still.exited) {
-          // Race: exit event may still arrive; wait briefly via existing sub.
+        if (!still) {
+          // Session was destroyed (tab closed / pruned) and destroyPtySession
+          // clears listeners before killing, so no exit event will reach us.
+          // Settle with the output collected so far instead of hanging.
+          detachTool(
+            null,
+            "\n[Pi Web] Terminal session was closed before the process finished.\n",
+          );
+          return;
+        }
+        if (still.exited) {
+          // Exit raced with the startup window; report the real code.
+          detachTool(still.exitCode ?? 0);
           return;
         }
         detachTool(

@@ -29,6 +29,23 @@ export async function GET(
         }
       };
 
+      // Declared before subscribe: exited sessions replay exit synchronously,
+      // which runs cleanup() before subscribePtySession() returns.
+      const onAbort = () => {
+        cleanup();
+        try { controller.close(); } catch { /* ignore */ }
+      };
+
+      function cleanup() {
+        if (closed) return;
+        closed = true;
+        request.signal.removeEventListener("abort", onAbort);
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = null;
+        unsubscribe?.();
+        unsubscribe = null;
+      }
+
       try {
         unsubscribe = subscribePtySession(id, (evt) => {
           if (evt.type === "data") send("data", { data: evt.data });
@@ -46,25 +63,19 @@ export async function GET(
         return;
       }
 
+      if (closed) {
+        // Synchronous exit replay already cleaned up; drop the listener that
+        // was registered before cleanup ran and skip heartbeat/abort wiring.
+        unsubscribe?.();
+        unsubscribe = null;
+        return;
+      }
+
       send("hello", { id });
       heartbeat = setInterval(() => send("ping", { t: Date.now() }), 15_000);
       heartbeat.unref?.();
 
-      const onAbort = () => {
-        cleanup();
-        try { controller.close(); } catch { /* ignore */ }
-      };
       request.signal.addEventListener("abort", onAbort);
-
-      function cleanup() {
-        if (closed) return;
-        closed = true;
-        request.signal.removeEventListener("abort", onAbort);
-        if (heartbeat) clearInterval(heartbeat);
-        heartbeat = null;
-        unsubscribe?.();
-        unsubscribe = null;
-      }
     },
     cancel() {
       closed = true;

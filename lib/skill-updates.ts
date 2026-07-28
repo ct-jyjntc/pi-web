@@ -7,7 +7,7 @@ import type {
   SkillInstallInfo,
   SkillUpdateResult,
 } from "@/lib/api-types";
-import { gitProcessEnv, resolveGitBinary } from "@/lib/resolve-git";
+import { gitProcessEnv, resolveGitBinary } from "./resolve-git";
 
 const CHECK_TIMEOUT_MS = 15_000;
 const GIT_CHECK_TIMEOUT_MS = 30_000;
