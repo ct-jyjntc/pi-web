@@ -17,6 +17,8 @@ Web UI + Electron desktop · [ct-jyjntc/pi-web](https://github.com/ct-jyjntc/pi-
 ·
 [Releases](https://github.com/ct-jyjntc/pi-web/releases)
 
+> Based on [agegr/pi-web](https://github.com/agegr/pi-web) — secondary development with additional features and modifications.
+
 <br/>
 
 <table>
