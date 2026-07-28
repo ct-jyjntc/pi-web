@@ -17,6 +17,8 @@ Web UI + Electron 桌面端 · [ct-jyjntc/pi-web](https://github.com/ct-jyjntc/p
 ·
 [Releases](https://github.com/ct-jyjntc/pi-web/releases)
 
+> 基于 [agegr/pi-web](https://github.com/agegr/pi-web) 二次开发，在原有能力之上持续改进。
+
 <br/>
 
 <table>
