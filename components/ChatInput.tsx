@@ -236,7 +236,7 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
   );
 }
 
-export function ModelErrorBanner({ error }: { error?: string | null }) {
+function ModelErrorBanner({ error }: { error?: string | null }) {
   const { t } = useLocale();
   if (!error) return null;
   return (

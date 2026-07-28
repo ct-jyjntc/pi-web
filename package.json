@@ -26,7 +26,6 @@
     "!.next/cache",
     "!.next/dev",
     "!.next/**/*.js.map",
-    "public",
     "next.config.ts",
     "package.json"
   ],
@@ -177,7 +176,6 @@
     "lightningcss-win32-x64-msvc": "^1.33.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.2.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25",
     "@types/react": "19.2.17",

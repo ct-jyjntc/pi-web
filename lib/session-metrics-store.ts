@@ -111,30 +111,6 @@ export function useContextUsageMetric(): ContextUsageInfo | null {
   );
 }
 
-export function useSessionStatsMetric(): SessionStatsInfo | null {
-  return useSyncExternalStore(
-    subscribe,
-    () => getSnapshot().sessionStats,
-    () => null,
-  );
-}
-
-export function useExtensionStatusesMetric(): ExtensionStatusItem[] {
-  return useSyncExternalStore(
-    subscribe,
-    () => getSnapshot().extensionStatuses,
-    () => [],
-  );
-}
-
 export function getSessionStatsMetric(): SessionStatsInfo | null {
   return snapshot.sessionStats;
-}
-
-export function getContextUsageMetric(): ContextUsageInfo | null {
-  return snapshot.contextUsage;
-}
-
-export function getExtensionStatusesMetric(): ExtensionStatusItem[] {
-  return snapshot.extensionStatuses;
 }

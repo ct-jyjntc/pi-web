@@ -2,7 +2,6 @@ import {
   SessionManager,
   buildContextEntries as piBuildContextEntries,
   buildSessionContext as piBuildSessionContext,
-  getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
@@ -11,8 +10,6 @@ import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } fro
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
-
-export { getAgentDir };
 
 async function loadAllSessions(): Promise<SessionInfo[]> {
   const piSessions: PiSessionInfo[] = await SessionManager.listAll();

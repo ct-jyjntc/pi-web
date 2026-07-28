@@ -167,7 +167,7 @@ flowchart LR
 | Files | `app/api/files/*` · `file-index` · `FileExplorer` / `FileViewer` |
 | Models / auth | `app/api/models*` · `app/api/auth/*` · `ModelsConfig.tsx` |
 | Skills | `app/api/skills/*` · `SkillsConfig.tsx` |
-| Settings | `app/api/web-settings` · `SettingsConfig.tsx` |
+| Settings | `app/api/web-settings` · `SettingsPage.tsx` |
 | Worktrees | `app/api/worktrees` · `lib/worktree.ts` |
 | Updates | `app/api/app-update` |
 | i18n | `lib/i18n/messages.ts` · `hooks/useLocale.ts` |

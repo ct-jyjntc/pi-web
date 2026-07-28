@@ -63,7 +63,7 @@ function applyResolvedTheme(theme: Theme) {
   listeners.forEach((cb) => cb());
 }
 
-export function applyThemeMode(mode: ThemeMode) {
+function applyThemeMode(mode: ThemeMode) {
   try {
     localStorage.setItem("pi-theme-mode", mode);
     if (mode === "system") localStorage.removeItem("pi-theme");

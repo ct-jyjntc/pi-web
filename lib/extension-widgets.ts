@@ -1,4 +1,5 @@
 /** Parse and classify extension widget/status content for specialized UI. */
+import { stripAnsi } from "./ansi";
 
 export type WidgetKind =
   | "todo"
@@ -18,10 +19,6 @@ export function classifyWidgetKey(key: string): WidgetKind {
   if (k.includes("compact")) return "compaction";
   if (k.includes("rtk") || k.includes("token")) return "rtk";
   return "generic";
-}
-
-export function stripAnsi(text: string): string {
-  return text.replace(/\x1B\[[0-9;]*m/g, "").replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "");
 }
 
 export interface TodoItem {

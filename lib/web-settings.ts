@@ -245,37 +245,3 @@ export function writeWebSettings(next: Partial<WebSettings>): WebSettings {
   writeFileSync(path, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   return normalized;
 }
-
-/** Env vars Electron / Node should apply from web settings. */
-export function webSettingsToProcessEnv(settings: WebSettings): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = {};
-  const proxy = settings.httpProxy.trim();
-  if (proxy) {
-    env.HTTP_PROXY = proxy;
-    env.http_proxy = proxy;
-    env.HTTPS_PROXY = proxy;
-    env.https_proxy = proxy;
-    env.ALL_PROXY = proxy;
-    env.all_proxy = proxy;
-  } else {
-    // Explicit clear so a previous launch value is not sticky in the same process.
-    env.HTTP_PROXY = "";
-    env.http_proxy = "";
-    env.HTTPS_PROXY = "";
-    env.https_proxy = "";
-    env.ALL_PROXY = "";
-    env.all_proxy = "";
-  }
-  const bypass = settings.proxyBypass.trim();
-  if (bypass) {
-    env.NO_PROXY = bypass;
-    env.no_proxy = bypass;
-  } else if (proxy) {
-    env.NO_PROXY = "localhost,127.0.0.1,::1";
-    env.no_proxy = env.NO_PROXY;
-  }
-  const ca = settings.customCaCerts.trim();
-  if (ca) env.NODE_EXTRA_CA_CERTS = ca;
-  else env.NODE_EXTRA_CA_CERTS = "";
-  return env;
-}

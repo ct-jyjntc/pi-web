@@ -224,17 +224,6 @@ html.pi-desktop .app-topbar {
     display: none;
   }
 }
-@container apptopbar (max-width: 720px) {
-  .app-topbar-stats-extra {
-    display: none !important;
-  }
-}
-@container apptopbar (max-width: 560px) {
-  .app-topbar-stats-main {
-    display: none !important;
-  }
-}
-
 /* macOS: first sidebar strip clears traffic lights + matches top bar height */
 html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row.sidebar-toolbar-row {
   height: var(--titlebar-height);
@@ -771,7 +760,6 @@ pre, code {
   flex-shrink: 0;
 }
 
-.file-viewer-action-slot,
 .file-viewer-actions {
   display: flex;
   align-items: center;
@@ -779,11 +767,6 @@ pre, code {
   height: 24px;
   gap: 4px;
   flex-shrink: 0;
-}
-
-.file-viewer-action-slot {
-  width: 24px;
-  flex: 0 0 24px;
 }
 
 .file-viewer-mode-switch {
@@ -1077,9 +1060,6 @@ span.linenumber {
 
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
-  .chat-stats-center {
-    display: none !important;
-  }
   .sidebar-container {
     position: fixed !important;
     top: 0;
@@ -1490,25 +1470,6 @@ span.linenumber {
   align-self: stretch;
   background: var(--border);
   flex-shrink: 0;
-}
-.chrome-footer {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  flex: 0 0 auto;
-  width: 100%;
-  min-height: 36px;
-  height: 36px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel);
-  box-sizing: border-box;
-}
-.chrome-footer .chrome-btn {
-  flex: 1 1 0;
-  width: auto;
-  min-width: 0;
-  height: 100%;
-  min-height: 0;
 }
 /* Composer bottom controls row */
 .chrome-controls {
@@ -1980,14 +1941,6 @@ span.linenumber {
   line-height: 16px;
   flex-shrink: 0;
 }
-.right-workspace-add {
-  width: 36px;
-  min-width: 36px;
-  height: 100%;
-  border-radius: 0;
-  border-right: 1px solid var(--border);
-}
-
 /* Git review strips */
 .git-panel {
   display: flex;

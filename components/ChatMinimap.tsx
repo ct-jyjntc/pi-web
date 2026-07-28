@@ -10,8 +10,6 @@ interface Props {
   messageRefs: RefObject<(HTMLDivElement | null)[]>;
 }
 
-export const MINIMAP_WIDTH = 36;
-
 function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
   if (msg.role === "user") {
     const content = msg.content;

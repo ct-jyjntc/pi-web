@@ -29,8 +29,6 @@ import {
 import { createPtySession, destroyPtySession, getPtySession, subscribePtySession } from "./pty-sessions";
 import { foregroundGuardrail, looksLikeLongRunningCommand } from "./bash-command-classification";
 
-export { foregroundGuardrail, looksLikeLongRunningCommand } from "./bash-command-classification";
-
 /** How long to stream startup logs into the tool result before detaching. */
 const LONG_RUNNING_STARTUP_MS = 2_500;
 
@@ -39,7 +37,7 @@ const bashCallIntent = new AsyncLocalStorage<{ background?: boolean }>();
 
 // ── PTY execution (background services) ──────────────────────────────────────
 
-export function createAgentPtyBashOperations(options?: {
+function createAgentPtyBashOperations(options?: {
   /** Optional chat/agent session id for Terminal tab grouping. */
   getAgentSessionId?: () => string | undefined;
 }): BashOperations {
