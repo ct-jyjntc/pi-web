@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, forwardRef, memo, KeyboardEvent } from "react";
-import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { BuiltinSlashCommandResult, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -16,6 +16,45 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { useContextUsageMetric } from "@/lib/session-metrics-store";
+
+/** Circular context-usage meter for the compact control. */
+function ContextUsageRing({ percent, size = 12 }: { percent: number | null; size?: number }) {
+  const r = 4.25;
+  const c = 2 * Math.PI * r;
+  const pct = percent == null ? 0 : Math.min(100, Math.max(0, percent));
+  const offset = c * (1 - pct / 100);
+  // Quiet monochrome fill; turns to text color when high, destructive when critical.
+  const stroke =
+    percent == null ? "var(--text-dim)"
+      : pct > 90 ? "var(--destructive)"
+        : pct > 70 ? "var(--text)"
+          : "var(--text-muted)";
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+      style={{ display: "block", flexShrink: 0 }}
+    >
+      <circle cx="6" cy="6" r={r} stroke="var(--border)" strokeWidth="1.5" />
+      <circle
+        cx="6"
+        cy="6"
+        r={r}
+        stroke={stroke}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={offset}
+        transform="rotate(-90 6 6)"
+        style={{ transition: "stroke-dashoffset 0.2s ease, stroke 0.15s ease" }}
+      />
+    </svg>
+  );
+}
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -43,11 +82,8 @@ interface Props {
   modelError?: string | null;
   inputHistory?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
-  onCompact?: () => void;
-  onAbortCompaction?: () => void;
-  isCompacting?: boolean;
-  compactError?: string | null;
-  compactResult?: CompactResultInfo | null;
+  /** Open right-panel Context workspace (context ring next to send). */
+  onOpenContext?: () => void;
   toolPreset?: "none" | "default" | "full";
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
   /** Called after permission mode is persisted so the host can /reload. */
@@ -104,12 +140,6 @@ const THINKING_LEVEL_KEYS: Record<typeof THINKING_LEVELS[number], MessageKey> = 
   xhigh: "chat.thinkingXhigh",
   max: "chat.thinkingMax",
 };
-
-function formatTokenCount(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
-  return tokens.toLocaleString();
-}
 
 type SlashCommandPaletteItem = SlashCommandInfo | {
   name: string;
@@ -260,7 +290,7 @@ export function ModelErrorBanner({ error }: { error?: string | null }) {
 // streaming token reaching ChatWindow.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, onModelChange,
-  onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
+  onOpenContext, toolPreset, onToolPresetChange,
   onPermissionModeApplied,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   supportsImageInput = false,
@@ -274,6 +304,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 }: Props, ref) {
   const { t } = useLocale();
   const isMobile = useIsMobile();
+  const contextUsage = useContextUsageMetric();
+  const contextPct = contextUsage?.percent ?? null;
+  const contextPctLabel = contextPct != null ? `${Math.round(contextPct)}%` : null;
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -288,10 +321,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [permissionBusy, setPermissionBusy] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
-  const [compactConfirmOpen, setCompactConfirmOpen] = useState(false);
-  const [compactConfirmRect, setCompactConfirmRect] = useState<{ top: number; right: number } | null>(null);
-  const compactBtnRef = useRef<HTMLButtonElement>(null);
-  const compactConfirmRef = useRef<HTMLDivElement>(null);
+
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
@@ -1029,16 +1059,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     : null;
   const currentName = displayModelName;
 
-  const compactSavedTokens = compactResult
-    ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
-    : 0;
-  const compactResultText = compactResult
-    ? `${t("chat.compacted")} ${t("chat.compactedDetail", {
-      from: formatTokenCount(compactResult.tokensBefore),
-      to: formatTokenCount(compactResult.estimatedTokensAfter),
-      saved: formatTokenCount(compactSavedTokens),
-    })}`
-    : null;
   const thinkingDisplayLabel = (() => {
     const lvl = thinkingLevel ?? "auto";
     if (lvl === "auto" || !thinkingLevelMap) return lvl;
@@ -1116,20 +1136,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (historyMenuRef.current && !historyMenuRef.current.contains(e.target as Node) && !textareaRef.current?.contains(e.target as Node)) {
         setHistoryMenuOpen(false);
       }
-      const target = e.target as Node;
-      const inCompactBtn = compactBtnRef.current?.contains(target);
-      const inCompactConfirm = compactConfirmRef.current?.contains(target);
-      if (!inCompactBtn && !inCompactConfirm) {
-        setCompactConfirmOpen(false);
-      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
-
-  useEffect(() => {
-    if (isCompacting) setCompactConfirmOpen(false);
-  }, [isCompacting]);
 
   useEffect(() => {
     if (!isMobile) setControlsMenuOpen(false);
@@ -1274,20 +1284,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               <path d="M3 3v5h5" />
             </svg>
             {t("chat.retrying", { n: retryInfo.attempt, m: retryInfo.maxAttempts })}{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
-          </div>
-        )}
-        {compactResultText && (
-          <div style={{
-            marginBottom: 8, padding: "5px 10px",
-            background: "color-mix(in oklab, var(--success) 10%, transparent)",
-            border: "1px solid color-mix(in oklab, var(--success) 28%, var(--border))",
-            borderRadius: "var(--radius-sm)", fontSize: 12, color: "var(--success)",
-            display: "flex", alignItems: "center", gap: 6,
-          }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            {compactResultText}
           </div>
         )}
         {/* Image previews */}
@@ -1672,65 +1668,84 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }}
           />
 
-          {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-              {onSteer && (
-                <button
-                  type="button"
-                  className={`chrome-btn${canQueueStreamingMessage ? " is-active" : ""}`}
-                  onClick={() => sendQueued("steer")}
-                  disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? t("chat.queueNoImages") : t("chat.steerTitle")}
-                >
-                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
-                  </svg>
-                  {t("chat.steer")}
-                </button>
-              )}
-              {onFollowUp && (
-                <button
-                  type="button"
-                  className="chrome-btn"
-                  onClick={() => sendQueued("followup")}
-                  disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? t("chat.queueNoImages") : t("chat.followUpTitle")}
-                >
-                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
-                    <line x1="2" y1="9" x2="8" y2="9" />
-                  </svg>
-                  {t("chat.followUp")}
-                </button>
-              )}
-            </div>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
-              style={{
-                flexShrink: 0,
-                display: "flex", alignItems: "center", gap: 6,
-                height: 32, padding: "0 14px",
-                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
-                border: "none",
-                borderRadius: "var(--radius-pill)",
-                color: (value.trim() || attachedImages.length) ? "var(--accent-fg)" : "var(--text-dim)",
-                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
-                fontSize: 12,
-                fontWeight: 500,
-                letterSpacing: "-0.01em",
-                boxShadow: "none",
-                transition: "background 0.15s, box-shadow 0.15s",
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="2" y1="7" x2="11" y2="7" />
-                <polyline points="7.5 3 12 7 7.5 11" />
-              </svg>
-              {t("chat.send")}
-            </button>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+            {/* Context ring — opens right-panel Context workspace */}
+            {onOpenContext && (
+              <button
+                type="button"
+                className="chrome-btn is-icon"
+                onClick={onOpenContext}
+                title={
+                  contextPctLabel
+                    ? `${t("shell.contextTab")} · ${contextPctLabel}`
+                    : t("shell.contextTab")
+                }
+                aria-label={t("shell.contextTab")}
+                style={{ width: 32, height: 32, minHeight: 32 }}
+              >
+                <ContextUsageRing percent={contextPct} size={14} />
+              </button>
+            )}
+            {isStreaming ? (
+              <>
+                {onSteer && (
+                  <button
+                    type="button"
+                    className={`chrome-btn${canQueueStreamingMessage ? " is-active" : ""}`}
+                    onClick={() => sendQueued("steer")}
+                    disabled={!canQueueStreamingMessage}
+                    title={attachedImages.length ? t("chat.queueNoImages") : t("chat.steerTitle")}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
+                    </svg>
+                    {t("chat.steer")}
+                  </button>
+                )}
+                {onFollowUp && (
+                  <button
+                    type="button"
+                    className="chrome-btn"
+                    onClick={() => sendQueued("followup")}
+                    disabled={!canQueueStreamingMessage}
+                    title={attachedImages.length ? t("chat.queueNoImages") : t("chat.followUpTitle")}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
+                      <line x1="2" y1="9" x2="8" y2="9" />
+                    </svg>
+                    {t("chat.followUp")}
+                  </button>
+                )}
+              </>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!value.trim() && !attachedImages.length}
+                style={{
+                  flexShrink: 0,
+                  display: "flex", alignItems: "center", gap: 6,
+                  height: 32, padding: "0 14px",
+                  background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
+                  border: "none",
+                  borderRadius: "var(--radius-pill)",
+                  color: (value.trim() || attachedImages.length) ? "var(--accent-fg)" : "var(--text-dim)",
+                  cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  letterSpacing: "-0.01em",
+                  boxShadow: "none",
+                  transition: "background 0.15s, box-shadow 0.15s",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="2" y1="7" x2="11" y2="7" />
+                  <polyline points="7.5 3 12 7 7.5 11" />
+                </svg>
+                {t("chat.send")}
+              </button>
+            )}
+          </div>
           </div>
 
           {/* Toolbar strip — same chrome language as top bar */}
@@ -2112,113 +2127,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                         </button>
                       );
                     })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {!isStreaming && onCompact && (
-              <div style={{ position: "relative" }}>
-                {compactError && (
-                  <div role="alert" style={{
-                    position: "fixed",
-                    bottom: 72,
-                    right: 24,
-                    background: "var(--bg-panel)", color: "var(--destructive)",
-                    fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-sm)",
-                    maxWidth: "min(420px, 80vw)", overflowWrap: "break-word",
-                    border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
-                    boxShadow: "var(--shadow-md)", zIndex: 500,
-                  }}>
-                    {compactError}
-                  </div>
-                )}
-                <button
-                  ref={compactBtnRef}
-                  type="button"
-                  className={`chrome-btn${isCompacting || compactConfirmOpen ? " is-danger is-active" : ""}`}
-                  onClick={() => {
-                    if (isCompacting) {
-                      onAbortCompaction?.();
-                      setCompactConfirmOpen(false);
-                      return;
-                    }
-                    const rect = compactBtnRef.current?.getBoundingClientRect();
-                    if (rect) {
-                      setCompactConfirmRect({
-                        top: rect.top - 8,
-                        right: window.innerWidth - rect.right,
-                      });
-                    }
-                    setCompactConfirmOpen((v) => !v);
-                  }}
-                  disabled={isStreaming && !isCompacting}
-                  style={isMobile ? { padding: "0 6px" } : undefined}
-                  title={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
-                  aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
-                  aria-expanded={compactConfirmOpen}
-                  aria-haspopup="dialog"
-                >
-                  {isCompacting ? (
-                    <>
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>
-                      {(!isMobile || controlsMenuOpen) && <span>{t("chat.compacting")}</span>}
-                    </>
-                  ) : (
-                    <>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
-                        <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
-                      </svg>
-                      {(!isMobile || controlsMenuOpen) && <span>{t("chat.compact")}</span>}
-                    </>
-                  )}
-                </button>
-                {compactConfirmOpen && !isCompacting && compactConfirmRect && (
-                  <div
-                    ref={compactConfirmRef}
-                    role="dialog"
-                    aria-label={t("chat.compactConfirmTitle")}
-                    className="menu-card"
-                    style={{
-                      position: "fixed",
-                      top: compactConfirmRect.top,
-                      right: compactConfirmRect.right,
-                      transform: "translateY(-100%)",
-                      zIndex: 600,
-                      width: "min(280px, calc(100vw - 24px))",
-                      padding: 0,
-                      display: "flex",
-                      flexDirection: "column",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div className="modal-header" style={{ height: 36, minHeight: 36, padding: "0 12px" }}>
-                      <span className="modal-title" style={{ fontSize: 12 }}>{t("chat.compactConfirmTitle")}</span>
-                    </div>
-                    <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45 }}>
-                      {t("chat.compactConfirmBody")}
-                    </div>
-                    <div className="modal-footer" style={{ height: 36, minHeight: 36 }}>
-                      <button
-                        type="button"
-                        className="chrome-btn"
-                        onClick={() => setCompactConfirmOpen(false)}
-                      >
-                        {t("common.cancel")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        onClick={() => {
-                          setCompactConfirmOpen(false);
-                          onCompact();
-                        }}
-                        style={{ height: 28, padding: "0 12px", fontSize: 12 }}
-                      >
-                        {t("chat.compactConfirmAction")}
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>

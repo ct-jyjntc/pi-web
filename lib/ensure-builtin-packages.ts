@@ -32,7 +32,10 @@ export const PRUNE_PACKAGE_SOURCES = [
   "npm:pi-rtk-optimizer",
 ] as const;
 
-let ensurePromise: Promise<{ installed: string[]; notes: string[] }> | null = null;
+/** Delay before background version upgrades so cold start is not competing for npm. */
+const UPDATE_DELAY_MS = 5_000;
+
+let ensurePromise: Promise<{ installed: string[]; updated: string[]; notes: string[] }> | null = null;
 
 function sourceToPackageName(source: string): string {
   let s = source.trim();
@@ -86,34 +89,48 @@ async function installPeers(packageName: string): Promise<string | null> {
   return `Peers for ${packageName}: ${missing.join(", ")}`;
 }
 
+function createPackageManager(cwd: string) {
+  const settingsManager = SettingsManager.create(cwd, getAgentDir());
+  if (!settingsManager.getNpmCommand()?.length) {
+    const cmd = getNpmCommandForPi();
+    if (cmd) settingsManager.setNpmCommand(cmd);
+  }
+  return {
+    settingsManager,
+    packageManager: new DefaultPackageManager({
+      cwd,
+      agentDir: getAgentDir(),
+      settingsManager,
+    }),
+  };
+}
+
 /**
- * Install and register the pi-web built-in extension packages.
- * Idempotent; safe on every boot.
+ * Ensure built-in packages exist, then upgrade them to latest in the background.
+ *
+ * - Never throws out of the returned promise in a way that crashes the process
+ *   (errors are collected as notes).
+ * - Safe to call with `void ensureBuiltinPackages()` from instrumentation so
+ *   app startup is never blocked.
  */
-export function ensureBuiltinPackages(): Promise<{ installed: string[]; notes: string[] }> {
+export function ensureBuiltinPackages(): Promise<{ installed: string[]; updated: string[]; notes: string[] }> {
   if (ensurePromise) return ensurePromise;
   ensurePromise = (async () => {
     const installed: string[] = [];
+    const updated: string[] = [];
     const notes: string[] = [];
+
     try {
       ensureNpmOnPath();
       if (!resolveNpmBinary()) {
-        notes.push("npm not found — skip builtin package install");
-        return { installed, notes };
+        notes.push("npm not found — skip builtin package install/update");
+        return { installed, updated, notes };
       }
-      const cwd = process.cwd();
-      const settingsManager = SettingsManager.create(cwd, getAgentDir());
-      if (!settingsManager.getNpmCommand()?.length) {
-        const cmd = getNpmCommandForPi();
-        if (cmd) settingsManager.setNpmCommand(cmd);
-      }
-      const packageManager = new DefaultPackageManager({
-        cwd,
-        agentDir: getAgentDir(),
-        settingsManager,
-      });
 
-      // Drop TUI-only packages we no longer ship (best-effort).
+      const cwd = process.cwd();
+      const { settingsManager, packageManager } = createPackageManager(cwd);
+
+      // ── Phase 1: prune + install missing (still background, but first) ──
       for (const source of PRUNE_PACKAGE_SOURCES) {
         if (!packageConfigured(settingsManager, source) && !packageOnDisk(source)) continue;
         try {
@@ -128,9 +145,14 @@ export function ensureBuiltinPackages(): Promise<{ installed: string[]; notes: s
         const name = sourceToPackageName(source);
         const needInstall = !packageConfigured(settingsManager, source) || !packageOnDisk(source);
         if (needInstall) {
-          await packageManager.installAndPersist(source, { local: false });
-          installed.push(source);
-          notes.push(`Installed ${source}`);
+          try {
+            await packageManager.installAndPersist(source, { local: false });
+            installed.push(source);
+            notes.push(`Installed ${source}`);
+          } catch (e) {
+            notes.push(`Install failed ${source}: ${e instanceof Error ? e.message : String(e)}`);
+            continue;
+          }
         } else {
           notes.push(`Present ${source}`);
         }
@@ -141,11 +163,38 @@ export function ensureBuiltinPackages(): Promise<{ installed: string[]; notes: s
           notes.push(`Peer install failed for ${name}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
+
+      // ── Phase 2: upgrade to latest (deferred so first paint / first requests win) ──
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, UPDATE_DELAY_MS);
+      });
+
+      // Re-create manager after delay so settings/disk state is fresh.
+      const { packageManager: updater } = createPackageManager(cwd);
+      for (const source of BUILTIN_PACKAGE_SOURCES) {
+        if (!packageOnDisk(source)) continue;
+        try {
+          await updater.update(source);
+          // update() is a no-op when already latest; still counts as a successful pass.
+          updated.push(source);
+          notes.push(`Update check done ${source}`);
+        } catch (e) {
+          // Offline / already latest / network blip — never fatal.
+          notes.push(`Update skipped ${source}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        try {
+          const peerNote = await installPeers(sourceToPackageName(source));
+          if (peerNote) notes.push(peerNote);
+        } catch {
+          // ignore peer refresh failures after update
+        }
+      }
     } catch (error) {
       notes.push(`ensureBuiltinPackages failed: ${error instanceof Error ? error.message : String(error)}`);
       console.error("[pi-web]", notes[notes.length - 1]);
     }
-    return { installed, notes };
+
+    return { installed, updated, notes };
   })();
   return ensurePromise;
 }

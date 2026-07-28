@@ -24,6 +24,7 @@ import {
 } from "@/lib/chat-lazy-load";
 import { SpecializedExtensionWidget, SpecializedStatusChip } from "./extension/ExtensionWidgetViews";
 import { clearSessionMetrics, setContextUsageMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
+import { setCompactHandlers } from "@/lib/compact-action-store";
 
 interface Props {
   session: SessionInfo | null;
@@ -564,6 +565,20 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     void handleBuiltinSlashCommand("/reload");
   }, [handleBuiltinSlashCommand]);
 
+  // Expose compact to Context panel (no confirm) without prop-drilling AppShell.
+  useEffect(() => {
+    if (!(session || isNew)) {
+      setCompactHandlers(null);
+      return;
+    }
+    setCompactHandlers({
+      compact: () => { void handleCompact(); },
+      abort: handleAbortCompaction,
+      isCompacting,
+    });
+    return () => setCompactHandlers(null);
+  }, [session, isNew, handleCompact, handleAbortCompaction, isCompacting]);
+
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
@@ -579,11 +594,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelList={modelList}
       modelError={modelError}
       onModelChange={handleModelChange}
-      onCompact={session || isNew ? handleCompact : undefined}
-      onAbortCompaction={handleAbortCompaction}
-      isCompacting={isCompacting}
-      compactError={compactError}
-      compactResult={compactResult}
+      onOpenContext={onSessionStatsPanelOpen}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
       onPermissionModeApplied={session || isNew ? handlePermissionModeApplied : undefined}

@@ -8,9 +8,16 @@ export async function register(): Promise<void> {
   const { ensureSubagentSpawnEnv } = await import("@/lib/resolve-pi-cli");
   ensureSubagentSpawnEnv();
 
-  // Preinstall first-party pi packages into ~/.pi/agent (idempotent).
+  // Builtin packages: install missing + later upgrade to latest — all in background.
+  // Must never block / crash process boot (void + internal try/catch).
   const { ensureBuiltinPackages } = await import("@/lib/ensure-builtin-packages");
-  void ensureBuiltinPackages().then((r) => {
-    for (const note of r.notes) console.log(`[pi-web] ${note}`);
-  });
+  void ensureBuiltinPackages()
+    .then((r) => {
+      for (const note of r.notes) console.log(`[pi-web] ${note}`);
+      if (r.installed.length) console.log(`[pi-web] Builtin packages installed: ${r.installed.join(", ")}`);
+      if (r.updated.length) console.log(`[pi-web] Builtin packages updated: ${r.updated.join(", ")}`);
+    })
+    .catch((error) => {
+      console.error("[pi-web] ensureBuiltinPackages background error:", error);
+    });
 }

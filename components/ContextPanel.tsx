@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { copyText } from "@/lib/clipboard";
 import { useSessionMetrics } from "@/lib/session-metrics-store";
+import { getCompactHandlers, requestCompact, subscribeCompactHandlers } from "@/lib/compact-action-store";
 
 type SessionCopyField = "file" | "id";
 
@@ -35,6 +36,11 @@ export function ContextTabBadge() {
 export function ContextPanel() {
   const { t } = useLocale();
   const { contextUsage, sessionStats } = useSessionMetrics();
+  const compactState = useSyncExternalStore(
+    subscribeCompactHandlers,
+    getCompactHandlers,
+    () => null,
+  );
   const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null);
   const sessionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -186,6 +192,41 @@ export function ContextPanel() {
           )}
         </div>
         <div className="git-panel-toolbar-actions" style={{ display: "flex", alignItems: "stretch", marginLeft: "auto", flexShrink: 0 }}>
+          {compactState && (
+            <button
+              type="button"
+              className={`chrome-btn${compactState.isCompacting ? " is-danger is-active" : ""}`}
+              onClick={() => {
+                if (compactState.isCompacting) {
+                  compactState.abort?.();
+                  return;
+                }
+                requestCompact();
+              }}
+              title={compactState.isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+              aria-label={compactState.isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+              style={{
+                height: "100%",
+                minHeight: 0,
+                borderRadius: 0,
+                borderLeft: "1px solid var(--border)",
+                padding: "0 12px",
+                gap: 6,
+                fontSize: 12,
+              }}
+            >
+              {compactState.isCompacting ? (
+                <>
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+                    <rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" />
+                  </svg>
+                  <span>{t("chat.compacting")}</span>
+                </>
+              ) : (
+                <span>{t("chat.compact")}</span>
+              )}
+            </button>
+          )}
           {sessionStats?.sessionFile && (
             <button
               type="button"
