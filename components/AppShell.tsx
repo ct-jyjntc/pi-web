@@ -1429,6 +1429,24 @@ export function AppShell() {
               onOpenFile={(filePath, fileName) => {
                 handleOpenFile(filePath, fileName);
               }}
+              onReviewSessionStarted={(session) => {
+                setNewSessionCwd(null);
+                setSelectedSession({
+                  id: session.id,
+                  path: "",
+                  cwd: session.cwd,
+                  created: new Date().toISOString(),
+                  modified: new Date().toISOString(),
+                  messageCount: 1,
+                  firstMessage: session.name ?? "Git review",
+                  name: session.name,
+                });
+                setSessionKey((k) => k + 1);
+                setRefreshKey((k) => k + 1);
+                hydrateSelectedSession(session.id);
+                router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+                if (isMobile) setSidebarOpen(false);
+              }}
             />
           </div>
 

@@ -80,7 +80,9 @@ export async function draftCommitMessageWithAi(
   }
 
   const prefs = readWebSettings();
-  const resolved = await resolveUtilityModel(cwd, prefs.commitModel);
+  // Prefer explicit commit model, then smol role, then default utility resolution.
+  const preferred = prefs.commitModel ?? prefs.modelRoles.smol ?? null;
+  const resolved = await resolveUtilityModel(cwd, preferred);
   // Keep method receiver so ModelRuntime.completeSimple → this.streamSimple works.
   const completeSimple = resolved.modelRuntime.completeSimple.bind(
     resolved.modelRuntime,

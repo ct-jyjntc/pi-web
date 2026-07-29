@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { copyText } from "@/lib/clipboard";
@@ -75,6 +75,56 @@ export function ContextPanel() {
     getCompactHandlers,
     () => null,
   );
+  const [checkpoints, setCheckpoints] = useState<Array<{
+    id: string;
+    name: string;
+    summary: string;
+    entryId?: string;
+    createdAt: string;
+  }>>([]);
+  const [checkpointBusy, setCheckpointBusy] = useState(false);
+
+  useEffect(() => {
+    const sid = sessionStats?.sessionId;
+    if (!sid) {
+      setCheckpoints([]);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/checkpoints?sessionId=${encodeURIComponent(sid)}`)
+      .then(async (res) => {
+        const data = await res.json() as { checkpoints?: typeof checkpoints };
+        if (!cancelled && Array.isArray(data.checkpoints)) setCheckpoints(data.checkpoints);
+      })
+      .catch(() => {
+        if (!cancelled) setCheckpoints([]);
+      });
+    return () => { cancelled = true; };
+  }, [sessionStats?.sessionId]);
+
+  const rewindTo = useCallback(async (entryId: string | undefined) => {
+    const sid = sessionStats?.sessionId;
+    if (!sid || !entryId) return;
+    setCheckpointBusy(true);
+    try {
+      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "navigate_tree", entryId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      // Soft reload so the chat tree reflects the navigated leaf.
+      window.location.reload();
+    } catch {
+      // ignore — user can still switch branch manually
+    } finally {
+      setCheckpointBusy(false);
+    }
+  }, [sessionStats?.sessionId]);
+
   const extensionRows = useMemo(
     () => visibleExtensionStatuses(extensionStatuses),
     [extensionStatuses],
@@ -446,6 +496,51 @@ export function ContextPanel() {
                 {kvRow(t("shell.toolCalls"), sessionStats.toolCalls.toLocaleString())}
                 {kvRow(t("shell.toolResults"), sessionStats.toolResults.toLocaleString())}
                 {kvRow(t("shell.total"), sessionStats.totalMessages.toLocaleString())}
+
+                {sectionHeader(t("shell.checkpoints"))}
+                {checkpoints.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "var(--text-dim)", padding: "4px 0 8px" }}>
+                    {t("shell.checkpointsEmpty")}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                    {checkpoints.slice(0, 8).map((cp) => (
+                      <div
+                        key={cp.id}
+                        style={{
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--radius-sm)",
+                          padding: "6px 8px",
+                          background: "var(--bg-subtle)",
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <strong style={{ fontWeight: 600 }}>{cp.name}</strong>
+                          <span style={{ color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)" }}>
+                            {cp.id}
+                          </span>
+                          {cp.entryId && (
+                            <button
+                              type="button"
+                              className="chrome-btn"
+                              disabled={checkpointBusy}
+                              onClick={() => void rewindTo(cp.entryId)}
+                              style={{ marginLeft: "auto", height: 22, minHeight: 22, padding: "0 8px", fontSize: 11 }}
+                            >
+                              {t("shell.checkpointRewind")}
+                            </button>
+                          )}
+                        </div>
+                        {cp.summary && (
+                          <div style={{ color: "var(--text-muted)", marginTop: 4, lineHeight: 1.35 }}>
+                            {cp.summary}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </>

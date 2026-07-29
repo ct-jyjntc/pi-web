@@ -149,7 +149,17 @@ type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["re
   wrapLines: boolean;
 };
 
-function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: SourceCodeRendererProps) {
+type LineDiagnostic = { severity: "error" | "warning" | "info"; message: string; code?: string };
+
+function SourceCodeRenderer({
+  rows,
+  stylesheet,
+  useInlineStyles,
+  wrapLines,
+  diagnosticsByLine,
+}: SourceCodeRendererProps & {
+  diagnosticsByLine?: Map<number, LineDiagnostic[]>;
+}) {
   return rows.map((row, lineIndex) => {
     const children = row.children ?? [];
     const firstChildClasses = children[0]?.properties?.className;
@@ -157,13 +167,40 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
       && firstChildClasses.includes("react-syntax-highlighter-line-number");
     const lineNumberNode = hasLineNumber ? children[0] : null;
     const contentNodes = hasLineNumber ? children.slice(1) : children;
+    const lineNo = lineIndex + 1;
+    const diags = diagnosticsByLine?.get(lineNo);
+    const worst = diags?.some((d) => d.severity === "error")
+      ? "error"
+      : diags?.some((d) => d.severity === "warning")
+        ? "warning"
+        : diags?.length
+          ? "info"
+          : null;
+    const gutterColor = worst === "error"
+      ? "var(--destructive)"
+      : worst === "warning"
+        ? "var(--text)"
+        : worst === "info"
+          ? "var(--text-muted)"
+          : undefined;
+    const title = diags?.map((d) => `${d.severity.toUpperCase()}${d.code ? ` ${d.code}` : ""}: ${d.message}`).join("\n");
 
     return (
       <span
         className="file-source-line"
-        data-line-number={lineIndex + 1}
+        data-line-number={lineNo}
         key={`source-line-${lineIndex}`}
-        style={{ display: "flex", minWidth: "100%" }}
+        title={title}
+        style={{
+          display: "flex",
+          minWidth: "100%",
+          background: worst === "error"
+            ? "color-mix(in oklab, var(--destructive) 10%, transparent)"
+            : worst === "warning"
+              ? "color-mix(in oklab, var(--text) 6%, transparent)"
+              : undefined,
+          boxShadow: gutterColor ? `inset 3px 0 0 ${gutterColor}` : undefined,
+        }}
       >
         {lineNumberNode && renderSyntaxNode({
           node: lineNumberNode,
@@ -811,6 +848,10 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   const [wrapLines, setWrapLines] = useState(true);
   const [watching, setWatching] = useState(false);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  const [diagnosticsByLine, setDiagnosticsByLine] = useState<Map<number, LineDiagnostic[]>>(new Map());
+  const [diagList, setDiagList] = useState<Array<LineDiagnostic & { line: number; column?: number }>>([]);
+  const [diagPanelOpen, setDiagPanelOpen] = useState(false);
+  const [diagSummary, setDiagSummary] = useState<{ errors: number; warnings: number } | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const gitDiffRequestRef = useRef(0);
   const contentRequestRef = useRef(0);
@@ -861,6 +902,60 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
     }
   }, [cwd]);
 
+  const fetchDiagnostics = useCallback(async (targetPath: string) => {
+    if (!cwd) {
+      setDiagnosticsByLine(new Map());
+      setDiagList([]);
+      setDiagSummary(null);
+      return;
+    }
+    try {
+      const params = new URLSearchParams({ cwd, path: targetPath });
+      const response = await fetch(`/api/diagnostics?${params.toString()}`);
+      const next = await response.json() as {
+        items?: Array<{ line?: number; column?: number; severity?: string; message?: string; code?: string; filePath?: string }>;
+      };
+      if (!response.ok) {
+        setDiagnosticsByLine(new Map());
+        setDiagList([]);
+        setDiagSummary(null);
+        return;
+      }
+      const map = new Map<number, LineDiagnostic[]>();
+      const list: Array<LineDiagnostic & { line: number; column?: number }> = [];
+      let errors = 0;
+      let warnings = 0;
+      for (const item of next.items ?? []) {
+        const line = Number(item.line) || 1;
+        const severity: LineDiagnostic["severity"] =
+          item.severity === "error" || item.severity === "warning" || item.severity === "info"
+            ? item.severity
+            : "info";
+        if (severity === "error") errors += 1;
+        else if (severity === "warning") warnings += 1;
+        const entry = {
+          severity,
+          message: item.message ?? "",
+          code: item.code,
+          line,
+          column: typeof item.column === "number" ? item.column : undefined,
+        };
+        const bucket = map.get(line) ?? [];
+        bucket.push(entry);
+        map.set(line, bucket);
+        list.push(entry);
+      }
+      setDiagnosticsByLine(map);
+      setDiagList(list);
+      setDiagSummary(errors + warnings > 0 || list.length > 0 ? { errors, warnings } : null);
+      if (list.length > 0) setDiagPanelOpen(true);
+    } catch {
+      setDiagnosticsByLine(new Map());
+      setDiagList([]);
+      setDiagSummary(null);
+    }
+  }, [cwd]);
+
   // Initial load + SSE watch setup
   useEffect(() => {
     setLoading(true);
@@ -870,6 +965,10 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
     setDisplayMode("source");
     setWrapLines(false);
     setWatching(false);
+    setDiagnosticsByLine(new Map());
+    setDiagList([]);
+    setDiagSummary(null);
+    setDiagPanelOpen(false);
 
     if (esRef.current) {
       esRef.current.close();
@@ -879,6 +978,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
     fetchContent(filePath).then((d) => {
       if (d?.language === "markdown") setDisplayMode("preview");
     }).finally(() => setLoading(false));
+    void fetchDiagnostics(filePath);
 
     // Set up SSE watch
     const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
@@ -905,11 +1005,15 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
       es.close();
       esRef.current = null;
     };
-  }, [filePath, fetchContent, fetchGitDiff, sourceSessionId]);
+  }, [filePath, fetchContent, fetchDiagnostics, fetchGitDiff, sourceSessionId]);
 
   useEffect(() => {
     void fetchGitDiff(filePath);
   }, [fetchGitDiff, filePath, gitRefreshKey]);
+
+  useEffect(() => {
+    void fetchDiagnostics(filePath);
+  }, [fetchDiagnostics, filePath, gitRefreshKey]);
 
   const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
 
@@ -1020,6 +1124,28 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
         </span>
 
         <span className="file-viewer-meta" title={metadata}>{metadata}</span>
+        {(diagSummary || diagList.length > 0) && (
+          <button
+            type="button"
+            className="chrome-btn"
+            onClick={() => setDiagPanelOpen((v) => !v)}
+            title="Toggle diagnostics panel"
+            style={{
+              height: 22,
+              minHeight: 22,
+              padding: "0 8px",
+              fontSize: 11,
+              fontFamily: "var(--font-mono)",
+              fontVariantNumeric: "tabular-nums",
+              color: (diagSummary?.errors ?? 0) > 0 ? "var(--destructive)" : "var(--text-muted)",
+            }}
+          >
+            {(diagSummary?.errors ?? 0) > 0 ? `${diagSummary?.errors} err` : "0 err"}
+            {" · "}
+            {(diagSummary?.warnings ?? 0) > 0 ? `${diagSummary?.warnings} warn` : "0 warn"}
+            {diagPanelOpen ? " ▾" : " ▸"}
+          </button>
+        )}
         <span
           title={watching ? t("viewer.liveSync") : t("viewer.notWatching")}
           aria-label={watching ? t("viewer.liveSync") : t("viewer.notWatching")}
@@ -1098,8 +1224,9 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
         </div>
       </div>
 
-      {/* Content area */}
-      <div ref={contentRef} className="file-viewer-content" style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
+      {/* Content area + diagnostics panel */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div ref={contentRef} className="file-viewer-content" style={{ flex: 1, overflow: "auto", background: "var(--bg)", minHeight: 0 }}>
         {displayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && displayMode === "preview" ? (
@@ -1183,13 +1310,115 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
               },
             }}
             renderer={(rendererProps) => (
-              <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines || appearance.wrapCodeLines} />
+              <SourceCodeRenderer
+                {...rendererProps}
+                wrapLines={wrapLines || appearance.wrapCodeLines}
+                diagnosticsByLine={diagnosticsByLine}
+              />
             )}
             wrapLongLines={wrapLines || appearance.wrapCodeLines}
           >
             {data.content}
           </SyntaxHighlighter>
         )}
+      </div>
+
+      {diagPanelOpen && diagList.length > 0 && (
+        <div
+          style={{
+            flexShrink: 0,
+            maxHeight: 160,
+            overflow: "auto",
+            borderTop: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+          }}
+        >
+          <div
+            style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "4px 10px",
+              borderBottom: "1px solid var(--border)",
+              background: "var(--bg-subtle)",
+              fontSize: 11,
+              color: "var(--text-muted)",
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+            }}
+          >
+            Diagnostics
+            <span style={{ fontWeight: 400, color: "var(--text-dim)" }}>{diagList.length}</span>
+            <button
+              type="button"
+              className="chrome-btn"
+              onClick={() => setDiagPanelOpen(false)}
+              style={{ marginLeft: "auto", height: 20, minHeight: 20, padding: "0 6px", fontSize: 10 }}
+            >
+              Hide
+            </button>
+          </div>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {diagList.map((d, i) => (
+              <li key={`${d.line}-${d.severity}-${i}`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDisplayMode("source");
+                    // Scroll to line if present
+                    requestAnimationFrame(() => {
+                      const el = contentRef.current?.querySelector(`[data-line-number="${d.line}"]`);
+                      if (el instanceof HTMLElement) {
+                        el.scrollIntoView({ block: "center", behavior: "smooth" });
+                      }
+                    });
+                  }}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    width: "100%",
+                    textAlign: "left",
+                    border: "none",
+                    borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
+                    background: "transparent",
+                    padding: "6px 10px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    color: "var(--text)",
+                  }}
+                >
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: d.severity === "error"
+                        ? "var(--destructive)"
+                        : d.severity === "warning"
+                          ? "var(--text)"
+                          : "var(--text-muted)",
+                      minWidth: 52,
+                    }}
+                  >
+                    {d.severity.toUpperCase()}
+                  </span>
+                  <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)" }}>
+                    L{d.line}{d.column != null ? `:${d.column}` : ""}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1, lineHeight: 1.35 }}>
+                    {d.code ? `[${d.code}] ` : ""}{d.message}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       </div>
     </div>
   );

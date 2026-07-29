@@ -49,8 +49,17 @@ async function findRepositoryRoot(cwd: string): Promise<string | null> {
   }
 }
 
+function realPath(p: string): string {
+  try {
+    return fs.realpathSync(path.resolve(p));
+  } catch {
+    return path.resolve(p);
+  }
+}
+
 function isWithinPath(parent: string, target: string): boolean {
-  const relative = path.relative(path.resolve(parent), path.resolve(target));
+  // realpath so macOS /var → /private/var (and similar) still counts as inside.
+  const relative = path.relative(realPath(parent), realPath(target));
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
@@ -273,6 +282,9 @@ export async function commitGitChanges(
   if (!trimmed) throw new Error("Commit message is required");
 
   const status = await getGitStatus(cwd);
+  if (status.conflictCount > 0) {
+    throw new Error("Resolve merge conflicts before committing");
+  }
   if (status.stagedCount === 0) throw new Error("No staged changes to commit");
 
   try {

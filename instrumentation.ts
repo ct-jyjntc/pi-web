@@ -2,6 +2,20 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
   const { configureHttpDispatcher } = await import("@/lib/http-dispatcher");
+  // Apply Pi Web proxy prefs so undici EnvHttpProxyAgent + tool fetch honor them.
+  try {
+    const { readWebSettings } = await import("@/lib/web-settings");
+    const prefs = readWebSettings();
+    if (prefs.httpProxy) {
+      process.env.HTTP_PROXY = prefs.httpProxy;
+      process.env.HTTPS_PROXY = prefs.httpProxy;
+    }
+    if (prefs.proxyBypass) {
+      process.env.NO_PROXY = prefs.proxyBypass;
+    }
+  } catch {
+    // ignore missing settings on first boot
+  }
   configureHttpDispatcher();
 
   // Packages that spawn child Pi processes must not use Electron as node.

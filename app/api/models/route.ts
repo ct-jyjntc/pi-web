@@ -3,6 +3,7 @@ import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
+import { readWebSettings } from "@/lib/web-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -67,10 +68,19 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     imageSupport[key] = Array.isArray(m.input) && m.input.includes("image");
   }
 
-  const provider = settings.getDefaultProvider();
-  const modelId = settings.getDefaultModel();
-  if (provider && modelId && visible.some((m) => m.provider === provider && m.id === modelId)) {
-    defaultModel = { provider, modelId };
+  // Prefer Pi Web role default for new sessions; fall back to settings.json default.
+  const roleDefault = readWebSettings().modelRoles.default;
+  if (
+    roleDefault
+    && visible.some((m) => m.provider === roleDefault.provider && m.id === roleDefault.modelId)
+  ) {
+    defaultModel = { provider: roleDefault.provider, modelId: roleDefault.modelId };
+  } else {
+    const provider = settings.getDefaultProvider();
+    const modelId = settings.getDefaultModel();
+    if (provider && modelId && visible.some((m) => m.provider === provider && m.id === modelId)) {
+      defaultModel = { provider, modelId };
+    }
   }
 
   return withModelRuntimeError(

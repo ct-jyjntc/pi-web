@@ -150,8 +150,13 @@ export function SettingsPage({
   const [models, setModels] = useState<ModelOption[]>([]);
   const [titleModelRef, setTitleModelRef] = useState("");
   const [commitModelRef, setCommitModelRef] = useState("");
+  const [roleDefaultRef, setRoleDefaultRef] = useState("");
+  const [roleSmolRef, setRoleSmolRef] = useState("");
+  const [rolePlanRef, setRolePlanRef] = useState("");
   const [loadingModels, setLoadingModels] = useState(true);
-  const [savingKey, setSavingKey] = useState<"titleModel" | "commitModel" | null>(null);
+  const [savingKey, setSavingKey] = useState<
+    "titleModel" | "commitModel" | "roleDefault" | "roleSmol" | "rolePlan" | null
+  >(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
@@ -177,7 +182,14 @@ export function SettingsPage({
     disableHardwareAcceleration: false,
     autoCheckUpdates: true,
     autoDownloadUpdates: false,
+    projectMemoryEnabled: true,
+    projectMemoryTopK: 12,
+    advisorEnabled: false,
   });
+  const [advisorModelRef, setAdvisorModelRef] = useState("");
+  const [memoryFacts, setMemoryFacts] = useState<Array<{ id: string; text: string }>>([]);
+  const [newMemoryText, setNewMemoryText] = useState("");
+  const [memoryBusy, setMemoryBusy] = useState(false);
   const [restartHint, setRestartHint] = useState(false);
   const isDesktop = typeof window !== "undefined" && Boolean(window.piDesktop?.isDesktop);
 
@@ -204,6 +216,7 @@ export function SettingsPage({
           settings?: Record<string, unknown> & {
             titleModelRef?: string;
             commitModelRef?: string;
+            modelRolesRefs?: { default?: string; smol?: string; plan?: string };
           };
           models?: ModelOption[];
           error?: string;
@@ -213,6 +226,9 @@ export function SettingsPage({
         setModels(data.models ?? []);
         setTitleModelRef(data.settings?.titleModelRef ?? "");
         setCommitModelRef(data.settings?.commitModelRef ?? "");
+        setRoleDefaultRef(data.settings?.modelRolesRefs?.default ?? "");
+        setRoleSmolRef(data.settings?.modelRolesRefs?.smol ?? "");
+        setRolePlanRef(data.settings?.modelRolesRefs?.plan ?? "");
         const s = data.settings ?? {};
         setPrefs((prev) => ({
           ...prev,
@@ -230,12 +246,45 @@ export function SettingsPage({
           disableHardwareAcceleration: typeof s.disableHardwareAcceleration === "boolean" ? s.disableHardwareAcceleration : prev.disableHardwareAcceleration,
           autoCheckUpdates: typeof s.autoCheckUpdates === "boolean" ? s.autoCheckUpdates : prev.autoCheckUpdates,
           autoDownloadUpdates: typeof s.autoDownloadUpdates === "boolean" ? s.autoDownloadUpdates : prev.autoDownloadUpdates,
+          projectMemoryEnabled:
+            s.projectMemory && typeof s.projectMemory === "object" && !Array.isArray(s.projectMemory)
+            && typeof (s.projectMemory as { enabled?: unknown }).enabled === "boolean"
+              ? (s.projectMemory as { enabled: boolean }).enabled
+              : prev.projectMemoryEnabled,
+          projectMemoryTopK:
+            s.projectMemory && typeof s.projectMemory === "object" && !Array.isArray(s.projectMemory)
+            && typeof (s.projectMemory as { autoInjectTopK?: unknown }).autoInjectTopK === "number"
+              ? (s.projectMemory as { autoInjectTopK: number }).autoInjectTopK
+              : prev.projectMemoryTopK,
+          advisorEnabled: typeof s.advisorEnabled === "boolean" ? s.advisorEnabled : prev.advisorEnabled,
         }));
+        setAdvisorModelRef(
+          typeof s.advisorModel === "object" && s.advisorModel && !Array.isArray(s.advisorModel)
+            && typeof (s.advisorModel as { provider?: string }).provider === "string"
+            && typeof (s.advisorModel as { modelId?: string }).modelId === "string"
+            ? `${(s.advisorModel as { provider: string }).provider}/${(s.advisorModel as { modelId: string }).modelId}`
+            : "",
+        );
         if (typeof s.terminalFont === "string") {
           try { localStorage.setItem("pi-terminal-font", s.terminalFont); } catch { /* ignore */ }
         }
         if (typeof s.soundEnabled === "boolean") {
           try { localStorage.setItem("pi-sound-enabled", String(s.soundEnabled)); } catch { /* ignore */ }
+        }
+
+        if (cwd) {
+          void fetch(`/api/project-memory?cwd=${encodeURIComponent(cwd)}`)
+            .then(async (r) => {
+              const mem = await r.json() as { facts?: Array<{ id: string; text: string }> };
+              if (!cancelled && Array.isArray(mem.facts)) {
+                setMemoryFacts(mem.facts.map((f) => ({ id: f.id, text: f.text })));
+              }
+            })
+            .catch(() => {
+              if (!cancelled) setMemoryFacts([]);
+            });
+        } else if (!cancelled) {
+          setMemoryFacts([]);
         }
       })
       .catch((error) => {
@@ -291,6 +340,37 @@ export function SettingsPage({
       setSavingKey(null);
     }
   }, [commitModelRef, titleModelRef]);
+
+  const saveRoleModel = useCallback(async (
+    role: "default" | "smol" | "plan",
+    value: string,
+  ) => {
+    const key = role === "default" ? "roleDefault" : role === "smol" ? "roleSmol" : "rolePlan";
+    setSavingKey(key);
+    setSaveError(null);
+    if (role === "default") setRoleDefaultRef(value);
+    else if (role === "smol") setRoleSmolRef(value);
+    else setRolePlanRef(value);
+    try {
+      const res = await fetch("/api/web-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelRole: role, modelRoleRef: value || null }),
+      });
+      const data = await res.json() as {
+        error?: string;
+        settings?: { modelRolesRefs?: { default?: string; smol?: string; plan?: string } };
+      };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setRoleDefaultRef(data.settings?.modelRolesRefs?.default ?? (role === "default" ? value : roleDefaultRef));
+      setRoleSmolRef(data.settings?.modelRolesRefs?.smol ?? (role === "smol" ? value : roleSmolRef));
+      setRolePlanRef(data.settings?.modelRolesRefs?.plan ?? (role === "plan" ? value : rolePlanRef));
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingKey(null);
+    }
+  }, [roleDefaultRef, rolePlanRef, roleSmolRef]);
 
   const patchPref = useCallback(async (patch: Record<string, unknown>, opts?: { restart?: boolean }) => {
     setSaveError(null);
@@ -441,6 +521,47 @@ export function SettingsPage({
     </select>
   );
 
+  const roleModelSelect = (
+    value: string,
+    role: "default" | "smol" | "plan",
+    defaultLabel: string,
+    ariaLabel: string,
+  ) => {
+    const saving =
+      (role === "default" && savingKey === "roleDefault")
+      || (role === "smol" && savingKey === "roleSmol")
+      || (role === "plan" && savingKey === "rolePlan");
+    return (
+      <select
+        className="input-base input-mono"
+        value={value}
+        disabled={loadingModels || saving}
+        onChange={(e) => void saveRoleModel(role, e.target.value)}
+        style={{
+          width: "100%",
+          maxWidth: "100%",
+          height: 30,
+          minHeight: 30,
+          fontSize: 12,
+        }}
+        aria-label={ariaLabel}
+      >
+        <option value="">{defaultLabel}</option>
+        {models.map((m) => {
+          const ref = modelValue(m.provider, m.modelId);
+          return (
+            <option key={ref} value={ref}>
+              {m.name} · {m.provider}
+            </option>
+          );
+        })}
+        {value && !models.some((m) => modelValue(m.provider, m.modelId) === value) && (
+          <option value={value}>{value} ({t("settings.modelUnavailable")})</option>
+        )}
+      </select>
+    );
+  };
+
   const navItems: Array<{
     id: SettingsSection;
     label: string;
@@ -491,6 +612,44 @@ export function SettingsPage({
             />
           </div>
         }
+      />
+
+      {sectionTitle(t("settings.modelRoles"))}
+
+      <SettingsRow
+        stacked
+        title={t("settings.roleDefault")}
+        description={t("settings.roleDefaultDesc")}
+        action={roleModelSelect(
+          roleDefaultRef,
+          "default",
+          loadingModels ? t("common.loading") : t("settings.roleDefaultFallback"),
+          t("settings.roleDefault"),
+        )}
+      />
+
+      <SettingsRow
+        stacked
+        title={t("settings.roleSmol")}
+        description={t("settings.roleSmolDesc")}
+        action={roleModelSelect(
+          roleSmolRef,
+          "smol",
+          loadingModels ? t("common.loading") : t("settings.roleSmolFallback"),
+          t("settings.roleSmol"),
+        )}
+      />
+
+      <SettingsRow
+        stacked
+        title={t("settings.rolePlan")}
+        description={t("settings.rolePlanDesc")}
+        action={roleModelSelect(
+          rolePlanRef,
+          "plan",
+          loadingModels ? t("common.loading") : t("settings.rolePlanFallback"),
+          t("settings.rolePlan"),
+        )}
       />
 
       {sectionTitle(t("settings.utilityModels"))}
@@ -698,6 +857,161 @@ export function SettingsPage({
             enabled={prefs.showTodos}
             onChange={(next) => void patchPref({ showTodos: next })}
           />
+        }
+      />
+      <SettingsRow
+        title={t("settings.projectMemory")}
+        description={t("settings.projectMemoryDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.projectMemoryEnabled}
+            onChange={(next) => {
+              setPrefs((p) => ({ ...p, projectMemoryEnabled: next }));
+              void patchPref({ projectMemory: { enabled: next } });
+            }}
+          />
+        }
+      />
+      <SettingsRow
+        stacked
+        title={t("settings.projectMemoryTopK")}
+        description={t("settings.projectMemoryTopKDesc")}
+        action={
+          <input
+            className="input-base input-mono"
+            type="number"
+            min={0}
+            max={50}
+            value={prefs.projectMemoryTopK}
+            disabled={!prefs.projectMemoryEnabled}
+            onChange={(e) => setPrefs((p) => ({
+              ...p,
+              projectMemoryTopK: Number(e.target.value) || 0,
+            }))}
+            onBlur={() => void patchPref({
+              projectMemory: { autoInjectTopK: prefs.projectMemoryTopK },
+            })}
+            style={{ width: 100, height: 30, fontSize: 12 }}
+          />
+        }
+      />
+
+      {cwd && prefs.projectMemoryEnabled && (
+        <div style={{ marginTop: 8, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("settings.projectMemoryFacts")}</div>
+          {memoryFacts.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>{t("settings.projectMemoryEmpty")}</div>
+          ) : (
+            <ul style={{ margin: "0 0 8px", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
+              {memoryFacts.map((f) => (
+                <li
+                  key={f.id}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "flex-start",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    background: "var(--bg-subtle)",
+                  }}
+                >
+                  <span style={{ flex: 1, lineHeight: 1.4 }}>{f.text}</span>
+                  <button
+                    type="button"
+                    className="chrome-btn"
+                    disabled={memoryBusy}
+                    onClick={() => {
+                      setMemoryBusy(true);
+                      void fetch("/api/project-memory", {
+                        method: "DELETE",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ cwd, id: f.id }),
+                      })
+                        .then(() => setMemoryFacts((prev) => prev.filter((x) => x.id !== f.id)))
+                        .finally(() => setMemoryBusy(false));
+                    }}
+                    style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11, flexShrink: 0 }}
+                  >
+                    {t("settings.projectMemoryDelete")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              className="input-base"
+              value={newMemoryText}
+              onChange={(e) => setNewMemoryText(e.target.value)}
+              placeholder={t("settings.projectMemoryAdd")}
+              style={{ flex: 1, height: 30, fontSize: 12 }}
+            />
+            <button
+              type="button"
+              className="btn-primary btn-compact"
+              disabled={memoryBusy || !newMemoryText.trim()}
+              onClick={() => {
+                setMemoryBusy(true);
+                void fetch("/api/project-memory", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ cwd, text: newMemoryText.trim() }),
+                })
+                  .then(async (res) => {
+                    const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
+                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                    if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev]);
+                    setNewMemoryText("");
+                  })
+                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
+                  .finally(() => setMemoryBusy(false));
+              }}
+            >
+              {t("settings.projectMemoryAdd")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <SettingsRow
+        title={t("settings.advisor")}
+        description={t("settings.advisorDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.advisorEnabled}
+            onChange={(next) => {
+              setPrefs((p) => ({ ...p, advisorEnabled: next }));
+              void patchPref({ advisorEnabled: next });
+            }}
+          />
+        }
+      />
+      <SettingsRow
+        stacked
+        title={t("settings.advisorModel")}
+        description={t("settings.advisorModelDesc")}
+        action={
+          <select
+            className="input-base input-mono"
+            value={advisorModelRef}
+            disabled={loadingModels || !prefs.advisorEnabled}
+            onChange={(e) => {
+              const value = e.target.value;
+              setAdvisorModelRef(value);
+              void patchPref({ advisorModel: value || null });
+            }}
+            style={{ width: "100%", height: 30, fontSize: 12 }}
+          >
+            <option value="">{loadingModels ? t("common.loading") : t("settings.advisorModelDefault")}</option>
+            {models.map((m) => {
+              const ref = modelValue(m.provider, m.modelId);
+              return (
+                <option key={ref} value={ref}>{m.name} · {m.provider}</option>
+              );
+            })}
+          </select>
         }
       />
 

@@ -12,6 +12,12 @@ interface Props {
   refreshKey?: number;
   onOpenFile?: (filePath: string, fileName: string) => void;
   onStatusChange?: (status: GitStatusResponse | null) => void;
+  /** Start a Git Review chat session (prompt already sent server-side). */
+  onReviewSessionStarted?: (session: {
+    id: string;
+    cwd: string;
+    name?: string;
+  }) => void;
   /** Focus/expand this path when provided (e.g. opened from file tree). */
   focusPath?: string | null;
   /** Embed as collapsible strip (legacy). Default is full-page review. */
@@ -75,6 +81,7 @@ export function GitPanel({
   refreshKey = 0,
   onOpenFile,
   onStatusChange,
+  onReviewSessionStarted,
   focusPath = null,
   embedded = false,
   defaultExpanded = true,
@@ -84,6 +91,7 @@ export function GitPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [message, setMessage] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [branchOpen, setBranchOpen] = useState(false);
@@ -93,6 +101,20 @@ export function GitPanel({
   const [commitOpen, setCommitOpen] = useState(false);
   const [includeUnstaged, setIncludeUnstaged] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [splitPlanning, setSplitPlanning] = useState(false);
+  const [splitExecuting, setSplitExecuting] = useState(false);
+  const [splitGroups, setSplitGroups] = useState<Array<{
+    id: string;
+    title: string;
+    message: string;
+    paths: string[];
+    rationale?: string;
+  }>>([]);
+  const [splitUnassigned, setSplitUnassigned] = useState<string[]>([]);
+  const [splitSource, setSplitSource] = useState<"ai" | "heuristic" | null>(null);
+  const [merging, setMerging] = useState(false);
+  const [completingMerge, setCompletingMerge] = useState(false);
   /** Paths with inline diff expanded (Codex-style). Default: all when body shown. */
   const [openDiffs, setOpenDiffs] = useState<Set<string>>(new Set());
   const [diffsInitialized, setDiffsInitialized] = useState(false);
@@ -103,6 +125,7 @@ export function GitPanel({
     if (!cwd) {
       setStatus(null);
       onStatusChange?.(null);
+      setMerging(false);
       return;
     }
     setLoading(true);
@@ -111,10 +134,18 @@ export function GitPanel({
       const next = await fetchStatus(cwd);
       setStatus(next);
       onStatusChange?.(next);
+      try {
+        const mres = await fetch(`/api/git/merge?cwd=${encodeURIComponent(cwd)}`);
+        const mdata = await mres.json() as { merging?: boolean };
+        setMerging(Boolean(mdata.merging));
+      } catch {
+        setMerging(false);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setStatus(null);
       onStatusChange?.(null);
+      setMerging(false);
     } finally {
       setLoading(false);
     }
@@ -268,8 +299,222 @@ export function GitPanel({
     await requestCommitMessage("ai", { fill: true });
   }, [requestCommitMessage]);
 
+  const startReview = useCallback(async () => {
+    if (!cwd || reviewing) return;
+    setReviewing(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/git/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd, includeUnstaged: true }),
+      });
+      const data = await res.json() as {
+        error?: string;
+        prompt?: string;
+        sessionName?: string;
+        suggestedModel?: { provider: string; modelId: string } | null;
+      };
+      if (!res.ok || data.error || !data.prompt) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+
+      const { getFullToolNames } = await import("@/lib/tool-presets");
+      const createRes = await fetch("/api/agent/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd,
+          type: "prompt",
+          message: data.prompt,
+          toolNames: getFullToolNames(),
+          ...(data.suggestedModel
+            ? { provider: data.suggestedModel.provider, modelId: data.suggestedModel.modelId }
+            : {}),
+        }),
+      });
+      const created = await createRes.json() as { error?: string; sessionId?: string };
+      if (!createRes.ok || created.error || !created.sessionId) {
+        throw new Error(created.error ?? `HTTP ${createRes.status}`);
+      }
+
+      // Best-effort session rename for sidebar clarity.
+      if (data.sessionName) {
+        try {
+          await fetch(`/api/sessions/${encodeURIComponent(created.sessionId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: data.sessionName }),
+          });
+        } catch {
+          // ignore rename failures
+        }
+      }
+
+      onReviewSessionStarted?.({
+        id: created.sessionId,
+        cwd,
+        name: data.sessionName,
+      });
+      setNotice(t("git.reviewStarted"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReviewing(false);
+    }
+  }, [cwd, onReviewSessionStarted, reviewing, t]);
+
+  const completeMerge = useCallback(async () => {
+    if (!cwd || completingMerge) return;
+    setCompletingMerge(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/git/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        error?: string;
+        commit?: string | null;
+        status?: GitStatusResponse;
+      };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.status) {
+        setStatus(data.status);
+        onStatusChange?.(data.status);
+      } else {
+        await load();
+      }
+      setMerging(false);
+      setNotice(t("git.mergeCompleted", { hash: data.commit ?? "?" }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCompletingMerge(false);
+    }
+  }, [completingMerge, cwd, load, onStatusChange, t]);
+
+  const resolveConflict = useCallback(async (
+    filePath: string,
+    action: "ours" | "theirs" | "base" | "ai",
+  ) => {
+    if (!cwd) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/git/conflict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd, path: filePath, action }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        error?: string;
+        status?: GitStatusResponse;
+        explanation?: string;
+      };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.status) {
+        setStatus(data.status);
+        onStatusChange?.(data.status);
+      } else {
+        await load();
+      }
+      setNotice(data.explanation ?? t("git.resolved"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [cwd, load, onStatusChange, t]);
+
+  const planSplit = useCallback(async () => {
+    if (!cwd) return;
+    setSplitPlanning(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/git/commit-split", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd,
+          mode: "plan",
+          includeUnstaged,
+        }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        error?: string;
+        groups?: Array<{ id: string; title: string; message: string; paths: string[]; rationale?: string }>;
+        unassigned?: string[];
+        source?: "ai" | "heuristic";
+      };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setSplitGroups(data.groups ?? []);
+      setSplitUnassigned(data.unassigned ?? []);
+      setSplitSource(data.source ?? null);
+      setSplitOpen(true);
+      setCommitOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSplitPlanning(false);
+    }
+  }, [cwd, includeUnstaged]);
+
+  const executeSplit = useCallback(async () => {
+    if (!cwd || splitGroups.length === 0) return;
+    setSplitExecuting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/git/commit-split", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd,
+          mode: "execute",
+          groups: splitGroups.map((g) => ({ message: g.message, paths: g.paths })),
+        }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        error?: string;
+        commits?: Array<{ commit: string | null }>;
+        status?: GitStatusResponse;
+      };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.status) {
+        setStatus(data.status);
+        onStatusChange?.(data.status);
+      } else {
+        await load();
+      }
+      setNotice(t("git.splitDone", { n: data.commits?.length ?? splitGroups.length }));
+      setSplitOpen(false);
+      setSplitGroups([]);
+      setSplitUnassigned([]);
+      setSplitSource(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      await load();
+    } finally {
+      setSplitExecuting(false);
+    }
+  }, [cwd, load, onStatusChange, splitGroups, t]);
+
   const runCommit = useCallback(async (alsoPush: boolean) => {
     if (!cwd) return;
+    if ((status?.conflictCount ?? 0) > 0) {
+      setError(t("git.conflictHint"));
+      return;
+    }
     // Optionally stage unstaged first
     if (includeUnstaged && unstaged.length > 0) {
       const stagedOk = await mutate("/api/git/stage", {
@@ -291,7 +536,7 @@ export function GitPanel({
     if (alsoPush) {
       await mutate("/api/git/push", { cwd });
     }
-  }, [cwd, includeUnstaged, message, mutate, requestCommitMessage, unstaged]);
+  }, [cwd, includeUnstaged, message, mutate, requestCommitMessage, status?.conflictCount, t, unstaged]);
 
   const pushOnly = useCallback(async () => {
     await mutate("/api/git/push", { cwd });
@@ -399,6 +644,29 @@ export function GitPanel({
             height: "100%",
           }}
         >
+        <button
+          type="button"
+          className="chrome-btn"
+          disabled={busy || reviewing || (status?.files.length ?? 0) === 0}
+          onClick={() => void startReview()}
+          title={t("git.review")}
+          aria-label={t("git.review")}
+          style={{
+            height: "100%",
+            minHeight: 0,
+            padding: "0 10px",
+            fontSize: 11,
+            borderLeft: "1px solid var(--border)",
+            borderRadius: 0,
+            gap: 6,
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          <span>{reviewing ? t("git.reviewRunning") : t("git.review")}</span>
+        </button>
         <button
           type="button"
           className="chrome-btn"
@@ -586,7 +854,25 @@ export function GitPanel({
               <button
                 type="button"
                 className="chrome-btn"
-                disabled={busy || generating || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0))}
+                disabled={
+                  busy
+                  || splitPlanning
+                  || conflicts.length > 0
+                  || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0))
+                }
+                onClick={() => void planSplit()}
+                style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 3h5v5" /><path d="M8 3H3v5" /><path d="M12 22v-8" /><path d="m9 12 3-3 3 3" /><path d="M21 3l-7 7" /><path d="M3 3l7 7" />
+                </svg>
+                {splitPlanning ? t("git.splitRunning") : t("git.splitCommits")}
+              </button>
+
+              <button
+                type="button"
+                className="chrome-btn"
+                disabled={busy || generating || conflicts.length > 0 || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0))}
                 onClick={() => void runCommit(false)}
                 style={{ width: "100%", height: 34, justifyContent: "space-between", padding: "0 12px", background: "var(--bg-selected)" }}
               >
@@ -598,7 +884,7 @@ export function GitPanel({
               <button
                 type="button"
                 className="chrome-btn"
-                disabled={busy || generating || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0) && (status?.ahead ?? 0) === 0)}
+                disabled={busy || generating || conflicts.length > 0 || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0) && (status?.ahead ?? 0) === 0)}
                 onClick={() => void runCommit(true)}
                 style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
               >
@@ -721,6 +1007,125 @@ export function GitPanel({
         </div>
       )}
 
+      {showBody && conflicts.length > 0 && (
+        <div
+          style={{
+            padding: "8px 12px",
+            borderBottom: "1px solid var(--destructive-border)",
+            background: "var(--destructive-bg)",
+            color: "var(--destructive)",
+            fontSize: 12,
+            lineHeight: 1.4,
+          }}
+        >
+          <strong style={{ fontWeight: 600 }}>{t("git.conflictCount", { n: conflicts.length })}</strong>
+          {" — "}
+          {t("git.conflictHint")}
+        </div>
+      )}
+
+      {showBody && merging && conflicts.length === 0 && (
+        <div
+          style={{
+            padding: "8px 12px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-subtle)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            fontSize: 12,
+          }}
+        >
+          <span style={{ color: "var(--text)", fontWeight: 600 }}>{t("git.merging")}</span>
+          <button
+            type="button"
+            className="btn-primary btn-compact"
+            disabled={busy || completingMerge}
+            onClick={() => void completeMerge()}
+            style={{ marginLeft: "auto" }}
+          >
+            {completingMerge ? t("git.completeMergeRunning") : t("git.completeMerge")}
+          </button>
+        </div>
+      )}
+
+      {showBody && splitOpen && (
+        <div
+          style={{
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-subtle)",
+            padding: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            maxHeight: 280,
+            overflow: "auto",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+            <strong style={{ fontWeight: 600 }}>{t("git.splitPlan")}</strong>
+            {splitSource && (
+              <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
+                {splitSource === "ai" ? t("git.splitSourceAi") : t("git.splitSourceHeuristic")}
+              </span>
+            )}
+            <button
+              type="button"
+              className="chrome-btn"
+              style={{ marginLeft: "auto", height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}
+              onClick={() => setSplitOpen(false)}
+            >
+              {t("common.close")}
+            </button>
+          </div>
+          {splitGroups.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("git.splitEmpty")}</div>
+          ) : (
+            splitGroups.map((g, idx) => (
+              <div
+                key={g.id}
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
+                  padding: 8,
+                  background: "var(--bg-panel)",
+                }}
+              >
+                <input
+                  className="input-base input-mono"
+                  value={g.message}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSplitGroups((prev) => prev.map((x, i) => (i === idx ? { ...x, message: value, title: value } : x)));
+                  }}
+                  style={{ width: "100%", height: 28, fontSize: 12, marginBottom: 6 }}
+                />
+                <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                  {g.paths.map((p) => relPath(p, status?.repositoryRoot ?? null)).join(", ")}
+                </div>
+                {g.rationale && (
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{g.rationale}</div>
+                )}
+              </div>
+            ))
+          )}
+          {splitUnassigned.length > 0 && (
+            <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              {t("git.unassigned")}: {splitUnassigned.map((p) => relPath(p, status?.repositoryRoot ?? null)).join(", ")}
+            </div>
+          )}
+          <button
+            type="button"
+            className="btn-primary btn-compact"
+            disabled={busy || splitExecuting || splitGroups.length === 0 || conflicts.length > 0}
+            onClick={() => void executeSplit()}
+            style={{ alignSelf: "flex-start" }}
+          >
+            {splitExecuting ? t("git.splitRunning") : t("git.splitExecute")}
+          </button>
+        </div>
+      )}
+
       {showBody && (
         <div className="git-panel-body" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
           {allFiles.length === 0 ? (
@@ -746,6 +1151,7 @@ export function GitPanel({
                 onStage={() => stagePaths([file.filePath])}
                 onUnstage={() => unstagePaths([file.filePath])}
                 onDiscard={() => discardPaths([file.filePath], "git.discardConfirm")}
+                onResolveConflict={(action) => void resolveConflict(file.filePath, action)}
               />
             ))
           )}
@@ -777,6 +1183,7 @@ function FileRow({
   onStage,
   onUnstage,
   onDiscard,
+  onResolveConflict,
 }: {
   file: GitFileStatus;
   root: string | null;
@@ -788,6 +1195,7 @@ function FileRow({
   onStage: () => void;
   onUnstage: () => void;
   onDiscard: () => void;
+  onResolveConflict?: (action: "ours" | "theirs" | "base" | "ai") => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [patch, setPatch] = useState<string | null>(null);
@@ -897,15 +1305,39 @@ function FileRow({
           </span>
         )}
 
-        {hovered && (
-          <div className="git-file-actions" onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+        {(hovered || isConflict) && (
+          <div className="git-file-actions" onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 2, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {isConflict && onResolveConflict && (
+              <>
+                <button type="button" className="chrome-btn" disabled={busy} onClick={() => onResolveConflict("ours")}
+                  style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}
+                  title={t("git.resolveOurs")}>
+                  {t("git.resolveOurs")}
+                </button>
+                <button type="button" className="chrome-btn" disabled={busy} onClick={() => onResolveConflict("theirs")}
+                  style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}
+                  title={t("git.resolveTheirs")}>
+                  {t("git.resolveTheirs")}
+                </button>
+                <button type="button" className="chrome-btn" disabled={busy} onClick={() => onResolveConflict("base")}
+                  style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}
+                  title={t("git.resolveBase")}>
+                  {t("git.resolveBase")}
+                </button>
+                <button type="button" className="chrome-btn" disabled={busy} onClick={() => onResolveConflict("ai")}
+                  style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}
+                  title={t("git.resolveAi")}>
+                  {t("git.resolveAi")}
+                </button>
+              </>
+            )}
             {file.unstaged && file.status !== "conflict" && (
               <button type="button" className="chrome-btn" disabled={busy} onClick={onDiscard}
                 style={{ color: "var(--destructive)", height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}>
                 {t("git.discard")}
               </button>
             )}
-            {file.staged ? (
+            {file.status !== "conflict" && (file.staged ? (
               <button type="button" className="chrome-btn" disabled={busy} onClick={onUnstage}
                 style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}>
                 {t("git.unstage")}
@@ -913,6 +1345,13 @@ function FileRow({
             ) : (
               <button type="button" className="chrome-btn" disabled={busy} onClick={onStage}
                 style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}>
+                {t("git.stage")}
+              </button>
+            ))}
+            {file.status === "conflict" && (
+              <button type="button" className="chrome-btn" disabled={busy} onClick={onStage}
+                style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11 }}
+                title={t("git.conflictHint")}>
                 {t("git.stage")}
               </button>
             )}

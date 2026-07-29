@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { formatRoleModelForAgent } from "./model-roles";
+import { readWebSettings, type WebSettings } from "./web-settings";
 
 /**
  * Subagent delegation assets (auto-deployed into ~/.pi/agent on boot).
@@ -19,10 +21,9 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
  *     session to delegate proactively (loaded by both the pi CLI and Pi Web,
  *     since Pi Web uses the default resource loader).
  *  2. Agent overrides in ~/.pi/agent/agents/*.md replace the built-in
- *     general-purpose / Explore / Plan descriptions with proactive trigger
- *     language. These descriptions are inlined into the subagent tool's own
- *     description ("Available agent types" list) — the highest-signal location
- *     when the model decides whether to call the tool.
+ *     general-purpose / Explore / Plan / Reviewer descriptions with proactive
+ *     trigger language. These descriptions are inlined into the subagent tool's
+ *     own description ("Available agent types" list).
  *
  * Both mechanisms are idempotent and respect user customization:
  *  - The AGENTS.md block lives between marker comments; content outside the
@@ -52,6 +53,7 @@ Spawn a subagent whenever any of these apply:
 - Exploring or understanding code across multiple files → \`Explore\` (spawn several in the background for independent areas).
 - Complex, multi-step work — new features, refactors, or bugfixes touching 3+ files → \`general-purpose\`.
 - Architecture or implementation planning → \`Plan\`.
+- Git / patch code review (Git Review button or explicit review request) → \`Reviewer\`.
 - Several independent subtasks → launch multiple subagents with \`run_in_background: true\` in parallel.
 
 Rules:
@@ -62,13 +64,14 @@ Rules:
 ${AGENTS_BLOCK_END}`;
 
 // ── Agent override files ─────────────────────────────────────────────────────
-//
-// Each override replaces the whole embedded default config (same filename =
-// same agent name), so tools / model / prompt_mode / system prompt body must
-// restate the original semantics — only the descriptions change. The Explore
-// and Plan system prompts below are verbatim copies of the package defaults.
 
-const GENERAL_PURPOSE_MD = `---
+function modelFrontmatterLine(modelRef: string | null): string {
+  // Omit model when unset so the subagent inherits the parent session model.
+  return modelRef ? `model: ${modelRef}\n` : "";
+}
+
+function buildGeneralPurposeMd(): string {
+  return `---
 display_name: Agent
 description: >-
   General-purpose agent for complex, multi-step tasks. USE PROACTIVELY: if a
@@ -84,8 +87,10 @@ You are a general-purpose subagent working on behalf of a parent agent.
 - Verify your changes before finishing (typecheck / tests / lint) when the project provides them.
 - End with a concise report: what changed, key file paths, and anything the parent agent must know.
 `;
+}
 
-const EXPLORE_MD = `---
+function buildExploreMd(smolModel: string | null): string {
+  return `---
 display_name: Explore
 description: >-
   Fast codebase exploration agent (read-only). USE PROACTIVELY for any question
@@ -93,8 +98,7 @@ description: >-
   spawn one or more Explore agents in the background instead of searching
   file-by-file in the main loop.
 tools: read, bash, grep, find, ls
-model: anthropic/claude-haiku-4-5-20251001
-prompt_mode: replace
+${modelFrontmatterLine(smolModel)}prompt_mode: replace
 ${MANAGED_KEY}: true
 ---
 
@@ -127,15 +131,17 @@ Use Bash ONLY for read-only operations: ls, git status, git log, git diff, find,
 - Do not use emojis
 - Be thorough and precise
 `;
+}
 
-const PLAN_MD = `---
+function buildPlanMd(planModel: string | null): string {
+  return `---
 display_name: Plan
 description: >-
   Software architect for implementation planning (read-only). USE PROACTIVELY
   before any non-trivial implementation — new features, refactors, or changes
   with unclear scope — to produce a step-by-step plan the main loop can execute.
 tools: read, bash, grep, find, ls
-prompt_mode: replace
+${modelFrontmatterLine(planModel)}prompt_mode: replace
 ${MANAGED_KEY}: true
 ---
 
@@ -180,12 +186,78 @@ You are STRICTLY PROHIBITED from:
 List 3-5 files most critical for implementing this plan:
 - /absolute/path/to/file.ts - [Brief reason]
 `;
+}
 
-const MANAGED_AGENT_FILES: ReadonlyArray<{ filename: string; content: string }> = [
-  { filename: "general-purpose.md", content: GENERAL_PURPOSE_MD },
-  { filename: "Explore.md", content: EXPLORE_MD },
-  { filename: "Plan.md", content: PLAN_MD },
-];
+function buildReviewerMd(planModel: string | null): string {
+  return `---
+display_name: Reviewer
+description: >-
+  Code review specialist. USE for git/patch review requests and the Git Review
+  workflow. Read-only. Report only bugs introduced by the patch with P0–P3
+  priority and a final verdict.
+tools: read, bash, grep, find, ls
+${modelFrontmatterLine(planModel)}prompt_mode: replace
+${MANAGED_KEY}: true
+---
+
+# CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS
+You are a careful code reviewer. Your job is to review a patch / working tree
+diff and report only issues with provable impact that were introduced by the
+change under review.
+
+You are STRICTLY PROHIBITED from:
+- Creating, modifying, deleting, or moving files
+- Staging, committing, pushing, or rewriting git history
+- Running package installs or any command that changes system state
+- Using redirect operators to write files
+
+Bash is allowed only for read-only git inspection: git status, git diff, git log,
+git show, git rev-parse, git blame.
+
+# Review criteria
+- Report only issues introduced by the patch (not pre-existing debt unless the
+  patch makes it worse in a concrete way).
+- Every finding must be actionable and tied to a file/line when possible.
+- Prefer fewer high-signal findings over a wall of nits.
+
+# Priority scale
+- P0 — blocks release / correctness / security / data loss
+- P1 — serious bug or regression likely to hit users soon
+- P2 — moderate issue worth fixing before merge
+- P3 — nit / style / minor suggestion
+
+# Output format
+Write a short human-readable summary first, then end your response with ONE
+fenced JSON block (and nothing after it). Use this schema EXACTLY — do not rename fields:
+
+\`\`\`json
+{
+  "overall_correctness": "correct" | "incorrect",
+  "explanation": "1-3 sentences",
+  "confidence": 0.0,
+  "findings": [
+    {
+      "title": "short title",
+      "body": "what is wrong and why it matters",
+      "priority": "P0" | "P1" | "P2" | "P3",
+      "confidence": 0.0,
+      "file_path": "/absolute/path",
+      "line_start": 1,
+      "line_end": 1
+    }
+  ]
+}
+\`\`\`
+
+Hard rules for the JSON:
+- overall_correctness MUST be exactly "correct" or "incorrect" (never needs_fix/pass/fail)
+- Use title + body + file_path + line_start (not message/file/line/summary aliases)
+- overall_correctness is "incorrect" if any P0/P1 exists, else usually "correct"
+- findings may be an empty array
+- confidence values are 0–1
+- Prefer absolute file paths; omit file_path / line fields when unknown
+`;
+}
 
 // ── Internals ────────────────────────────────────────────────────────────────
 
@@ -200,7 +272,6 @@ function ensureAgentsMdPolicy(agentsMdPath: string): string | null {
   const endIdx = existing.indexOf(AGENTS_BLOCK_END);
 
   if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    // Managed block present — replace in place if our shipped text changed.
     const current = existing.slice(startIdx, endIdx + AGENTS_BLOCK_END.length);
     if (current === SUBAGENT_POLICY_BLOCK) return null;
     const next = existing.slice(0, startIdx) + SUBAGENT_POLICY_BLOCK + existing.slice(endIdx + AGENTS_BLOCK_END.length);
@@ -208,7 +279,6 @@ function ensureAgentsMdPolicy(agentsMdPath: string): string | null {
     return "Updated subagent delegation policy in ~/.pi/agent/AGENTS.md";
   }
 
-  // No managed block — append, preserving all user content.
   const separator = existing.endsWith("\n") ? "\n" : "\n\n";
   writeFileSync(agentsMdPath, `${existing}${separator}${SUBAGENT_POLICY_BLOCK}\n`, "utf8");
   return "Appended subagent delegation policy to ~/.pi/agent/AGENTS.md";
@@ -224,14 +294,23 @@ function ensureAgentOverride(agentsDir: string, filename: string, content: strin
   const existing = readFileSync(filePath, "utf8");
   if (existing === content) return null;
 
-  // Only overwrite files we deployed earlier (marked with the managed key).
-  // Unmarked files are user customizations — leave them alone.
   if (!existing.includes(`${MANAGED_KEY}:`)) {
     return `Skipped ${filename} — user-managed agent file detected`;
   }
 
   writeFileSync(filePath, content, "utf8");
   return `Updated agent override ${filename}`;
+}
+
+function managedAgentFiles(settings: WebSettings): Array<{ filename: string; content: string }> {
+  const smol = formatRoleModelForAgent("smol", settings);
+  const plan = formatRoleModelForAgent("plan", settings);
+  return [
+    { filename: "general-purpose.md", content: buildGeneralPurposeMd() },
+    { filename: "Explore.md", content: buildExploreMd(smol) },
+    { filename: "Plan.md", content: buildPlanMd(plan) },
+    { filename: "Reviewer.md", content: buildReviewerMd(plan) },
+  ];
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -256,13 +335,38 @@ export function ensureSubagentDelegation(): string[] {
 
     const agentsDir = join(agentDir, "agents");
     mkdirSync(agentsDir, { recursive: true });
-    for (const { filename, content } of MANAGED_AGENT_FILES) {
+    const settings = readWebSettings();
+    for (const { filename, content } of managedAgentFiles(settings)) {
       const fileNote = ensureAgentOverride(agentsDir, filename, content);
       if (fileNote) notes.push(fileNote);
     }
   } catch (error) {
     notes.push(
       `ensureSubagentDelegation failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    console.error("[pi-web]", notes[notes.length - 1]);
+  }
+  return notes;
+}
+
+/**
+ * Re-sync managed Explore/Plan/Reviewer model frontmatter from web settings.
+ * Safe to call after Settings role changes; never throws.
+ */
+export function syncAgentModelsFromRoles(settings?: WebSettings): string[] {
+  const notes: string[] = [];
+  try {
+    const agentDir = getAgentDir();
+    const agentsDir = join(agentDir, "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    const prefs = settings ?? readWebSettings();
+    for (const { filename, content } of managedAgentFiles(prefs)) {
+      const fileNote = ensureAgentOverride(agentsDir, filename, content);
+      if (fileNote) notes.push(fileNote);
+    }
+  } catch (error) {
+    notes.push(
+      `syncAgentModelsFromRoles failed: ${error instanceof Error ? error.message : String(error)}`,
     );
     console.error("[pi-web]", notes[notes.length - 1]);
   }

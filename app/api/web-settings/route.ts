@@ -9,6 +9,8 @@ import {
   type ThinkingLevelPref,
   type WebSettings,
 } from "@/lib/web-settings";
+import { formatModelRoles, parseModelRoles, type ModelRole } from "@/lib/model-roles";
+import { syncAgentModelsFromRoles } from "@/lib/ensure-subagent-delegation";
 import { listUtilityModels } from "@/lib/utility-model";
 import { isWindowsAbsolutePath } from "@/lib/file-access";
 import { resolve } from "path";
@@ -37,6 +39,7 @@ function settingsPayload(settings: WebSettings) {
     ...settings,
     titleModelRef: formatModelRef(settings.titleModel),
     commitModelRef: formatModelRef(settings.commitModel),
+    modelRolesRefs: formatModelRoles(settings.modelRoles),
   };
 }
 
@@ -105,6 +108,49 @@ export async function PUT(req: NextRequest) {
       if (body.commitModel && body.commitModel !== "" && !patch.commitModel) {
         return NextResponse.json({ error: "Invalid commitModel" }, { status: 400 });
       }
+    }
+
+    if ("modelRoles" in body) {
+      const nextRoles = parseModelRoles(body.modelRoles);
+      // Allow partial updates: { modelRoles: { smol: "provider/id" } }
+      if (body.modelRoles && typeof body.modelRoles === "object" && !Array.isArray(body.modelRoles)) {
+        const current = readWebSettings().modelRoles;
+        const partial = body.modelRoles as Record<string, unknown>;
+        const roles = { ...current };
+        for (const role of ["default", "smol", "plan"] as ModelRole[]) {
+          if (!(role in partial)) continue;
+          const raw = partial[role];
+          if (raw === "" || raw == null) {
+            roles[role] = null;
+            continue;
+          }
+          const parsed = parseModelRef(raw);
+          if (!parsed) {
+            return NextResponse.json({ error: `Invalid modelRoles.${role}` }, { status: 400 });
+          }
+          roles[role] = parsed;
+        }
+        patch.modelRoles = roles;
+      } else if (body.modelRoles == null) {
+        patch.modelRoles = nextRoles;
+      } else {
+        return NextResponse.json({ error: "Invalid modelRoles" }, { status: 400 });
+      }
+    }
+
+    // Convenience: set a single role via modelRole + modelRoleRef
+    if ("modelRole" in body && "modelRoleRef" in body) {
+      const role = body.modelRole;
+      if (role !== "default" && role !== "smol" && role !== "plan") {
+        return NextResponse.json({ error: "Invalid modelRole" }, { status: 400 });
+      }
+      const raw = body.modelRoleRef;
+      const parsed = raw === "" || raw == null ? null : parseModelRef(raw);
+      if (raw && raw !== "" && !parsed) {
+        return NextResponse.json({ error: `Invalid model for role ${role}` }, { status: 400 });
+      }
+      const current = readWebSettings().modelRoles;
+      patch.modelRoles = { ...current, [role]: parsed };
     }
 
     const strFields = [
@@ -185,7 +231,53 @@ export async function PUT(req: NextRequest) {
       patch.codeFontSize = n;
     }
 
+    if ("advisorEnabled" in body) {
+      const v = asOptionalBool(body.advisorEnabled);
+      if (v === undefined) return NextResponse.json({ error: "Invalid advisorEnabled" }, { status: 400 });
+      patch.advisorEnabled = v;
+    }
+    if ("advisorModel" in body) {
+      patch.advisorModel = body.advisorModel === "" || body.advisorModel == null
+        ? null
+        : parseModelRef(body.advisorModel);
+      if (body.advisorModel && body.advisorModel !== "" && !patch.advisorModel) {
+        return NextResponse.json({ error: "Invalid advisorModel" }, { status: 400 });
+      }
+    }
+
+    if ("projectMemory" in body) {
+      if (!body.projectMemory || typeof body.projectMemory !== "object" || Array.isArray(body.projectMemory)) {
+        return NextResponse.json({ error: "Invalid projectMemory" }, { status: 400 });
+      }
+      const current = readWebSettings().projectMemory;
+      const raw = body.projectMemory as Record<string, unknown>;
+      const next = { ...current };
+      if ("enabled" in raw) {
+        if (typeof raw.enabled !== "boolean") {
+          return NextResponse.json({ error: "Invalid projectMemory.enabled" }, { status: 400 });
+        }
+        next.enabled = raw.enabled;
+      }
+      if ("autoInjectTopK" in raw) {
+        const n = Number(raw.autoInjectTopK);
+        if (!Number.isFinite(n)) {
+          return NextResponse.json({ error: "Invalid projectMemory.autoInjectTopK" }, { status: 400 });
+        }
+        next.autoInjectTopK = n;
+      }
+      patch.projectMemory = next;
+    }
+
     const settings = writeWebSettings(patch);
+    if (patch.modelRoles) {
+      try {
+        for (const note of syncAgentModelsFromRoles(settings)) {
+          console.log(`[pi-web] ${note}`);
+        }
+      } catch (error) {
+        console.error("[pi-web] syncAgentModelsFromRoles failed:", error);
+      }
+    }
     return NextResponse.json({
       ok: true,
       settings: settingsPayload(settings),

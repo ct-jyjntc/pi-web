@@ -1,0 +1,34 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getCollabShare, readSessionSnapshot } from "@/lib/collab-live";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(
+  _request: NextRequest,
+  ctx: { params: Promise<{ token: string }> },
+) {
+  try {
+    const { token } = await ctx.params;
+    const share = getCollabShare(token);
+    if (!share) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const snap = share.sessionFile
+      ? readSessionSnapshot(share.sessionFile)
+      : { exists: false, size: 0, mtimeMs: 0, tail: "" };
+    return NextResponse.json({
+      ok: true,
+      share,
+      snapshot: {
+        exists: snap.exists,
+        size: snap.size,
+        mtimeMs: snap.mtimeMs,
+        // return last ~80 lines for overview
+        preview: snap.tail.split("\n").slice(-80).join("\n"),
+      },
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
+}

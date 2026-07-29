@@ -1,5 +1,17 @@
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
 import { createPiWebBashToolDefinition } from "./agent-bash-pty";
+import { createPiWebEditToolDefinition } from "./agent-edit-tool";
+import { createAdvancedTools } from "./agent-advanced-tools";
+import { createCodeIntelTools } from "./agent-code-intel-tools";
+import { createDebugTools } from "./agent-debug-tools";
+import {
+  createCheckpointTools,
+  createDiagnosticsTool,
+  createWebTools,
+} from "./agent-extra-tools";
+import { createProjectMemoryTools } from "./agent-memory-tools";
+import { buildMemoryInjectBlock } from "./project-memory";
+import { readWebSettings } from "./web-settings";
 import { resolveContextUsageForUi } from "./context-usage";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
@@ -1281,10 +1293,19 @@ export async function startRpcSession(
     // Gate untrusted project extensions so opening a repository does not run
     // its .pi/extensions code automatically (see lib/project-trust.ts).
     const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+    const toolsFullyDisabled = toolNames?.length === 0;
+    const memoryBlock = !toolsFullyDisabled ? buildMemoryInjectBlock(cwd) : null;
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
+      ...(memoryBlock
+        ? {
+            resourceLoaderOptions: {
+              appendSystemPromptOverride: (base: string[]) => [...base, memoryBlock],
+            },
+          }
+        : {}),
     });
     // Pi Web bash tool: explicit `background` param + foreground guardrails;
     // background services run in a real PTY mirrored in the Terminal workspace
@@ -1298,10 +1319,49 @@ export async function startRpcSession(
         }
       },
     });
+    const agentEditTool = createPiWebEditToolDefinition(cwd);
+    const memoryTools = !toolsFullyDisabled && readWebSettings().projectMemory.enabled
+      ? createProjectMemoryTools(cwd)
+      : [];
+    const extraTools = !toolsFullyDisabled
+      ? [
+          createDiagnosticsTool(cwd),
+          ...createWebTools(),
+          ...createCodeIntelTools(cwd),
+          ...createDebugTools(cwd),
+          ...createAdvancedTools({
+            cwd,
+            getSessionId: () => {
+              try { return sessionManager.getSessionId(); } catch { return undefined; }
+            },
+          }),
+          ...createCheckpointTools({
+            getSessionId: () => {
+              try { return sessionManager.getSessionId(); } catch { return undefined; }
+            },
+            getLeafId: () => {
+              try {
+                // Prefer the current branch leaf so rewind navigates correctly.
+                const leaf = (sessionManager as { getLeafId?: () => string | null }).getLeafId?.();
+                if (leaf) return leaf;
+                const leafEntry = (sessionManager as { getLeafEntry?: () => { id?: string } | null }).getLeafEntry?.();
+                return leafEntry?.id;
+              } catch {
+                return undefined;
+              }
+            },
+          }),
+        ]
+      : [];
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
-      customTools: [agentBashTool as never],
+      customTools: [
+        agentBashTool as never,
+        agentEditTool as never,
+        ...(memoryTools as never[]),
+        ...(extraTools as never[]),
+      ],
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 

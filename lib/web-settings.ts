@@ -7,6 +7,28 @@ export type ModelRef = {
   modelId: string;
 };
 
+/** Role models for main session / cheap subagents / planning. */
+export type ModelRoles = {
+  default: ModelRef | null;
+  smol: ModelRef | null;
+  plan: ModelRef | null;
+};
+
+function emptyModelRoles(): ModelRoles {
+  return { default: null, smol: null, plan: null };
+}
+
+function parseModelRoles(value: unknown): ModelRoles {
+  const base = emptyModelRoles();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return base;
+  const rec = value as Record<string, unknown>;
+  return {
+    default: parseModelRef(rec.default),
+    smol: parseModelRef(rec.smol),
+    plan: parseModelRef(rec.plan),
+  };
+}
+
 export type ThinkingLevelPref =
   | "auto"
   | "off"
@@ -37,6 +59,22 @@ export type WebSettings = {
   titleModel: ModelRef | null;
   /** Model used for AI commit message generation. null = app default model. */
   commitModel: ModelRef | null;
+  /**
+   * Role models for main session / cheap subagents / planning.
+   * null per role = inherit (default → settings.json; smol/plan → fallback chain).
+   */
+  modelRoles: ModelRoles;
+  /** Project-scoped durable memory (auto-inject + tools). */
+  projectMemory: {
+    enabled: boolean;
+    autoInjectTopK: number;
+    maxFactChars: number;
+    maxInjectChars: number;
+  };
+  /** Run a secondary advisor model after each agent turn. */
+  advisorEnabled: boolean;
+  /** Optional advisor model override; null = plan/default role. */
+  advisorModel: ModelRef | null;
 
   // ── Network (restart recommended) ──
   /** HTTP(S) proxy URL, e.g. http://127.0.0.1:7890. Empty = direct. */
@@ -86,6 +124,15 @@ export type WebSettings = {
 const DEFAULT_SETTINGS: WebSettings = {
   titleModel: null,
   commitModel: null,
+  modelRoles: emptyModelRoles(),
+  projectMemory: {
+    enabled: true,
+    autoInjectTopK: 12,
+    maxFactChars: 400,
+    maxInjectChars: 3000,
+  },
+  advisorEnabled: false,
+  advisorModel: null,
   httpProxy: "",
   proxyBypass: "",
   customCaCerts: "",
@@ -195,6 +242,20 @@ function normalizeWebSettings(raw: unknown): WebSettings {
   return {
     titleModel: parseModelRef(raw.titleModel),
     commitModel: parseModelRef(raw.commitModel),
+    modelRoles: parseModelRoles(raw.modelRoles),
+    projectMemory: (() => {
+      const d = DEFAULT_SETTINGS.projectMemory;
+      if (!isRecord(raw.projectMemory)) return { ...d };
+      const pm = raw.projectMemory;
+      return {
+        enabled: asBool(pm.enabled, d.enabled),
+        autoInjectTopK: asNumber(pm.autoInjectTopK, d.autoInjectTopK, 0, 50),
+        maxFactChars: asNumber(pm.maxFactChars, d.maxFactChars, 80, 2000),
+        maxInjectChars: asNumber(pm.maxInjectChars, d.maxInjectChars, 200, 12000),
+      };
+    })(),
+    advisorEnabled: asBool(raw.advisorEnabled, DEFAULT_SETTINGS.advisorEnabled),
+    advisorModel: parseModelRef(raw.advisorModel),
     httpProxy: asString(raw.httpProxy),
     proxyBypass: asString(raw.proxyBypass),
     customCaCerts: asString(raw.customCaCerts),

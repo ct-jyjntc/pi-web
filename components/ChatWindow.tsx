@@ -208,13 +208,25 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   soundEnabledRef.current = soundEnabled;
   const notifyPrefsRef = useRef({ desktop: true, notifSound: true });
   const [showTodos, setShowTodos] = useState(true);
+  const [advisorNote, setAdvisorNote] = useState<{
+    level: "info" | "concern" | "blocker";
+    text: string;
+    model: string;
+  } | null>(null);
+  const advisorEnabledRef = useRef(false);
+  const messagesForAdvisorRef = useRef<AgentMessage[]>([]);
   useEffect(() => {
     let cancelled = false;
     const load = () => {
       fetch("/api/web-settings")
         .then(async (res) => {
           const data = await res.json() as {
-            settings?: { desktopNotifications?: boolean; notificationSound?: boolean; showTodos?: boolean };
+            settings?: {
+              desktopNotifications?: boolean;
+              notificationSound?: boolean;
+              showTodos?: boolean;
+              advisorEnabled?: boolean;
+            };
           };
           if (cancelled || !data.settings) return;
           notifyPrefsRef.current = {
@@ -222,6 +234,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             notifSound: data.settings.notificationSound !== false,
           };
           setShowTodos(data.settings.showTodos !== false);
+          advisorEnabledRef.current = data.settings.advisorEnabled === true;
         })
         .catch(() => {});
     };
@@ -266,8 +279,59 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         }
       }
     }
+
+    // Optional advisor review of the latest turn.
+    if (advisorEnabledRef.current) {
+      const msgs = messagesForAdvisorRef.current;
+      let userText = "";
+      let assistantText = "";
+      const tools: string[] = [];
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (!m) continue;
+        if (!assistantText && m.role === "assistant") {
+          const content = (m as AssistantMessage).content ?? [];
+          assistantText = content
+            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .map((b) => b.text)
+            .join("\n");
+          for (const b of content) {
+            if (b.type === "toolCall") tools.push(b.toolName || "tool");
+          }
+        } else if (assistantText && m.role === "user") {
+          const c = m.content;
+          userText = typeof c === "string"
+            ? c
+            : Array.isArray(c)
+              ? c.filter((b): b is { type: "text"; text: string } => typeof b === "object" && b !== null && (b as { type?: string }).type === "text").map((b) => b.text).join("\n")
+              : "";
+          break;
+        }
+      }
+      const cwd = session?.cwd ?? newSessionCwd;
+      if (cwd && (userText || assistantText)) {
+        void fetch("/api/advisor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cwd,
+            userText,
+            assistantText,
+            toolSummary: tools.join(", "),
+          }),
+        })
+          .then(async (res) => {
+            const data = await res.json() as {
+              note?: { level: "info" | "concern" | "blocker"; text: string; model: string } | null;
+            };
+            if (data.note) setAdvisorNote(data.note);
+          })
+          .catch(() => {});
+      }
+    }
+
     onAgentEnd?.();
-  }, [onAgentEnd, t]);
+  }, [newSessionCwd, onAgentEnd, session?.cwd, t]);
 
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
   const handleEditContent = useCallback((content: string) => {
@@ -297,6 +361,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  useEffect(() => {
+    messagesForAdvisorRef.current = messages;
+  }, [messages]);
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -642,7 +709,43 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     return () => setCompactHandlers(null);
   }, [session, isNew, handleCompact, handleAbortCompaction, isCompacting]);
 
+  const advisorBanner = advisorNote ? (
+    <div
+      style={{
+        margin: "0 0 8px",
+        padding: "8px 10px",
+        borderRadius: "var(--radius-md)",
+        border: `1px solid ${advisorNote.level === "blocker" || advisorNote.level === "concern" ? "var(--destructive-border)" : "var(--border)"}`,
+        background: advisorNote.level === "blocker" || advisorNote.level === "concern" ? "var(--destructive-bg)" : "var(--bg-subtle)",
+        fontSize: 12,
+        lineHeight: 1.4,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <strong style={{ fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          {advisorNote.level === "blocker"
+            ? t("advisor.blocker")
+            : advisorNote.level === "concern"
+              ? t("advisor.concern")
+              : t("advisor.note")}
+        </strong>
+        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 10 }}>{advisorNote.model}</span>
+        <button
+          type="button"
+          className="chrome-btn"
+          onClick={() => setAdvisorNote(null)}
+          style={{ marginLeft: "auto", height: 22, minHeight: 22, padding: "0 8px", fontSize: 11 }}
+        >
+          {t("common.close")}
+        </button>
+      </div>
+      <div style={{ color: "var(--text)" }}>{advisorNote.text}</div>
+    </div>
+  ) : null;
+
   const chatInputElement = (
+    <>
+    {advisorBanner}
     <ChatInput
       ref={chatInputRef}
       onSend={handleSend}
@@ -678,6 +781,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
     />
+    </>
   );
 
   // The todo extension's store is session-long, but the card should only

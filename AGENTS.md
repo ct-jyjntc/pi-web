@@ -132,7 +132,13 @@ Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolC
 Every session uses the full built-in tool set (`getFullToolNames()` → `toolNames[]` on `POST /api/agent/new` and `set_tools` on mount). When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
 
 ### Model defaults for new sessions
-`GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions.
+`GET /api/models` returns `defaultModel` preferring Pi Web **model roles** (`pi-web.json` → `modelRoles.default`) then `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions.
+
+### Model roles / Git Review / project memory (Phase A)
+- **Roles** (`default` / `smol` / `plan`) live in `~/.pi/agent/pi-web.json` via `lib/web-settings.ts` + Settings UI. Changing roles rewrites managed agent frontmatter (`Explore`/`Plan`/`Reviewer`) through `syncAgentModelsFromRoles()`.
+- **Git Review**: `POST /api/git/review` builds a prompt; GitPanel starts a new session with the plan-role model and the managed `Reviewer` subagent. Assistant JSON is rendered by `ReviewSummaryCard`.
+- **Edit failures**: `createPiWebEditToolDefinition` wraps builtin `edit` with kind/excerpt recovery text (`lib/edit-failure.ts`).
+- **Project memory**: facts in `~/.pi/agent/project-memory/<key>/facts.jsonl`; tools `memory_retain` / `memory_recall`; auto-inject via `appendSystemPromptOverride` in `startRpcSession`.
 
 ### SSE reconnect on page refresh mid-stream
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.

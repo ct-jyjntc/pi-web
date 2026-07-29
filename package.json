@@ -181,6 +181,7 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/ws": "^8.18.1",
     "electron": "^37.10.3",
     "electron-builder": "^26.15.3",
     "eslint": "^9",

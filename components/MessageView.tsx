@@ -4,10 +4,12 @@ import { useLocale } from "@/hooks/useLocale";
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
 import { MarkdownBody } from "./MarkdownBody";
+import { ReviewSummaryCard } from "./ReviewSummaryCard";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
+import { parseReviewReport } from "@/lib/review-report";
 import type {
   AgentMessage,
   UserMessage,
@@ -477,6 +479,11 @@ function AssistantMessageView({
     .map((b) => b.text)
     .join("\n");
 
+  const reviewReport = useMemo(
+    () => (!isStreaming ? parseReviewReport(textContent) : null),
+    [isStreaming, textContent],
+  );
+
   const copyContent = () => {
     copyText(textContent).then(() => {
       setCopied(true);
@@ -598,6 +605,7 @@ function AssistantMessageView({
         {blockItems.map(({ block, originalIndex }) => (
           <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
+        {reviewReport && <ReviewSummaryCard report={reviewReport} />}
       </div>
 
       <div style={{
@@ -826,6 +834,12 @@ function toolDisplayMeta(toolName: string): { label: string; accent: string; bg:
   };
 }
 
+function parseEditFailureKind(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const m = text.match(/Edit failed \(([^)]+)\)/i);
+  return m?.[1] ?? null;
+}
+
 function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
@@ -838,10 +852,13 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "" || resultText.trim() === "（无输出）");
   const isError = result?.isError ?? false;
+  const editFailureKind = isEditTool && isError ? parseEditFailureKind(resultText) : null;
   const meta = toolDisplayMeta(block.toolName);
   // Compact tool-display style: collapse long results by default; expand on click.
+  // Edit failures stay expanded so recovery guidance is visible without an extra click.
   const longResult = (resultText?.length ?? 0) > 1200;
-  const showResultCollapsed = !expanded && result && longResult && !resultDiff;
+  const forceExpandError = isError && isEditTool;
+  const showResultCollapsed = !expanded && !forceExpandError && result && longResult && !resultDiff;
 
   return (
     <div
@@ -874,6 +891,25 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         <span style={{ color: isError ? "var(--destructive)" : meta.accent, fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {meta.label}
         </span>
+        {editFailureKind && (
+          <span
+            style={{
+              flexShrink: 0,
+              fontSize: 10,
+              fontFamily: "var(--font-mono)",
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              color: "var(--destructive)",
+              border: "1px solid var(--destructive-border)",
+              background: "var(--destructive-bg)",
+              borderRadius: "var(--radius-xs)",
+              padding: "1px 5px",
+            }}
+          >
+            {editFailureKind}
+          </span>
+        )}
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {getToolPreview(block)}
         </span>
@@ -909,7 +945,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
       )}
 
       {/* Short results always visible; long results only when expanded (tool-display style). */}
-      {result && (expanded || !longResult || resultDiff) && (
+      {result && (expanded || forceExpandError || !longResult || resultDiff) && (
         resultDiff ? (
           <PairedDiffResult
             diff={resultDiff}
