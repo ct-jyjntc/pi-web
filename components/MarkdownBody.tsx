@@ -385,7 +385,11 @@ const CodeBlock = memo(function CodeBlock({ code, lang, headerAction }: { code: 
           fontSize: appearance.codeFontSize,
           lineHeight: 1.62,
           borderRadius: 0,
-          backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
+          // Prism themes (e.g. vs) ship their own pre border + fill — strip them
+          // so only the outer .markdown-code-block chrome remains.
+          backgroundColor: "transparent",
+          border: "none",
+          boxShadow: "none",
           whiteSpace: appearance.wrapCodeLines ? "pre-wrap" : "pre",
         }}
         codeTagProps={{

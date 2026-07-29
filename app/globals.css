@@ -661,7 +661,17 @@ pre, code {
   border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 42%, transparent);
+  /* Flat card — no drop shadow */
+  box-shadow: none;
+  filter: none;
+}
+.markdown-code-block pre {
+  /* Prism themes (vs etc.) ship pre { border + background } — kill the nested frame */
+  margin: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 .markdown-code-header {
   padding: 5px 10px;
