@@ -1326,10 +1326,7 @@ export function AppShell() {
       >
         {/* Workspace tabs: Review | Files | Context | Terminal — all permanent */}
         <div className="app-topbar titlebar-drag desktop-top-chrome" style={{ display: "flex", flexDirection: "row", alignItems: "stretch", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: "var(--titlebar-height)" }}>
-          <div
-            className="titlebar-no-drag right-workspace-tabs"
-            style={{ display: "flex", flexDirection: "row", alignItems: "stretch", flex: 1, minWidth: 0, overflow: "hidden" }}
-          >
+          <div className="titlebar-no-drag right-workspace-tabs">
             {workspaceTabs.map((tab) => {
               const active = tab.id === activeWorkspaceTabId;
               const label =
@@ -1344,86 +1341,38 @@ export function AppShell() {
                   type="button"
                   className={`right-workspace-tab${active ? " is-active" : ""}`}
                   onClick={() => setActiveWorkspaceTabId(tab.id)}
-                  style={{
-                    display: "inline-flex",
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    height: "100%",
-                    padding: "0 10px 0 12px",
-                    border: "none",
-                    borderRight: "1px solid var(--border)",
-                    background: active ? "var(--bg)" : "transparent",
-                    color: active ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer",
-                    font: "inherit",
-                    fontSize: 12,
-                    fontWeight: active ? 500 : 400,
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                    maxWidth: 160,
-                  }}
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={active}
                 >
                   {tab.kind === "review" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
                     </svg>
                   ) : tab.kind === "files" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
                   ) : tab.kind === "context" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                       <path d="M3 20V10a9 9 0 0 1 18 0v10" /><line x1="3" y1="20" x2="21" y2="20" />
                     </svg>
                   ) : tab.kind === "debug" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                       <path d="m8 2 1.88 1.88" /><path d="M14.12 3.88 16 2" /><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" /><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" /><path d="M12 20v-9" /><path d="M6.53 9C4.6 11.3 3 14.5 3 18" /><path d="M20.97 9C19.1 11.3 17.5 14.5 17.5 18" />
                     </svg>
                   ) : (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                       <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
                     </svg>
                   )}
-                  <span className="right-workspace-tab-label" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{label}</span>
+                  <span className="right-workspace-tab-label">{label}</span>
                   {tab.kind === "context" && <ContextTabBadge />}
                   {tab.kind === "files" && fileTabs.length > 0 && (
-                    <span
-                      className="right-workspace-tab-count"
-                      style={{
-                        fontSize: 10,
-                        fontVariantNumeric: "tabular-nums",
-                        color: "var(--text-dim)",
-                        background: "var(--bg-subtle)",
-                        borderRadius: "var(--radius-pill)",
-                        padding: "0 6px",
-                        minWidth: 16,
-                        textAlign: "center",
-                        lineHeight: "16px",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {fileTabs.length}
-                    </span>
+                    <span className="right-workspace-tab-count">{fileTabs.length}</span>
                   )}
                   {tab.kind === "terminal" && terminalTabs.length > 0 && (
-                    <span
-                      className="right-workspace-tab-count"
-                      style={{
-                        fontSize: 10,
-                        fontVariantNumeric: "tabular-nums",
-                        color: "var(--text-dim)",
-                        background: "var(--bg-subtle)",
-                        borderRadius: "var(--radius-pill)",
-                        padding: "0 6px",
-                        minWidth: 16,
-                        textAlign: "center",
-                        lineHeight: "16px",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {terminalTabs.length}
-                    </span>
+                    <span className="right-workspace-tab-count">{terminalTabs.length}</span>
                   )}
                 </button>
               );
@@ -1542,27 +1491,26 @@ export function AppShell() {
             minHeight: 0,
             overflow: "hidden",
           }}>
-            {/* Terminal subtabs — same strip language as Files */}
-            <div
-              className="file-subtabs titlebar-no-drag"
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "stretch",
-                background: "var(--bg-panel)",
-                overflowX: "auto",
-                flexShrink: 0,
-                height: 32,
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
+            {/* Terminal subtabs — same strip language as Files (icon-only when narrow) */}
+            <div className="file-subtabs titlebar-no-drag">
               {terminalTabs.map((tab) => {
                 const isActive = tab.id === activeTerminalTabId;
                 return (
                   <div
                     key={tab.id}
+                    role="tab"
+                    tabIndex={0}
                     className={`file-subtab${isActive ? " is-active" : ""}`}
+                    title={tab.label}
+                    aria-label={tab.label}
+                    aria-selected={isActive}
                     onClick={() => setActiveTerminalTabId(tab.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setActiveTerminalTabId(tab.id);
+                      }
+                    }}
                     onMouseDown={(e) => {
                       if (e.button === 1) e.preventDefault();
                     }}
@@ -1572,83 +1520,38 @@ export function AppShell() {
                       e.stopPropagation();
                       closeTerminalSession(tab.id);
                     }}
-                    style={{
-                      display: "flex",
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                      height: "100%",
-                      padding: "0 8px 0 10px",
-                      borderRight: "1px solid var(--border)",
-                      background: isActive ? "var(--bg)" : "transparent",
-                      color: isActive ? "var(--text)" : "var(--text-muted)",
-                      cursor: "pointer",
-                      fontSize: 12,
-                      fontWeight: isActive ? 500 : 400,
-                      whiteSpace: "nowrap",
-                      maxWidth: 180,
-                      minWidth: 72,
-                      flexShrink: 0,
-                      userSelect: "none",
-                    }}
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: isActive ? 0.9 : 0.65 }}>
-                      <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
-                    </svg>
-                    <span className="file-subtab-label" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
-                      {tab.label}
+                    <span className="file-subtab-icon" aria-hidden>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+                      </svg>
                     </span>
-                    <span
-                      role="button"
-                      tabIndex={0}
+                    <span className="file-subtab-label">{tab.label}</span>
+                    <button
+                      type="button"
                       className="file-subtab-close"
                       title={t("tab.close")}
-                      aria-label={t("tab.close")}
+                      aria-label={t("tab.closeNamed", { name: tab.label })}
                       onClick={(e) => {
                         e.stopPropagation();
                         closeTerminalSession(tab.id);
                       }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          closeTerminalSession(tab.id);
-                        }
-                      }}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: 18,
-                        height: 18,
-                        borderRadius: "var(--radius-xs)",
-                        color: "var(--text-dim)",
-                        flexShrink: 0,
-                      }}
                     >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
                         <line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" />
                       </svg>
-                    </span>
+                    </button>
                   </div>
                 );
               })}
               <button
                 type="button"
-                className="chrome-btn is-icon"
+                className="chrome-btn is-icon file-subtab-add"
                 onClick={addTerminalSession}
                 title={t("git.newTerminal")}
                 aria-label={t("git.newTerminal")}
-                style={{
-                  width: 32,
-                  minWidth: 32,
-                  height: "100%",
-                  minHeight: 0,
-                  borderRadius: 0,
-                  borderRight: "1px solid var(--border)",
-                }}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                   <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
               </button>

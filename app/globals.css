@@ -1882,17 +1882,23 @@ span.linenumber {
 }
 
 /* ── Right workspace (Review / Files / Terminal) ── */
+/* Container on the tab strip so collapse tracks available tab width
+   (excludes WindowControls), not the full panel. */
 .right-workspace-tabs {
   display: flex;
   align-items: stretch;
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  container-type: inline-size;
+  container-name: rightworkspacetabs;
 }
 
 .right-workspace-tab {
-  display: flex;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   height: 100%;
   padding: 0 10px 0 12px;
@@ -1905,9 +1911,10 @@ span.linenumber {
   font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 34px;
   max-width: 160px;
-  transition: color 0.1s ease, background 0.1s ease;
+  transition: color 0.1s ease, background 0.1s ease, padding 0.12s ease, gap 0.12s ease;
 }
 .right-workspace-tab:hover {
   color: var(--text);
@@ -1919,6 +1926,7 @@ span.linenumber {
   font-weight: 500;
 }
 .right-workspace-tab > svg {
+  display: block;
   flex-shrink: 0;
   opacity: 0.75;
 }
@@ -1939,6 +1947,36 @@ span.linenumber {
   line-height: 16px;
   flex-shrink: 0;
 }
+
+/* ~5 labeled tabs need ~420px; below that, icon (+ optional badge) only */
+@container rightworkspacetabs (max-width: 420px) {
+  .right-workspace-tab-label {
+    display: none;
+  }
+  .right-workspace-tab {
+    padding: 0 10px;
+    gap: 4px;
+    max-width: none;
+    flex: 0 0 auto;
+  }
+}
+
+/* Extreme narrow: drop count/percent badges so pure icons still fit */
+@container rightworkspacetabs (max-width: 220px) {
+  .right-workspace-tab-count {
+    display: none;
+  }
+  .right-workspace-tab {
+    padding: 0 8px;
+    gap: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .right-workspace-tab {
+    transition: color 0.1s ease, background 0.1s ease;
+  }
+}
 /* Git review strips */
 .git-panel {
   display: flex;
@@ -1958,11 +1996,26 @@ span.linenumber {
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
   flex-shrink: 0;
+  min-width: 0;
+  /* Must stay visible: commit / branch menus are absolutely positioned children. */
+  overflow: visible;
+}
+/* Collapse by available toolbar width (Review / Context / Debug share this). */
+.git-panel-toolbar {
+  container-type: inline-size;
+  container-name: gitpaneltoolbar;
+  /* Stack menus above file list / diffs in the panel body. */
+  position: relative;
+  z-index: 5;
 }
 .git-panel-subheader {
   height: 32px;
   min-height: 32px;
   background: var(--bg);
+  container-type: inline-size;
+  container-name: gitpanelsubheader;
+  position: relative;
+  z-index: 4;
 }
 .git-panel-title {
   display: inline-flex;
@@ -1973,7 +2026,15 @@ span.linenumber {
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.git-panel-title-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .git-panel-stats {
   font-size: 11px;
@@ -1981,12 +2042,15 @@ span.linenumber {
   font-variant-numeric: tabular-nums;
   display: inline-flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 .git-panel-toolbar-actions {
   display: flex;
   align-items: stretch;
   margin-left: auto;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  height: 100%;
+  min-width: 0;
 }
 .git-panel-toolbar-actions .chrome-btn,
 .git-panel-subheader .chrome-btn {
@@ -1995,11 +2059,34 @@ span.linenumber {
   border-radius: 0;
   border-left: 1px solid var(--border);
 }
-.git-panel-toolbar-actions .btn-primary {
+.git-panel-toolbar-actions .chrome-btn:not(.is-icon) {
+  padding: 0 10px;
+  font-size: 11px;
+  gap: 6px;
+}
+.git-panel-toolbar-actions .chrome-btn.is-icon {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+}
+.git-panel-toolbar-actions .btn-primary.git-panel-commit-btn {
   height: 100%;
   min-height: 100%;
   border-radius: 0;
   border-left: 1px solid var(--border);
+  gap: 6px;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+.git-panel-commit-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-panel-commit-chevron {
+  flex-shrink: 0;
+  opacity: 0.7;
+  display: block;
 }
 .git-panel-branch {
   display: flex;
@@ -2008,11 +2095,114 @@ span.linenumber {
   min-width: 0;
   flex: 1;
   padding: 0 4px 0 0;
+  overflow: hidden;
+}
+.git-panel-branch-btn {
+  padding: 0 10px;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-left: none !important;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+}
+.git-panel-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.git-panel-branch-upstream {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.git-panel-pull-btn {
+  padding: 0 12px;
+  font-size: 11px;
+  height: 100%;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  flex: 0 0 auto;
+  gap: 6px;
 }
 .git-panel-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Keep body under toolbar/subheader popovers (commit, branch). */
+  position: relative;
+  z-index: 0;
+}
+.git-panel-commit-menu {
+  /* Anchor above scrolling file list even if a parent creates a stacking context. */
+  z-index: 90;
+}
+
+/* Toolbar: hide action labels first so primary actions stay on-screen */
+@container gitpaneltoolbar (max-width: 560px) {
+  .git-panel-toolbar-actions .chrome-btn > span {
+    display: none;
+  }
+  .git-panel-toolbar-actions .chrome-btn:not(.is-icon) {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+    gap: 0;
+  }
+  .git-panel-commit-label,
+  .git-panel-commit-chevron {
+    display: none;
+  }
+  .git-panel-toolbar-actions .btn-primary.git-panel-commit-btn {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+    gap: 0;
+  }
+}
+
+/* Tighter: drop the title word, keep +/- stats */
+@container gitpaneltoolbar (max-width: 400px) {
+  .git-panel-title-label {
+    display: none;
+  }
+  .git-panel-title {
+    padding: 0 8px;
+    flex: 0 1 auto;
+  }
+}
+
+/* Extreme: stats go too — pure action strip */
+@container gitpaneltoolbar (max-width: 300px) {
+  .git-panel-stats {
+    display: none;
+  }
+  .git-panel-title {
+    display: none;
+  }
+}
+
+/* Subheader: hide upstream / ahead-behind; icon-only pull */
+@container gitpanelsubheader (max-width: 360px) {
+  .git-panel-branch-upstream,
+  .git-panel-branch-meta {
+    display: none;
+  }
+  .git-panel-pull-btn > span {
+    display: none;
+  }
+  .git-panel-pull-btn {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+    gap: 0;
+  }
 }
 
 /* Context tab — same strip/list grammar as git review */
@@ -2162,7 +2352,7 @@ span.linenumber {
   min-width: 0;
 }
 
-/* File sub-tabs inside Files workspace */
+/* File / terminal sub-tabs inside workspace panes */
 .file-subtabs {
   display: flex;
   align-items: stretch;
@@ -2171,24 +2361,32 @@ span.linenumber {
   flex-shrink: 0;
   height: 32px;
   border-bottom: 1px solid var(--border);
+  min-width: 0;
+  container-type: inline-size;
+  container-name: filesubtabs;
 }
 .file-subtab {
-  display: flex;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   height: 100%;
   padding: 0 8px 0 10px;
+  border: none;
   border-right: 1px solid var(--border);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  font: inherit;
   font-size: 12px;
+  font-weight: 400;
   white-space: nowrap;
   max-width: 180px;
-  min-width: 72px;
-  flex-shrink: 0;
+  min-width: 56px;
+  flex: 0 1 auto;
   user-select: none;
-  transition: background 0.1s ease, color 0.1s ease;
+  transition: background 0.1s ease, color 0.1s ease, padding 0.12s ease, gap 0.12s ease;
 }
 .file-subtab:hover {
   background: var(--bg-hover);
@@ -2199,6 +2397,19 @@ span.linenumber {
   color: var(--text);
   font-weight: 500;
 }
+.file-subtab-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.file-subtab.is-active .file-subtab-icon {
+  opacity: 1;
+}
+.file-subtab-icon > svg {
+  display: block;
+  flex-shrink: 0;
+}
 .file-subtab-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2206,7 +2417,7 @@ span.linenumber {
   min-width: 0;
 }
 .file-subtab-close {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 20px;
@@ -2222,6 +2433,51 @@ span.linenumber {
 .file-subtab-close:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+.file-subtab-close > svg {
+  display: block;
+}
+/* + new terminal (or similar) pinned at end of subtab strip */
+.file-subtabs > .file-subtab-add.chrome-btn.is-icon {
+  width: 32px;
+  min-width: 32px;
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  border-right: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+/* Narrow pane: icon + close only (label via title / aria-label) */
+@container filesubtabs (max-width: 360px) {
+  .file-subtab-label {
+    display: none;
+  }
+  .file-subtab {
+    padding: 0 6px 0 8px;
+    gap: 4px;
+    min-width: 0;
+    max-width: none;
+    flex: 0 0 auto;
+  }
+}
+
+/* Extreme narrow: tighten chrome so more tabs stay visible */
+@container filesubtabs (max-width: 200px) {
+  .file-subtab {
+    padding: 0 4px 0 6px;
+    gap: 2px;
+  }
+  .file-subtab-close {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-subtab {
+    transition: background 0.1s ease, color 0.1s ease;
+  }
 }
 
 

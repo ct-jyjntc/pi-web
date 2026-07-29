@@ -49,18 +49,7 @@ export function ContextTabBadge() {
   return (
     <span
       className="right-workspace-tab-count"
-      style={{
-        fontSize: 10,
-        fontVariantNumeric: "tabular-nums",
-        color: pct > 90 ? "var(--destructive)" : "var(--text-dim)",
-        background: "var(--bg-subtle)",
-        borderRadius: "var(--radius-pill)",
-        padding: "0 6px",
-        minWidth: 16,
-        textAlign: "center",
-        lineHeight: "16px",
-        flexShrink: 0,
-      }}
+      style={pct > 90 ? { color: "var(--destructive)" } : undefined}
     >
       {`${Math.round(pct)}%`}
     </span>
@@ -266,57 +255,21 @@ export function ContextPanel() {
         background: "var(--bg)",
       }}
     >
-      <div
-        className="git-panel-toolbar"
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          minHeight: 36,
-          height: 36,
-          borderBottom: "1px solid var(--border)",
-          background: "var(--bg-panel)",
-          flexShrink: 0,
-        }}
-      >
-        <div
-          className="git-panel-title"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            height: "100%",
-            padding: "0 12px",
-            fontSize: 12,
-            fontWeight: 600,
-            color: "var(--text)",
-            minWidth: 0,
-            flex: 1,
-          }}
-        >
-          <span>{t("shell.contextTab")}</span>
+      <div className="git-panel-toolbar">
+        <div className="git-panel-title">
+          <span className="git-panel-title-label">{t("shell.contextTab")}</span>
           {ctxPct != null && (
-            <span
-              className="git-panel-stats"
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                fontVariantNumeric: "tabular-nums",
-                color: ctxColor,
-              }}
-            >
+            <span className="git-panel-stats" style={{ color: ctxColor }}>
               {`${Math.round(ctxPct)}%`}
             </span>
           )}
           {c > 0 && (
-            <span
-              className="git-panel-stats"
-              style={{ fontSize: 11, fontWeight: 500, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}
-            >
+            <span className="git-panel-stats" style={{ color: "var(--text-muted)" }}>
               {`$${c.toFixed(2)}`}
             </span>
           )}
         </div>
-        <div className="git-panel-toolbar-actions" style={{ display: "flex", alignItems: "stretch", marginLeft: "auto", flexShrink: 0 }}>
+        <div className="git-panel-toolbar-actions">
           {compactState && (
             <button
               type="button"
@@ -330,15 +283,6 @@ export function ContextPanel() {
               }}
               title={compactState.isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
               aria-label={compactState.isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
-              style={{
-                height: "100%",
-                minHeight: 0,
-                borderRadius: 0,
-                borderLeft: "1px solid var(--border)",
-                padding: "0 12px",
-                gap: 6,
-                fontSize: 12,
-              }}
             >
               {compactState.isCompacting ? (
                 <>
@@ -348,7 +292,12 @@ export function ContextPanel() {
                   <span>{t("chat.compacting")}</span>
                 </>
               ) : (
-                <span>{t("chat.compact")}</span>
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M4 7h16" /><path d="M4 12h10" /><path d="M4 17h7" />
+                  </svg>
+                  <span>{t("chat.compact")}</span>
+                </>
               )}
             </button>
           )}
@@ -359,7 +308,6 @@ export function ContextPanel() {
               onClick={() => handleCopySessionField("file", sessionStats.sessionFile!)}
               title={copiedSessionField === "file" ? t("common.copied") : t("shell.copyFilePath")}
               aria-label={t("shell.copyFilePath")}
-              style={{ height: "100%", minHeight: 0, width: 36, minWidth: 36, borderLeft: "1px solid var(--border)", borderRadius: 0 }}
             >
               {copiedSessionField === "file" ? (
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -379,7 +327,6 @@ export function ContextPanel() {
               onClick={() => handleCopySessionField("id", sessionStats.sessionId)}
               title={copiedSessionField === "id" ? t("common.copied") : t("shell.copySessionId")}
               aria-label={t("shell.copySessionId")}
-              style={{ height: "100%", minHeight: 0, width: 36, minWidth: 36, borderLeft: "1px solid var(--border)", borderRadius: 0 }}
             >
               {copiedSessionField === "id" ? (
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

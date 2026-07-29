@@ -589,77 +589,29 @@ export function GitPanel({
 
   return (
     <div className="git-panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, flex: 1, background: "var(--bg)" }}>
-      {/* Header strip — changes stats + collapse/refresh/commit */}
-      <div
-        className="git-panel-toolbar"
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 0,
-          minHeight: 36,
-          height: 36,
-          padding: 0,
-          borderBottom: "1px solid var(--border)",
-          background: "var(--bg-panel)",
-          flexShrink: 0,
-        }}
-      >
-        <div
-          className="git-panel-title"
-          style={{
-            display: "inline-flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            height: "100%",
-            padding: "0 12px",
-            fontSize: 12,
-            fontWeight: 600,
-            color: "var(--text)",
-            flexShrink: 0,
-            minWidth: 0,
-          }}
-        >
-          {t("git.changes")}
+      {/* Header strip — changes stats + collapse/refresh/commit (icon-only when narrow) */}
+      <div className="git-panel-toolbar">
+        <div className="git-panel-title">
+          <span className="git-panel-title-label">{t("git.changes")}</span>
           {(insertions > 0 || deletions > 0) && (
-            <span className="git-panel-stats" style={{ fontSize: 11, fontWeight: 500, fontVariantNumeric: "tabular-nums", display: "inline-flex", gap: 4 }}>
+            <span className="git-panel-stats">
               {insertions > 0 && <span style={{ color: "var(--success)" }}>{t("git.linesAdded", { n: insertions })}</span>}
               {deletions > 0 && <span style={{ color: "var(--destructive)" }}>{t("git.linesDeleted", { n: deletions })}</span>}
             </span>
           )}
           {changeCount > 0 && insertions === 0 && deletions === 0 && (
-            <span className="git-panel-stats" style={{ fontSize: 11, fontWeight: 500, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{changeCount}</span>
+            <span className="git-panel-stats" style={{ color: "var(--text-dim)" }}>{changeCount}</span>
           )}
         </div>
 
-        <div
-          className="git-panel-toolbar-actions"
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "stretch",
-            marginLeft: "auto",
-            flexShrink: 0,
-            height: "100%",
-          }}
-        >
+        <div className="git-panel-toolbar-actions">
         <button
           type="button"
           className="chrome-btn"
           disabled={busy || reviewing || (status?.files.length ?? 0) === 0}
           onClick={() => void startReview()}
-          title={t("git.review")}
-          aria-label={t("git.review")}
-          style={{
-            height: "100%",
-            minHeight: 0,
-            padding: "0 10px",
-            fontSize: 11,
-            borderLeft: "1px solid var(--border)",
-            borderRadius: 0,
-            gap: 6,
-          }}
+          title={reviewing ? t("git.reviewRunning") : t("git.review")}
+          aria-label={reviewing ? t("git.reviewRunning") : t("git.review")}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M9 11l3 3L22 4" />
@@ -674,15 +626,6 @@ export function GitPanel({
           onClick={stageAll}
           title={t("git.stageAll")}
           aria-label={t("git.stageAll")}
-          style={{
-            height: "100%",
-            minHeight: 0,
-            padding: "0 10px",
-            fontSize: 11,
-            borderLeft: "1px solid var(--border)",
-            borderRadius: 0,
-            gap: 6,
-          }}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
@@ -696,15 +639,6 @@ export function GitPanel({
           onClick={discardAll}
           title={t("git.discardAll")}
           aria-label={t("git.discardAll")}
-          style={{
-            height: "100%",
-            minHeight: 0,
-            padding: "0 10px",
-            fontSize: 11,
-            borderLeft: "1px solid var(--border)",
-            borderRadius: 0,
-            gap: 6,
-          }}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" />
@@ -724,14 +658,13 @@ export function GitPanel({
               setOpenDiffs(new Set((status?.files ?? []).map((f) => f.filePath)));
             }
           }}
-          style={{ height: "100%", minHeight: 0, width: 36, minWidth: 36, borderLeft: "1px solid var(--border)", borderRadius: 0 }}
         >
           {openDiffs.size > 0 ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
               <line x1="5" y1="12" x2="19" y2="12" /><line x1="12" y1="5" x2="12" y2="19" />
             </svg>
           )}
@@ -743,9 +676,9 @@ export function GitPanel({
           onClick={() => void load()}
           disabled={busy || loading}
           title={t("git.refresh")}
-          style={{ height: "100%", minHeight: 0, width: 36, minWidth: 36, borderLeft: "1px solid var(--border)", borderRadius: 0 }}
+          aria-label={t("git.refresh")}
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
             <path d="M3 3v5h5" />
           </svg>
@@ -754,32 +687,34 @@ export function GitPanel({
         <div ref={commitRef} style={{ position: "relative", flexShrink: 0, display: "flex", flexDirection: "row", height: "100%" }}>
           <button
             type="button"
-            className="btn-primary btn-compact"
+            className="btn-primary btn-compact git-panel-commit-btn"
             disabled={busy}
+            title={t("git.commitOrPush")}
+            aria-label={t("git.commitOrPush")}
+            aria-expanded={commitOpen}
             onClick={() => {
               setBranchOpen(false);
               setCommitOpen((v) => !v);
             }}
-            style={{ gap: 6, padding: "0 12px", borderRadius: 0, height: "100%", minHeight: 0, borderLeft: "1px solid var(--border)" }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <circle cx="12" cy="12" r="3" /><path d="M12 3v6M12 15v6" />
             </svg>
-            {t("git.commitOrPush")}
-            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <span className="git-panel-commit-label">{t("git.commitOrPush")}</span>
+            <svg className="git-panel-commit-chevron" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
               <polyline points="2 3.5 5 6.5 8 3.5" />
             </svg>
           </button>
 
           {commitOpen && (
             <div
-              className="menu-card"
+              className="menu-card git-panel-commit-menu"
               style={{
                 position: "absolute",
                 top: "calc(100% + 6px)",
                 right: 0,
                 width: 300,
-                zIndex: 80,
+                zIndex: 90,
                 padding: 12,
                 display: "flex",
                 flexDirection: "column",
@@ -911,39 +846,24 @@ export function GitPanel({
         </div>
       </div>
 
-      {/* Subheader: branch → upstream */}
+      {/* Subheader: branch → upstream (collapses when narrow) */}
       {showBody && (
-        <div
-          className="git-panel-subheader"
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            minHeight: 32,
-            height: 32,
-            padding: 0,
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg)",
-            flexShrink: 0,
-          }}
-        >
-          <div
-            className="git-panel-branch"
-            ref={branchRef}
-            style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0, flex: 1, padding: "0 4px 0 0" }}
-          >
+        <div className="git-panel-subheader">
+          <div className="git-panel-branch" ref={branchRef} style={{ position: "relative" }}>
             <button
               type="button"
-              className="chrome-btn"
+              className="chrome-btn git-panel-branch-btn"
               onClick={() => void openBranches()}
               disabled={busy}
-              style={{ padding: "0 10px", gap: 6, fontFamily: "var(--font-mono)", fontSize: 12, borderLeft: "none", height: "100%", minHeight: 0 }}
+              title={status?.upstream ? `${status?.branch ?? "—"} → ${status.upstream}` : (status?.branch ?? "—")}
+              aria-label={t("git.branch")}
+              aria-expanded={branchOpen}
             >
-              {status?.branch ?? "—"}
+              <span className="git-panel-branch-name">{status?.branch ?? "—"}</span>
               {status?.upstream && (
-                <span style={{ color: "var(--text-dim)" }}>→ {status.upstream}</span>
+                <span className="git-panel-branch-upstream">→ {status.upstream}</span>
               )}
-              <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ opacity: 0.5, display: "block", flexShrink: 0 }}>
+              <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ opacity: 0.5, display: "block", flexShrink: 0 }} aria-hidden>
                 <polyline points="2 3.5 5 6.5 8 3.5" />
               </svg>
             </button>
@@ -983,20 +903,24 @@ export function GitPanel({
               </div>
             )}
             {(status?.ahead ?? 0) > 0 && (
-              <span style={{ fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{t("git.ahead", { n: status!.ahead })}</span>
+              <span className="git-panel-branch-meta" style={{ fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{t("git.ahead", { n: status!.ahead })}</span>
             )}
             {(status?.behind ?? 0) > 0 && (
-              <span style={{ fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{t("git.behind", { n: status!.behind })}</span>
+              <span className="git-panel-branch-meta" style={{ fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{t("git.behind", { n: status!.behind })}</span>
             )}
           </div>
           <button
             type="button"
-            className="chrome-btn"
+            className="chrome-btn git-panel-pull-btn"
             disabled={busy}
             onClick={() => void mutate("/api/git/pull", { cwd })}
-            style={{ padding: "0 12px", fontSize: 11, height: "100%", minHeight: 0, borderLeft: "1px solid var(--border)", borderRadius: 0, flexShrink: 0 }}
+            title={t("git.pull")}
+            aria-label={t("git.pull")}
           >
-            {t("git.pull")}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
+            </svg>
+            <span>{t("git.pull")}</span>
           </button>
         </div>
       )}
