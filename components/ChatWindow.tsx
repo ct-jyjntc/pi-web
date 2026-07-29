@@ -770,6 +770,28 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     </div>
   ) : null;
 
+  // The todo extension's store is session-long, but the card should only
+  // reflect the latest turn: derive "todo used after the last user message"
+  // from the transcript (works for reload, streaming, and history alike).
+  const todoUsedInLatestTurn = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "user") return false;
+      if (m.role === "assistant"
+        && m.content.some((c) => c.type === "toolCall" && c.toolName === "todo")) {
+        return true;
+      }
+    }
+    return false;
+  }, [messages]);
+
+  const visibleWidgets = extensionWidgets.filter((widget) => {
+    if (classifyWidgetKey(widget.key) !== "todo") return true;
+    return showTodos && todoUsedInLatestTurn;
+  });
+  const aboveEditorWidgets = visibleWidgets.filter((widget) => widget.placement !== "belowEditor");
+  const belowEditorWidgets = visibleWidgets.filter((widget) => widget.placement === "belowEditor");
+
   const chatInputElement = (
     <>
     {advisorBanner}
@@ -810,28 +832,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     />
     </>
   );
-
-  // The todo extension's store is session-long, but the card should only
-  // reflect the latest turn: derive "todo used after the last user message"
-  // from the transcript (works for reload, streaming, and history alike).
-  const todoUsedInLatestTurn = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === "user") return false;
-      if (m.role === "assistant"
-        && m.content.some((c) => c.type === "toolCall" && c.toolName === "todo")) {
-        return true;
-      }
-    }
-    return false;
-  }, [messages]);
-
-  const visibleWidgets = extensionWidgets.filter((widget) => {
-    if (classifyWidgetKey(widget.key) !== "todo") return true;
-    return showTodos && todoUsedInLatestTurn;
-  });
-  const aboveEditorWidgets = visibleWidgets.filter((widget) => widget.placement !== "belowEditor");
-  const belowEditorWidgets = visibleWidgets.filter((widget) => widget.placement === "belowEditor");
 
   if (loading) {
     return (
@@ -1042,7 +1042,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         </div>
         </div>
 
-        {/* Floating composer: one card; underlay only from toolbar line downward. */}
+        {/* Floating composer: widgets sit above the input card (separate). */}
         <div ref={composerDockRef} className="chat-composer-float">
           <div className="chat-composer-float-underlay" aria-hidden />
           <div className="chat-composer-float-body">

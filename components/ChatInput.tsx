@@ -297,6 +297,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+
 }: Props, ref) {
   const { t } = useLocale();
   const isMobile = useIsMobile();
