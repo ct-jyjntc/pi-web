@@ -1,7 +1,7 @@
 {
   "name": "@ct-jyjntc/pi-web",
   "version": "1.0.0",
-  "description": "Web UI for the pi coding agent",
+  "description": "Local agent workspace — chat, files, Git, and terminals, in browser or desktop",
   "homepage": "https://github.com/ct-jyjntc/pi-web#readme",
   "repository": {
     "type": "git",
