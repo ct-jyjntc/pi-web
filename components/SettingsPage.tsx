@@ -9,7 +9,7 @@ import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { McpConfig } from "./McpConfig";
 import { SettingsToggle } from "./SettingsToggle";
-import { UsagePanel } from "./UsagePanel";
+import { UsagePanel, prefetchUsage } from "./UsagePanel";
 import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
@@ -618,6 +618,11 @@ export function SettingsPage({
   useEffect(() => {
     if (section === "tools") void loadLspHealth();
   }, [section, loadLspHealth]);
+
+  // Warm usage aggregate while the user is still on other settings tabs.
+  useEffect(() => {
+    prefetchUsage(30);
+  }, []);
 
   // Avoid stale scroll when switching between long form pages and dual-pane panels.
   useEffect(() => {
@@ -1917,6 +1922,9 @@ export function SettingsPage({
                     className={`settings-page-nav-item${active ? " is-active" : ""}`}
                     disabled={item.disabled}
                     title={item.title}
+                    onMouseEnter={() => {
+                      if (item.id === "usage") prefetchUsage(30);
+                    }}
                     onClick={() => setSection(item.id)}
                   >
                     {item.label}
