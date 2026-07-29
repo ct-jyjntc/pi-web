@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pi Web — Local agent workspace</title>
+<meta name="description" content="Pi Web — local-first coding-agent workspace: chat, files, Git, and terminals in one app." />
+<style>
+  /* Quiet Console monochrome tokens (ported from app/globals.css) */
+  :root {
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 10px;
+    --radius-pill: 999px;
+
+    --bg: oklch(0.995 0 0);
+    --bg-panel: oklch(0.975 0.002 90);
+    --bg-hover: oklch(0.96 0.002 90);
+    --border: oklch(0.91 0 0);
+    --text: oklch(0.145 0 0);
+    --text-muted: oklch(0.55 0 0);
+    --text-dim: oklch(0.68 0 0);
+    --accent: oklch(0.16 0 0);
+    --accent-hover: oklch(0.28 0 0);
+    --accent-fg: oklch(0.985 0 0);
+    --tool-bg: oklch(0.975 0.002 90);
+    --destructive: oklch(0.58 0.22 27);
+    --destructive-bg: color-mix(in oklab, var(--destructive) 6%, var(--bg));
+    --destructive-border: color-mix(in oklab, var(--destructive) 35%, var(--border));
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08), 0 8px 24px -12px rgba(0, 0, 0, 0.16);
+
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: oklch(0.13 0 0);
+      --bg-panel: oklch(0.18 0 0);
+      --bg-hover: oklch(0.22 0 0);
+      --border: oklch(0.27 0 0);
+      --text: oklch(0.95 0 0);
+      --text-muted: oklch(0.64 0 0);
+      --text-dim: oklch(0.5 0 0);
+      --accent: oklch(0.94 0 0);
+      --accent-hover: oklch(0.98 0 0);
+      --accent-fg: oklch(0.12 0 0);
+      --tool-bg: oklch(0.18 0 0);
+      --destructive: oklch(0.65 0.2 28);
+      --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiriragino Sans GB", "Microsoft YaHei", sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; }
+  code { font-family: var(--font-mono); font-size: 12px; }
+
+  /* Shared button recipes (ported from globals.css) */
+  .btn-primary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 34px; padding: 0 16px; border: none; border-radius: var(--radius-pill);
+    background: var(--accent); color: var(--accent-fg);
+    font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap;
+    text-decoration: none; cursor: pointer; transition: background 0.15s ease;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-ghost {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: transparent; color: var(--text);
+    font: inherit; font-size: 13px; white-space: nowrap;
+    text-decoration: none; cursor: pointer; transition: background 0.15s ease;
+  }
+  .btn-ghost:hover { background: var(--bg-hover); }
+
+  header.top {
+    height: 48px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; border-bottom: 1px solid var(--border);
+  }
+  header.top .brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  header.top .brand .pi { font-family: var(--font-mono); font-size: 15px; }
+  header.top nav { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+  header.top nav a {
+    color: var(--text-muted); text-decoration: none; padding: 6px 10px; border-radius: var(--radius-sm);
+  }
+  header.top nav a:hover { background: var(--bg-hover); color: var(--text); }
+
+  main { max-width: 960px; margin: 0 auto; padding: 56px 24px 72px; }
+
+  .micro {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 10px;
+  }
+
+  /* Hero */
+  .hero { text-align: center; margin-bottom: 44px; }
+  .hero h1 {
+    margin: 0 0 14px; font-size: clamp(28px, 4.5vw, 40px); font-weight: 600;
+    letter-spacing: -0.02em; line-height: 1.15;
+  }
+  .hero p { margin: 0 auto 22px; max-width: 560px; color: var(--text-muted); line-height: 1.65; }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin-bottom: 26px; }
+  .chips span {
+    border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 3px 10px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  }
+  .cta { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+
+  /* Screenshot: bare — the PNG already carries its own window frame + shadow */
+  .shot { margin-bottom: 60px; }
+  .shot img { display: block; width: min(100%, 880px); height: auto; margin: 0 auto; }
+  .shot .shot-dark { display: none; }
+  @media (prefers-color-scheme: dark) {
+    .shot .shot-light { display: none; }
+    .shot .shot-dark { display: block; }
+  }
+
+  section { margin-bottom: 56px; }
+  section h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+  .sec-head { margin-bottom: 18px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .card {
+    border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px 14px;
+    transition: background 0.15s ease;
+  }
+  .card:hover { background: var(--bg-hover); }
+  .card .t { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .card .d { font-size: 12px; line-height: 1.55; color: var(--text-muted); }
+
+  /* Horizontal node strips (layout panes / architecture) */
+  .wire { display: flex; align-items: stretch; gap: 8px; }
+  .wire .node {
+    flex: 1; border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 14px 16px; background: var(--bg-panel);
+  }
+  .wire .node.plain { background: transparent; }
+  .wire .node .t { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .wire .node .d { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+  .wire .arrow { display: flex; align-items: center; color: var(--text-dim); }
+  .wire.mono .node {
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    font-family: var(--font-mono); font-size: 12px; padding: 10px 8px; border-radius: var(--radius-sm);
+  }
+  .wire-note { margin: 12px 0 0; font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+  .wire-note code { font-size: 11px; }
+
+  /* Code block */
+  .code {
+    border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--tool-bg);
+    padding: 14px 16px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.75;
+    overflow-x: auto;
+  }
+  .code .c { color: var(--text-dim); }
+  .cmd-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .cmd-chips span {
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 8px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  }
+
+  .warning {
+    margin-top: 14px; border: 1px solid var(--destructive-border); border-radius: var(--radius-md);
+    background: var(--destructive-bg); padding: 12px 14px; font-size: 13px; line-height: 1.55;
+  }
+
+  /* Data table */
+  .rows { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+  .rows .row {
+    display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 10px 14px;
+  }
+  .rows .row + .row { border-top: 1px solid var(--border); }
+  .rows .row:nth-child(even) { background: var(--bg-panel); }
+  .rows .row code { min-width: 220px; }
+  .rows .row .d { font-size: 12px; color: var(--text-muted); }
+
+  footer {
+    border-top: 1px solid var(--border); padding: 16px 24px;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    font-size: 12px; color: var(--text-dim);
+  }
+  footer a { color: var(--text-muted); }
+
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: 1fr; }
+    .wire { flex-direction: column; }
+    .wire .arrow { justify-content: center; transform: rotate(90deg); }
+    main { padding-top: 40px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card, .btn-primary, .btn-ghost, header.top nav a { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand"><span class="pi">π</span><span>Pi Web</span></div>
+  <nav>
+    <a href="http://127.0.0.1:30141/">App</a>
+    <a href="https://github.com/ct-jyjntc/pi-web">GitHub</a>
+    <a href="https://github.com/ct-jyjntc/pi-web/issues">Issues</a>
+  </nav>
+</header>
+
+<main>
+  <!-- Hero -->
+  <section class="hero" style="margin-bottom:44px">
+    <div class="micro">Local-first agent workspace</div>
+    <h1>Chat, files, Git, and terminals<br />in one quiet workspace.</h1>
+    <p>
+      Pi Web is a coding-agent workspace for your own machine. Open a project,
+      chat with the agent, review Git changes, browse files, and open terminals —
+      in the browser or as a desktop app.
+    </p>
+    <div class="chips">
+      <span>Node ≥ 22.19</span>
+      <span>MIT</span>
+      <span>Web + Electron</span>
+      <span>REST + SSE</span>
+      <span>English / 中文</span>
+    </div>
+    <div class="cta">
+      <a class="btn-primary" href="http://127.0.0.1:30141/">Open the app</a>
+      <a class="btn-ghost" href="https://github.com/ct-jyjntc/pi-web">View on GitHub</a>
+    </div>
+  </section>
+
+  <!-- Screenshot (bare — window frame is baked into the PNG) -->
+  <div class="shot">
+    <img class="shot-light" src="screenshot-light.png" alt="Pi Web in light theme" width="2784" height="1904" />
+    <img class="shot-dark" src="screenshot-dark.png" alt="Pi Web in dark theme" width="2784" height="1904" />
+  </div>
+
+  <!-- Highlights -->
+  <section>
+    <div class="sec-head">
+      <div class="micro">Highlights</div>
+      <h2>Everything in one place</h2>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="t">Agent chat</div><div class="d">Streaming replies, tool calls &amp; results, thinking, context &amp; cost, compaction.</div></div>
+      <div class="card"><div class="t">Session hub</div><div class="d">Project-grouped history, rename / delete / export HTML, fork &amp; in-session branches.</div></div>
+      <div class="card"><div class="t">Git review</div><div class="d">Status, stage / discard, commit &amp; push, branch create, AI commit messages.</div></div>
+      <div class="card"><div class="t">Worktrees</div><div class="d">Switch, create, and remove Git worktrees straight from the sidebar.</div></div>
+      <div class="card"><div class="t">Terminals</div><div class="d">Multi-tab PTY shells (xterm + node-pty) rooted at the project cwd.</div></div>
+      <div class="card"><div class="t">Files</div><div class="d">Explorer, fuzzy index, preview for source / Markdown / images / PDF / DOCX.</div></div>
+      <div class="card"><div class="t">Models &amp; auth</div><div class="d">Providers, OAuth / API keys, models.json editor, model smoke tests.</div></div>
+      <div class="card"><div class="t">Skills</div><div class="d">List, search, install, update, enable / disable agent skills.</div></div>
+      <div class="card"><div class="t">Permissions</div><div class="d">Ask / full mode switched right from the input bar.</div></div>
+      <div class="card"><div class="t">Settings</div><div class="d">Theme, language, utility models for titles &amp; commits, update check.</div></div>
+      <div class="card"><div class="t">i18n &amp; polish</div><div class="d">English / 中文, light / dark, chat minimap, shortcuts, completion sound.</div></div>
+      <div class="card"><div class="t">Desktop</div><div class="d">Electron shell with native window controls; macOS DMG &amp; Windows NSIS builds.</div></div>
+    </div>
+  </section>
+
+  <!-- Three-pane layout -->
+  <section>
+    <div class="sec-head">
+      <div class="micro">Layout</div>
+      <h2>Three panes, zero noise</h2>
+    </div>
+    <div class="wire">
+      <div class="node"><div class="t">Projects &amp; sessions</div><div class="d">tree, search, worktrees</div></div>
+      <span class="arrow">→</span>
+      <div class="node"><div class="t">Chat + tools</div><div class="d">model · permissions · streaming</div></div>
+      <span class="arrow">→</span>
+      <div class="node"><div class="t">Review workspace</div><div class="d">Git · files · terminals</div></div>
+    </div>
+  </section>
+
+  <!-- Quick start -->
+  <section>
+    <div class="sec-head">
+      <div class="micro">Run from source</div>
+      <h2>Up in under a minute</h2>
+    </div>
+    <div class="code">
+      git clone https://github.com/ct-jyjntc/pi-web.git<br />
+      cd pi-web<br />
+      npm install<br />
+      npm run dev <span class="c"># http://127.0.0.1:30141</span>
+    </div>
+    <div class="cmd-chips">
+      <span>npm run build &amp;&amp; npm run start</span>
+      <span>npm run electron:dev</span>
+      <span>npm run dist:dmg / dist:win</span>
+    </div>
+    <div class="warning" role="note">
+      <strong>No login.</strong> The server binds to <code>127.0.0.1</code> by default.
+      Binding outside loopback exposes a high-privilege agent surface — only do that on a network you trust.
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section>
+    <div class="sec-head">
+      <div class="micro">Architecture</div>
+      <h2>How it is wired</h2>
+    </div>
+    <div class="wire mono">
+      <div class="node plain">Browser / Electron</div>
+      <span class="arrow">→</span>
+      <div class="node">Next.js API</div>
+      <span class="arrow">→</span>
+      <div class="node">In-process agent runtime</div>
+      <span class="arrow">→</span>
+      <div class="node">~/.pi/agent</div>
+      <span class="arrow">→</span>
+      <div class="node plain">Git · PTY · files</div>
+    </div>
+    <p class="wire-note">
+      The client talks to the Next.js server over REST + SSE. Session browsing reads the
+      local <code>.jsonl</code> files directly; sending a message starts an in-process
+      AgentSession that streams events back over SSE.
+    </p>
+  </section>
+
+  <!-- Local data -->
+  <section>
+    <div class="sec-head">
+      <div class="micro">Local data</div>
+      <h2>Your data stays on your machine</h2>
+    </div>
+    <div class="rows">
+      <div class="row"><code>~/.pi/agent</code><span class="d">Default data root (PI_CODING_AGENT_DIR overrides)</span></div>
+      <div class="row"><code>…/sessions/…/*.jsonl</code><span class="d">Conversation history, one file per session</span></div>
+      <div class="row"><code>…/models.json</code><span class="d">Model / provider config, also editable in the UI</span></div>
+    </div>
+    <p class="wire-note">
+      File browsing is scoped to session cwds, project roots, <code>~/pi-cwd-*</code>,
+      and explicitly allowed roots.
+    </p>
+  </section>
+</main>
+
+<footer>
+  <span>MIT · <a href="https://github.com/ct-jyjntc/pi-web">ct-jyjntc/pi-web</a></span>
+  <span>Based on <a href="https://github.com/agegr/pi-web">agegr/pi-web</a></span>
+</footer>
+
+</body>
+</html>
