@@ -527,13 +527,21 @@ export function ContextPanel() {
                 {kvRow(t("shell.file"), sessionStats.sessionFile ?? t("shell.inMemory"), true)}
                 {kvRow(t("shell.id"), sessionStats.sessionId, true)}
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "8px 0 12px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    padding: "8px 12px",
+                    borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
+                  }}
+                >
                   <button
                     type="button"
-                    className="chrome-btn"
+                    className="btn-ghost btn-compact"
                     disabled={collabBusy}
                     onClick={() => void shareCollab()}
-                    style={{ height: 28, padding: "0 10px", fontSize: 12, alignSelf: "flex-start" }}
+                    style={{ alignSelf: "flex-start" }}
                   >
                     {collabBusy ? t("common.loading") : t("collab.share")}
                   </button>
@@ -556,41 +564,48 @@ export function ContextPanel() {
 
                 {sectionHeader(t("shell.checkpoints"))}
                 {checkpoints.length === 0 ? (
-                  <div style={{ fontSize: 12, color: "var(--text-dim)", padding: "4px 0 8px" }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--text-dim)",
+                      padding: "8px 12px",
+                      borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
+                    }}
+                  >
                     {t("shell.checkpointsEmpty")}
                   </div>
                 ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                  <div>
                     {checkpoints.slice(0, 8).map((cp) => (
                       <div
                         key={cp.id}
+                        className="context-panel-row"
                         style={{
-                          border: "1px solid var(--border)",
-                          borderRadius: "var(--radius-sm)",
-                          padding: "6px 8px",
-                          background: "var(--bg-subtle)",
+                          padding: "6px 12px",
+                          borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
                           fontSize: 12,
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <strong style={{ fontWeight: 600 }}>{cp.name}</strong>
-                          <span style={{ color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 24 }}>
+                          <strong style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cp.name}</strong>
+                          <span style={{ color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)", flexShrink: 0 }}>
                             {cp.id}
                           </span>
                           {cp.entryId && (
-                            <button
-                              type="button"
-                              className="chrome-btn"
-                              disabled={checkpointBusy}
-                              onClick={() => void rewindTo(cp.entryId)}
-                              style={{ marginLeft: "auto", height: 22, minHeight: 22, padding: "0 8px", fontSize: 11 }}
-                            >
-                              {t("shell.checkpointRewind")}
-                            </button>
+                            <span className="git-file-actions" style={{ marginLeft: "auto" }}>
+                              <button
+                                type="button"
+                                className="chrome-btn"
+                                disabled={checkpointBusy}
+                                onClick={() => void rewindTo(cp.entryId)}
+                              >
+                                {t("shell.checkpointRewind")}
+                              </button>
+                            </span>
                           )}
                         </div>
                         {cp.summary && (
-                          <div style={{ color: "var(--text-muted)", marginTop: 4, lineHeight: 1.35 }}>
+                          <div style={{ color: "var(--text-muted)", marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>
                             {cp.summary}
                           </div>
                         )}

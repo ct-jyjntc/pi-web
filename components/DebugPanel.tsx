@@ -127,29 +127,95 @@ export function DebugPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
+  const sectionLabel = (title: string) => (
+    <div
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: "var(--text-dim)",
+        marginBottom: 6,
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+      }}
+    >
+      {title}
+    </div>
+  );
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--bg)" }}>
+    <div
+      className="git-panel debug-panel"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+        flex: 1,
+        background: "var(--bg)",
+      }}
+    >
       <div
+        className="git-panel-toolbar"
         style={{
-          padding: "10px 12px",
+          display: "flex",
+          alignItems: "stretch",
+          minHeight: 36,
+          height: 36,
           borderBottom: "1px solid var(--border)",
-          fontSize: 12,
-          fontWeight: 600,
-          letterSpacing: "0.04em",
-          textTransform: "uppercase",
-          color: "var(--text-muted)",
+          background: "var(--bg-panel)",
+          flexShrink: 0,
         }}
       >
-        {t("debug.title")}
+        <div
+          className="git-panel-title"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            height: "100%",
+            padding: "0 12px",
+            fontSize: 12,
+            fontWeight: 600,
+            color: "var(--text)",
+            minWidth: 0,
+            flex: 1,
+          }}
+        >
+          <span>{t("debug.title")}</span>
+          {active && (
+            <span
+              className="git-panel-stats"
+              style={{ fontSize: 11, fontWeight: 500, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}
+            >
+              {active.status}
+            </span>
+          )}
+        </div>
+        <div className="git-panel-toolbar-actions" style={{ display: "flex", alignItems: "stretch", marginLeft: "auto", flexShrink: 0 }}>
+          <button
+            type="button"
+            className="chrome-btn is-icon"
+            onClick={() => void refresh()}
+            disabled={busy}
+            title={t("common.refresh")}
+            aria-label={t("common.refresh")}
+            style={{ height: "100%", minHeight: 0, width: 36, minWidth: 36, borderLeft: "1px solid var(--border)", borderRadius: 0 }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div style={{ padding: 12, borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
         <input
           className="input-base input-mono"
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           placeholder="node script.js"
-          style={{ width: "100%", height: 30, fontSize: 12 }}
+          style={{ width: "100%" }}
           disabled={!cwd || busy}
         />
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -161,9 +227,6 @@ export function DebugPanel({
           >
             {t("debug.launch")}
           </button>
-          <button type="button" className="chrome-btn" disabled={busy} onClick={() => void refresh()} style={{ height: 28, padding: "0 10px", fontSize: 12 }}>
-            {t("common.refresh")}
-          </button>
         </div>
         {!cwd && (
           <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("debug.needCwd")}</div>
@@ -171,9 +234,7 @@ export function DebugPanel({
       </div>
 
       {error && (
-        <div style={{ padding: "8px 12px", color: "var(--destructive)", fontSize: 12, borderBottom: "1px solid var(--destructive-border)", background: "var(--destructive-bg)" }}>
-          {error}
-        </div>
+        <div className="git-panel-notice is-error">{error}</div>
       )}
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
@@ -186,40 +247,30 @@ export function DebugPanel({
                 key={s.id}
                 type="button"
                 onClick={() => setActiveId(s.id)}
-                style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
-                  border: "none",
-                  borderBottom: "1px solid var(--border)",
-                  background: s.id === activeId ? "var(--bg-selected)" : "transparent",
-                  padding: "8px 10px",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
+                className={`debug-session-row${s.id === activeId ? " is-active" : ""}`}
               >
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{s.id}</div>
-                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{s.status}</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.id}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>{s.status}</div>
               </button>
             ))
           )}
         </div>
 
-        <div style={{ flex: 1, minWidth: 0, overflow: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0, overflow: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
           {active ? (
             <>
               <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                <div><strong style={{ color: "var(--text)" }}>{t("debug.status")}:</strong> {active.status}</div>
+                <div><strong style={{ color: "var(--text)", fontWeight: 600 }}>{t("debug.status")}:</strong> {active.status}</div>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginTop: 4, wordBreak: "break-all" }}>{active.command}</div>
                 {active.pid != null && <div style={{ marginTop: 4 }}>pid {active.pid}</div>}
               </div>
 
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button type="button" className="chrome-btn" disabled={busy} style={{ height: 28, padding: "0 10px", fontSize: 12 }} onClick={() => void act({ action: "continue", id: active.id })}>{t("debug.continue")}</button>
-                <button type="button" className="chrome-btn" disabled={busy} style={{ height: 28, padding: "0 10px", fontSize: 12 }} onClick={() => void act({ action: "pause", id: active.id })}>{t("debug.pause")}</button>
-                <button type="button" className="chrome-btn" disabled={busy} style={{ height: 28, padding: "0 10px", fontSize: 12 }} onClick={() => void act({ action: "stack", id: active.id }).then((d) => d?.frames && setFrames(d.frames))}>{t("debug.stack")}</button>
-                <button type="button" className="chrome-btn" disabled={busy} style={{ height: 28, padding: "0 10px", fontSize: 12 }} onClick={() => void act({ action: "logs", id: active.id }).then((d) => typeof d?.logs === "string" && setLogs(d.logs))}>{t("debug.logs")}</button>
-                <button type="button" className="btn-danger" disabled={busy} style={{ height: 28, padding: "0 10px", fontSize: 12, borderRadius: "var(--radius-sm)" }} onClick={() => {
+                <button type="button" className="btn-ghost btn-compact" disabled={busy} onClick={() => void act({ action: "continue", id: active.id })}>{t("debug.continue")}</button>
+                <button type="button" className="btn-ghost btn-compact" disabled={busy} onClick={() => void act({ action: "pause", id: active.id })}>{t("debug.pause")}</button>
+                <button type="button" className="btn-ghost btn-compact" disabled={busy} onClick={() => void act({ action: "stack", id: active.id }).then((d) => d?.frames && setFrames(d.frames))}>{t("debug.stack")}</button>
+                <button type="button" className="btn-ghost btn-compact" disabled={busy} onClick={() => void act({ action: "logs", id: active.id }).then((d) => typeof d?.logs === "string" && setLogs(d.logs))}>{t("debug.logs")}</button>
+                <button type="button" className="btn-danger btn-compact" disabled={busy} onClick={() => {
                   void act({ action: "stop", id: active.id }).then(() => {
                     setBreakpoints((prev) => prev.filter((b) => b.id !== active.id));
                     setFrames([]);
@@ -230,27 +281,26 @@ export function DebugPanel({
               </div>
 
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("debug.breakpoint")}</div>
+                {sectionLabel(t("debug.breakpoint"))}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <input
                     className="input-base input-mono"
                     value={bpFile}
                     onChange={(e) => setBpFile(e.target.value)}
                     placeholder={t("debug.bpFilePlaceholder")}
-                    style={{ flex: "1 1 140px", minWidth: 120, height: 28, fontSize: 12 }}
+                    style={{ flex: "1 1 140px", minWidth: 120, height: 26 }}
                   />
                   <input
                     className="input-base input-mono"
                     value={bpLine}
                     onChange={(e) => setBpLine(e.target.value)}
                     placeholder="line"
-                    style={{ width: 64, height: 28, fontSize: 12 }}
+                    style={{ width: 64, height: 26 }}
                   />
                   <button
                     type="button"
-                    className="chrome-btn"
+                    className="btn-ghost btn-compact"
                     disabled={busy || !bpFile.trim() || !Number(bpLine)}
-                    style={{ height: 28, padding: "0 10px", fontSize: 12 }}
                     onClick={() => {
                       const line = Number(bpLine);
                       const file = bpFile.trim();
@@ -269,24 +319,18 @@ export function DebugPanel({
                   </button>
                 </div>
                 {breakpoints.filter((b) => b.id === active.id).length > 0 && (
-                  <ul style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
                     {breakpoints.filter((b) => b.id === active.id).map((b) => (
-                      <li
+                      <div
                         key={`${b.file}:${b.line}:${b.bpId}`}
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: 11,
-                          padding: "4px 6px",
-                          background: "var(--bg-subtle)",
-                          borderRadius: "var(--radius-xs)",
-                          color: "var(--text-muted)",
-                        }}
+                        className="debug-frame"
+                        style={{ color: "var(--text-muted)" }}
                       >
                         {b.file}:{b.line}
                         <span style={{ color: "var(--text-dim)", marginLeft: 8 }}>{b.bpId}</span>
-                      </li>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 )}
                 {notice && (
                   <div style={{ marginTop: 6, fontSize: 11, color: "var(--success)" }}>{notice}</div>
@@ -294,7 +338,7 @@ export function DebugPanel({
               </div>
 
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("debug.stack")}</div>
+                {sectionLabel(t("debug.stack"))}
                 {frames.length === 0 ? (
                   <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("debug.noFrames")}</div>
                 ) : (
@@ -316,30 +360,12 @@ export function DebugPanel({
                           type="button"
                           onClick={() => onOpenSource?.(localPath!, f.lineNumber)}
                           title={t("debug.openFrame")}
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: 11,
-                            padding: "4px 6px",
-                            background: "var(--bg-subtle)",
-                            borderRadius: "var(--radius-xs)",
-                            border: "1px solid transparent",
-                            textAlign: "left",
-                            cursor: "pointer",
-                            color: "var(--text)",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.borderColor = "var(--border)";
-                            e.currentTarget.style.background = "var(--bg-hover)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.borderColor = "transparent";
-                            e.currentTarget.style.background = "var(--bg-subtle)";
-                          }}
+                          className="debug-frame debug-frame-link"
                         >
                           {body}
                         </button>
                       ) : (
-                        <div key={i} style={{ fontFamily: "var(--font-mono)", fontSize: 11, padding: "4px 6px", background: "var(--bg-subtle)", borderRadius: "var(--radius-xs)" }}>
+                        <div key={i} className="debug-frame">
                           {body}
                         </div>
                       );
@@ -349,27 +375,26 @@ export function DebugPanel({
               </div>
 
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("debug.evaluate")}</div>
+                {sectionLabel(t("debug.evaluate"))}
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input className="input-base input-mono" value={expr} onChange={(e) => setExpr(e.target.value)} style={{ flex: 1, height: 28, fontSize: 12 }} />
+                  <input className="input-base input-mono" value={expr} onChange={(e) => setExpr(e.target.value)} style={{ flex: 1, height: 26 }} />
                   <button
                     type="button"
-                    className="chrome-btn"
+                    className="btn-ghost btn-compact"
                     disabled={busy || !expr.trim()}
-                    style={{ height: 28, padding: "0 10px", fontSize: 12 }}
                     onClick={() => void act({ action: "evaluate", id: active.id, expression: expr }).then((d) => typeof d?.value === "string" && setEvalResult(d.value))}
                   >
                     {t("debug.run")}
                   </button>
                 </div>
                 {evalResult != null && (
-                  <pre style={{ marginTop: 6, fontSize: 11, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", background: "var(--bg-subtle)", padding: 8, borderRadius: "var(--radius-sm)" }}>{evalResult}</pre>
+                  <pre style={{ margin: "6px 0 0", fontSize: 11, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", overflowWrap: "anywhere", background: "var(--bg-subtle)", padding: "6px 8px", borderRadius: "var(--radius-sm)" }}>{evalResult}</pre>
                 )}
               </div>
 
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("debug.logs")}</div>
-                <pre style={{ margin: 0, fontSize: 11, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", maxHeight: 160, overflow: "auto", background: "var(--bg-subtle)", padding: 8, borderRadius: "var(--radius-sm)" }}>{logs || "—"}</pre>
+                {sectionLabel(t("debug.logs"))}
+                <pre style={{ margin: 0, fontSize: 11, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 160, overflow: "auto", background: "var(--bg-subtle)", padding: "6px 8px", borderRadius: "var(--radius-sm)" }}>{logs || "—"}</pre>
               </div>
             </>
           ) : (
