@@ -14,7 +14,17 @@ import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 
-export type SettingsSection = "general" | "usage" | "appearance" | "models" | "skills" | "mcp" | "tools";
+export type SettingsSection =
+  | "general"
+  | "agent"
+  | "memory"
+  | "network"
+  | "usage"
+  | "appearance"
+  | "models"
+  | "skills"
+  | "mcp"
+  | "tools";
 
 type LspServerRow = {
   id: string;
@@ -541,6 +551,9 @@ export function SettingsPage({
     title?: string;
   }> = [
     { id: "general", label: t("settings.general") },
+    { id: "agent", label: t("settings.agent") },
+    { id: "memory", label: t("settings.memory") },
+    { id: "network", label: t("settings.network") },
     { id: "usage", label: t("settings.usage") },
     { id: "appearance", label: t("settings.appearance") },
     { id: "models", label: t("settings.models") },
@@ -587,8 +600,14 @@ export function SettingsPage({
     if (section === "tools") void loadLspHealth();
   }, [section, loadLspHealth]);
 
-  const generalPanel = (
-    <div className="settings-page-general">
+  const saveErrorBlock = saveError ? (
+    <div style={{ marginTop: 10, fontSize: 12, color: "var(--destructive)", lineHeight: 1.4 }}>
+      {saveError}
+    </div>
+  ) : null;
+
+  const generalHeadPanel = (
+    <>
       {sectionTitle(t("settings.general"))}
 
       <SettingsRow
@@ -612,6 +631,11 @@ export function SettingsPage({
         }
       />
 
+    </>
+  );
+
+  const agentModelsPanel = (
+    <>
       {sectionTitle(t("settings.modelRoles"))}
 
       <SettingsRow
@@ -674,11 +698,12 @@ export function SettingsPage({
         )}
       />
 
-      {saveError && (
-        <div style={{ marginTop: 10, fontSize: 12, color: "var(--destructive)", lineHeight: 1.4 }}>
-          {saveError}
-        </div>
-      )}
+      {saveErrorBlock}
+    </>
+  );
+
+  const networkPanel = (
+    <>
 
       {sectionTitle(t("settings.network"))}
 
@@ -811,6 +836,12 @@ export function SettingsPage({
         }
       />
 
+      {saveErrorBlock}
+    </>
+  );
+
+  const generalSystemPanel = (
+    <>
       {sectionTitle(t("settings.terminalSection"))}
 
       <SettingsRow
@@ -901,6 +932,11 @@ export function SettingsPage({
         }
       />
 
+    </>
+  );
+
+  const agentBehaviorPanel = (
+    <>
       {sectionTitle(t("settings.agentBehavior"))}
 
       <SettingsRow
@@ -940,6 +976,13 @@ export function SettingsPage({
           />
         }
       />
+    </>
+  );
+
+  const memoryPanel = (
+    <>
+      {sectionTitle(t("settings.memory"))}
+
       <SettingsRow
         title={t("settings.projectMemory")}
         description={t("settings.projectMemoryDesc")}
@@ -1180,6 +1223,12 @@ export function SettingsPage({
         </div>
       )}
 
+      {saveErrorBlock}
+    </>
+  );
+
+  const agentAdvisorPanel = (
+    <>
       <SettingsRow
         title={t("settings.advisor")}
         description={t("settings.advisorDesc")}
@@ -1220,6 +1269,11 @@ export function SettingsPage({
         }
       />
 
+    </>
+  );
+
+  const generalAboutPanel = (
+    <>
       {isDesktop && (
         <>
           {sectionTitle(t("settings.desktopSection"))}
@@ -1319,7 +1373,8 @@ export function SettingsPage({
           {t("settings.updateError")}: {updateStatus.message}
         </div>
       )}
-    </div>
+      {saveErrorBlock}
+    </>
   );
 
   const previewCode = `const themePreview = {
@@ -1635,7 +1690,7 @@ export function SettingsPage({
         padding: "8px 0",
       };
   // Content pages scroll here; dual-pane models/skills manage their own overflow.
-  const mainScrolls = section === "general" || section === "usage" || section === "appearance" || section === "mcp" || section === "tools";
+  const mainScrolls = section !== "models" && section !== "skills";
 
   const toolsPanel = (
     <div className="settings-page-general">
@@ -1835,7 +1890,30 @@ export function SettingsPage({
         </nav>
 
         <main className={`settings-page-main${mainScrolls ? " is-scroll" : ""}`} style={mainStyle}>
-          {section === "general" && generalPanel}
+          {section === "general" && (
+            <div className="settings-page-general">
+              {generalHeadPanel}
+              {generalSystemPanel}
+              {generalAboutPanel}
+            </div>
+          )}
+          {section === "agent" && (
+            <div className="settings-page-general">
+              {agentModelsPanel}
+              {agentBehaviorPanel}
+              {agentAdvisorPanel}
+            </div>
+          )}
+          {section === "memory" && (
+            <div className="settings-page-general">
+              {memoryPanel}
+            </div>
+          )}
+          {section === "network" && (
+            <div className="settings-page-general">
+              {networkPanel}
+            </div>
+          )}
           {section === "usage" && <UsagePanel />}
           {section === "appearance" && appearancePanel}
           {section === "models" && (
