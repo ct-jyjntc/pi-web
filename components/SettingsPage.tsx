@@ -1554,6 +1554,7 @@ export function SettingsPage({
               onClose={() => {
                 onModelsChanged?.();
               }}
+              onModelsChanged={onModelsChanged}
             />
           )}
           {section === "skills" && cwd && (

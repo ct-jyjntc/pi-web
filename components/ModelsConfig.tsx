@@ -4,6 +4,14 @@ import { useLocale } from "@/hooks/useLocale";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import {
+  FREE_PROVIDERS,
+  getFreeProvider,
+  isFreeManagedProvider,
+  type FreeProviderDefinition,
+  type FreeProviderId,
+} from "@/lib/free-providers";
+import { SettingsToggle } from "./SettingsToggle";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -116,6 +124,8 @@ interface ModelEntry {
   id: string;
   name?: string;
   api?: string;
+  /** When true, model stays in models.json but is hidden from pickers. */
+  disabled?: boolean;
   reasoning?: boolean;
   thinkingLevelMap?: Record<string, string | null>;
   input?: string[];
@@ -144,7 +154,11 @@ function normalizeModelCost(cost?: ModelEntry["cost"] | null): ModelCost {
 }
 
 function normalizeModelEntry(model: ModelEntry): ModelEntry {
-  return { ...model, cost: normalizeModelCost(model.cost) };
+  const next: ModelEntry = { ...model, cost: normalizeModelCost(model.cost) };
+  // Only persist disabled:true — omit the key when enabled.
+  if (next.disabled) next.disabled = true;
+  else delete next.disabled;
+  return next;
 }
 
 interface ProviderEntry {
@@ -155,6 +169,8 @@ interface ProviderEntry {
   compat?: Record<string, unknown>;
   models?: ModelEntry[];
   modelOverrides?: Record<string, unknown>;
+  /** Built-in free provider marker — models are remote-managed, toggle-only. */
+  managed?: FreeProviderId | string;
 }
 
 interface ModelsJson {
@@ -321,12 +337,17 @@ function navRowClass(selected: boolean, child = false): string {
 // ── Provider detail ───────────────────────────────────────────────────────────
 
 function ProviderDetail({
-  name, provider, onChange, onRename, onDelete,
+  name, provider, onChange, onRename, onDelete, onRefreshModels, refreshingModels, refreshError,
 }: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
+  onRefreshModels?: () => void;
+  refreshingModels?: boolean;
+  refreshError?: string | null;
 }) {
   const { t } = useLocale();
+  const freeDef = getFreeProvider(typeof provider.managed === "string" ? provider.managed : undefined);
+  const managed = !!freeDef;
   const [editingName, setEditingName] = useState(name);
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => setEditingName(name), [name]);
@@ -334,14 +355,14 @@ function ProviderDetail({
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
 
   useEffect(() => {
-    if (!provider.api) onChange({ ...provider, api: "openai-completions" });
+    if (!managed && !provider.api) onChange({ ...provider, api: "openai-completions" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider.api]);
+  }, [provider.api, managed]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <DetailStrip
-        title={t("models.provider")}
+        title={managed ? t("models.freeProvider") : t("models.provider")}
         actions={confirmDelete ? (
           <>
             <span style={{ fontSize: 11, color: "var(--destructive)" }}>{t("models.confirmDeleteProvider")}</span>
@@ -349,42 +370,105 @@ function ProviderDetail({
             <button type="button" className="btn-ghost btn-compact" onClick={() => setConfirmDelete(false)}>{t("common.cancel")}</button>
           </>
         ) : (
-          <button
-            type="button"
-            className="btn-ghost btn-compact"
-            onClick={() => setConfirmDelete(true)}
-            style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
-          >
-            {t("common.delete")}
-          </button>
+          <>
+            {managed && onRefreshModels && (
+              <button
+                type="button"
+                className="btn-ghost btn-compact"
+                onClick={onRefreshModels}
+                disabled={refreshingModels}
+                title={t("models.refreshFreeModels")}
+              >
+                {refreshingModels ? t("models.refreshingModels") : t("models.refreshModels")}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              onClick={() => setConfirmDelete(true)}
+              style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
+            >
+              {t("common.delete")}
+            </button>
+          </>
         )}
       />
 
+      {managed && freeDef && (
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--text-muted)",
+            background: "var(--bg-subtle)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            padding: "8px 10px",
+            lineHeight: 1.45,
+          }}
+        >
+          {t("models.freeProviderNotice")}
+        </div>
+      )}
+
+      {refreshError && (
+        <div style={{ fontSize: 12, color: "var(--destructive)" }}>{refreshError}</div>
+      )}
+
       <Field label={t("models.providerName")}>
-        <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
-        {editingName !== name && editingName.trim() && (
-          <button type="button" className="btn-primary btn-compact" onClick={() => onRename(editingName.trim())} style={{ marginTop: 6, alignSelf: "flex-start" }}>
-            {t("common.rename")}
-          </button>
+        {managed ? (
+          <div className="input-base" style={{ opacity: 0.85, cursor: "default" }}>
+            {freeDef?.displayName ?? name}
+          </div>
+        ) : (
+          <>
+            <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
+            {editingName !== name && editingName.trim() && (
+              <button type="button" className="btn-primary btn-compact" onClick={() => onRename(editingName.trim())} style={{ marginTop: 6, alignSelf: "flex-start" }}>
+                {t("common.rename")}
+              </button>
+            )}
+          </>
         )}
       </Field>
 
       <Field label={t("models.baseUrl")}>
-        <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
-          placeholder="https://api.example.com/v1" mono />
+        {managed ? (
+          <div className="input-base input-mono" style={{ opacity: 0.85, cursor: "default" }}>
+            {provider.baseUrl || freeDef?.baseUrl}
+          </div>
+        ) : (
+          <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
+            placeholder="https://api.example.com/v1" mono />
+        )}
       </Field>
 
-      <Field label={t("models.apiKey")}>
-        <SecretTextInput value={provider.apiKey ?? ""} onChange={(v) => set("apiKey", v || undefined)}
-          placeholder={t("models.apiKeyPlaceholder")} mono />
-        <span style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
-          {t("models.apiKeyHint")}
-        </span>
-      </Field>
+      {!managed && (
+        <Field label={t("models.apiKey")}>
+          <SecretTextInput value={provider.apiKey ?? ""} onChange={(v) => set("apiKey", v || undefined)}
+            placeholder={t("models.apiKeyPlaceholder")} mono />
+          <span style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+            {t("models.apiKeyHint")}
+          </span>
+        </Field>
+      )}
 
       <Field label={t("models.api")}>
-        <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
+        {managed ? (
+          <div className="input-base input-mono" style={{ opacity: 0.85, cursor: "default" }}>
+            {provider.api || freeDef?.api}
+          </div>
+        ) : (
+          <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
+        )}
       </Field>
+
+      {managed && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {(provider.models ?? []).length} {t("models.freeModelCount")}
+          {" · "}
+          {(provider.models ?? []).filter((m) => !m.disabled).length} {t("models.enabledCount")}
+        </div>
+      )}
     </div>
   );
 }
@@ -539,12 +623,15 @@ function ModelDetail({
   model,
   onChange,
   onDelete,
+  managed = false,
 }: {
   providerName: string;
   provider: ProviderEntry;
   model: ModelEntry;
   onChange: (m: ModelEntry) => void;
   onDelete: () => void;
+  /** Free/managed models: enable/disable only — no field edits or remove. */
+  managed?: boolean;
 }) {
   const { t } = useLocale();
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
@@ -661,22 +748,76 @@ function ModelDetail({
             )}
             {testState.phase === "testing" ? t("modal.testing") : testState.phase === "success" ? t("modal.ok") : t("modal.test")}
           </button>
-          <button
-            type="button"
-            className="btn-ghost btn-compact"
-            onClick={onDelete}
-            style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
-          >
-            {t("modal.remove")}
-          </button>
+          {!managed && (
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              onClick={onDelete}
+              style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
+            >
+              {t("modal.remove")}
+            </button>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 2 }}>
+            <span style={{ fontSize: 11, color: model.disabled ? "var(--text-dim)" : "var(--text-muted)" }}>
+              {model.disabled ? t("models.disabled") : t("models.enabled")}
+            </span>
+            <SettingsToggle
+              enabled={!model.disabled}
+              title={model.disabled ? t("models.enableHint") : t("models.disableHint")}
+              onChange={(on) => set("disabled", on ? undefined : true)}
+            />
+          </div>
           </>
         )}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label={t("models.idRequired")}><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
-        <Field label={t("shell.name")}><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayName")} /></Field>
+      {managed && (
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--text-muted)",
+            background: "var(--bg-subtle)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            padding: "8px 10px",
+            lineHeight: 1.45,
+          }}
+        >
+          {t("models.freeModelNotice")}
+        </div>
+      )}
+
+      {model.disabled && (
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--text-muted)",
+            background: "var(--bg-subtle)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            padding: "8px 10px",
+          }}
+        >
+          {t("models.disabledNotice")}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: managed ? "1fr" : "1fr 1fr", gap: 10 }}>
+        <Field label={t("models.idRequired")}>
+          {managed ? (
+            <div className="input-base input-mono" style={{ opacity: 0.85, cursor: "default" }}>{model.id}</div>
+          ) : (
+            <TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono />
+          )}
+        </Field>
+        {!managed && (
+          <Field label={t("shell.name")}><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayName")} /></Field>
+        )}
       </div>
+
+      {managed ? null : (
+      <>
 
       <Field label={t("models.apiOverride")}>
         <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
@@ -737,6 +878,8 @@ function ModelDetail({
           ))}
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -1188,15 +1331,19 @@ function ProviderIcon({ id, size }: { id: string; size: number }) {
 interface AddProviderPickerProps {
   oauthProviders: OAuthProvider[];
   apiKeyProviders: ApiKeyProvider[];
+  /** Provider keys already present in models.json (managed free providers hidden when present). */
+  existingProviderKeys: string[];
   onSelectOAuth: (id: string) => void;
   onSelectApiKey: (id: string) => void;
   onAddCustom: () => void;
+  onAddFree: (def: FreeProviderDefinition) => void;
+  freeBusyId?: FreeProviderId | null;
   onClose: () => void;
 }
 
 function AddProviderPicker({
-  oauthProviders, apiKeyProviders,
-  onSelectOAuth, onSelectApiKey, onAddCustom, onClose,
+  oauthProviders, apiKeyProviders, existingProviderKeys,
+  onSelectOAuth, onSelectApiKey, onAddCustom, onAddFree, freeBusyId, onClose,
 }: AddProviderPickerProps) {
   const { t } = useLocale();
   const [search, setSearch] = useState("");
@@ -1205,12 +1352,24 @@ function AddProviderPicker({
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 30); }, []);
 
   const q = search.trim().toLowerCase();
+  const existing = new Set(existingProviderKeys);
 
   const availableOAuth = oauthProviders.filter((p) => !p.loggedIn && (!q || p.name.toLowerCase().includes(q)));
   const availableApiKey = apiKeyProviders.filter((p) => !p.configured && (!q || p.displayName.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)));
+  const availableFree = FREE_PROVIDERS.filter((p) => {
+    if (existing.has(p.providerKey)) return false;
+    if (!q) return true;
+    return (
+      p.displayName.toLowerCase().includes(q)
+      || p.providerKey.toLowerCase().includes(q)
+      || p.description.toLowerCase().includes(q)
+      || "free".includes(q)
+      || t("models.free").toLowerCase().includes(q)
+    );
+  });
   const showCustom = !q || "custom".includes(q) || "openai-compatible".includes(q) || "anthropic-compatible".includes(q);
 
-  const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0);
+  const totalCount = availableOAuth.length + availableApiKey.length + availableFree.length + (showCustom ? 1 : 0);
 
   return (
     <div
@@ -1244,8 +1403,35 @@ function AddProviderPicker({
             <div className="modal-empty">{t("models.noProvidersMatch")}</div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 8 }}>
+              {availableFree.length > 0 && (
+                <div style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.free")}</div>
+              )}
+              {availableFree.map((p) => {
+                const busy = freeBusyId === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="provider-card"
+                    disabled={busy || !!freeBusyId}
+                    onClick={() => { onAddFree(p); }}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%" }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {p.displayName}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+                        {busy ? t("models.fetchingFreeModels") : p.description}
+                      </div>
+                    </div>
+                    <ProviderIcon id={p.iconId} size={28} />
+                  </button>
+                );
+              })}
+
               {showCustom && (
-                <div style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.custom")}</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: availableFree.length > 0 ? 6 : 0, fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.custom")}</div>
               )}
               {showCustom && (
                 <button
@@ -1267,7 +1453,7 @@ function AddProviderPicker({
               )}
 
               {availableOAuth.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.subscriptions")}</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: (showCustom || availableFree.length > 0) ? 6 : 0, fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.subscriptions")}</div>
               )}
               {availableOAuth.map((p) => (
                 <button key={p.id} type="button" className="provider-card" onClick={() => { onSelectOAuth(p.id); onClose(); }}
@@ -1308,9 +1494,12 @@ function AddProviderPicker({
 
 export function ModelsConfig({
   onClose,
+  onModelsChanged,
   embedded = false,
 }: {
   onClose: () => void;
+  /** Fired after a successful save so chat pickers can reload. */
+  onModelsChanged?: () => void;
   /** When true, render as a full-height settings page panel (no modal chrome). */
   embedded?: boolean;
 }) {
@@ -1326,10 +1515,116 @@ export function ModelsConfig({
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [freeBusyId, setFreeBusyId] = useState<FreeProviderId | null>(null);
+  const [freeRefreshKey, setFreeRefreshKey] = useState<string | null>(null);
+  const [freeRefreshError, setFreeRefreshError] = useState<string | null>(null);
   // JSON snapshot of the last loaded/saved config; closing with unsaved
   // edits (config differing from this) asks for confirmation instead of
   // silently discarding them.
   const savedConfigJsonRef = useRef<string>(JSON.stringify({ providers: {} }));
+
+  const mergeFreeModels = useCallback((existing: ModelEntry[] | undefined, fetched: Array<{ id: string; name?: string }>): ModelEntry[] => {
+    const prevById = new Map((existing ?? []).map((m) => [m.id, m]));
+    return fetched.map((item) => {
+      const prev = prevById.get(item.id);
+      if (prev) {
+        return normalizeModelEntry({
+          ...prev,
+          id: item.id,
+          name: prev.name || item.name || item.id,
+        });
+      }
+      return normalizeModelEntry({
+        id: item.id,
+        name: item.name || item.id,
+        cost: normalizeModelCost(null),
+      });
+    });
+  }, []);
+
+  const fetchFreeModels = useCallback(async (def: FreeProviderDefinition) => {
+    const res = await fetch(`/api/models-config/free-models?provider=${encodeURIComponent(def.id)}`);
+    const d = await res.json() as {
+      models?: Array<{ id: string; name?: string }>;
+      error?: string;
+    };
+    if (!res.ok || d.error) throw new Error(d.error ?? `HTTP ${res.status}`);
+    if (!Array.isArray(d.models) || d.models.length === 0) {
+      throw new Error("No free models returned");
+    }
+    return d.models;
+  }, []);
+
+  const addFreeProvider = useCallback(async (def: FreeProviderDefinition) => {
+    const existing = config.providers?.[def.providerKey];
+    if (existing) {
+      if (isFreeManagedProvider(existing)) {
+        setSelection({ type: "provider", name: def.providerKey });
+        setPickerOpen(false);
+        return;
+      }
+      window.alert(t("models.freeProviderKeyTaken", { key: def.providerKey }));
+      return;
+    }
+    setFreeBusyId(def.id);
+    setFreeRefreshError(null);
+    try {
+      const models = await fetchFreeModels(def);
+      const entry: ProviderEntry = {
+        managed: def.id,
+        baseUrl: def.baseUrl,
+        api: def.api,
+        apiKey: def.apiKey,
+        models: mergeFreeModels(undefined, models),
+      };
+      setConfig((prev) => ({
+        ...prev,
+        providers: { ...(prev.providers ?? {}), [def.providerKey]: entry },
+      }));
+      setSelection({ type: "provider", name: def.providerKey });
+      setPickerOpen(false);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setFreeRefreshError(message);
+      // Keep picker open so the user can retry.
+      window.alert(message);
+    } finally {
+      setFreeBusyId(null);
+    }
+  }, [config.providers, fetchFreeModels, mergeFreeModels, t]);
+
+  const refreshFreeProviderModels = useCallback(async (providerKey: string) => {
+    const provider = config.providers?.[providerKey];
+    const def = getFreeProvider(typeof provider?.managed === "string" ? provider.managed : undefined);
+    if (!provider || !def) return;
+    setFreeRefreshKey(providerKey);
+    setFreeRefreshError(null);
+    try {
+      const models = await fetchFreeModels(def);
+      setConfig((prev) => {
+        const current = prev.providers?.[providerKey];
+        if (!current) return prev;
+        return {
+          ...prev,
+          providers: {
+            ...(prev.providers ?? {}),
+            [providerKey]: {
+              ...current,
+              managed: def.id,
+              baseUrl: def.baseUrl,
+              api: def.api,
+              apiKey: def.apiKey,
+              models: mergeFreeModels(current.models, models),
+            },
+          },
+        };
+      });
+    } catch (e) {
+      setFreeRefreshError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFreeRefreshKey(null);
+    }
+  }, [config.providers, fetchFreeModels, mergeFreeModels]);
 
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -1476,13 +1771,14 @@ export function ModelsConfig({
         savedConfigJsonRef.current = JSON.stringify(payload);
         setSavedOk(true);
         setTimeout(() => setSavedOk(false), 2000);
+        onModelsChanged?.();
       }
     } catch (e) {
       setSaveError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, onModelsChanged]);
 
   const requestClose = useCallback(() => {
     if (JSON.stringify(config) !== savedConfigJsonRef.current) {
@@ -1502,6 +1798,10 @@ export function ModelsConfig({
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [confirmDiscard, pickerOpen, requestClose]);
+
+  useEffect(() => {
+    setFreeRefreshError(null);
+  }, [selection]);
 
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
@@ -1531,6 +1831,9 @@ export function ModelsConfig({
           onChange={(p) => updateProvider(selection.name, p)}
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
+          onRefreshModels={isFreeManagedProvider(provider) ? () => void refreshFreeProviderModels(selection.name) : undefined}
+          refreshingModels={freeRefreshKey === selection.name}
+          refreshError={freeRefreshError}
         />
       );
     }
@@ -1545,6 +1848,7 @@ export function ModelsConfig({
         model={model}
         onChange={(m) => updateModel(selection.providerName, selection.index, m)}
         onDelete={() => removeModel(selection.providerName, selection.index)}
+        managed={isFreeManagedProvider(provider)}
       />
     );
   })();
@@ -1638,6 +1942,9 @@ export function ModelsConfig({
               ) : providers.map(([pName, pData]) => {
                 const isProviderSelected = selection?.type === "provider" && selection.name === pName;
                 const models = pData.models ?? [];
+                const freeDef = getFreeProvider(typeof pData.managed === "string" ? pData.managed : undefined);
+                const managed = !!freeDef;
+                const providerLabel = freeDef?.displayName ?? pName;
                 return (
                   <div key={pName}>
                     {/* Provider row */}
@@ -1647,14 +1954,21 @@ export function ModelsConfig({
                       onClick={() => setSelection({ type: "provider", name: pName })}
                       className={navRowClass(isProviderSelected)}
                     >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
-                        <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                        <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                        <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                        <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                        <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-                      </svg>
-                      <span className={`modal-nav-label is-mono${isProviderSelected ? " is-strong" : ""}`}>{pName}</span>
+                      {managed ? (
+                        <ProviderIcon id={freeDef.iconId} size={14} />
+                      ) : (
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
+                          <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
+                          <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
+                          <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
+                          <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
+                          <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
+                        </svg>
+                      )}
+                      <span className={`modal-nav-label${managed ? "" : " is-mono"}${isProviderSelected ? " is-strong" : ""}`}>{providerLabel}</span>
+                      {managed && (
+                        <span className="settings-badge" style={{ flexShrink: 0 }}>{t("models.free")}</span>
+                      )}
                     </div>
 
                     {/* Model rows */}
@@ -1667,10 +1981,14 @@ export function ModelsConfig({
                           tabIndex={0}
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
                           className={navRowClass(isModelSelected, true)}
+                          style={m.disabled ? { opacity: 0.55 } : undefined}
                         >
                           <span className="modal-nav-label is-mono" style={{ color: m.id ? undefined : "var(--text-dim)" }}>
                             {m.id || t("models.newModel")}
                           </span>
+                          {m.disabled && (
+                            <span className="settings-badge" style={{ flexShrink: 0 }}>{t("models.disabled")}</span>
+                          )}
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 5px", border: "1px solid var(--border)", color: "var(--text-dim)", borderRadius: "var(--radius-xs)", flexShrink: 0 }}>T</span>
                           )}
@@ -1678,15 +1996,17 @@ export function ModelsConfig({
                       );
                     })}
 
-                    {/* Add model button */}
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-                      className={navRowClass(false, true)}
-                    >
-                      <span className="modal-nav-label">{t("models.addModel")}</span>
-                    </div>
+                    {/* Add model button — not for free/managed providers */}
+                    {!managed && (
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); addModel(pName); }}
+                        className={navRowClass(false, true)}
+                      >
+                        <span className="modal-nav-label">{t("models.addModel")}</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1779,9 +2099,12 @@ export function ModelsConfig({
       <AddProviderPicker
         oauthProviders={oauthProviders}
         apiKeyProviders={apiKeyProviders}
+        existingProviderKeys={Object.keys(config.providers ?? {})}
         onSelectOAuth={(id) => setSelection({ type: "oauth", providerId: id })}
         onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
         onAddCustom={addCustomProvider}
+        onAddFree={(def) => void addFreeProvider(def)}
+        freeBusyId={freeBusyId}
         onClose={() => setPickerOpen(false)}
       />
     )}

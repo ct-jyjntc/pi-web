@@ -5,6 +5,7 @@ import {
   type ModelThinkingLevel,
   type ThinkingLevel,
 } from "@earendil-works/pi-ai";
+import { filterDisabledModels, getDisabledModelRefs } from "./disabled-models";
 import { formatModelRef, type ModelRef } from "./web-settings";
 
 /** Values commonly accepted by OpenAI-compatible reasoning_effort fields. */
@@ -121,10 +122,20 @@ async function loadModelRuntime(cwd: string): Promise<{
   };
 }
 
+function applyModelVisibilityFilters<T extends { id: string; provider: string }>(
+  available: readonly T[],
+  enabledModels: string[] | undefined,
+): T[] {
+  return filterDisabledModels(
+    filterEnabledModels(available, enabledModels),
+    getDisabledModelRefs(),
+  );
+}
+
 export async function listUtilityModels(cwd: string): Promise<UtilityModelOption[]> {
   const { modelRuntime, settings } = await loadModelRuntime(cwd);
   const available = await modelRuntime.getAvailable();
-  const visible = filterEnabledModels(available, settings.getEnabledModels());
+  const visible = applyModelVisibilityFilters(available, settings.getEnabledModels());
   return visible
     .map((m) => ({
       provider: m.provider,
@@ -150,15 +161,14 @@ export async function resolveUtilityModel(
 ): Promise<ResolvedUtilityModel> {
   const { modelRuntime, settings } = await loadModelRuntime(cwd);
   const available = await modelRuntime.getAvailable();
-  const visible = filterEnabledModels(available, settings.getEnabledModels());
+  const visible = applyModelVisibilityFilters(available, settings.getEnabledModels());
   if (visible.length === 0) {
     throw new Error("No available model. Configure auth and a default model first.");
   }
 
   if (preferred) {
-    const match = visible.find((m) => m.provider === preferred.provider && m.id === preferred.modelId)
-      ?? modelRuntime.getModel(preferred.provider, preferred.modelId);
-    if (match && visible.some((m) => m.provider === match.provider && m.id === match.id)) {
+    const match = visible.find((m) => m.provider === preferred.provider && m.id === preferred.modelId);
+    if (match) {
       return {
         model: match as Model<string>,
         source: "preferred",
@@ -205,9 +215,8 @@ export async function resolvePreferredSessionModel(
 ): Promise<Model<string> | null> {
   if (!preferred) return null;
   const available = await modelRuntime.getAvailable();
-  const visible = filterEnabledModels(available, settings.getEnabledModels());
-  const match = visible.find((m) => m.provider === preferred.provider && m.id === preferred.modelId)
-    ?? modelRuntime.getModel(preferred.provider, preferred.modelId);
+  const visible = applyModelVisibilityFilters(available, settings.getEnabledModels());
+  const match = visible.find((m) => m.provider === preferred.provider && m.id === preferred.modelId);
   if (!match) {
     throw new Error(
       `Configured title model is unavailable: ${formatModelRef(preferred)}. Pick another model in Settings.`,

@@ -2,6 +2,7 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { filterDisabledModels, getDisabledModelRefs } from "@/lib/disabled-models";
 import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
 import { readWebSettings } from "@/lib/web-settings";
 
@@ -53,7 +54,9 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
   const enabledModels = settings.getEnabledModels();
-  const visible = filterByExactEnabledModels(available, enabledModels);
+  const enabledVisible = filterByExactEnabledModels(available, enabledModels);
+  // models.json `disabled: true` — keep config, hide from pickers
+  const visible = filterDisabledModels(enabledVisible, getDisabledModelRefs());
   modelList = visible.map((m: { id: string; name: string; provider: string; input?: string[] }) => ({
     id: m.id,
     name: m.name,
