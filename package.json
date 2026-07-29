@@ -1,6 +1,6 @@
 {
   "name": "@ct-jyjntc/pi-web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local agent workspace — chat, files, Git, and terminals, in browser or desktop",
   "homepage": "https://github.com/ct-jyjntc/pi-web#readme",
   "repository": {
