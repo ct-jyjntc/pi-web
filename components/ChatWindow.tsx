@@ -788,7 +788,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1, lineHeight: 1, overflow: "hidden" }}>
-                <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap", lineHeight: 1 }}>π</span>
+                <img src="/icon.png" alt="" width={22} height={22} style={{ display: "block", borderRadius: "var(--radius-xs)", flexShrink: 0 }} />
                 <span style={{ fontSize: 18, color: "var(--text)", fontWeight: 600, letterSpacing: "-0.01em", flexShrink: 0, whiteSpace: "nowrap", lineHeight: 1 }}>Pi Web</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", gap: 2, flexShrink: 0, lineHeight: 1.2 }}>
