@@ -3042,6 +3042,19 @@ span.linenumber {
   height: 16px;
 }
 
+/* Usage stats — 3-col stat cards, collapses on mobile */
+.usage-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+@media (max-width: 640px) {
+  .usage-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* Shared quiet switch — single toggle recipe for settings/mcp/skills */
 .settings-toggle {
   flex-shrink: 0;

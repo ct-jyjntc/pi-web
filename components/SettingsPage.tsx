@@ -9,11 +9,12 @@ import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { McpConfig } from "./McpConfig";
 import { SettingsToggle } from "./SettingsToggle";
+import { UsagePanel } from "./UsagePanel";
 import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 
-export type SettingsSection = "general" | "appearance" | "models" | "skills" | "mcp";
+export type SettingsSection = "general" | "usage" | "appearance" | "models" | "skills" | "mcp";
 
 type ModelOption = {
   provider: string;
@@ -521,6 +522,7 @@ export function SettingsPage({
     title?: string;
   }> = [
     { id: "general", label: t("settings.general") },
+    { id: "usage", label: t("settings.usage") },
     { id: "appearance", label: t("settings.appearance") },
     { id: "models", label: t("settings.models") },
     {
@@ -1444,7 +1446,7 @@ export function SettingsPage({
         padding: "8px 0",
       };
   // Content pages scroll here; dual-pane models/skills manage their own overflow.
-  const mainScrolls = section === "general" || section === "appearance" || section === "mcp";
+  const mainScrolls = section === "general" || section === "usage" || section === "appearance" || section === "mcp";
   const mainStyle: CSSProperties = {
     flex: 1,
     minWidth: 0,
@@ -1544,6 +1546,7 @@ export function SettingsPage({
 
         <main className={`settings-page-main${mainScrolls ? " is-scroll" : ""}`} style={mainStyle}>
           {section === "general" && generalPanel}
+          {section === "usage" && <UsagePanel />}
           {section === "appearance" && appearancePanel}
           {section === "models" && (
             <ModelsConfig
