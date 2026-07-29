@@ -102,25 +102,68 @@ function StatCard({ icon, label, value, sub, mono }: {
   );
 }
 
+/** Module-level SWR cache so remounting Usage (leaving & re-entering settings) is instant. */
+const usageClientCache = new Map<number, { data: UsageData; at: number }>();
+const USAGE_CLIENT_TTL_MS = 5 * 60 * 1000;
+
+export function prefetchUsage(days: number = 30): void {
+  const hit = usageClientCache.get(days);
+  if (hit && Date.now() - hit.at < USAGE_CLIENT_TTL_MS) return;
+  void fetch(`/api/usage?days=${days}`)
+    .then(async (res) => {
+      const json = await res.json() as UsageData & { error?: string };
+      if (!res.ok || json.error) return;
+      usageClientCache.set(days, { data: json, at: Date.now() });
+    })
+    .catch(() => {});
+}
+
 export function UsagePanel() {
   const { t, locale } = useLocale();
   const [days, setDays] = useState<7 | 30>(30);
-  const [data, setData] = useState<UsageData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<UsageData | null>(() => usageClientCache.get(30)?.data ?? null);
+  const [loading, setLoading] = useState(() => !usageClientCache.has(30));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (rangeDays: number, forceRefresh: boolean) => {
-    if (forceRefresh) setRefreshing(true);
-    else setLoading(true);
+    const cached = usageClientCache.get(rangeDays);
+    const hasFreshCache = cached && Date.now() - cached.at < USAGE_CLIENT_TTL_MS;
+
+    // Stale-while-revalidate: never blank the page if we already have something to show.
+    if (forceRefresh) {
+      setRefreshing(true);
+    } else if (cached) {
+      setData(cached.data);
+      // Soft TTL hit → no spinner; stale → quiet background refresh.
+      if (!hasFreshCache) setRefreshing(true);
+    } else if (!data) {
+      setLoading(true);
+    } else {
+      // Switching range without a cache entry — keep prior chart, mark refreshing.
+      setRefreshing(true);
+    }
     setError(null);
+
+    // Skip network when we just loaded this range (soft client TTL), unless forced.
+    if (!forceRefresh && hasFreshCache) {
+      setLoading(false);
+      setRefreshing(false);
+      // Warm the other common range in the background.
+      const other = rangeDays === 30 ? 7 : 30;
+      if (!usageClientCache.has(other)) prefetchUsage(other);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/usage?days=${rangeDays}${forceRefresh ? "&refresh=1" : ""}`);
       const json = await res.json() as UsageData & { error?: string };
       if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+      usageClientCache.set(rangeDays, { data: json, at: Date.now() });
       setData(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // Keep last good data on background refresh failure.
+      if (!cached) setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -197,21 +240,38 @@ export function UsagePanel() {
   return (
     <div className="settings-page-general">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div className="settings-section-title" style={{ margin: 0, padding: 0 }}>
-          {t("settings.usage")}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <div className="settings-section-title" style={{ margin: 0, padding: 0 }}>
+            {t("settings.usage")}
+          </div>
+          {refreshing && data && (
+            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("common.loading")}</span>
+          )}
         </div>
-        <div className="settings-segmented" style={{ minWidth: 0 }}>
-          {([7, 30] as const).map((d) => (
-            <button
-              key={d}
-              type="button"
-              className={`chrome-btn${days === d ? " is-active" : ""}`}
-              aria-pressed={days === d}
-              onClick={() => setDays(d)}
-            >
-              {t(d === 7 ? "usage.range7" : "usage.range30")}
-            </button>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div className="settings-segmented" style={{ minWidth: 0 }}>
+            {([7, 30] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={`chrome-btn${days === d ? " is-active" : ""}`}
+                aria-pressed={days === d}
+                disabled={loading && !data}
+                onClick={() => setDays(d)}
+              >
+                {t(d === 7 ? "usage.range7" : "usage.range30")}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="btn-ghost btn-compact"
+            disabled={refreshing || (loading && !data)}
+            onClick={() => void load(days, true)}
+            title={t("common.refresh")}
+          >
+            {t("common.refresh")}
+          </button>
         </div>
       </div>
 

@@ -8,11 +8,11 @@ export const dynamic = "force-dynamic";
 /**
  * Usage statistics aggregated from pi session .jsonl files.
  *
- * Session files can be tens of MB in total, so parsing is streaming and
- * field-extraction is substring-based (assistant lines carry huge thinking
- * blocks; a full JSON.parse per line is needlessly expensive). The aggregate
- * is cached on globalThis keyed by a file inventory signature
- * (path:size:mtimeMs) so repeat loads only re-scan changed files.
+ * Session archives can be large, so:
+ * - lines are streamed (no full-file reads)
+ * - field extraction is substring-based (assistant lines carry huge thinking blocks)
+ * - per-file results are cached by size:mtime so only changed sessions are re-parsed
+ * - a soft TTL returns the last aggregate without re-statting (instant repeat opens)
  */
 
 type DayBucket = {
@@ -26,18 +26,41 @@ type DayBucket = {
   sessionIds: Set<string>;
 };
 
+type FileDaySlice = {
+  date: string;
+  tokens: number;
+  cost: number;
+  messages: number;
+  models: Record<string, number>;
+  sessionId: string;
+};
+
+type FileCacheEntry = {
+  sig: string;
+  days: FileDaySlice[];
+};
+
 type UsageAggregate = {
   days: Map<string, DayBucket>;
   builtAt: number;
 };
 
-const CACHE_TTL_MS = 5 * 60 * 1000;
+/** Serve last aggregate without re-stat (typical "open Usage again" path). */
+const SOFT_TTL_MS = 45_000;
+/** After soft TTL, re-stat; reuse per-file parses when size/mtime unchanged. */
+const HARD_TTL_MS = 15 * 60 * 1000;
 const HEATMAP_DAYS = 26 * 7;
 const MAX_RANGE_DAYS = 366;
 
 declare global {
   var __piUsageCache: { signature: string; at: number; data: UsageAggregate } | undefined;
   var __piUsagePromise: Promise<UsageAggregate> | undefined;
+  var __piUsageFileCache: Map<string, FileCacheEntry> | undefined;
+}
+
+function fileCache(): Map<string, FileCacheEntry> {
+  if (!globalThis.__piUsageFileCache) globalThis.__piUsageFileCache = new Map();
+  return globalThis.__piUsageFileCache;
 }
 
 function dateKey(ts: number): string {
@@ -71,7 +94,8 @@ function sliceNumberField(line: string, field: string, from: number): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-async function parseSessionFile(filePath: string, sessionId: string, days: Map<string, DayBucket>): Promise<void> {
+async function parseSessionFile(filePath: string, sessionId: string): Promise<FileDaySlice[]> {
+  const byDate = new Map<string, FileDaySlice>();
   const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
   for await (const line of rl) {
     if (!line.startsWith('{"type":"message"')) continue;
@@ -87,13 +111,12 @@ async function parseSessionFile(filePath: string, sessionId: string, days: Map<s
     if (role !== "user" && role !== "assistant") continue;
 
     const key = dateKey(ts);
-    let bucket = days.get(key);
+    let bucket = byDate.get(key);
     if (!bucket) {
-      bucket = { date: key, tokens: 0, cost: 0, messages: 0, models: {}, sessionIds: new Set() };
-      days.set(key, bucket);
+      bucket = { date: key, tokens: 0, cost: 0, messages: 0, models: {}, sessionId };
+      byDate.set(key, bucket);
     }
     bucket.messages++;
-    bucket.sessionIds.add(sessionId);
 
     if (role !== "assistant") continue;
     const usageIdx = line.indexOf('"usage":{');
@@ -101,8 +124,7 @@ async function parseSessionFile(filePath: string, sessionId: string, days: Map<s
     const tokens = sliceNumberField(line, "totalTokens", usageIdx);
     if (tokens <= 0) continue;
     const cost = sliceNumberField(line, "total", usageIdx);
-    // The message-level "model" field sits right before "usage" (after the
-    // content blob), so the LAST occurrence before usageIdx is the real one.
+    // Message-level "model" sits just before "usage"; last match before usageIdx wins.
     const modelIdx = line.lastIndexOf('"model":"', usageIdx);
     let model = "unknown";
     if (modelIdx !== -1) {
@@ -114,54 +136,114 @@ async function parseSessionFile(filePath: string, sessionId: string, days: Map<s
     bucket.cost += cost;
     bucket.models[model] = (bucket.models[model] ?? 0) + tokens;
   }
+  return [...byDate.values()];
 }
 
-async function buildAggregate(): Promise<UsageAggregate> {
-  const sessions = await SessionManager.listAll();
+function mergeSlices(slices: Iterable<FileDaySlice[]>): Map<string, DayBucket> {
   const days = new Map<string, DayBucket>();
-  // Modest concurrency keeps disk IO friendly on large session archives.
-  const queue = [...sessions];
+  for (const fileDays of slices) {
+    for (const slice of fileDays) {
+      let bucket = days.get(slice.date);
+      if (!bucket) {
+        bucket = {
+          date: slice.date,
+          tokens: 0,
+          cost: 0,
+          messages: 0,
+          models: {},
+          sessionIds: new Set(),
+        };
+        days.set(slice.date, bucket);
+      }
+      bucket.tokens += slice.tokens;
+      bucket.cost += slice.cost;
+      bucket.messages += slice.messages;
+      bucket.sessionIds.add(slice.sessionId);
+      for (const [model, v] of Object.entries(slice.models)) {
+        bucket.models[model] = (bucket.models[model] ?? 0) + v;
+      }
+    }
+  }
+  return days;
+}
+
+async function buildAggregate(): Promise<{ data: UsageAggregate; signature: string }> {
+  const sessions = await SessionManager.listAll();
+  const cache = fileCache();
+  const livePaths = new Set<string>();
+  const sigParts: string[] = [];
+  const queue: Array<{ path: string; id: string; sig: string }> = [];
+
+  for (const s of sessions) {
+    livePaths.add(s.path);
+    let sig = `${s.path}:gone`;
+    try {
+      const st = statSync(s.path);
+      sig = `${s.path}:${st.size}:${Math.round(st.mtimeMs)}`;
+    } catch {
+      // unreadable
+    }
+    sigParts.push(sig);
+    queue.push({ path: s.path, id: s.id, sig });
+  }
+
+  // Drop entries for sessions that no longer exist.
+  for (const key of cache.keys()) {
+    if (!livePaths.has(key)) cache.delete(key);
+  }
+
+  // Only re-parse files whose size/mtime signature changed.
+  const dirty = queue.filter((s) => cache.get(s.path)?.sig !== s.sig);
   const workers = Array.from({ length: 8 }, async () => {
     for (;;) {
-      const s = queue.shift();
-      if (!s) return;
+      const item = dirty.shift();
+      if (!item) return;
       try {
-        await parseSessionFile(s.path, s.id, days);
+        const days = await parseSessionFile(item.path, item.id);
+        cache.set(item.path, { sig: item.sig, days });
       } catch {
-        // Skip unreadable/corrupt session files — stats stay best-effort.
+        cache.delete(item.path);
       }
     }
   });
   await Promise.all(workers);
-  return { days, builtAt: Date.now() };
+
+  const slices: FileDaySlice[][] = [];
+  for (const s of queue) {
+    const hit = cache.get(s.path);
+    if (hit) slices.push(hit.days);
+  }
+
+  return {
+    signature: sigParts.join("|"),
+    data: { days: mergeSlices(slices), builtAt: Date.now() },
+  };
 }
 
 async function getAggregate(forceRefresh: boolean): Promise<UsageAggregate> {
-  let signature = "";
-  try {
-    const sessions = await SessionManager.listAll();
-    signature = sessions
-      .map((s) => {
-        try {
-          const st = statSync(s.path);
-          return `${s.path}:${st.size}:${Math.round(st.mtimeMs)}`;
-        } catch {
-          return `${s.path}:gone`;
-        }
-      })
-      .join("|");
-  } catch {
-    // If listing fails, fall through with an empty signature (no cache reuse).
-  }
-
   const cache = globalThis.__piUsageCache;
-  if (!forceRefresh && cache && cache.signature === signature && Date.now() - cache.at < CACHE_TTL_MS) {
+  const now = Date.now();
+
+  // Soft path: instant return while the user re-opens Usage within SOFT_TTL.
+  if (!forceRefresh && cache && now - cache.at < SOFT_TTL_MS) {
     return cache.data;
   }
+
+  // Hard path still valid and signature-checked only after soft TTL.
+  if (!forceRefresh && cache && now - cache.at < HARD_TTL_MS) {
+    // Fall through to rebuild check — but coalesce concurrent rebuilds.
+  }
+
   if (!forceRefresh && globalThis.__piUsagePromise) return globalThis.__piUsagePromise;
 
   const promise = buildAggregate()
-    .then((data) => {
+    .then(({ data, signature }) => {
+      // If nothing changed and we already have data, keep previous builtAt soft window.
+      const prev = globalThis.__piUsageCache;
+      if (prev && prev.signature === signature && !forceRefresh) {
+        globalThis.__piUsageCache = { signature, at: Date.now(), data: prev.data };
+        return prev.data;
+      }
       globalThis.__piUsageCache = { signature, at: Date.now(), data };
       return data;
     })
