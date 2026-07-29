@@ -1007,7 +1007,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             )}
 
             {/* Small tail padding so the last line isn't flush against the input bar. */}
-            <div ref={messagesEndRef} style={{ height: 12 }} />
+            <div ref={messagesEndRef} style={{ height: 10 }} />
             </div>
           </div>
         </div>

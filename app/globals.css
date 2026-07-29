@@ -1539,12 +1539,13 @@ textarea.input-base:focus-visible {
   min-width: 0;
 }
 
-/* Unified composer: input + chrome toolbar in one card.
-   overflow stays visible for absolute mobile control tray + fixed desktop menus. */
+/* Unified composer: input + toolbar in one rounded card.
+   Full radius on the shell only; children stay square so left/right edges are one
+   continuous curve (not two stacked half-radii). Menus are outside this shell. */
 .composer-shell {
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
   position: relative;
   z-index: 20;
   min-width: 0;
@@ -1553,8 +1554,8 @@ textarea.input-base:focus-visible {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: none;
+  transition: border-color 0.15s ease;
 }
 .composer-shell.is-streaming {
   border-color: color-mix(in oklab, var(--text-muted) 35%, var(--border));
@@ -1565,7 +1566,8 @@ textarea.input-base:focus-visible {
   gap: 8px;
   padding: 8px 10px 8px 14px;
   background: var(--bg);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  /* Radius comes only from .composer-shell clip — no partial child radii */
+  border-radius: 0;
   min-width: 0;
 }
 /* Keep send at bottom when textarea grows multi-line */
@@ -1603,7 +1605,8 @@ textarea.input-base:focus-visible {
   min-width: 0;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  /* Bottom corners clipped by .composer-shell — keep square here for a clean join */
+  border-radius: 0;
   position: relative;
   z-index: 30;
   overflow: visible;
