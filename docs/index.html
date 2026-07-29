@@ -131,6 +131,14 @@
   .sec-head { margin-bottom: 18px; }
 
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .grid.two { grid-template-columns: repeat(2, 1fr); }
+  .dl-card .arch {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 400;
+    color: var(--text-dim); margin-left: 6px;
+  }
+  .dl-card .dl-btn { margin-top: 10px; }
+  .dl-note { margin: 12px 0 0; font-size: 12px; color: var(--text-muted); }
+  .dl-note a { color: var(--text-muted); }
   .card {
     border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px 14px;
     transition: background 0.15s ease;
@@ -194,6 +202,7 @@
   @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 640px) {
     .grid { grid-template-columns: 1fr; }
+    .grid.two { grid-template-columns: 1fr; }
     .wire { flex-direction: column; }
     .wire .arrow { justify-content: center; transform: rotate(90deg); }
     main { padding-top: 40px; }
@@ -210,6 +219,7 @@
   <nav>
     <a href="https://github.com/ct-jyjntc/pi-web">GitHub</a>
     <a href="https://github.com/ct-jyjntc/pi-web/issues">Issues</a>
+    <a href="#download">Download</a>
     <a href="#run-from-source">Get started</a>
   </nav>
 </header>
@@ -232,7 +242,8 @@
       <span>English / 中文</span>
     </div>
     <div class="cta">
-      <a class="btn-primary" href="#run-from-source">Get started</a>
+      <a class="btn-primary" id="hero-download" href="#download">↓ Download</a>
+      <a class="btn-ghost" href="#run-from-source">Get started</a>
       <a class="btn-ghost" href="https://github.com/ct-jyjntc/pi-web">View on GitHub</a>
     </div>
   </section>
@@ -242,6 +253,30 @@
     <img class="shot-light" src="screenshot-light.png" alt="Pi Web in light theme" width="2784" height="1904" />
     <img class="shot-dark" src="screenshot-dark.png" alt="Pi Web in dark theme" width="2784" height="1904" />
   </div>
+
+  <!-- Download -->
+  <section id="download">
+    <div class="sec-head">
+      <div class="micro">Desktop app</div>
+      <h2>Download</h2>
+    </div>
+    <div class="grid two">
+      <div class="card dl-card">
+        <div class="t">macOS<span class="arch">Apple Silicon</span></div>
+        <div class="d" id="meta-mac">.dmg installer · arm64</div>
+        <a class="btn-ghost dl-btn" id="dl-mac" href="https://github.com/ct-jyjntc/pi-web/releases/latest">↓ Download .dmg</a>
+      </div>
+      <div class="card dl-card">
+        <div class="t">Windows<span class="arch">x64</span></div>
+        <div class="d" id="meta-win">.exe installer · NSIS</div>
+        <a class="btn-ghost dl-btn" id="dl-win" href="https://github.com/ct-jyjntc/pi-web/releases/latest">↓ Download .exe</a>
+      </div>
+    </div>
+    <p class="dl-note">
+      Free &amp; open source (MIT). Prefer the browser? Run the web version from
+      source below. <a href="https://github.com/ct-jyjntc/pi-web/releases">All releases →</a>
+    </p>
+  </section>
 
   <!-- Highlights -->
   <section>
@@ -349,6 +384,40 @@
   <span>MIT · <a href="https://github.com/ct-jyjntc/pi-web">ct-jyjntc/pi-web</a></span>
   <span>Based on <a href="https://github.com/agegr/pi-web">agegr/pi-web</a></span>
 </footer>
+
+<script>
+(function () {
+  var API = "https://api.github.com/repos/ct-jyjntc/pi-web/releases/latest";
+  function fmtMB(n) { return Math.round(n / 1048576) + " MB"; }
+  fetch(API).then(function (r) { if (!r.ok) throw new Error("api"); return r.json(); }).then(function (rel) {
+    var mac = null, win = null;
+    (rel.assets || []).forEach(function (a) {
+      if (/arm64\.dmg$/i.test(a.name)) mac = a;
+      if (/x64\.exe$/i.test(a.name)) win = a;
+    });
+    var v = rel.tag_name || "";
+    if (mac) {
+      document.getElementById("dl-mac").href = mac.browser_download_url;
+      document.getElementById("meta-mac").textContent =
+        ".dmg installer · arm64 · " + fmtMB(mac.size) + (v ? " · " + v : "");
+    }
+    if (win) {
+      document.getElementById("dl-win").href = win.browser_download_url;
+      document.getElementById("meta-win").textContent =
+        ".exe installer · NSIS · " + fmtMB(win.size) + (v ? " · " + v : "");
+    }
+    var ua = navigator.userAgent;
+    var hero = document.getElementById("hero-download");
+    if (/Windows/i.test(ua) && win) {
+      hero.href = win.browser_download_url;
+      hero.textContent = "↓ Download for Windows";
+    } else if (/Macintosh|Mac OS/i.test(ua) && !/iPhone|iPad|iPod|Mobile/i.test(ua) && mac) {
+      hero.href = mac.browser_download_url;
+      hero.textContent = "↓ Download for macOS";
+    }
+  }).catch(function () { /* keep Releases-page fallback links */ });
+})();
+</script>
 
 </body>
 </html>
