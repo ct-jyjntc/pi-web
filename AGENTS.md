@@ -137,8 +137,10 @@ Every session uses the full built-in tool set (`getFullToolNames()` → `toolNam
 ### Model roles / Git Review / project memory (Phase A)
 - **Roles** (`default` / `smol` / `plan`) live in `~/.pi/agent/pi-web.json` via `lib/web-settings.ts` + Settings UI. Changing roles rewrites managed agent frontmatter (`Explore`/`Plan`/`Reviewer`) through `syncAgentModelsFromRoles()`.
 - **Git Review**: `POST /api/git/review` builds a prompt; GitPanel starts a new session with the plan-role model and the managed `Reviewer` subagent. Assistant JSON is rendered by `ReviewSummaryCard`.
-- **Edit failures**: `createPiWebEditToolDefinition` wraps builtin `edit` with kind/excerpt recovery text (`lib/edit-failure.ts`).
-- **Project memory**: facts in `~/.pi/agent/project-memory/<key>/facts.jsonl`; tools `memory_retain` / `memory_recall`; auto-inject via `appendSystemPromptOverride` in `startRpcSession`.
+- **Edit (hashline-first)**: `createPiWebEditToolDefinition` prefers omp-style `{ input: "[path#TAG]\nSWAP…" }` (`lib/hashline-edit.ts`); classic `{ path, edits }` still works (strict then SDK fuzzy). Failures get kind/excerpt recovery (`lib/edit-failure.ts`).
+- **LSP health**: catalog + PATH discovery in `lib/lsp-health.ts`; `GET /api/lsp?cwd=`; Settings → Tools; agent tools `lsp` / `lsp_servers` include install hints. TS/JS keeps built-in service fallback.
+- **GitHub thin layer**: `lib/github.ts` + agent tool `github` (gh CLI, read-only). Virtual paths `pr://N`, `pr://N/diff`, `issue://N` work via `read` and `github({ action:"read" })`. API: `GET/POST /api/github`.
+- **Project memory**: facts in `~/.pi/agent/project-memory/<key>/facts.jsonl`; tools `memory_retain` / `memory_recall` / `memory_reflect` (heuristic + optional utility-model synthesis); auto-inject via `appendSystemPromptOverride` in `startRpcSession`. API: `POST /api/project-memory` with `{ action: "reflect" }`.
 
 ### SSE reconnect on page refresh mid-stream
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.

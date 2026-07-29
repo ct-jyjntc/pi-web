@@ -118,6 +118,17 @@ export function GitPanel({
   /** Paths with inline diff expanded (Codex-style). Default: all when body shown. */
   const [openDiffs, setOpenDiffs] = useState<Set<string>>(new Set());
   const [diffsInitialized, setDiffsInitialized] = useState(false);
+  const [linkedPr, setLinkedPr] = useState<{
+    number: number;
+    title: string;
+    url: string;
+    state?: string;
+  } | null>(null);
+  const [linkedPrLoading, setLinkedPrLoading] = useState(false);
+  const [prDiffOpen, setPrDiffOpen] = useState(false);
+  const [prDiffText, setPrDiffText] = useState<string | null>(null);
+  const [prDiffBusy, setPrDiffBusy] = useState(false);
+  const [prDiffError, setPrDiffError] = useState<string | null>(null);
   const branchRef = useRef<HTMLDivElement>(null);
   const commitRef = useRef<HTMLDivElement>(null);
 
@@ -154,6 +165,65 @@ export function GitPanel({
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
+
+  // Linked PR for current branch (gh CLI; silent if unavailable)
+  useEffect(() => {
+    if (!cwd || !status?.isGitRepository || !status.branch) {
+      setLinkedPr(null);
+      return;
+    }
+    let cancelled = false;
+    setLinkedPrLoading(true);
+    void (async () => {
+      try {
+        // Prefer view for current branch
+        const res = await fetch("/api/github", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd, action: "list_prs", limit: 20, state: "open" }),
+        });
+        const data = await res.json() as {
+          ok?: boolean;
+          details?: Array<{
+            number?: number;
+            title?: string;
+            url?: string;
+            headRefName?: string;
+            state?: string;
+          }>;
+        };
+        if (cancelled) return;
+        const branch = status.branch;
+        const match = Array.isArray(data.details)
+          ? data.details.find((p) => p.headRefName === branch)
+          : null;
+        if (match?.number && match.title && match.url) {
+          setLinkedPr({
+            number: match.number,
+            title: match.title,
+            url: match.url,
+            state: match.state,
+          });
+        } else {
+          setLinkedPr(null);
+        }
+      } catch {
+        if (!cancelled) setLinkedPr(null);
+      } finally {
+        if (!cancelled) setLinkedPrLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, status?.isGitRepository, status?.branch, refreshKey]);
+
+  // Reset PR diff when branch / PR changes
+  useEffect(() => {
+    setPrDiffOpen(false);
+    setPrDiffText(null);
+    setPrDiffError(null);
+  }, [cwd, status?.branch, linkedPr?.number]);
 
   // Default: expand all file diffs when status first loads (Codex-style)
   useEffect(() => {
@@ -908,6 +978,65 @@ export function GitPanel({
             {(status?.behind ?? 0) > 0 && (
               <span className="git-panel-branch-meta" style={{ fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{t("git.behind", { n: status!.behind })}</span>
             )}
+            {linkedPr && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: "100%" }}>
+                <a
+                  href={linkedPr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="git-panel-branch-meta"
+                  title={`${linkedPr.title}\n${linkedPr.url}`}
+                  style={{
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--accent)",
+                    textDecoration: "none",
+                    maxWidth: 180,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {t("git.linkedPr", { n: linkedPr.number })} · {linkedPr.title}
+                </a>
+                <button
+                  type="button"
+                  className="btn-ghost btn-compact"
+                  disabled={prDiffBusy}
+                  title={t("git.prDiff")}
+                  onClick={() => {
+                    if (prDiffOpen) {
+                      setPrDiffOpen(false);
+                      return;
+                    }
+                    setPrDiffOpen(true);
+                    if (prDiffText) return;
+                    setPrDiffBusy(true);
+                    setPrDiffError(null);
+                    void fetch("/api/github", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ cwd, action: "diff", number: linkedPr.number }),
+                    })
+                      .then(async (res) => {
+                        const data = await res.json() as { ok?: boolean; text?: string; error?: string };
+                        if (!res.ok || data.ok === false) throw new Error(data.error ?? data.text ?? `HTTP ${res.status}`);
+                        setPrDiffText(data.text ?? "(empty diff)");
+                      })
+                      .catch((e) => setPrDiffError(e instanceof Error ? e.message : String(e)))
+                      .finally(() => setPrDiffBusy(false));
+                  }}
+                  style={{ height: 22, minHeight: 22, padding: "0 6px", fontSize: 10, flexShrink: 0 }}
+                >
+                  {prDiffBusy ? "…" : prDiffOpen ? t("git.prDiffHide") : t("git.prDiff")}
+                </button>
+              </div>
+            )}
+            {!linkedPr && linkedPrLoading && (
+              <span className="git-panel-branch-meta" style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                {t("git.linkedPrLoading")}
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -922,6 +1051,75 @@ export function GitPanel({
             </svg>
             <span>{t("git.pull")}</span>
           </button>
+        </div>
+      )}
+
+      {showBody && prDiffOpen && linkedPr && (
+        <div
+          style={{
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg)",
+            maxHeight: 280,
+            overflow: "auto",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 12px",
+              borderBottom: "1px solid var(--border)",
+              background: "var(--bg-panel)",
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 600, fontFamily: "var(--font-mono)" }}>
+              {t("git.prDiffTitle", { n: linkedPr.number })}
+            </span>
+            <span style={{ fontSize: 11, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              pr://{linkedPr.number}/diff
+            </span>
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              style={{ marginLeft: "auto", height: 22, minHeight: 22, padding: "0 6px", fontSize: 10 }}
+              onClick={() => setPrDiffOpen(false)}
+            >
+              {t("git.prDiffHide")}
+            </button>
+          </div>
+          {prDiffError && (
+            <div style={{ padding: 10, fontSize: 12, color: "var(--destructive)" }}>{prDiffError}</div>
+          )}
+          {!prDiffError && prDiffBusy && !prDiffText && (
+            <div style={{ padding: 10, fontSize: 12, color: "var(--text-dim)" }}>…</div>
+          )}
+          {prDiffText && (
+            <pre
+              style={{
+                margin: 0,
+                padding: "8px 10px 12px",
+                fontSize: 11.5,
+                lineHeight: 1.45,
+                fontFamily: "var(--font-mono)",
+                whiteSpace: "pre",
+                overflowX: "auto",
+              }}
+            >
+              {prDiffText.split("\n").map((line, i) => {
+                let color = "var(--text-muted)";
+                if (line.startsWith("+") && !line.startsWith("+++")) color = "var(--success)";
+                else if (line.startsWith("-") && !line.startsWith("---")) color = "var(--destructive)";
+                else if (line.startsWith("@@")) color = "var(--text-dim)";
+                return (
+                  <div key={i} style={{ color }}>{line || "\u00a0"}</div>
+                );
+              })}
+            </pre>
+          )}
         </div>
       )}
 

@@ -6,6 +6,7 @@ import {
   listAvailableLspServers,
   uriToPath,
 } from "./lsp-client";
+import { formatLspHealthReport, getLspHealth } from "./lsp-health";
 import { applyRenameEdits, findReferences, formatLocations, planRename } from "./ts-lsp";
 import { readFileSync, writeFileSync } from "fs";
 
@@ -39,22 +40,60 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
   const servers: ToolDefinitionLike = {
     name: "lsp_servers",
     label: "lsp_servers",
-    description: "List discovered external LSP servers available on PATH (pyright, gopls, rust-analyzer, …).",
+    description:
+      "List discovered external LSP servers (pyright, gopls, rust-analyzer, …) with install hints for missing ones.",
     promptSnippet: "List available language servers",
     parameters: Type.Object({}),
     async execute() {
-      const list = listAvailableLspServers();
+      const health = getLspHealth(cwd);
+      const list = listAvailableLspServers(cwd);
       return {
-        content: [{
-          type: "text",
-          text: list.length
-            ? `Available LSP servers:\n${list.map((s) => `- ${s}`).join("\n")}\n\nTS/JS also has a built-in language service fallback.`
-            : "No external LSP servers on PATH. TS/JS still works via built-in service.",
-        }],
-        details: { servers: list },
+        content: [{ type: "text", text: formatLspHealthReport(cwd) }],
+        details: { servers: list, health },
       };
     },
   };
+
+  /** Unified multi-action LSP entry (omp-style). Keeps lsp_* tools for compatibility. */
+  const lsp: ToolDefinitionLike = {
+    name: "lsp",
+    label: "lsp",
+    description:
+      "Language server ops: action=servers|hover|definition|references|rename. " +
+      "Uses external servers when on PATH; TS/JS falls back to built-in service for refs/rename.",
+    promptSnippet: "LSP navigation / rename / hover",
+    promptGuidelines: [
+      "Prefer lsp({ action, path, line, character }) for code navigation.",
+      "Call action=servers first if unsure which languages are supported on this machine.",
+      "line is 1-based; character is 1-based column (same as other lsp_* tools).",
+    ],
+    parameters: Type.Object({
+      action: Type.String({ description: "servers | hover | definition | references | rename" }),
+      path: Type.Optional(Type.String()),
+      line: Type.Optional(Type.Number()),
+      character: Type.Optional(Type.Number()),
+      newName: Type.Optional(Type.String()),
+      apply: Type.Optional(Type.Boolean({ description: "For rename: write files when true (default false = dry-run)" })),
+    }),
+    async execute(id, args, signal) {
+      const action = String(args.action ?? "servers").toLowerCase();
+      if (action === "servers" || action === "status") {
+        return servers.execute(id, {}, signal);
+      }
+      // Dispatch to existing tool implementations by temporary lookup below after they're defined.
+      // Handled after all tools are created via closure reassignment — see end of factory.
+      return dispatchLspAction(action, args);
+    },
+  };
+
+  // Forward declaration filled after sibling tools exist
+  let dispatchLspAction: (
+    action: string,
+    args: Record<string, unknown>,
+  ) => Promise<ToolResult> = async () => ({
+    content: [{ type: "text", text: "lsp dispatch not ready" }],
+    isError: true,
+  });
 
   const hover: ToolDefinitionLike = {
     name: "lsp_hover",
@@ -291,8 +330,8 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
     name: "hashline_edit",
     label: "hashline_edit",
     description:
-      "Edit a file using hash-anchored exact replacements. Optional hash = sha1(oldText).slice(0,12) rejects stale anchors. Prefer when edit fails due to drift.",
-    promptSnippet: "Hash-anchored exact text replacement",
+      "Legacy block-hash edit ({ path, hunks }). Prefer the main edit tool with hashline patch language { input: \"[path#TAG]\\nSWAP…\" } instead.",
+    promptSnippet: "Legacy hash-anchored hunk edit (prefer edit input)",
     parameters: Type.Object({
       path: Type.String(),
       hunks: Type.Array(Type.Object({
@@ -371,5 +410,19 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
     },
   };
 
-  return [servers, hover, definition, refs, rename, hashline, ast];
+  dispatchLspAction = async (action, args) => {
+    if (action === "hover") return hover.execute("lsp", args);
+    if (action === "definition" || action === "def") return definition.execute("lsp", args);
+    if (action === "references" || action === "refs") return refs.execute("lsp", args);
+    if (action === "rename") return rename.execute("lsp", args);
+    return {
+      content: [{
+        type: "text",
+        text: `Unknown lsp action '${action}'. Use servers | hover | definition | references | rename.`,
+      }],
+      isError: true,
+    };
+  };
+
+  return [lsp, servers, hover, definition, refs, rename, hashline, ast];
 }

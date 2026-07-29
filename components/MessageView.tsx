@@ -845,6 +845,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
   const inputStr = JSON.stringify(block.input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+  const editMeta = result && !result.isError && isEditTool ? getEditResultMeta(result) : null;
 
   // Result display
   const resultText = result
@@ -908,6 +909,42 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
             }}
           >
             {editFailureKind}
+          </span>
+        )}
+        {editMeta?.mode && !isError && (
+          <span
+            style={{
+              flexShrink: 0,
+              fontSize: 10,
+              fontFamily: "var(--font-mono)",
+              fontWeight: 600,
+              letterSpacing: "0.03em",
+              color: "var(--text-muted)",
+              border: "1px solid var(--border)",
+              background: "var(--bg-subtle)",
+              borderRadius: "var(--radius-xs)",
+              padding: "1px 5px",
+            }}
+            title={editMeta.mode}
+          >
+            {editMeta.modeLabel}
+          </span>
+        )}
+        {editMeta?.tag && !isError && (
+          <span
+            style={{
+              flexShrink: 0,
+              fontSize: 10,
+              fontFamily: "var(--font-mono)",
+              color: "var(--success)",
+              border: "1px solid var(--success-border)",
+              background: "var(--success-bg)",
+              borderRadius: "var(--radius-xs)",
+              padding: "1px 5px",
+            }}
+            title="New hashline file tag after edit"
+          >
+            #{editMeta.tag}
           </span>
         )}
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
@@ -1207,7 +1244,51 @@ function getResultDiff(result: ToolResultMessage): ResultDiff | null {
   const diff = typeof details.diff === "string" ? details.diff : null;
   if (diff) return { text: diff };
 
+  // Nested hashline multi-result: concatenate per-file patches
+  const results = details.results;
+  if (Array.isArray(results)) {
+    const parts: string[] = [];
+    for (const row of results) {
+      if (!isRecord(row)) continue;
+      const p = typeof row.patch === "string" ? row.patch : typeof row.diff === "string" ? row.diff : null;
+      if (p) parts.push(p);
+    }
+    if (parts.length > 0) return { text: parts.join("\n") };
+  }
+
   return null;
+}
+
+function getEditResultMeta(result: ToolResultMessage): { mode?: string; modeLabel: string; tag?: string } | null {
+  const details = (result as ToolResultMessage & { details?: unknown }).details;
+  if (!isRecord(details)) {
+    // Fallback: parse "→ #ABCD" from result text
+    const text = result.content
+      ?.filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n") ?? "";
+    const tagMatch = text.match(/→\s*#([0-9A-Fa-f]{4})\b/) ?? text.match(/#([0-9A-Fa-f]{4})\b/);
+    if (!tagMatch) return null;
+    return { modeLabel: "hashline", tag: tagMatch[1]!.toUpperCase() };
+  }
+
+  const mode = typeof details.mode === "string" ? details.mode : undefined;
+  let tag = typeof details.tag === "string" ? details.tag.split(",")[0]?.trim() : undefined;
+  if (!tag && Array.isArray(details.results) && details.results[0] && isRecord(details.results[0])) {
+    const t = details.results[0].tag;
+    if (typeof t === "string") tag = t;
+  }
+  if (tag) tag = tag.replace(/^#/, "").toUpperCase();
+
+  const modeLabel =
+    mode === "hashline-patch" ? "hashline"
+      : mode === "hashline-hunks" ? "hunks"
+        : mode === "classic-via-hashline" ? "strict"
+          : mode === "classic-fuzzy" ? "classic"
+            : mode ? mode.replace(/-/g, " ").slice(0, 16) : "edit";
+
+  if (!mode && !tag) return null;
+  return { mode, modeLabel, tag };
 }
 
 function isEditToolName(toolName: string): boolean {

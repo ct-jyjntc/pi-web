@@ -16,8 +16,12 @@ export function CollabViewer({ token }: { token: string }) {
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [stickBottom, setStickBottom] = useState(true);
+  const [unread, setUnread] = useState(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const stickBottomRef = useRef(true);
+  const lastMsgCountRef = useRef(0);
+  stickBottomRef.current = stickBottom;
 
   useEffect(() => {
     let cancelled = false;
@@ -104,7 +108,23 @@ export function CollabViewer({ token }: { token: string }) {
   );
 
   useEffect(() => {
+    const count = messages.length;
+    const prev = lastMsgCountRef.current;
+    if (count > prev) {
+      const delta = count - prev;
+      if (stickBottomRef.current) {
+        setUnread(0);
+      } else if (prev > 0) {
+        // Only count as unread after initial load.
+        setUnread((u) => u + delta);
+      }
+    }
+    lastMsgCountRef.current = count;
+  }, [messages]);
+
+  useEffect(() => {
     if (!stickBottom) return;
+    setUnread(0);
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, stickBottom]);
 
@@ -112,7 +132,15 @@ export function CollabViewer({ token }: { token: string }) {
     const el = scrollerRef.current;
     if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setStickBottom(dist < 80);
+    const atBottom = dist < 80;
+    setStickBottom(atBottom);
+    if (atBottom) setUnread(0);
+  };
+
+  const jumpToLatest = () => {
+    setUnread(0);
+    setStickBottom(true);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   };
 
   return (
@@ -178,6 +206,46 @@ export function CollabViewer({ token }: { token: string }) {
             {new Date(updatedAt).toLocaleTimeString()}
           </span>
         )}
+        {unread > 0 && (
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            title="Jump to latest"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg-subtle)",
+              color: "var(--text)",
+              borderRadius: "var(--radius-pill)",
+              padding: "2px 8px 2px 10px",
+              fontSize: 11,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            New
+            <span
+              style={{
+                minWidth: 18,
+                height: 18,
+                padding: "0 5px",
+                borderRadius: "var(--radius-pill)",
+                background: "var(--accent)",
+                color: "var(--accent-fg)",
+                fontSize: 11,
+                fontWeight: 600,
+                fontVariantNumeric: "tabular-nums",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {unread > 99 ? "99+" : unread}
+            </span>
+          </button>
+        )}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }}>
           Viewers cannot prompt or control the agent
         </span>
@@ -192,22 +260,66 @@ export function CollabViewer({ token }: { token: string }) {
       {error ? (
         <div style={{ padding: 24, color: "var(--destructive)" }}>{error}</div>
       ) : (
-        <main
-          ref={scrollerRef}
-          onScroll={onScroll}
-          style={{ flex: 1, overflow: "auto", padding: "16px 16px 40px" }}
-        >
-          <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
-            {messages.length === 0 ? (
-              <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40 }}>
-                Waiting for session activity…
-              </div>
-            ) : (
-              messages.map((m) => <ChatBubble key={m.id} message={m} />)
-            )}
-            <div ref={bottomRef} />
-          </div>
-        </main>
+        <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
+          <main
+            ref={scrollerRef}
+            onScroll={onScroll}
+            style={{ flex: 1, overflow: "auto", padding: "16px 16px 40px" }}
+          >
+            <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
+              {messages.length === 0 ? (
+                <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40 }}>
+                  Waiting for session activity…
+                </div>
+              ) : (
+                messages.map((m) => <ChatBubble key={m.id} message={m} />)
+              )}
+              <div ref={bottomRef} />
+            </div>
+          </main>
+
+          {!stickBottom && messages.length > 0 && (
+            <button
+              type="button"
+              className="btn-primary btn-compact"
+              onClick={jumpToLatest}
+              style={{
+                position: "absolute",
+                left: "50%",
+                transform: "translateX(-50%)",
+                bottom: 20,
+                zIndex: 5,
+                boxShadow: "var(--shadow-md)",
+                gap: 8,
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
+              </svg>
+              Jump to latest
+              {unread > 0 && (
+                <span
+                  style={{
+                    minWidth: 18,
+                    height: 18,
+                    padding: "0 5px",
+                    borderRadius: "var(--radius-pill)",
+                    background: "var(--accent-fg)",
+                    color: "var(--accent)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    fontVariantNumeric: "tabular-nums",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

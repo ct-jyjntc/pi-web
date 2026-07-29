@@ -3,9 +3,10 @@
  * Used when a server binary is available (pyright, gopls, rust-analyzer, …).
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { dirname, extname, resolve } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import { getAvailableLspSpecs, whichCommand } from "./lsp-health";
 
 export type LspPosition = { line: number; character: number }; // 0-based for protocol
 export type LspRange = { start: LspPosition; end: LspPosition };
@@ -21,56 +22,18 @@ export type LspServerSpec = {
   command: string;
   args: string[];
   languages: string[]; // extensions without dot: ts, py, go, rs
+  /** Absolute binary path when known */
+  resolvedPath?: string;
 };
 
-const DEFAULT_SERVERS: LspServerSpec[] = [
-  {
-    id: "typescript",
-    command: "typescript-language-server",
-    args: ["--stdio"],
-    languages: ["ts", "tsx", "js", "jsx", "mts", "cts"],
-  },
-  {
-    id: "pyright",
-    command: "pyright-langserver",
-    args: ["--stdio"],
-    languages: ["py", "pyi"],
-  },
-  {
-    id: "pylsp",
-    command: "pylsp",
-    args: [],
-    languages: ["py", "pyi"],
-  },
-  {
-    id: "gopls",
-    command: "gopls",
-    args: ["serve"],
-    languages: ["go"],
-  },
-  {
-    id: "rust-analyzer",
-    command: "rust-analyzer",
-    args: [],
-    languages: ["rs"],
-  },
-];
-
-function which(cmd: string): string | null {
-  const pathEnv = process.env.PATH ?? "";
-  const parts = pathEnv.split(process.platform === "win32" ? ";" : ":");
-  const exts = process.platform === "win32" ? [".exe", ".cmd", ""] : [""];
-  for (const dir of parts) {
-    for (const ext of exts) {
-      const p = resolve(dir, cmd + ext);
-      if (existsSync(p)) return p;
-    }
-  }
-  return null;
-}
-
-export function discoverLspServers(): LspServerSpec[] {
-  return DEFAULT_SERVERS.filter((s) => which(s.command));
+export function discoverLspServers(cwd?: string | null): LspServerSpec[] {
+  return getAvailableLspSpecs(cwd).map((s) => ({
+    id: s.id,
+    command: s.command,
+    args: s.args,
+    languages: s.languages,
+    resolvedPath: s.resolvedPath,
+  }));
 }
 
 export function languageIdForPath(filePath: string): string {
@@ -110,7 +73,7 @@ export class LspClient {
 
   async start(): Promise<void> {
     if (this.proc) return;
-    const bin = which(this.spec.command);
+    const bin = this.spec.resolvedPath || whichCommand(this.spec.command);
     if (!bin) throw new Error(`LSP server not found: ${this.spec.command}`);
     this.proc = spawn(bin, this.spec.args, {
       cwd: this.cwd,
@@ -314,8 +277,13 @@ const pools = new Map<string, LspClient>();
 
 export async function getLspClientForFile(cwd: string, filePath: string): Promise<LspClient | null> {
   const ext = extname(filePath).slice(1).toLowerCase();
-  const servers = discoverLspServers();
-  const spec = servers.find((s) => s.languages.includes(ext));
+  const servers = discoverLspServers(cwd);
+  // Prefer primary servers; for Python prefer pyright over pylsp when both exist
+  const matches = servers.filter((s) => s.languages.includes(ext));
+  const spec =
+    matches.find((s) => s.id === "pyright") ??
+    matches.find((s) => s.id === "typescript") ??
+    matches[0];
   if (!spec) return null;
   const key = `${resolve(cwd)}::${spec.id}`;
   let client = pools.get(key);
@@ -323,12 +291,19 @@ export async function getLspClientForFile(cwd: string, filePath: string): Promis
     client = new LspClient(spec, cwd);
     pools.set(key, client);
   }
-  await client.start();
-  return client;
+  try {
+    await client.start();
+    return client;
+  } catch (error) {
+    pools.delete(key);
+    throw error;
+  }
 }
 
-export function listAvailableLspServers(): string[] {
-  return discoverLspServers().map((s) => `${s.id} (${s.command}) [${s.languages.join(",")}]`);
+export function listAvailableLspServers(cwd?: string | null): string[] {
+  return discoverLspServers(cwd).map(
+    (s) => `${s.id} (${s.command}) [${s.languages.join(",")}]${s.resolvedPath ? ` @ ${s.resolvedPath}` : ""}`,
+  );
 }
 
 export function uriToPath(uri: string): string {

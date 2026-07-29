@@ -314,9 +314,13 @@ body {
   background: color-mix(in oklab, var(--accent) 22%, transparent);
 }
 
-/* Buttons/links only — form fields use their own quiet border focus (see .input-base). */
+/*
+ * Quiet focus ring for non-field controls.
+ * Form fields: see .input-base. Chrome/segmented buttons suppress this entirely
+ * and use fill/selection state instead (avoids a heavy black frame on click).
+ */
 :focus-visible:not(input):not(textarea):not(select):not([contenteditable="true"]) {
-  outline: 2px solid var(--ring);
+  outline: 1px solid color-mix(in oklab, var(--text) 28%, var(--border));
   outline-offset: 1px;
 }
 
@@ -1120,6 +1124,12 @@ span.linenumber {
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
+.btn-primary:focus,
+.btn-primary:focus-visible {
+  outline: none;
+  outline-offset: 0;
+  background: var(--accent-hover);
+}
 .btn-primary:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -1144,6 +1154,12 @@ span.linenumber {
   transition: background 0.15s ease;
 }
 .btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.btn-ghost:focus,
+.btn-ghost:focus-visible {
+  outline: none;
+  outline-offset: 0;
   background: var(--bg-hover);
 }
 .btn-ghost:disabled {
@@ -1171,6 +1187,12 @@ span.linenumber {
   transition: background 0.15s ease;
 }
 .btn-danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--destructive) 85%, var(--text));
+}
+.btn-danger:focus,
+.btn-danger:focus-visible {
+  outline: none;
+  outline-offset: 0;
   background: color-mix(in oklab, var(--destructive) 85%, var(--text));
 }
 .btn-danger:disabled {
@@ -1432,6 +1454,14 @@ textarea.input-base:focus-visible {
   color: var(--text);
   background: var(--bg-hover);
 }
+.chrome-btn:focus,
+.chrome-btn:focus-visible {
+  /* No outline ring — selection/hover fill is the affordance */
+  outline: none;
+  outline-offset: 0;
+  color: var(--text);
+  background: var(--bg-hover);
+}
 .chrome-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -1440,7 +1470,9 @@ textarea.input-base:focus-visible {
   color: var(--text);
   background: var(--bg-selected);
 }
-.chrome-btn.is-active:hover:not(:disabled) {
+.chrome-btn.is-active:hover:not(:disabled),
+.chrome-btn.is-active:focus,
+.chrome-btn.is-active:focus-visible {
   color: var(--text);
   background: var(--bg-selected);
 }
@@ -3000,12 +3032,18 @@ textarea.input-base:focus-visible {
   background: var(--bg-selected);
   color: var(--text);
 }
-/* Fused inputs inside a segmented shell: focus shows on the shell, not the clipped inner ring */
+/* Fused controls inside a segmented shell: no outer black frame on click/focus */
 .settings-segmented input {
   min-width: 0;
 }
 .settings-segmented:focus-within {
-  border-color: var(--accent);
+  /* Keep the idle border — active segment fill already marks selection */
+  border-color: var(--border);
+}
+.settings-segmented .chrome-btn:focus,
+.settings-segmented .chrome-btn:focus-visible {
+  outline: none;
+  outline-offset: 0;
 }
 .settings-segmented input:focus-visible {
   outline: none;

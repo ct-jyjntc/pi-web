@@ -1,6 +1,8 @@
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
 import { createPiWebBashToolDefinition } from "./agent-bash-pty";
 import { createPiWebEditToolDefinition } from "./agent-edit-tool";
+import { createGithubTools } from "./agent-github-tool";
+import { createPiWebReadToolDefinition } from "./agent-read-tool";
 import { createAdvancedTools } from "./agent-advanced-tools";
 import { createCodeIntelTools } from "./agent-code-intel-tools";
 import { createDebugTools } from "./agent-debug-tools";
@@ -1320,6 +1322,7 @@ export async function startRpcSession(
       },
     });
     const agentEditTool = createPiWebEditToolDefinition(cwd);
+    const agentReadTool = createPiWebReadToolDefinition(cwd);
     const memoryTools = !toolsFullyDisabled && readWebSettings().projectMemory.enabled
       ? createProjectMemoryTools(cwd)
       : [];
@@ -1329,6 +1332,7 @@ export async function startRpcSession(
           ...createWebTools(),
           ...createCodeIntelTools(cwd),
           ...createDebugTools(cwd),
+          ...createGithubTools(cwd),
           ...createAdvancedTools({
             cwd,
             getSessionId: () => {
@@ -1359,6 +1363,7 @@ export async function startRpcSession(
       customTools: [
         agentBashTool as never,
         agentEditTool as never,
+        agentReadTool as never,
         ...(memoryTools as never[]),
         ...(extraTools as never[]),
       ],

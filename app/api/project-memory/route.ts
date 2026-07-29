@@ -5,8 +5,10 @@ import {
   deleteMemoryFact,
   listMemoryFacts,
   parseProjectMemorySettings,
+  reflectMemoryHeuristic,
   retainMemoryFact,
 } from "@/lib/project-memory";
+import { runMemoryReflect } from "@/lib/memory-reflect";
 import { readWebSettings } from "@/lib/web-settings";
 
 export const dynamic = "force-dynamic";
@@ -38,19 +40,40 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as {
       cwd?: string;
+      action?: string;
       text?: string;
       tags?: string[];
       importance?: number;
+      focus?: string;
+      limit?: number;
+      useModel?: boolean;
+      retain?: boolean;
+      heuristicOnly?: boolean;
     };
     const cwd = pickCwd(body.cwd);
     if (!cwd) return NextResponse.json({ error: "cwd is required" }, { status: 400 });
-    if (typeof body.text !== "string" || !body.text.trim()) {
-      return NextResponse.json({ error: "text is required" }, { status: 400 });
-    }
     allowFileRoot(cwd);
     const settings = parseProjectMemorySettings(readWebSettings().projectMemory);
     if (!settings.enabled) {
       return NextResponse.json({ error: "Project memory is disabled" }, { status: 400 });
+    }
+
+    // Reflect synthesis (omp-lite)
+    if (body.action === "reflect") {
+      const heuristicOnly = body.heuristicOnly === true || body.useModel === false;
+      const reflection = heuristicOnly
+        ? reflectMemoryHeuristic(cwd, { focus: body.focus, limit: body.limit })
+        : await runMemoryReflect(cwd, {
+            focus: body.focus,
+            limit: body.limit,
+            useModel: true,
+            retain: body.retain === true,
+          });
+      return NextResponse.json({ ok: true, reflection });
+    }
+
+    if (typeof body.text !== "string" || !body.text.trim()) {
+      return NextResponse.json({ error: "text is required (or action=reflect)" }, { status: 400 });
     }
     const fact = retainMemoryFact(cwd, body.text, {
       tags: body.tags,

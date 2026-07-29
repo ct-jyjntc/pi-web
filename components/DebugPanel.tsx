@@ -291,16 +291,54 @@ export function DebugPanel({
                 </div>
                 {breakpoints.filter((b) => b.id === active.id).length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-                    {breakpoints.filter((b) => b.id === active.id).map((b) => (
-                      <div
-                        key={`${b.file}:${b.line}:${b.bpId}`}
-                        className="debug-frame"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        {b.file}:{b.line}
-                        <span style={{ color: "var(--text-dim)", marginLeft: 8 }}>{b.bpId}</span>
-                      </div>
-                    ))}
+                    {breakpoints.filter((b) => b.id === active.id).map((b) => {
+                      const abs = resolveDebugPath(b.file, active.cwd || cwd);
+                      const clickable = Boolean(abs && onOpenSource && b.line > 0);
+                      const label = (
+                        <>
+                          {b.file}:{b.line}
+                          <span style={{ color: "var(--text-dim)", marginLeft: 8 }}>{b.bpId}</span>
+                        </>
+                      );
+                      return clickable ? (
+                        <button
+                          key={`${b.file}:${b.line}:${b.bpId}`}
+                          type="button"
+                          className="debug-frame"
+                          title={t("debug.openFrame")}
+                          onClick={() => onOpenSource?.(abs!, b.line)}
+                          style={{
+                            color: "var(--text-muted)",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            border: "1px solid transparent",
+                            background: "var(--bg-subtle)",
+                            borderRadius: "var(--radius-xs)",
+                            padding: "4px 6px",
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = "var(--border)";
+                            e.currentTarget.style.background = "var(--bg-hover)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = "transparent";
+                            e.currentTarget.style.background = "var(--bg-subtle)";
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ) : (
+                        <div
+                          key={`${b.file}:${b.line}:${b.bpId}`}
+                          className="debug-frame"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {label}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {notice && (
@@ -316,28 +354,80 @@ export function DebugPanel({
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {frames.map((f, i) => {
                       const localPath = frameUrlToPath(f.url, active?.cwd ?? cwd);
-                      const clickable = Boolean(localPath && onOpenSource && f.lineNumber > 0);
-                      const body = (
-                        <>
-                          {i}: {f.functionName}{" "}
-                          <span style={{ color: "var(--text-dim)" }}>
-                            {localPath ? `${localPath}:${f.lineNumber}` : `${f.url}:${f.lineNumber}`}
-                          </span>
-                        </>
-                      );
-                      return clickable ? (
-                        <button
+                      const canOpen = Boolean(localPath && onOpenSource && f.lineNumber > 0);
+                      const canFillBp = Boolean(localPath && f.lineNumber > 0);
+                      return (
+                        <div
                           key={i}
-                          type="button"
-                          onClick={() => onOpenSource?.(localPath!, f.lineNumber)}
-                          title={t("debug.openFrame")}
-                          className="debug-frame debug-frame-link"
+                          className="debug-frame"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "4px 6px",
+                            background: "var(--bg-subtle)",
+                            borderRadius: "var(--radius-xs)",
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                          }}
                         >
-                          {body}
-                        </button>
-                      ) : (
-                        <div key={i} className="debug-frame">
-                          {body}
+                          <button
+                            type="button"
+                            disabled={!canOpen}
+                            onClick={() => canOpen && onOpenSource?.(localPath!, f.lineNumber)}
+                            title={canOpen ? t("debug.openFrame") : undefined}
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              textAlign: "left",
+                              border: "none",
+                              background: "transparent",
+                              color: "var(--text)",
+                              cursor: canOpen ? "pointer" : "default",
+                              padding: 0,
+                              font: "inherit",
+                            }}
+                          >
+                            {i}: {f.functionName}{" "}
+                            <span style={{ color: "var(--text-dim)" }}>
+                              {localPath ? `${localPath}:${f.lineNumber}` : `${f.url}:${f.lineNumber}`}
+                            </span>
+                          </button>
+                          {canFillBp && (
+                            <button
+                              type="button"
+                              className="btn-ghost btn-compact"
+                              title={t("debug.useAsBreakpoint")}
+                              disabled={busy}
+                              onClick={() => {
+                                // Prefer path relative to session cwd when possible.
+                                const cwdBase = (active?.cwd || cwd || "").replace(/\/$/, "");
+                                let file = localPath!;
+                                if (cwdBase && file.startsWith(cwdBase + "/")) {
+                                  file = file.slice(cwdBase.length + 1);
+                                }
+                                const line = f.lineNumber;
+                                setBpFile(file);
+                                setBpLine(String(line));
+                                // One-click: fill form AND set breakpoint on the active session.
+                                void act({ action: "breakpoint", id: active.id, file, line }).then((d) => {
+                                  if (!d) {
+                                    setNotice(t("debug.bpPrefill", { file, line }));
+                                    return;
+                                  }
+                                  const bpId = typeof d.breakpointId === "string" ? d.breakpointId : `${file}:${line}`;
+                                  setBreakpoints((prev) => [
+                                    ...prev.filter((b) => !(b.id === active.id && b.file === file && b.line === line)),
+                                    { id: active.id, file, line, bpId },
+                                  ]);
+                                  setNotice(t("debug.bpSet", { file, line }));
+                                });
+                              }}
+                              style={{ height: 22, minHeight: 22, padding: "0 6px", fontSize: 10, flexShrink: 0 }}
+                            >
+                              BP+
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -375,6 +465,15 @@ export function DebugPanel({
       </div>
     </div>
   );
+}
+
+/** Resolve breakpoint file path against session cwd. */
+function resolveDebugPath(file: string, baseCwd: string | null | undefined): string | null {
+  if (!file) return null;
+  if (file.startsWith("/") || /^[A-Za-z]:[\\/]/.test(file)) return file;
+  if (file.startsWith("file://")) return frameUrlToPath(file, baseCwd);
+  if (baseCwd) return `${baseCwd.replace(/\/$/, "")}/${file.replace(/^\.\//, "")}`;
+  return null;
 }
 
 /** Map CDP/file URL to a local absolute path when possible. */

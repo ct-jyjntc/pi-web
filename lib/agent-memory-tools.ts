@@ -9,8 +9,10 @@ import {
   listMemoryFacts,
   parseProjectMemorySettings,
   recallMemoryFacts,
+  reflectMemoryHeuristic,
   retainMemoryFact,
 } from "./project-memory";
+import { runMemoryReflect } from "./memory-reflect";
 import { readWebSettings } from "./web-settings";
 
 type ToolDefinitionLike = {
@@ -109,10 +111,68 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
     },
   };
 
+  const reflect: ToolDefinitionLike = {
+    name: "memory_reflect",
+    label: "memory_reflect",
+    description:
+      "Synthesize project memory into a mental-model summary (themes, pillars, conventions). " +
+      "Uses a utility model when available; otherwise offline clustering. Optional focus query.",
+    promptSnippet: "Reflect on stored project memory",
+    promptGuidelines: [
+      "Use memory_reflect when you need a high-level project mental model, not a single keyword hit.",
+      "Pass focus to steer the synthesis (e.g. 'git workflow' or 'auth').",
+      "Do not store secrets; reflect only summarizes existing memory_retain facts.",
+    ],
+    parameters: Type.Object({
+      focus: Type.Optional(Type.String({ description: "Optional focus query to weight relevant facts" })),
+      limit: Type.Optional(Type.Number({ description: "Max facts to consider (default 40)" })),
+      useModel: Type.Optional(Type.Boolean({ description: "Use utility model synthesis (default true)" })),
+      retain: Type.Optional(Type.Boolean({ description: "Also store a short reflect summary fact (default false)" })),
+      heuristicOnly: Type.Optional(Type.Boolean({ description: "Force offline heuristic (alias of useModel=false)" })),
+    }),
+    async execute(_id, args) {
+      const settings = memorySettings();
+      if (!settings.enabled) {
+        return {
+          content: [{ type: "text", text: "Project memory is disabled in Settings." }],
+          isError: true,
+        };
+      }
+      try {
+        const focus = typeof args.focus === "string" ? args.focus : undefined;
+        const limit = typeof args.limit === "number" ? args.limit : undefined;
+        const heuristicOnly = args.heuristicOnly === true || args.useModel === false;
+        const retain = args.retain === true;
+
+        const reflection = heuristicOnly
+          ? reflectMemoryHeuristic(cwd, { focus, limit })
+          : await runMemoryReflect(cwd, { focus, limit, useModel: true, retain });
+
+        return {
+          content: [{ type: "text", text: reflection.summary }],
+          details: {
+            mode: reflection.mode,
+            factCount: reflection.factCount,
+            themes: reflection.themes,
+            tagGroups: reflection.tagGroups,
+            pillars: reflection.pillars,
+            sourceFactIds: reflection.sourceFactIds,
+            model: reflection.model,
+          },
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+          isError: true,
+        };
+      }
+    },
+  };
+
   // Keep list tool internal-ish via recall with empty query path; no extra tool needed.
   void listMemoryFacts;
   void deleteMemoryFact;
   void buildMemoryInjectBlock;
 
-  return [retain, recall];
+  return [retain, recall, reflect];
 }

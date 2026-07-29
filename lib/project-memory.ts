@@ -231,7 +231,7 @@ export function buildMemoryInjectBlock(
   const lines = [
     "## Project memory (auto-loaded)",
     "Durable facts about this project. Prefer these over re-discovering the same conventions.",
-    "Use memory_retain for new durable facts (no secrets). Use memory_recall to search.",
+    "Use memory_retain for new durable facts (no secrets). Use memory_recall to search. Use memory_reflect for a synthesized mental model.",
     "",
   ];
   let used = lines.join("\n").length;
@@ -244,3 +244,104 @@ export function buildMemoryInjectBlock(
   if (lines.length <= 4) return null;
   return lines.join("\n");
 }
+
+export type MemoryReflection = {
+  mode: "heuristic" | "model";
+  factCount: number;
+  focus?: string;
+  themes: Array<{ theme: string; count: number }>;
+  tagGroups: Array<{ tag: string; count: number; samples: string[] }>;
+  pillars: string[];
+  summary: string;
+  sourceFactIds: string[];
+  model?: string;
+};
+
+const STOP = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "into", "when", "then",
+  "use", "using", "used", "via", "are", "was", "were", "been", "have", "has",
+  "not", "but", "also", "only", "just", "should", "must", "will", "can",
+  "project", "file", "files", "code", "default", "true", "false", "null",
+]);
+
+/** Offline synthesis: cluster facts by tags + keyword themes (no model call). */
+export function reflectMemoryHeuristic(
+  cwd: string,
+  options?: { focus?: string; limit?: number },
+): MemoryReflection {
+  const focus = options?.focus?.trim() || "";
+  const limit = Math.min(80, Math.max(5, options?.limit ?? 40));
+  const pool = focus
+    ? recallMemoryFacts(cwd, focus, limit)
+    : listMemoryFacts(cwd).slice(0, limit);
+
+  const tagMap = new Map<string, MemoryFact[]>();
+  const tokenCounts = new Map<string, number>();
+  for (const fact of pool) {
+    for (const tag of fact.tags.length ? fact.tags : ["(untagged)"]) {
+      const list = tagMap.get(tag) ?? [];
+      list.push(fact);
+      tagMap.set(tag, list);
+    }
+    for (const t of tokenize(fact.text)) {
+      if (STOP.has(t) || t.length < 3) continue;
+      tokenCounts.set(t, (tokenCounts.get(t) ?? 0) + 1);
+    }
+  }
+
+  const themes = [...tokenCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([theme, count]) => ({ theme, count }));
+
+  const tagGroups = [...tagMap.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 12)
+    .map(([tag, facts]) => ({
+      tag,
+      count: facts.length,
+      samples: facts.slice(0, 3).map((f) => f.text),
+    }));
+
+  const pillars = pool
+    .slice()
+    .sort((a, b) => b.importance - a.importance || b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 8)
+    .map((f) => f.text);
+
+  const lines = [
+    `# Project memory reflection${focus ? ` (focus: ${focus})` : ""}`,
+    `facts considered: ${pool.length}`,
+    "",
+    "## Pillars (high importance)",
+    ...pillars.map((p, i) => `${i + 1}. ${p}`),
+    "",
+    "## Themes",
+    themes.length
+      ? themes.map((t) => `- ${t.theme} (${t.count})`).join("\n")
+      : "- (none)",
+    "",
+    "## By tag",
+    ...tagGroups.flatMap((g) => [
+      `### ${g.tag} (${g.count})`,
+      ...g.samples.map((s) => `- ${s}`),
+    ]),
+  ];
+
+  return {
+    mode: "heuristic",
+    factCount: pool.length,
+    focus: focus || undefined,
+    themes,
+    tagGroups,
+    pillars,
+    summary: lines.join("\n"),
+    sourceFactIds: pool.map((f) => f.id),
+  };
+}
+
+function formatReflectionMarkdown(r: MemoryReflection): string {
+  return r.summary;
+}
+
+export { formatReflectionMarkdown };

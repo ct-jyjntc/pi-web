@@ -14,7 +14,18 @@ import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 
-export type SettingsSection = "general" | "usage" | "appearance" | "models" | "skills" | "mcp";
+export type SettingsSection = "general" | "usage" | "appearance" | "models" | "skills" | "mcp" | "tools";
+
+type LspServerRow = {
+  id: string;
+  label: string;
+  command: string;
+  languages: string[];
+  available: boolean;
+  resolvedPath: string | null;
+  install: string;
+  brew?: string;
+};
 
 type ModelOption = {
   provider: string;
@@ -95,6 +106,11 @@ export function SettingsPage({
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
   const [section, setSection] = useState<SettingsSection>(initialSection);
+  const [lspServers, setLspServers] = useState<LspServerRow[] | null>(null);
+  const [lspMeta, setLspMeta] = useState<{ availableCount: number; total: number; builtinNote?: string } | null>(null);
+  const [lspLoading, setLspLoading] = useState(false);
+  const [lspError, setLspError] = useState<string | null>(null);
+  const [lspCopiedId, setLspCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -147,6 +163,9 @@ export function SettingsPage({
   const [memoryFacts, setMemoryFacts] = useState<Array<{ id: string; text: string }>>([]);
   const [newMemoryText, setNewMemoryText] = useState("");
   const [memoryBusy, setMemoryBusy] = useState(false);
+  const [memoryReflectBusy, setMemoryReflectBusy] = useState(false);
+  const [memoryReflectText, setMemoryReflectText] = useState<string | null>(null);
+  const [memoryReflectMeta, setMemoryReflectMeta] = useState<string | null>(null);
   const [networkTesting, setNetworkTesting] = useState(false);
   const [networkReport, setNetworkReport] = useState<{
     summary?: { fetchOk: number; fetchTotal: number; searchOk: boolean | null };
@@ -532,7 +551,41 @@ export function SettingsPage({
       title: skillsDisabled ? t("settings.skillsNeedCwd") : undefined,
     },
     { id: "mcp", label: t("settings.mcp") },
+    { id: "tools", label: t("settings.tools") },
   ];
+
+  const loadLspHealth = useCallback(async () => {
+    setLspLoading(true);
+    setLspError(null);
+    try {
+      const params = new URLSearchParams();
+      if (cwd) params.set("cwd", cwd);
+      const res = await fetch(`/api/lsp?${params.toString()}`);
+      const data = await res.json() as {
+        ok?: boolean;
+        error?: string;
+        servers?: LspServerRow[];
+        availableCount?: number;
+        total?: number;
+        builtinNote?: string;
+      };
+      if (!res.ok || data.ok === false) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setLspServers(Array.isArray(data.servers) ? data.servers : []);
+      setLspMeta({
+        availableCount: data.availableCount ?? 0,
+        total: data.total ?? 0,
+        builtinNote: data.builtinNote,
+      });
+    } catch (error) {
+      setLspError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLspLoading(false);
+    }
+  }, [cwd]);
+
+  useEffect(() => {
+    if (section === "tools") void loadLspHealth();
+  }, [section, loadLspHealth]);
 
   const generalPanel = (
     <div className="settings-page-general">
@@ -988,6 +1041,142 @@ export function SettingsPage({
               {t("settings.projectMemoryAdd")}
             </button>
           </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              disabled={memoryReflectBusy || memoryBusy || memoryFacts.length === 0}
+              title={t("settings.projectMemoryReflectDesc")}
+              onClick={() => {
+                setMemoryReflectBusy(true);
+                setMemoryReflectText(null);
+                setMemoryReflectMeta(null);
+                void fetch("/api/project-memory", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ cwd, action: "reflect", useModel: true, limit: 40 }),
+                })
+                  .then(async (res) => {
+                    const data = await res.json() as {
+                      reflection?: { summary?: string; mode?: string; factCount?: number; model?: string };
+                      error?: string;
+                    };
+                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                    const r = data.reflection;
+                    setMemoryReflectText(r?.summary ?? "");
+                    setMemoryReflectMeta(
+                      r
+                        ? `${r.mode ?? "?"} · ${r.factCount ?? 0} facts${r.model ? ` · ${r.model}` : ""}`
+                        : null,
+                    );
+                  })
+                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
+                  .finally(() => setMemoryReflectBusy(false));
+              }}
+            >
+              {memoryReflectBusy ? t("settings.projectMemoryReflecting") : t("settings.projectMemoryReflect")}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              disabled={memoryReflectBusy || memoryBusy || memoryFacts.length === 0}
+              onClick={() => {
+                setMemoryReflectBusy(true);
+                setMemoryReflectText(null);
+                setMemoryReflectMeta(null);
+                void fetch("/api/project-memory", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ cwd, action: "reflect", heuristicOnly: true, limit: 40 }),
+                })
+                  .then(async (res) => {
+                    const data = await res.json() as {
+                      reflection?: { summary?: string; mode?: string; factCount?: number };
+                      error?: string;
+                    };
+                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                    const r = data.reflection;
+                    setMemoryReflectText(r?.summary ?? "");
+                    setMemoryReflectMeta(r ? `${r.mode ?? "heuristic"} · ${r.factCount ?? 0} facts` : null);
+                  })
+                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
+                  .finally(() => setMemoryReflectBusy(false));
+              }}
+            >
+              {t("settings.projectMemoryReflectFast")}
+            </button>
+          </div>
+          {memoryReflectText && (
+            <div
+              style={{
+                marginTop: 10,
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-md)",
+                background: "var(--bg-subtle)",
+                padding: "10px 12px",
+                maxHeight: 280,
+                overflow: "auto",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                {memoryReflectMeta && (
+                  <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                    {memoryReflectMeta}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="btn-ghost btn-compact"
+                  disabled={memoryBusy || memoryReflectBusy || !memoryReflectText.trim()}
+                  style={{ marginLeft: "auto", height: 22, minHeight: 22, padding: "0 8px", fontSize: 11 }}
+                  title={t("settings.projectMemoryRetainReflectDesc")}
+                  onClick={() => {
+                    // Store a short durable pointer (first meaningful non-heading line)
+                    const lines = memoryReflectText
+                      .split("\n")
+                      .map((l) => l.trim())
+                      .filter((l) => l && !l.startsWith("#") && !l.startsWith("---") && !l.startsWith("mode:") && !l.startsWith("facts"));
+                    const pick = lines.find((l) => l.startsWith("-") || l.match(/^\d+\./)) ?? lines[0] ?? "";
+                    const text = pick.replace(/^[-*\d.\s]+/, "").trim().slice(0, 360);
+                    if (!text) return;
+                    setMemoryBusy(true);
+                    void fetch("/api/project-memory", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        cwd,
+                        text: `Reflect: ${text}`,
+                        tags: ["reflect"],
+                        importance: 0.7,
+                      }),
+                    })
+                      .then(async (res) => {
+                        const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
+                        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                        if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev.filter((x) => x.id !== data.fact!.id)]);
+                      })
+                      .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
+                      .finally(() => setMemoryBusy(false));
+                  }}
+                >
+                  {t("settings.projectMemoryRetainReflect")}
+                </button>
+              </div>
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  color: "var(--text-muted)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {memoryReflectText}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 
@@ -1446,7 +1635,108 @@ export function SettingsPage({
         padding: "8px 0",
       };
   // Content pages scroll here; dual-pane models/skills manage their own overflow.
-  const mainScrolls = section === "general" || section === "usage" || section === "appearance" || section === "mcp";
+  const mainScrolls = section === "general" || section === "usage" || section === "appearance" || section === "mcp" || section === "tools";
+
+  const toolsPanel = (
+    <div className="settings-page-general">
+      {sectionTitle(t("settings.lsp"))}
+      <div className="settings-row-desc" style={{ marginBottom: 12 }}>
+        {t("settings.lspDesc")}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+          {lspMeta
+            ? t("settings.lspAvailable", { count: lspMeta.availableCount, total: lspMeta.total })
+            : lspLoading
+              ? "…"
+              : "—"}
+        </span>
+        <button type="button" className="btn-ghost btn-compact" disabled={lspLoading} onClick={() => void loadLspHealth()}>
+          {t("settings.lspRefresh")}
+        </button>
+      </div>
+      {(lspMeta?.builtinNote || true) && (
+        <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 14 }}>
+          {t("settings.lspBuiltin")}
+        </div>
+      )}
+      {lspError && (
+        <div style={{ color: "var(--destructive)", fontSize: 12, marginBottom: 12 }}>{lspError}</div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {(lspServers ?? []).map((s) => (
+          <div
+            key={s.id}
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-md)",
+              padding: "10px 12px",
+              background: "var(--bg-panel)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "var(--radius-pill)",
+                  background: s.available ? "var(--success)" : "var(--text-dim)",
+                  flexShrink: 0,
+                }}
+              />
+              <strong style={{ fontSize: 13, fontWeight: 600 }}>{s.label}</strong>
+              <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>{s.id}</span>
+              {!s.available && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("settings.lspMissing")}</span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginTop: 6, wordBreak: "break-all" }}>
+              {s.available ? (s.resolvedPath ?? s.command) : s.command}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+              {s.languages.join(", ")}
+            </div>
+            {!s.available && (
+              <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <code
+                  style={{
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                    background: "var(--bg-subtle)",
+                    padding: "4px 8px",
+                    borderRadius: "var(--radius-xs)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {s.brew || s.install}
+                </code>
+                <button
+                  type="button"
+                  className="btn-ghost btn-compact"
+                  onClick={async () => {
+                    const text = s.brew || s.install;
+                    try {
+                      await navigator.clipboard.writeText(text);
+                      setLspCopiedId(s.id);
+                      window.setTimeout(() => setLspCopiedId((id) => (id === s.id ? null : id)), 1500);
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  {lspCopiedId === s.id ? t("settings.lspCopied") : t("settings.lspCopyInstall")}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+        {!lspLoading && lspServers && lspServers.length === 0 && (
+          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>—</div>
+        )}
+      </div>
+    </div>
+  );
   const mainStyle: CSSProperties = {
     flex: 1,
     minWidth: 0,
@@ -1568,6 +1858,7 @@ export function SettingsPage({
           {section === "mcp" && (
             <McpConfig embedded cwd={cwd} onClose={onClose} />
           )}
+          {section === "tools" && toolsPanel}
         </main>
       </div>
     </div>
