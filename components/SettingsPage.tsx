@@ -544,27 +544,46 @@ export function SettingsPage({
     );
   };
 
-  const navItems: Array<{
+  type NavItem = {
     id: SettingsSection;
     label: string;
     disabled?: boolean;
     title?: string;
-  }> = [
-    { id: "general", label: t("settings.general") },
-    { id: "agent", label: t("settings.agent") },
-    { id: "memory", label: t("settings.memory") },
-    { id: "network", label: t("settings.network") },
-    { id: "usage", label: t("settings.usage") },
-    { id: "appearance", label: t("settings.appearance") },
-    { id: "models", label: t("settings.models") },
+  };
+
+  // Grouped so app chrome, agent prefs, and integrations stay distinct.
+  const navGroups: Array<{ label: string; items: NavItem[] }> = [
     {
-      id: "skills",
-      label: t("settings.skills"),
-      disabled: skillsDisabled,
-      title: skillsDisabled ? t("settings.skillsNeedCwd") : undefined,
+      label: t("settings.navGroupApp"),
+      items: [
+        { id: "general", label: t("settings.general") },
+        { id: "appearance", label: t("settings.appearance") },
+        { id: "usage", label: t("settings.usage") },
+        { id: "network", label: t("settings.network") },
+      ],
     },
-    { id: "mcp", label: t("settings.mcp") },
-    { id: "tools", label: t("settings.tools") },
+    {
+      label: t("settings.navGroupAgent"),
+      items: [
+        { id: "agent", label: t("settings.agent") },
+        { id: "memory", label: t("settings.memory") },
+      ],
+    },
+    {
+      label: t("settings.navGroupIntegrations"),
+      items: [
+        { id: "models", label: t("settings.models") },
+        {
+          id: "skills",
+          label: t("settings.skills"),
+          // Keep selectable so users see the empty-state CTA instead of a dead nav row.
+          title: skillsDisabled ? t("settings.skillsNeedCwd") : undefined,
+        },
+        { id: "mcp", label: t("settings.mcp") },
+        // Content is LSP health only — label matches the panel, not generic "Tools".
+        { id: "tools", label: t("settings.lsp") },
+      ],
+    },
   ];
 
   const loadLspHealth = useCallback(async () => {
@@ -599,6 +618,12 @@ export function SettingsPage({
   useEffect(() => {
     if (section === "tools") void loadLspHealth();
   }, [section, loadLspHealth]);
+
+  // Avoid stale scroll when switching between long form pages and dual-pane panels.
+  useEffect(() => {
+    const main = document.querySelector(".settings-page-main");
+    if (main instanceof HTMLElement) main.scrollTop = 0;
+  }, [section]);
 
   const saveErrorBlock = saveError ? (
     <div style={{ marginTop: 10, fontSize: 12, color: "var(--destructive)", lineHeight: 1.4 }}>
@@ -673,6 +698,16 @@ export function SettingsPage({
           t("settings.rolePlan"),
         )}
       />
+
+      <div style={{ margin: "4px 0 14px" }}>
+        <button
+          type="button"
+          className="btn-ghost btn-compact"
+          onClick={() => setSection("models")}
+        >
+          {t("settings.manageProviders")}
+        </button>
+      </div>
 
       {sectionTitle(t("settings.utilityModels"))}
 
@@ -1020,6 +1055,12 @@ export function SettingsPage({
         }
       />
 
+      {!cwd && (
+        <div className="settings-row-desc" style={{ marginTop: 4, marginBottom: 8 }}>
+          {t("settings.projectMemoryNeedCwd")}
+        </div>
+      )}
+
       {cwd && prefs.projectMemoryEnabled && (
         <div style={{ marginTop: 8, marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("settings.projectMemoryFacts")}</div>
@@ -1229,6 +1270,8 @@ export function SettingsPage({
 
   const agentAdvisorPanel = (
     <>
+      {sectionTitle(t("settings.advisorSection"))}
+
       <SettingsRow
         title={t("settings.advisor")}
         description={t("settings.advisorDesc")}
@@ -1710,11 +1753,9 @@ export function SettingsPage({
           {t("settings.lspRefresh")}
         </button>
       </div>
-      {(lspMeta?.builtinNote || true) && (
-        <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 14 }}>
-          {t("settings.lspBuiltin")}
-        </div>
-      )}
+      <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 14 }}>
+        {t("settings.lspBuiltin")}
+      </div>
       {lspError && (
         <div style={{ color: "var(--destructive)", fontSize: 12, marginBottom: 12 }}>{lspError}</div>
       )}
@@ -1857,36 +1898,33 @@ export function SettingsPage({
           className={`settings-page-nav${isMobile ? " is-mobile" : ""}`}
           style={navStyle}
         >
-          {!isMobile && (
-            <div
-              className="settings-page-nav-label"
-              style={{
-                padding: "8px 12px 6px",
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--text-dim)",
-              }}
-            >
-              {t("settings.navGroup")}
+          {navGroups.map((group, groupIndex) => (
+            <div key={group.label} className="settings-page-nav-group">
+              {!isMobile && (
+                <div
+                  className="settings-page-nav-label"
+                  style={groupIndex > 0 ? { paddingTop: 14 } : undefined}
+                >
+                  {group.label}
+                </div>
+              )}
+              {group.items.map((item) => {
+                const active = section === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`settings-page-nav-item${active ? " is-active" : ""}`}
+                    disabled={item.disabled}
+                    title={item.title}
+                    onClick={() => setSection(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
-          )}
-          {navItems.map((item) => {
-            const active = section === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`settings-page-nav-item${active ? " is-active" : ""}`}
-                disabled={item.disabled}
-                title={item.title}
-                onClick={() => setSection(item.id)}
-              >
-                {item.label}
-              </button>
-            );
-          })}
+          ))}
         </nav>
 
         <main className={`settings-page-main${mainScrolls ? " is-scroll" : ""}`} style={mainStyle}>

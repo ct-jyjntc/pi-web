@@ -2883,6 +2883,15 @@ textarea.input-base:focus-visible {
   border-right: none;
   border-bottom: 1px solid var(--border);
 }
+.settings-page-nav-group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.settings-page-nav.is-mobile .settings-page-nav-group {
+  flex-direction: row;
+  align-items: stretch;
+}
 .settings-page-nav-label {
   padding: 8px 12px 6px;
   font-size: 11px;
