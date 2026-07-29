@@ -54,6 +54,9 @@
 
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
   body {
     background: var(--bg);
     color: var(--text);
@@ -205,9 +208,9 @@
 <header class="top">
   <div class="brand"><span class="pi">π</span><span>Pi Web</span></div>
   <nav>
-    <a href="http://127.0.0.1:30141/">App</a>
     <a href="https://github.com/ct-jyjntc/pi-web">GitHub</a>
     <a href="https://github.com/ct-jyjntc/pi-web/issues">Issues</a>
+    <a href="#run-from-source">Get started</a>
   </nav>
 </header>
 
@@ -229,7 +232,7 @@
       <span>English / 中文</span>
     </div>
     <div class="cta">
-      <a class="btn-primary" href="http://127.0.0.1:30141/">Open the app</a>
+      <a class="btn-primary" href="#run-from-source">Get started</a>
       <a class="btn-ghost" href="https://github.com/ct-jyjntc/pi-web">View on GitHub</a>
     </div>
   </section>
@@ -278,7 +281,7 @@
   </section>
 
   <!-- Quick start -->
-  <section>
+  <section id="run-from-source">
     <div class="sec-head">
       <div class="micro">Run from source</div>
       <h2>Up in under a minute</h2>
