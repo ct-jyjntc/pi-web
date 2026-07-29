@@ -190,6 +190,14 @@ export function SettingsPage({
   const [memoryFacts, setMemoryFacts] = useState<Array<{ id: string; text: string }>>([]);
   const [newMemoryText, setNewMemoryText] = useState("");
   const [memoryBusy, setMemoryBusy] = useState(false);
+  const [networkTesting, setNetworkTesting] = useState(false);
+  const [networkReport, setNetworkReport] = useState<{
+    summary?: { fetchOk: number; fetchTotal: number; searchOk: boolean | null };
+    fetches?: Array<{ url: string; ok: boolean; status?: number; ms: number; error?: string }>;
+    search?: { ok: boolean; ms: number; count?: number; error?: string; first?: { title: string; url: string } };
+    proxy?: { httpProxy?: string; envHttpProxy?: string };
+    error?: string;
+  } | null>(null);
   const [restartHint, setRestartHint] = useState(false);
   const isDesktop = typeof window !== "undefined" && Boolean(window.piDesktop?.isDesktop);
 
@@ -727,6 +735,95 @@ export function SettingsPage({
             onBlur={() => void patchPref({ customCaCerts: prefs.customCaCerts }, { restart: true })}
             style={{ width: "100%", height: 30, fontSize: 12 }}
           />
+        }
+      />
+
+      <SettingsRow
+        stacked
+        title={t("settings.networkTest")}
+        description={t("settings.networkTestDesc")}
+        action={
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+            <button
+              type="button"
+              className="btn-primary btn-compact"
+              disabled={networkTesting}
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => {
+                setNetworkTesting(true);
+                setNetworkReport(null);
+                void fetch("/api/network/test", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({}),
+                })
+                  .then(async (res) => {
+                    const data = await res.json() as typeof networkReport & { error?: string };
+                    if (!res.ok || data?.error) throw new Error(data?.error ?? `HTTP ${res.status}`);
+                    setNetworkReport(data);
+                  })
+                  .catch((e) => setNetworkReport({ error: e instanceof Error ? e.message : String(e) }))
+                  .finally(() => setNetworkTesting(false));
+              }}
+            >
+              {networkTesting ? t("settings.networkTestRunning") : t("settings.networkTestRun")}
+            </button>
+            {networkReport && (
+              <div
+                style={{
+                  fontSize: 12,
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
+                  padding: 10,
+                  background: "var(--bg-subtle)",
+                  lineHeight: 1.45,
+                }}
+              >
+                {networkReport.error ? (
+                  <div style={{ color: "var(--destructive)" }}>{networkReport.error}</div>
+                ) : (
+                  <>
+                    <div style={{ marginBottom: 6 }}>
+                      {t("settings.networkTestOk", {
+                        ok: networkReport.summary?.fetchOk ?? 0,
+                        total: networkReport.summary?.fetchTotal ?? 0,
+                      })}
+                      {" · proxy="}
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                        {networkReport.proxy?.httpProxy || networkReport.proxy?.envHttpProxy || "(none)"}
+                      </span>
+                    </div>
+                    <ul style={{ margin: 0, padding: "0 0 0 16px" }}>
+                      {(networkReport.fetches ?? []).map((f) => (
+                        <li key={f.url} style={{ marginBottom: 4 }}>
+                          <span style={{ color: f.ok ? "var(--success)" : "var(--destructive)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                            {f.ok ? `HTTP ${f.status}` : "FAIL"}
+                          </span>
+                          {" "}
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{f.url}</span>
+                          <span style={{ color: "var(--text-dim)" }}> ({f.ms}ms)</span>
+                          {f.error && <div style={{ color: "var(--destructive)", fontSize: 11 }}>{f.error}</div>}
+                        </li>
+                      ))}
+                    </ul>
+                    <div style={{ marginTop: 8 }}>
+                      {networkReport.search?.ok
+                        ? t("settings.networkSearchOk", {
+                            n: networkReport.search.count ?? 0,
+                            ms: networkReport.search.ms,
+                          })
+                        : `${t("settings.networkSearchFail")}${networkReport.search?.error ? `: ${networkReport.search.error}` : ""}`}
+                      {networkReport.search?.first && (
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                          {networkReport.search.first.title} — {networkReport.search.first.url}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         }
       />
 

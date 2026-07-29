@@ -83,6 +83,8 @@ export function ContextPanel() {
     createdAt: string;
   }>>([]);
   const [checkpointBusy, setCheckpointBusy] = useState(false);
+  const [collabBusy, setCollabBusy] = useState(false);
+  const [collabUrl, setCollabUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const sid = sessionStats?.sessionId;
@@ -101,6 +103,41 @@ export function ContextPanel() {
       });
     return () => { cancelled = true; };
   }, [sessionStats?.sessionId]);
+
+  const shareCollab = useCallback(async () => {
+    const sid = sessionStats?.sessionId;
+    if (!sid) return;
+    setCollabBusy(true);
+    try {
+      const res = await fetch("/api/collab", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: sid,
+          sessionFile: sessionStats.sessionFile,
+          note: sessionStats.sessionName || "",
+        }),
+      });
+      const data = await res.json() as {
+        error?: string;
+        share?: { token?: string };
+      };
+      if (!res.ok || data.error || !data.share?.token) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      const url = `${window.location.origin}/collab/${data.share.token}`;
+      setCollabUrl(url);
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {
+        // ignore clipboard failures
+      }
+    } catch {
+      setCollabUrl(null);
+    } finally {
+      setCollabBusy(false);
+    }
+  }, [sessionStats?.sessionFile, sessionStats?.sessionId, sessionStats?.sessionName]);
 
   const rewindTo = useCallback(async (entryId: string | undefined) => {
     const sid = sessionStats?.sessionId;
@@ -489,6 +526,26 @@ export function ContextPanel() {
                 {sessionStats.sessionName && kvRow(t("shell.name"), sessionStats.sessionName)}
                 {kvRow(t("shell.file"), sessionStats.sessionFile ?? t("shell.inMemory"), true)}
                 {kvRow(t("shell.id"), sessionStats.sessionId, true)}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "8px 0 12px" }}>
+                  <button
+                    type="button"
+                    className="chrome-btn"
+                    disabled={collabBusy}
+                    onClick={() => void shareCollab()}
+                    style={{ height: 28, padding: "0 10px", fontSize: 12, alignSelf: "flex-start" }}
+                  >
+                    {collabBusy ? t("common.loading") : t("collab.share")}
+                  </button>
+                  {collabUrl && (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-all", fontFamily: "var(--font-mono)" }}>
+                      {t("collab.linkCopied")}:{" "}
+                      <a href={collabUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+                        {collabUrl}
+                      </a>
+                    </div>
+                  )}
+                </div>
 
                 {sectionHeader(t("shell.messages"))}
                 {kvRow(t("shell.user"), sessionStats.userMessages.toLocaleString())}

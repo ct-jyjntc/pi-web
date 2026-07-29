@@ -20,6 +20,7 @@ import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import { ContextPanel, ContextTabBadge } from "./ContextPanel";
+import { DebugPanel } from "./DebugPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
@@ -164,11 +165,13 @@ export function AppShell() {
     | { id: "review"; kind: "review" }
     | { id: "files"; kind: "files" }
     | { id: "context"; kind: "context" }
+    | { id: "debug"; kind: "debug" }
     | { id: "terminal"; kind: "terminal" };
   const workspaceTabs: WorkspaceTab[] = [
     { id: "review", kind: "review" },
     { id: "files", kind: "files" },
     { id: "context", kind: "context" },
+    { id: "debug", kind: "debug" },
     { id: "terminal", kind: "terminal" },
   ];
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string>("review");
@@ -540,14 +543,28 @@ export function AppShell() {
     }
   }, [selectedSession, router]);
 
-  const handleOpenFile = useCallback((filePath: string, fileName: string, sourceSessionId?: string | null) => {
+  const handleOpenFile = useCallback((
+    filePath: string,
+    fileName: string,
+    sourceSessionId?: string | null,
+    focusLine?: number | null,
+  ) => {
     // Files opened from the explorer go into the Files workspace tab.
     const tabId = `file:${filePath}`;
     setFileTabs((prev) => {
       const existing = prev.find((t) => t.id === tabId);
-      if (!existing) return [...prev, { id: tabId, label: fileName, filePath, sourceSessionId }];
-      if (!sourceSessionId || existing.sourceSessionId === sourceSessionId) return prev;
-      return prev.map((t) => t.id === tabId ? { ...t, sourceSessionId } : t);
+      if (!existing) {
+        return [...prev, { id: tabId, label: fileName, filePath, sourceSessionId, focusLine: focusLine ?? null }];
+      }
+      return prev.map((t) => {
+        if (t.id !== tabId) return t;
+        return {
+          ...t,
+          sourceSessionId: sourceSessionId || t.sourceSessionId,
+          // bump focusLine even if same tab so FileViewer effect re-runs
+          focusLine: focusLine ?? t.focusLine ?? null,
+        };
+      });
     });
     setActiveFileTabId(tabId);
     setActiveWorkspaceTabId("files");
@@ -1319,7 +1336,8 @@ export function AppShell() {
                 tab.kind === "review" ? t("git.review")
                   : tab.kind === "files" ? t("git.files")
                     : tab.kind === "context" ? t("shell.contextTab")
-                      : t("git.terminal");
+                      : tab.kind === "debug" ? t("debug.title")
+                        : t("git.terminal");
               return (
                 <button
                   key={tab.id}
@@ -1357,6 +1375,10 @@ export function AppShell() {
                   ) : tab.kind === "context" ? (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
                       <path d="M3 20V10a9 9 0 0 1 18 0v10" /><line x1="3" y1="20" x2="21" y2="20" />
+                    </svg>
+                  ) : tab.kind === "debug" ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
+                      <path d="m8 2 1.88 1.88" /><path d="M14.12 3.88 16 2" /><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" /><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" /><path d="M12 20v-9" /><path d="M6.53 9C4.6 11.3 3 14.5 3 18" /><path d="M20.97 9C19.1 11.3 17.5 14.5 17.5 18" />
                     </svg>
                   ) : (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0, opacity: 0.75 }}>
@@ -1471,6 +1493,7 @@ export function AppShell() {
                   filePath={activeFileTab.filePath}
                   cwd={activeCwd ?? undefined}
                   sourceSessionId={activeFileTab.sourceSessionId}
+                  focusLine={activeFileTab.focusLine}
                   gitRefreshKey={explorerRefreshKey}
                   onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
                   onOpenFile={(filePath) => handleOpenFile(
@@ -1495,6 +1518,21 @@ export function AppShell() {
             overflow: "hidden",
           }}>
             <ContextPanel />
+          </div>
+
+          <div style={{
+            display: activeWorkspaceTabId === "debug" ? "flex" : "none",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+            overflow: "hidden",
+          }}>
+            <DebugPanel
+              cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
+              onOpenSource={(filePath, line) => {
+                handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null, line);
+              }}
+            />
           </div>
 
           <div style={{

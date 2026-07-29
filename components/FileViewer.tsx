@@ -33,6 +33,8 @@ interface Props {
   onOpenFile?: (filePath: string) => void;
   onMentionLines?: (relativePath: string, startLine: number, endLine: number) => void;
   gitRefreshKey?: number;
+  /** 1-based line to scroll/highlight when opening from debug stack, etc. */
+  focusLine?: number | null;
 }
 
 interface SelectedLineRange {
@@ -819,7 +821,7 @@ function DocumentViewer({
   );
 }
 
-export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey }: Props) {
+export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey, focusLine }: Props) {
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
@@ -829,10 +831,10 @@ export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMenti
   if (isDocumentPreviewPath(filePath)) {
     return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
-  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} onMentionLines={onMentionLines} gitRefreshKey={gitRefreshKey} />;
+  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} onMentionLines={onMentionLines} gitRefreshKey={gitRefreshKey} focusLine={focusLine} />;
 }
 
-function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey }: Props) {
+function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey, focusLine }: Props) {
   const { t } = useLocale();
   const { isDark } = useTheme();
   const appearance = useAppearance();
@@ -1014,6 +1016,25 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   useEffect(() => {
     void fetchDiagnostics(filePath);
   }, [fetchDiagnostics, filePath, gitRefreshKey]);
+
+  // Scroll to focusLine (debug stack / external open) once source is ready.
+  useEffect(() => {
+    if (!focusLine || !data || displayMode !== "source") return;
+    const line = focusLine;
+    const timer = window.setTimeout(() => {
+      const el = contentRef.current?.querySelector(`[data-line-number="${line}"]`);
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        el.style.outline = "1px solid var(--accent)";
+        el.style.outlineOffset = "-1px";
+        window.setTimeout(() => {
+          el.style.outline = "";
+          el.style.outlineOffset = "";
+        }, 1600);
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusLine, data, displayMode, filePath]);
 
   const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
 

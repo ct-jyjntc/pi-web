@@ -50,7 +50,10 @@ class InspectorConnection {
       this.ws = ws;
       ws.on("open", () => resolvePromise());
       ws.on("error", (err: Error) => reject(err instanceof Error ? err : new Error(String(err))));
-      ws.on("message", (data: WebSocket.RawData) => this.onMessage(String(data)));
+      ws.on("message", (data: WebSocket.RawData) => {
+        const raw = typeof data === "string" ? data : Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+        this.onMessage(raw);
+      });
       ws.on("close", () => {
         for (const [, p] of this.pending) p.reject(new Error("Inspector disconnected"));
         this.pending.clear();
@@ -59,12 +62,15 @@ class InspectorConnection {
     });
     await this.send("Debugger.enable", {});
     await this.send("Runtime.enable", {});
-    // Node --inspect-brk waits here until the debugger resumes startup.
+    // Arm pause waiter before releasing inspect-brk so we cannot miss Break on start.
+    const pausedOnce = this.waitForPaused(12_000).catch(() => null);
     try {
       await this.send("Runtime.runIfWaitingForDebugger", {});
     } catch {
       // older runtimes may not implement this; ignore
     }
+    // Give the pause event a moment to land after runIfWaitingForDebugger returns.
+    await Promise.race([pausedOnce, new Promise((r) => setTimeout(r, 500))]);
   }
 
   private onMessage(raw: string): void {
@@ -169,10 +175,10 @@ class InspectorConnection {
       if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || "evaluate failed");
       return formatRemote(result.result);
     }
+    // Do not set awaitPromise: while paused at a breakpoint, awaitPromise hangs the CDP call.
     const result = await this.send("Runtime.evaluate", {
       expression,
       returnByValue: true,
-      awaitPromise: true,
     }) as { result?: { value?: unknown; description?: string; type?: string }; exceptionDetails?: { text?: string } };
     if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || "evaluate failed");
     return formatRemote(result.result);

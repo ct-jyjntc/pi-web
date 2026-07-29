@@ -13,7 +13,8 @@ export async function GET(
     if (!share) return NextResponse.json({ error: "not found" }, { status: 404 });
     const snap = share.sessionFile
       ? readSessionSnapshot(share.sessionFile)
-      : { exists: false, size: 0, mtimeMs: 0, tail: "" };
+      : { exists: false, size: 0, mtimeMs: 0, content: "", truncated: false, tail: "" };
+    const lines = snap.content.split("\n").filter((l) => l.length > 0);
     return NextResponse.json({
       ok: true,
       share,
@@ -21,8 +22,10 @@ export async function GET(
         exists: snap.exists,
         size: snap.size,
         mtimeMs: snap.mtimeMs,
-        // return last ~80 lines for overview
-        preview: snap.tail.split("\n").slice(-80).join("\n"),
+        truncated: snap.truncated,
+        // Prefer full history (up to snapshot cap); keep preview alias for older clients.
+        lines,
+        preview: lines.join("\n"),
       },
     });
   } catch (error) {

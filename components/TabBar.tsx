@@ -9,6 +9,8 @@ export interface Tab {
   label: string;
   filePath: string;
   sourceSessionId?: string | null;
+  /** Optional 1-based line to scroll into view when the tab is shown. */
+  focusLine?: number | null;
 }
 
 interface Props {

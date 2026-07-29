@@ -56,22 +56,35 @@ export function getCollabShare(token: string): CollabShare | null {
   }
 }
 
-export function readSessionSnapshot(sessionFile: string, maxBytes = 512_000): {
+export function readSessionSnapshot(sessionFile: string, maxBytes = 2_000_000): {
   exists: boolean;
   size: number;
   mtimeMs: number;
+  /** Full content when under maxBytes; otherwise last maxBytes (still large enough for long chats). */
+  content: string;
+  truncated: boolean;
+  /** @deprecated use content */
   tail: string;
 } {
   if (!sessionFile || !existsSync(sessionFile)) {
-    return { exists: false, size: 0, mtimeMs: 0, tail: "" };
+    return { exists: false, size: 0, mtimeMs: 0, content: "", truncated: false, tail: "" };
   }
   const st = statSync(sessionFile);
   const buf = readFileSync(sessionFile);
-  const slice = buf.byteLength > maxBytes ? buf.subarray(buf.byteLength - maxBytes) : buf;
+  const truncated = buf.byteLength > maxBytes;
+  const slice = truncated ? buf.subarray(buf.byteLength - maxBytes) : buf;
+  // If truncated mid-line, drop the first partial line so JSONL stays parseable.
+  let text = slice.toString("utf8");
+  if (truncated) {
+    const nl = text.indexOf("\n");
+    if (nl !== -1) text = text.slice(nl + 1);
+  }
   return {
     exists: true,
     size: st.size,
     mtimeMs: st.mtimeMs,
-    tail: slice.toString("utf8"),
+    content: text,
+    truncated,
+    tail: text,
   };
 }

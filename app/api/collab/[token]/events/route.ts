@@ -38,11 +38,13 @@ export async function GET(
         }
         if (snap.size !== lastSize) {
           lastSize = snap.size;
+          const lines = snap.content.split("\n").filter((l) => l.length > 0);
           send("update", {
             size: snap.size,
             mtimeMs: snap.mtimeMs,
-            // last lines only to keep SSE light
-            lines: snap.tail.split("\n").slice(-40),
+            truncated: snap.truncated,
+            // Full window (capped by readSessionSnapshot) so collab shows full chat history.
+            lines,
           });
         } else {
           send("ping", { t: Date.now() });
