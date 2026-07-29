@@ -197,6 +197,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const { t, locale } = useLocale();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
+  const composerDockRef = useRef<HTMLDivElement>(null);
+  const [composerDockH, setComposerDockH] = useState(128);
+
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
   // wrapping handleAgentEventRef because useAgentSession overwrites that ref
@@ -477,6 +480,30 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const messageRefs = useMessageRefs(visibleMessages.length);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
+
+  // Keep transcript padding + opaque underlay (toolbar line → bottom) in sync.
+  useLayoutEffect(() => {
+    if (isEmptyNew) return;
+    const el = composerDockRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const apply = () => {
+      const dock = el.getBoundingClientRect();
+      const h = Math.ceil(dock.height);
+      if (h > 0) setComposerDockH(h);
+      const toolbar = el.querySelector(".composer-toolbar");
+      if (toolbar instanceof HTMLElement) {
+        const top = toolbar.getBoundingClientRect().top;
+        // From the input/model divider down to the dock bottom.
+        const underlay = Math.max(40, Math.ceil(dock.bottom - top));
+        el.style.setProperty("--composer-underlay-h", `${underlay}px`);
+      }
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isEmptyNew, sessionBusy, queuedMessages, advisorNote]);
+
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
 
   const availableThinkingLevels = displayModelValue
@@ -913,7 +940,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       {/* Full-height row: main column + always-on right rail to page bottom */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={{ overflow: "visible" }}>
-        <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="relative min-h-0 flex-1 overflow-hidden" style={{ isolation: "isolate" }}>
         {isMobile && (
           <button
             type="button"
@@ -925,7 +952,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             style={{
               position: "absolute",
               right: 14,
-              bottom: 12,
+              bottom: composerDockH + 12,
               zIndex: 45,
               width: 32,
               height: 32,
@@ -958,8 +985,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <NoticeShelf notices={notices} floating align="right" />
           </div>
         </div>
-        {/* Outer clips native scrollbar; inner scrolls. Right rail is the only scroll UI. */}
-        <div className="chat-scroll-clip h-full min-w-0 overflow-hidden">
+        {/* Outer clips native scrollbar; inner scrolls under the floating composer. */}
+        <div className="chat-scroll-clip h-full min-w-0 overflow-hidden" style={{ position: "relative", zIndex: 0 }}>
         <div
           ref={scrollContainerRef}
           className="chat-scroll-area h-full overflow-y-auto pt-4"
@@ -969,9 +996,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             paddingRight: 24,
             scrollbarWidth: "none",
             msOverflowStyle: "none",
+            position: "relative",
+            zIndex: 0,
           } as CSSProperties}
         >
-          <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
+          <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px`, paddingBottom: composerDockH + 12 }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
@@ -1006,25 +1035,25 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               />
             )}
 
-            {/* Small tail padding so the last line isn't flush against the input bar. */}
-            <div ref={messagesEndRef} style={{ height: 10 }} />
+            {/* Anchor for stick-to-bottom; real clearance comes from paddingBottom. */}
+            <div ref={messagesEndRef} style={{ height: 1 }} />
             </div>
           </div>
-        </div>
         </div>
         </div>
 
-        <div className="relative flex-shrink-0" style={{ overflow: "visible", zIndex: 40 }}>
-          <div
-            style={{
-              padding: `0 ${CHAT_COLUMN_PADDING}px`,
-            }}
-          >
-            <div style={{ maxWidth: 820, margin: "0 auto" }}>
-              <ExtensionWidgets widgets={belowEditorWidgets} />
+        {/* Floating composer: one card; underlay only from toolbar line downward. */}
+        <div ref={composerDockRef} className="chat-composer-float">
+          <div className="chat-composer-float-underlay" aria-hidden />
+          <div className="chat-composer-float-body">
+            <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
+              <div style={{ maxWidth: 820, margin: "0 auto" }}>
+                <ExtensionWidgets widgets={belowEditorWidgets} />
+              </div>
             </div>
+            {chatInputElement}
           </div>
-          {chatInputElement}
+        </div>
         </div>
         </div>
 

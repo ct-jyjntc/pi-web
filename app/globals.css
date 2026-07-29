@@ -1539,6 +1539,35 @@ textarea.input-base:focus-visible {
   min-width: 0;
 }
 
+/* Floating composer dock — whole input+toolbar card floats over transcript. */
+.chat-composer-float {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  background: transparent;
+  isolation: isolate;
+  /* Keep visible so @/history menus can open upward */
+  overflow: visible;
+}
+.chat-composer-float-body {
+  position: relative;
+  z-index: 1;
+}
+/* From the input/model divider down to the screen edge: full-width opaque.
+   Height is set from JS on .chat-composer-float as --composer-underlay-h. */
+.chat-composer-float-underlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--composer-underlay-h, 56px);
+  z-index: 0;
+  background: var(--bg);
+  pointer-events: none;
+}
+
 /* Unified composer: input + toolbar in one rounded card.
    Full radius on the shell only; children stay square so left/right edges are one
    continuous curve (not two stacked half-radii). Menus are outside this shell. */
@@ -1554,8 +1583,9 @@ textarea.input-base:focus-visible {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: none;
-  transition: border-color 0.15s ease;
+  /* Bottom-only lift — upward shadow let transcript text show above the plate */
+  box-shadow: 0 8px 24px -12px color-mix(in oklab, var(--text) 18%, transparent);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .composer-shell.is-streaming {
   border-color: color-mix(in oklab, var(--text-muted) 35%, var(--border));
@@ -1605,7 +1635,6 @@ textarea.input-base:focus-visible {
   min-width: 0;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
-  /* Bottom corners clipped by .composer-shell — keep square here for a clean join */
   border-radius: 0;
   position: relative;
   z-index: 30;
