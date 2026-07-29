@@ -8,6 +8,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { McpConfig } from "./McpConfig";
+import { SettingsToggle } from "./SettingsToggle";
 import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
@@ -72,51 +73,6 @@ function SettingsRow({
 
 function sectionTitle(text: string) {
   return <div className="settings-section-title">{text}</div>;
-}
-
-function SettingsToggle({
-  enabled,
-  onChange,
-  disabled,
-}: {
-  enabled: boolean;
-  onChange: (next: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      disabled={disabled}
-      onClick={() => onChange(!enabled)}
-      style={{
-        flexShrink: 0,
-        width: 34,
-        height: 18,
-        borderRadius: "var(--radius-pill)",
-        border: "1px solid var(--border)",
-        padding: 0,
-        cursor: disabled ? "not-allowed" : "pointer",
-        background: enabled ? "var(--accent)" : "var(--bg-subtle)",
-        position: "relative",
-        opacity: disabled ? 0.55 : 1,
-      }}
-    >
-      <span
-        style={{
-          position: "absolute",
-          top: 1,
-          left: enabled ? 17 : 1,
-          width: 14,
-          height: 14,
-          borderRadius: "50%",
-          background: enabled ? "var(--accent-fg)" : "var(--text-muted)",
-          transition: "left 0.15s ease",
-        }}
-      />
-    </button>
-  );
 }
 
 export function SettingsPage({
@@ -505,13 +461,7 @@ export function SettingsPage({
       value={value}
       disabled={loadingModels || savingKey === key}
       onChange={(e) => void saveModelPref(key, e.target.value)}
-      style={{
-        width: "100%",
-        maxWidth: "100%",
-        height: 30,
-        minHeight: 30,
-        fontSize: 12,
-      }}
+      style={{ width: "100%", maxWidth: "100%" }}
       aria-label={key === "titleModel" ? t("settings.titleModel") : t("settings.commitModel")}
     >
       <option value="">{defaultLabel}</option>
@@ -545,13 +495,7 @@ export function SettingsPage({
         value={value}
         disabled={loadingModels || saving}
         onChange={(e) => void saveRoleModel(role, e.target.value)}
-        style={{
-          width: "100%",
-          maxWidth: "100%",
-          height: 30,
-          minHeight: 30,
-          fontSize: 12,
-        }}
+        style={{ width: "100%", maxWidth: "100%" }}
         aria-label={ariaLabel}
       >
         <option value="">{defaultLabel}</option>
@@ -589,16 +533,7 @@ export function SettingsPage({
   ];
 
   const generalPanel = (
-    <div
-      className="settings-page-general"
-      style={{
-        boxSizing: "border-box",
-        width: "100%",
-        maxWidth: 820,
-        margin: "0 auto",
-        padding: isMobile ? "12px 14px 28px" : "16px 24px 32px",
-      }}
-    >
+    <div className="settings-page-general">
       {sectionTitle(t("settings.general"))}
 
       <SettingsRow
@@ -703,7 +638,7 @@ export function SettingsPage({
             placeholder={t("settings.httpProxyPlaceholder")}
             onChange={(e) => setPrefs((p) => ({ ...p, httpProxy: e.target.value }))}
             onBlur={() => void patchPref({ httpProxy: prefs.httpProxy }, { restart: true })}
-            style={{ width: "100%", height: 30, fontSize: 12 }}
+            style={{ width: "100%" }}
           />
         }
       />
@@ -718,7 +653,7 @@ export function SettingsPage({
             placeholder={t("settings.proxyBypassPlaceholder")}
             onChange={(e) => setPrefs((p) => ({ ...p, proxyBypass: e.target.value }))}
             onBlur={() => void patchPref({ proxyBypass: prefs.proxyBypass }, { restart: true })}
-            style={{ width: "100%", height: 30, fontSize: 12 }}
+            style={{ width: "100%" }}
           />
         }
       />
@@ -733,7 +668,7 @@ export function SettingsPage({
             placeholder={t("settings.customCaPlaceholder")}
             onChange={(e) => setPrefs((p) => ({ ...p, customCaCerts: e.target.value }))}
             onBlur={() => void patchPref({ customCaCerts: prefs.customCaCerts }, { restart: true })}
-            style={{ width: "100%", height: 30, fontSize: 12 }}
+            style={{ width: "100%" }}
           />
         }
       />
@@ -770,14 +705,8 @@ export function SettingsPage({
             </button>
             {networkReport && (
               <div
-                style={{
-                  fontSize: 12,
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: 10,
-                  background: "var(--bg-subtle)",
-                  lineHeight: 1.45,
-                }}
+                className="settings-status-card"
+                style={{ flexDirection: "column", alignItems: "stretch", gap: 0, lineHeight: 1.45 }}
               >
                 {networkReport.error ? (
                   <div style={{ color: "var(--destructive)" }}>{networkReport.error}</div>
@@ -850,7 +779,7 @@ export function SettingsPage({
             placeholder={t("settings.terminalFontPlaceholder")}
             onChange={(e) => setPrefs((p) => ({ ...p, terminalFont: e.target.value }))}
             onBlur={() => void patchPref({ terminalFont: prefs.terminalFont })}
-            style={{ width: "100%", height: 30, fontSize: 12 }}
+            style={{ width: "100%" }}
           />
         }
       />
@@ -928,7 +857,7 @@ export function SettingsPage({
             className="input-base"
             value={prefs.defaultThinkingLevel}
             onChange={(e) => void patchPref({ defaultThinkingLevel: e.target.value })}
-            style={{ width: "100%", maxWidth: 280, height: 30, fontSize: 12 }}
+            style={{ width: "100%", maxWidth: 280 }}
           >
             {(["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const).map((level) => (
               <option key={level} value={level}>{level}</option>
@@ -988,7 +917,7 @@ export function SettingsPage({
             onBlur={() => void patchPref({
               projectMemory: { autoInjectTopK: prefs.projectMemoryTopK },
             })}
-            style={{ width: 100, height: 30, fontSize: 12 }}
+            style={{ width: 100 }}
           />
         }
       />
@@ -999,25 +928,13 @@ export function SettingsPage({
           {memoryFacts.length === 0 ? (
             <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>{t("settings.projectMemoryEmpty")}</div>
           ) : (
-            <ul style={{ margin: "0 0 8px", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
+            <ul style={{ margin: "0 0 8px", padding: 0, listStyle: "none" }}>
               {memoryFacts.map((f) => (
-                <li
-                  key={f.id}
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "flex-start",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "6px 8px",
-                    fontSize: 12,
-                    background: "var(--bg-subtle)",
-                  }}
-                >
-                  <span style={{ flex: 1, lineHeight: 1.4 }}>{f.text}</span>
+                <li key={f.id} className="settings-list-row" style={{ alignItems: "center" }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere" }}>{f.text}</span>
                   <button
                     type="button"
-                    className="chrome-btn"
+                    className="btn-ghost btn-compact"
                     disabled={memoryBusy}
                     onClick={() => {
                       setMemoryBusy(true);
@@ -1029,7 +946,7 @@ export function SettingsPage({
                         .then(() => setMemoryFacts((prev) => prev.filter((x) => x.id !== f.id)))
                         .finally(() => setMemoryBusy(false));
                     }}
-                    style={{ height: 24, minHeight: 24, padding: "0 8px", fontSize: 11, flexShrink: 0 }}
+                    style={{ flexShrink: 0 }}
                   >
                     {t("settings.projectMemoryDelete")}
                   </button>
@@ -1043,7 +960,7 @@ export function SettingsPage({
               value={newMemoryText}
               onChange={(e) => setNewMemoryText(e.target.value)}
               placeholder={t("settings.projectMemoryAdd")}
-              style={{ flex: 1, height: 30, fontSize: 12 }}
+              style={{ flex: 1 }}
             />
             <button
               type="button"
@@ -1099,7 +1016,7 @@ export function SettingsPage({
               setAdvisorModelRef(value);
               void patchPref({ advisorModel: value || null });
             }}
-            style={{ width: "100%", height: 30, fontSize: 12 }}
+            style={{ width: "100%" }}
           >
             <option value="">{loadingModels ? t("common.loading") : t("settings.advisorModelDefault")}</option>
             {models.map((m) => {
@@ -1221,16 +1138,7 @@ export function SettingsPage({
 };`;
 
   const appearancePanel = (
-    <div
-      className="settings-page-general"
-      style={{
-        boxSizing: "border-box",
-        width: "100%",
-        maxWidth: 820,
-        margin: "0 auto",
-        padding: isMobile ? "12px 14px 28px" : "16px 24px 32px",
-      }}
-    >
+    <div className="settings-page-general">
       {sectionTitle(t("settings.appearanceUi"))}
 
       <SettingsRow
@@ -1279,7 +1187,7 @@ export function SettingsPage({
                 setAppearanceSnapshot({ uiFontSize: clamped });
                 void patchPref({ uiFontSize: clamped });
               }}
-              style={{ width: 72, height: 30, fontSize: 12, textAlign: "right" }}
+              style={{ width: 72, textAlign: "right" }}
             />
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>px</span>
           </div>
@@ -1297,7 +1205,7 @@ export function SettingsPage({
             className="input-base"
             value={appearance.codeThemeLight}
             onChange={(e) => void patchPref({ codeThemeLight: e.target.value as CodeThemeId })}
-            style={{ width: "100%", maxWidth: 320, height: 30, fontSize: 12 }}
+            style={{ width: "100%", maxWidth: 320 }}
           >
             {CODE_THEME_OPTIONS.filter((o) => o.mode === "light").map((o) => (
               <option key={o.id} value={o.id}>{o.label}</option>
@@ -1314,7 +1222,7 @@ export function SettingsPage({
             className="input-base"
             value={appearance.codeThemeDark}
             onChange={(e) => void patchPref({ codeThemeDark: e.target.value as CodeThemeId })}
-            style={{ width: "100%", maxWidth: 320, height: 30, fontSize: 12 }}
+            style={{ width: "100%", maxWidth: 320 }}
           >
             {CODE_THEME_OPTIONS.filter((o) => o.mode === "dark").map((o) => (
               <option key={o.id} value={o.id}>{o.label}</option>
@@ -1361,7 +1269,7 @@ export function SettingsPage({
                 setAppearanceSnapshot({ codeFontSize: clamped });
                 void patchPref({ codeFontSize: clamped });
               }}
-              style={{ width: 72, height: 30, fontSize: 12, textAlign: "right" }}
+              style={{ width: 72, textAlign: "right" }}
             />
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>px</span>
           </div>
@@ -1378,20 +1286,12 @@ export function SettingsPage({
             id: appearance.codeThemeLight,
             label: t("settings.previewLight"),
             dark: false,
-            // Force true light/dark chrome independent of the app theme.
-            chromeBg: "#f6f8fa",
-            chromeFg: "#656d76",
-            chromeBorder: "#d0d7de",
-            codeBg: "#ffffff",
           },
           {
             id: appearance.codeThemeDark,
             label: t("settings.previewDark"),
             dark: true,
-            chromeBg: "#1c2128",
-            chromeFg: "#8b949e",
-            chromeBorder: "#30363d",
-            codeBg: "#0d1117",
+            // Fixed light/dark preview chrome comes from .code-preview in globals.css.
           },
         ] as const).map((preview) => {
           const active = isDark === preview.dark;
@@ -1399,14 +1299,15 @@ export function SettingsPage({
           const themeBg =
             (themeStyle["pre[class*=\"language-\"]"] as { backgroundColor?: string } | undefined)?.backgroundColor
             || (themeStyle.pre as { backgroundColor?: string } | undefined)?.backgroundColor
-            || preview.codeBg;
+            || "var(--preview-code-bg)";
           return (
             <div
               key={String(preview.dark)}
+              className={`code-preview ${preview.dark ? "is-dark" : "is-light"}`}
               style={{
-                border: `1px solid ${preview.chromeBorder}`,
+                border: "1px solid var(--preview-chrome-border)",
                 borderRadius: "var(--radius-sm)",
-                background: preview.chromeBg,
+                background: "var(--preview-chrome-bg)",
                 overflow: "hidden",
               }}
             >
@@ -1416,13 +1317,13 @@ export function SettingsPage({
                 justifyContent: "space-between",
                 gap: 8,
                 padding: "8px 10px",
-                borderBottom: `1px solid ${preview.chromeBorder}`,
+                borderBottom: "1px solid var(--preview-chrome-border)",
                 fontSize: 11,
-                color: preview.chromeFg,
-                background: preview.chromeBg,
+                color: "var(--preview-chrome-fg)",
+                background: "var(--preview-chrome-bg)",
               }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                  <span style={{ fontWeight: 600, color: preview.dark ? "#e6edf3" : "#1f2328" }}>{preview.label}</span>
+                  <span style={{ fontWeight: 600, color: "var(--preview-title-fg)" }}>{preview.label}</span>
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>
                     {CODE_THEME_OPTIONS.find((o) => o.id === preview.id)?.label}
                   </span>
@@ -1437,9 +1338,9 @@ export function SettingsPage({
                         height: 18,
                         padding: "0 7px",
                         borderRadius: "var(--radius-xs)",
-                        border: `1px solid ${preview.chromeBorder}`,
-                        color: preview.dark ? "#e6edf3" : "#1f2328",
-                        background: preview.dark ? "#21262d" : "#ffffff",
+                        border: "1px solid var(--preview-chrome-border)",
+                        color: "var(--preview-title-fg)",
+                        background: "var(--preview-active-bg)",
                       }}
                     >
                       {t("settings.previewActive")}
@@ -1453,8 +1354,8 @@ export function SettingsPage({
                         height: 18,
                         padding: "0 7px",
                         borderRadius: "var(--radius-xs)",
-                        border: `1px solid ${preview.chromeBorder}`,
-                        color: preview.chromeFg,
+                        border: "1px solid var(--preview-chrome-border)",
+                        color: "var(--preview-chrome-fg)",
                       }}
                     >
                       {preview.dark ? t("settings.themeDark") : t("settings.themeLight")}
@@ -1570,8 +1471,6 @@ export function SettingsPage({
             className="chrome-btn"
             onClick={onClose}
             style={{
-              height: "100%",
-              minHeight: 0,
               borderRadius: 0,
               borderRight: "1px solid var(--border)",
               padding: "0 12px",
@@ -1636,27 +1535,6 @@ export function SettingsPage({
                 disabled={item.disabled}
                 title={item.title}
                 onClick={() => setSection(item.id)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  width: isMobile ? "auto" : "100%",
-                  height: isMobile ? "var(--titlebar-height)" : 32,
-                  minHeight: isMobile ? "var(--titlebar-height)" : 32,
-                  padding: isMobile ? "0 14px" : "0 12px",
-                  border: "none",
-                  borderRight: isMobile ? "1px solid var(--border)" : "none",
-                  borderRadius: 0,
-                  background: active ? "var(--bg-selected)" : "transparent",
-                  color: active ? "var(--text)" : "var(--text-muted)",
-                  font: "inherit",
-                  fontSize: isMobile ? 12 : 13,
-                  fontWeight: active ? 600 : 500,
-                  textAlign: "left",
-                  cursor: item.disabled ? "not-allowed" : "pointer",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                  opacity: item.disabled ? 0.45 : 1,
-                }}
               >
                 {item.label}
               </button>
@@ -1679,7 +1557,7 @@ export function SettingsPage({
             <SkillsConfig embedded cwd={cwd} onClose={onClose} />
           )}
           {section === "skills" && !cwd && (
-            <div className="settings-page-empty" style={{ padding: "24px 16px", color: "var(--text-muted)", fontSize: 13 }}>
+            <div className="settings-page-empty">
               {t("settings.skillsNeedCwd")}
             </div>
           )}

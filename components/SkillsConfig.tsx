@@ -11,6 +11,7 @@ import type {
   SkillUpdateResult,
 } from "@/lib/api-types";
 import { MarkdownBody } from "./MarkdownBody";
+import { SettingsToggle } from "./SettingsToggle";
 
 function shortenPath(p: string): string {
   // Match common home dir patterns: /Users/xxx, /home/xxx
@@ -33,58 +34,6 @@ function updateKey(skill: Skill): string | null {
 
 function shortVersion(version?: string): string {
   return version ? version.slice(0, 8) : "unknown";
-}
-
-function Toggle({
-  enabled,
-  loading,
-  onToggle,
-}: {
-  enabled: boolean;
-  loading: boolean;
-  onToggle: () => void;
-}) {
-  const { t } = useLocale();
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={loading}
-      title={
-        enabled
-          ? t("skills.visibleToModel")
-          : t("skills.hiddenFromModel")
-      }
-      style={{
-        flexShrink: 0,
-        width: 34,
-        height: 18,
-        borderRadius: "var(--radius-pill)",
-        border: "1px solid var(--border)",
-        padding: 0,
-        cursor: loading ? "wait" : "pointer",
-        // Quiet monochrome switch — filled only when on, no loud accent pill
-        background: enabled ? "var(--text)" : "var(--bg-subtle)",
-        position: "relative",
-        transition: "background 0.15s ease",
-        outline: "none",
-        opacity: loading ? 0.6 : 1,
-      }}
-    >
-      <span
-        style={{
-          position: "absolute",
-          top: 1,
-          left: enabled ? 17 : 1,
-          width: 14,
-          height: 14,
-          borderRadius: "50%",
-          background: enabled ? "var(--bg)" : "var(--text-muted)",
-          transition: "left 0.15s ease, background 0.15s ease",
-        }}
-      />
-    </button>
-  );
 }
 
 function SkillDetail({
@@ -182,10 +131,15 @@ function SkillDetail({
         >
           {displayPath(skill.filePath)}
         </span>
-        <Toggle
+        <SettingsToggle
           enabled={enabled}
           loading={toggling}
-          onToggle={() => onToggle(skill)}
+          title={
+            enabled
+              ? t("skills.visibleToModel")
+              : t("skills.hiddenFromModel")
+          }
+          onChange={() => onToggle(skill)}
         />
         {saveError && (
           <span style={{ fontSize: 12, color: "var(--destructive)", flexShrink: 0 }}>
@@ -196,9 +150,7 @@ function SkillDetail({
 
       {skill.install?.skillsShUrl && (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          <span
-            style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
-          >
+          <span className="modal-section-title">
             {t("skills.source")}
           </span>
           <a
@@ -233,9 +185,7 @@ function SkillDetail({
 
       {skill.install && (
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-          <span
-            style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
-          >
+          <span className="modal-section-title">
             {t("skills.version")}
           </span>
           <div
@@ -257,18 +207,10 @@ function SkillDetail({
             </span>
             {skill.install.canCheckForUpdates && (
               <button
+                type="button"
+                className="btn-ghost btn-compact"
                 onClick={onCheckUpdate}
                 disabled={checkingUpdate || updating}
-                style={{
-                  padding: "4px 9px",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  background: "none",
-                  color: "var(--text-muted)",
-                  cursor: checkingUpdate || updating ? "not-allowed" : "pointer",
-                  opacity: checkingUpdate || updating ? 0.5 : 1,
-                  fontSize: 11,
-                }}
               >
                 Check
               </button>
@@ -309,19 +251,10 @@ function SkillDetail({
             )}
             {updateStatus?.state === "update-available" && (
               <button
+                type="button"
+                className="btn-primary btn-compact"
                 onClick={onUpdate}
                 disabled={updating || checkingUpdate}
-                style={{
-                  padding: "4px 10px",
-                  border: "none",
-                  borderRadius: "var(--radius-sm)",
-                  background: "var(--accent)",
-                  color: "var(--accent-fg)",
-                  cursor: updating || checkingUpdate ? "not-allowed" : "pointer",
-                  opacity: updating || checkingUpdate ? 0.5 : 1,
-                  fontSize: 11,
-                  fontWeight: 600,
-                }}
               >
                 {updating ? t("modal.updating") : t("modal.update")}
               </button>
@@ -334,9 +267,7 @@ function SkillDetail({
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        <span
-          style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
-        >
+        <span className="modal-section-title">
           {t("shell.name")}
         </span>
         <span
@@ -351,9 +282,7 @@ function SkillDetail({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        <span
-          style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
-        >
+        <span className="modal-section-title">
           {t("skills.description")}
         </span>
         <span
@@ -375,7 +304,7 @@ function SkillDetail({
         }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}>
+          <span className="modal-section-title">
             {t("skills.skillMd")}
           </span>
           <span
@@ -404,6 +333,7 @@ function SkillDetail({
                   minHeight: 120,
                   overflow: "auto",
                   border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
                   background: "var(--bg-panel)",
                   padding: "12px 14px",
                 }}
@@ -532,16 +462,8 @@ function AddSkillPanel({
               if (e.key === "Enter") search(query);
             }}
             placeholder={t("skills.searchPlaceholder")}
-            style={{
-              flex: 1,
-              padding: "7px 10px",
-              fontSize: 13,
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-sm)",
-              color: "var(--text)",
-              outline: "none",
-            }}
+            className="input-base"
+            style={{ flex: 1 }}
           />
           <button
             type="button"
@@ -556,29 +478,16 @@ function AddSkillPanel({
         {/* Scope + install path row */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div
-            style={{
-              display: "flex",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border)",
-              overflow: "hidden",
-              fontSize: 12,
-              flexShrink: 0,
-            }}
+            className="settings-segmented"
+            style={{ flexShrink: 0, minWidth: 0 }}
           >
             {(["global", "project"] as const).map((s) => (
               <button
                 key={s}
+                type="button"
+                className={`chrome-btn${scope === s ? " is-active" : ""}`}
+                aria-pressed={scope === s}
                 onClick={() => setScope(s)}
-                style={{
-                  padding: "3px 10px",
-                  border: "none",
-                  cursor: "pointer",
-                  background: scope === s ? "var(--bg-selected)" : "none",
-                  color: scope === s ? "var(--text)" : "var(--text-dim)",
-                  fontWeight: scope === s ? 600 : 400,
-                  borderRight:
-                    s === "global" ? "1px solid var(--border)" : "none",
-                }}
               >
                 {s}
               </button>
@@ -690,28 +599,20 @@ function AddSkillPanel({
                   </div>
                 </div>
                 <button
+                  type="button"
+                  className="btn-ghost btn-compact"
                   onClick={() =>
                     !isInstalled && !isInstalling && install(r.package)
                   }
                   disabled={isInstalled || isInstalling || installing !== null}
                   style={{
                     flexShrink: 0,
-                    padding: "5px 14px",
-                    fontSize: 12,
-                    fontWeight: 500,
-                    borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--border)",
-                    cursor:
-                      isInstalled || isInstalling || installing !== null
-                        ? "not-allowed"
-                        : "pointer",
-                    background: isInstalled ? "var(--success-bg)" : "none",
+                    background: isInstalled ? "var(--success-bg)" : undefined,
                     color: isInstalled
                       ? "var(--success)"
                       : isInstalling
                         ? "var(--accent)"
-                        : "var(--text-muted)",
-                    transition: "color 0.12s",
+                        : undefined,
                   }}
                 >
                   {isInstalled

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useLocale } from "@/hooks/useLocale";
 
@@ -107,18 +107,17 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
           padding: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, padding: "12px 18px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ color: "var(--text)", fontWeight: 600, fontSize: 15 }}>{t("picker.selectDirectory")}</div>
+        <div className="modal-header">
+          <div className="modal-header-meta">
+            <div className="modal-title">{t("picker.selectDirectory")}</div>
           </div>
           <button
             type="button"
-            className="icon-btn"
+            className="chrome-btn is-icon"
             onClick={onCancel}
             disabled={busy}
             title={t("common.close")}
             aria-label={t("common.close")}
-            style={{ opacity: busy ? 0.5 : 1 }}
           >
             ×
           </button>
@@ -127,12 +126,12 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
         <form onSubmit={handlePathSubmit} style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
           <button
             type="button"
-            className="btn-ghost"
+            className="icon-btn"
             onClick={() => parentDirectory && void navigateTo(parentDirectory)}
             disabled={loading || !parentDirectory}
             title={t("picker.goParent")}
             aria-label={t("picker.goParent")}
-            style={{ width: 36, height: 36, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: parentDirectory ? 1 : 0.45 }}
+            style={{ "--icon-btn-size": "36px" } as CSSProperties}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m18 15-6-6-6 6" />
@@ -161,7 +160,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
             className="btn-ghost"
             disabled={loading || !pathInput.trim()}
             title={t("picker.go")}
-            style={{ minWidth: 58, height: 36, opacity: loading || !pathInput.trim() ? 0.6 : 1 }}
+            style={{ minWidth: 58, height: 36 }}
           >
             {t("picker.go")}
           </button>
@@ -177,24 +176,8 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
                 type="button"
                 onClick={() => void navigateTo(entry.path)}
                 title={entry.path}
-                style={{
-                  width: "100%",
-                  minHeight: 30,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  padding: "5px 8px",
-                  border: 0,
-                  borderRadius: "var(--radius-xs)",
-                  background: "none",
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+                className="modal-nav-item"
+                style={{ minHeight: 30, gap: 7, fontFamily: "var(--font-mono)", fontSize: 11 }}
               >
                 <FolderIcon />
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
@@ -210,7 +193,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
           )}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, flexShrink: 0, padding: "10px 18px", borderTop: "1px solid var(--border)" }}>
+        <div className="modal-footer">
           <button type="button" className="btn-ghost" onClick={onCancel} disabled={busy}>
             {t("common.cancel")}
           </button>
@@ -220,7 +203,6 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
             onClick={() => onSelect(currentPath)}
             disabled={!canSelect}
             title={hasUncommittedPath ? t("picker.openBeforeSelect") : t("picker.selectCurrent")}
-            style={{ opacity: canSelect ? 1 : 0.6 }}
           >
             {busy ? t("common.checking") : t("picker.selectFolder")}
           </button>

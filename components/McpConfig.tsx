@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
+import { SettingsToggle } from "./SettingsToggle";
 
 type McpServerItem = {
   name: string;
@@ -46,51 +47,6 @@ function sourceBadgeLabel(
     default:
       return t("mcp.sourceOther");
   }
-}
-
-function Toggle({
-  enabled,
-  loading,
-  onToggle,
-}: {
-  enabled: boolean;
-  loading: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={loading}
-      style={{
-        flexShrink: 0,
-        width: 34,
-        height: 18,
-        borderRadius: "var(--radius-pill)",
-        border: "1px solid var(--border)",
-        padding: 0,
-        cursor: loading ? "wait" : "pointer",
-        background: enabled ? "var(--text)" : "var(--bg-subtle)",
-        position: "relative",
-        transition: "background 0.15s ease",
-        outline: "none",
-        opacity: loading ? 0.6 : 1,
-      }}
-    >
-      <span
-        style={{
-          position: "absolute",
-          top: 1,
-          left: enabled ? 17 : 1,
-          width: 14,
-          height: 14,
-          borderRadius: "50%",
-          background: enabled ? "var(--bg)" : "var(--text-muted)",
-          transition: "left 0.15s ease, background 0.15s ease",
-        }}
-      />
-    </button>
-  );
 }
 
 export function McpConfig({
@@ -257,9 +213,6 @@ export function McpConfig({
         <div
           className={embedded ? "settings-page-content" : "modal-main"}
           style={{
-            ...(embedded
-              ? { maxWidth: 820, margin: "0 auto", width: "100%", boxSizing: "border-box" as const }
-              : { padding: "12px 14px" }),
             overflow: "auto",
             flex: 1,
             minHeight: 0,
@@ -287,7 +240,7 @@ export function McpConfig({
               {t("mcp.servers")}
               {servers.length > 0 ? ` · ${servers.length}` : ""}
             </div>
-            <button type="button" className="chrome-btn" style={{ height: 28, minHeight: 28, padding: "0 10px", fontSize: 12 }} onClick={() => setShowAdd((v) => !v)}>
+            <button type="button" className="btn-ghost btn-compact" onClick={() => setShowAdd((v) => !v)}>
               {showAdd ? t("common.cancel") : t("mcp.addServer")}
             </button>
           </div>
@@ -370,8 +323,8 @@ export function McpConfig({
                     {server.editable && (
                       <button
                         type="button"
-                        className="chrome-btn"
-                        style={{ height: 28, minHeight: 28, padding: "0 10px", fontSize: 12 }}
+                        className="btn-ghost btn-compact"
+                        style={{ color: "var(--destructive)" }}
                         disabled={busyName === server.name}
                         onClick={() => void remove(server)}
                         title={t("mcp.remove")}
@@ -379,10 +332,10 @@ export function McpConfig({
                         {t("mcp.remove")}
                       </button>
                     )}
-                    <Toggle
+                    <SettingsToggle
                       enabled={!server.disabled}
                       loading={busyName === server.name}
-                      onToggle={() => void toggle(server)}
+                      onChange={() => void toggle(server)}
                     />
                   </div>
                 </div>

@@ -186,20 +186,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** Quiet strip-chrome field control */
-const inputStyle: React.CSSProperties = {
-  padding: "6px 10px",
-  background: "var(--bg-panel)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-xs)",
-  color: "var(--text)",
-  fontSize: 12.5,
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
-  transition: "border-color 0.12s ease, background 0.12s ease",
-};
-
 function TextInput({ value, onChange, placeholder, mono }: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
   return (
     <input
@@ -207,7 +193,6 @@ function TextInput({ value, onChange, placeholder, mono }: { value: string; onCh
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      style={{ fontFamily: mono ? "var(--font-mono)" : "inherit" }}
     />
   );
 }
@@ -246,7 +231,8 @@ function SecretTextInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
-        style={{ ...inputStyle, paddingRight: 34, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
+        className={`input-base${mono ? " input-mono" : ""}`}
+        style={{ paddingRight: 34 }}
         autoComplete={autoComplete}
         spellCheck={spellCheck}
       />
@@ -255,22 +241,14 @@ function SecretTextInput({
         onClick={() => setVisible((v) => !v)}
         aria-label={visible ? t("models.hideKey") : t("models.showKey")}
         title={visible ? t("models.hideKey") : t("models.showKey")}
+        className="icon-btn"
         style={{
+          "--icon-btn-size": "24px",
           position: "absolute",
           right: 5,
           top: "50%",
           transform: "translateY(-50%)",
-          width: 24,
-          height: 24,
-          padding: 0,
-          border: "none",
-          background: "transparent",
-          color: "var(--text-dim)",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
+        } as React.CSSProperties}
       >
         {visible ? (
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -291,13 +269,14 @@ function SecretTextInput({
 }
 
 function NumInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return <input type="number" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={inputStyle} />;
+  return <input type="number" className="input-base" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />;
 }
 
 function Select({ value, onChange, options, required }: { value: string; onChange: (v: string) => void; options: readonly string[]; required?: boolean }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
-      style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}>
+      className="input-base"
+      style={{ color: value ? "var(--text)" : "var(--text-dim)" }}>
       {!required && <option value="">— inherit / none —</option>}
       {options.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
@@ -398,7 +377,7 @@ function ProviderDetail({
       <Field label={t("models.apiKey")}>
         <SecretTextInput value={provider.apiKey ?? ""} onChange={(v) => set("apiKey", v || undefined)}
           placeholder={t("models.apiKeyPlaceholder")} mono />
-        <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+        <span style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
           {t("models.apiKeyHint")}
         </span>
       </Field>
@@ -454,28 +433,6 @@ function ThinkingLevelMapEditor({
         const strVal = typeof raw === "string" ? raw : "";
         const color = LEVEL_COLORS[level];
 
-        const btnBase: React.CSSProperties = {
-          padding: "4px 10px",
-          fontSize: 10,
-          border: "none",
-          cursor: "pointer",
-          fontWeight: 400,
-          transition: "background 0.1s, color 0.1s",
-          whiteSpace: "nowrap",
-          background: "var(--bg-panel)",
-          color: "var(--text-dim)",
-        };
-        const btnActive: React.CSSProperties = {
-          background: "var(--accent)",
-          color: "var(--accent-fg)",
-          fontWeight: 500,
-        };
-        const btnActiveDisabled: React.CSSProperties = {
-          background: "var(--destructive)",
-          color: "var(--accent-fg)",
-          fontWeight: 600,
-        };
-
         return (
           <div
             key={level}
@@ -503,26 +460,30 @@ function ThinkingLevelMapEditor({
             </div>
 
             {/* Default + Disabled buttons */}
-            <div style={{ display: "flex", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", overflow: "hidden", flexShrink: 0 }}>
+            <div className="settings-segmented" style={{ minWidth: 0, flexShrink: 0 }}>
               <button
+                type="button"
                 onClick={() => setLevel(level, "omit")}
-                style={{ ...btnBase, ...(state === "omit" ? btnActive : {}) }}
+                className={`chrome-btn${state === "omit" ? " is-active" : ""}`}
               >
                 {t("models.thinkingDefault")}
               </button>
               <button
+                type="button"
                 onClick={() => setLevel(level, null)}
-                style={{ ...btnBase, borderLeft: "1px solid var(--border)", ...(state === "null" ? btnActiveDisabled : {}) }}
+                className={`chrome-btn${state === "null" ? " is-active" : ""}`}
               >
                 {t("models.thinkingDisabled")}
               </button>
             </div>
 
             {/* Custom button + input fused */}
-            <div style={{ display: "flex", borderRadius: "var(--radius-sm)", border: `1px solid ${state === "string" ? "var(--accent)" : "var(--border)"}`, overflow: "hidden", transition: "border-color 0.1s" }}>
+            <div className="settings-segmented" style={{ minWidth: 0 }}>
               <button
+                type="button"
                 onClick={() => setLevel(level, strVal || level)}
-                style={{ ...btnBase, ...(state === "string" ? btnActive : {}), borderRight: "1px solid var(--border)", flexShrink: 0 }}
+                className={`chrome-btn${state === "string" ? " is-active" : ""}`}
+                style={{ flexShrink: 0 }}
               >
                 {t("models.custom")}
               </button>
@@ -534,14 +495,12 @@ function ThinkingLevelMapEditor({
                 maxLength={10}
                 style={{
                   width: "12ch",
-                  background: state === "string" ? "var(--bg)" : "var(--bg-panel)",
+                  background: "transparent",
                   border: "none",
-                  outline: "none",
                   color: state === "string" ? "var(--text)" : "var(--text-dim)",
                   fontFamily: "var(--font-mono)",
                   fontSize: 11,
-                  padding: "4px 7px",
-                  transition: "background 0.1s, color 0.1s",
+                  padding: "0 8px",
                 }}
               />
             </div>
@@ -665,9 +624,9 @@ function ModelDetail({
                 maxWidth: 220,
                 height: 26,
                 padding: "0 8px",
-                border: `1px solid ${testState.phase === "error" ? "color-mix(in oklab, var(--destructive) 35%, var(--border))" : testState.phase === "success" ? "color-mix(in oklab, var(--success) 35%, var(--border))" : "var(--border)"}`,
+                border: `1px solid ${testState.phase === "error" ? "var(--destructive-border)" : testState.phase === "success" ? "var(--success-border)" : "var(--border)"}`,
                 borderRadius: "var(--radius-sm)",
-                background: testState.phase === "error" ? "color-mix(in oklab, var(--destructive) 12%, transparent)" : testState.phase === "success" ? "color-mix(in oklab, var(--success) 12%, transparent)" : "var(--bg)",
+                background: testState.phase === "error" ? "var(--destructive-bg)" : testState.phase === "success" ? "var(--success-bg)" : "var(--bg)",
                 color: "var(--text)",
                 fontSize: 11,
                 display: "inline-flex",
@@ -741,8 +700,9 @@ function ModelDetail({
               <SectionTitle>{t("models.thinkingMap")}</SectionTitle>
               {model.thinkingLevelMap && (
                 <button
+                  type="button"
+                  className="btn-ghost btn-compact"
                   onClick={() => set("thinkingLevelMap", undefined)}
-                  style={{ fontSize: 10, padding: "2px 7px", background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", color: "var(--text-dim)", cursor: "pointer" }}
                 >
                   {t("models.clearAll")}
                 </button>
@@ -972,12 +932,15 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") submitCode(loginState.token, inputValue); }}
                 placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? t("models.enterValue"))}
-                style={{ flex: 1, padding: "6px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--text)", fontSize: 12, outline: "none", fontFamily: "var(--font-mono)", boxSizing: "border-box" }}
+                className="input-base input-mono"
+                style={{ flex: 1 }}
               />
               <button
+                type="button"
+                className="btn-primary btn-compact"
                 onClick={() => submitCode(loginState.token, inputValue)}
                 disabled={!inputValue.trim()}
-                style={{ padding: "6px 12px", background: inputValue.trim() ? "var(--accent)" : "var(--bg-panel)", border: "none", borderRadius: "var(--radius-pill)", color: inputValue.trim() ? "var(--accent-fg)" : "var(--text-dim)", cursor: inputValue.trim() ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 500, flexShrink: 0 }}
+                style={{ flexShrink: 0 }}
               >
                 Submit
               </button>
@@ -989,7 +952,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
               {t("models.deviceCodeHint")}
             </p>
-            <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--text)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: 0 }}>
+            <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--text)", fontSize: 14, fontWeight: 600, fontFamily: "var(--font-mono)", letterSpacing: 0 }}>
               {loginState.userCode}
             </div>
             <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
@@ -1015,23 +978,27 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       <div style={{ display: "flex", gap: 8 }}>
         {isWorking ? (
           <button
+            type="button"
+            className="btn-ghost btn-compact"
             onClick={() => { eventSourceRef.current?.close(); setLoginState({ phase: "idle" }); }}
-            style={{ padding: "5px 12px", background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: "var(--text-muted)", cursor: "pointer", fontSize: 12 }}
           >
             Cancel
           </button>
         ) : (
           <>
             <button
+              type="button"
+              className="btn-primary btn-compact"
               onClick={handleLogin}
-              style={{ padding: "5px 14px", background: "var(--accent)", border: "none", borderRadius: "var(--radius-pill)", color: "var(--accent-fg)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
             >
               {provider.loggedIn ? t("modal.relogin") : t("modal.login")}
             </button>
             {provider.loggedIn && (
               <button
+                type="button"
+                className="btn-ghost btn-compact"
                 onClick={handleLogout}
-                style={{ padding: "5px 12px", background: "none", border: "1px solid var(--destructive-border)", borderRadius: "var(--radius-sm)", color: "var(--destructive)", cursor: "pointer", fontSize: 12 }}
+                style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
               >
                 Disconnect
               </button>
@@ -1135,16 +1102,14 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
             mono
           />
           <button
+            type="button"
+            className="btn-primary btn-compact"
             onClick={handleSave}
             disabled={saving || !apiKey.trim() || savedOk}
             style={{
-              padding: "6px 12px",
-              background: savedOk ? "var(--success)" : apiKey.trim() ? "var(--accent)" : "var(--bg-panel)",
-              border: "none", borderRadius: "var(--radius-pill)",
-              color: (apiKey.trim() || savedOk) ? "var(--accent-fg)" : "var(--text-dim)",
-              cursor: (saving || !apiKey.trim() || savedOk) ? "not-allowed" : "pointer",
-              fontSize: 12, fontWeight: 600, flexShrink: 0,
-              display: "flex", alignItems: "center", gap: 5,
+              flexShrink: 0,
+              background: savedOk ? "var(--success)" : undefined,
+              animation: savedOk ? "saved-pop 0.45s ease" : undefined,
             }}
           >
             {savedOk && (
@@ -1161,13 +1126,14 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
 
       {provider.configured && (
         <button
+          type="button"
+          className="btn-ghost btn-compact"
           onClick={handleRemove}
           disabled={removing}
           style={{
-            alignSelf: "flex-start", padding: "5px 12px",
-            background: "none", border: "1px solid var(--destructive-border)",
-            borderRadius: "var(--radius-sm)", color: "var(--destructive)",
-            cursor: removing ? "not-allowed" : "pointer", fontSize: 12,
+            alignSelf: "flex-start",
+            color: "var(--destructive)",
+            borderColor: "var(--destructive-border)",
           }}
         >
           {removing ? t("modal.removing") : t("modal.disconnect")}
@@ -1203,7 +1169,7 @@ function ProviderIcon({ id, size }: { id: string; size: number }) {
           justifyContent: "center",
           flexShrink: 0,
           fontSize: Math.max(8, Math.floor(size * 0.42)),
-          fontWeight: 700,
+          fontWeight: 600,
           lineHeight: 1,
         }}
       >
@@ -1246,22 +1212,6 @@ function AddProviderPicker({
 
   const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0);
 
-  const cardStyle: React.CSSProperties = {
-    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-    padding: "10px 12px",
-    background: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius-md)",
-    boxSizing: "border-box",
-    cursor: "pointer",
-    minWidth: 0,
-    textAlign: "left",
-    transition: "border-color 0.12s, background 0.12s",
-    width: "100%",
-  };
-
-
-
   return (
     <div
       className="modal-backdrop"
@@ -1283,25 +1233,26 @@ function AddProviderPicker({
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
             placeholder={t("models.searchProviders")}
-            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
+            className="input-base"
+            style={{ flex: 1 }}
           />
         </div>
 
         {/* Card grid */}
         <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
           {totalCount === 0 ? (
-            <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>{t("models.noProvidersMatch")}</div>
+            <div className="modal-empty">{t("models.noProvidersMatch")}</div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 8 }}>
               {showCustom && (
-                <div style={{ gridColumn: "1 / -1", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.custom")}</div>
+                <div style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.custom")}</div>
               )}
               {showCustom && (
                 <button
+                  type="button"
+                  className="provider-card"
                   onClick={() => { onAddCustom(); onClose(); }}
-                  style={cardStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%" }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t("models.compatible")}</div>
@@ -1316,13 +1267,11 @@ function AddProviderPicker({
               )}
 
               {availableOAuth.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.subscriptions")}</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.subscriptions")}</div>
               )}
               {availableOAuth.map((p) => (
-                <button key={p.id} onClick={() => { onSelectOAuth(p.id); onClose(); }}
-                  style={cardStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
+                <button key={p.id} type="button" className="provider-card" onClick={() => { onSelectOAuth(p.id); onClose(); }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%" }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
@@ -1333,13 +1282,11 @@ function AddProviderPicker({
               ))}
 
               {availableApiKey.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: availableOAuth.length > 0 ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.apiKey")}</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: availableOAuth.length > 0 ? 6 : 0, fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("models.apiKey")}</div>
               )}
               {availableApiKey.map((p) => (
-                <button key={p.id} onClick={() => { onSelectApiKey(p.id); onClose(); }}
-                  style={cardStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
+                <button key={p.id} type="button" className="provider-card" onClick={() => { onSelectApiKey(p.id); onClose(); }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8, width: "100%" }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</div>
