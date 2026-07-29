@@ -1381,7 +1381,7 @@ function AddProviderPicker({
         className="modal-shell"
         style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))" }}
       >
-        {/* Search */}
+        {/* Search — borderless strip (avoids a heavy focused frame in the dialog chrome) */}
         <div className="modal-header" style={{ gap: 8, padding: "0 12px" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
             <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -1393,7 +1393,15 @@ function AddProviderPicker({
             onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
             placeholder={t("models.searchProviders")}
             className="input-base"
-            style={{ flex: 1 }}
+            style={{
+              flex: 1,
+              border: "none",
+              background: "transparent",
+              boxShadow: "none",
+              paddingLeft: 0,
+              paddingRight: 0,
+              borderRadius: 0,
+            }}
           />
         </div>
 

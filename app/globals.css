@@ -314,7 +314,8 @@ body {
   background: color-mix(in oklab, var(--accent) 22%, transparent);
 }
 
-:focus-visible {
+/* Buttons/links only — form fields use their own quiet border focus (see .input-base). */
+:focus-visible:not(input):not(textarea):not(select):not([contenteditable="true"]) {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
@@ -1202,7 +1203,7 @@ span.linenumber {
   cursor: not-allowed;
 }
 
-/* Text input shared recipe (focus = accent border) */
+/* Text input shared recipe — quiet focus (no black outline ring) */
 .input-base {
   width: 100%;
   padding: 7px 10px;
@@ -1212,10 +1213,16 @@ span.linenumber {
   color: var(--text);
   font: inherit;
   font-size: 13px;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  outline: none;
 }
-.input-base:focus {
-  border-color: var(--accent);
+.input-base:focus,
+.input-base:focus-visible {
+  /* Soften vs pure --accent (near-black) which reads as a heavy frame */
+  border-color: color-mix(in oklab, var(--text) 22%, var(--border));
+  outline: none;
+  outline-offset: 0;
+  box-shadow: none;
 }
 .input-base::placeholder {
   color: var(--text-dim);
@@ -1224,6 +1231,18 @@ span.linenumber {
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 5px 8px;
+}
+/* Explicit form-control selectors beat UA / preflight focus rings */
+input.input-base:focus,
+input.input-base:focus-visible,
+select.input-base:focus,
+select.input-base:focus-visible,
+textarea.input-base:focus,
+textarea.input-base:focus-visible {
+  border-color: color-mix(in oklab, var(--text) 22%, var(--border));
+  outline: none;
+  outline-offset: 0;
+  box-shadow: none;
 }
 
 /* Sidebar chrome — mirror AppShell top bar: flat strips + vertical dividers */
