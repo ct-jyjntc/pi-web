@@ -1103,12 +1103,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     : null;
   const currentName = displayModelName;
 
-  const thinkingDisplayLabel = (() => {
-    const lvl = thinkingLevel ?? "auto";
-    const raw = (lvl === "auto" || !thinkingLevelMap) ? lvl : (thinkingLevelMap[lvl] ?? lvl);
-    // Toolbar shows the level token in uppercase (AUTO / LOW / HIGH…).
-    return String(raw).toUpperCase();
-  })();
+  const thinkingDisplayLabel = t(THINKING_LEVEL_KEYS[thinkingLevel ?? "auto"]);
   const permissionLabel = permissionMode === "full" ? t("chat.permissionFull") : t("chat.permissionAsk");
 
   useEffect(() => {
@@ -2039,17 +2034,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   {(!isMobile || controlsMenuOpen) && <span>{thinkingDisplayLabel}</span>}
                 </button>
                 {thinkingDropdownOpen && thinkingMenuRect && (
-                  <div className="menu-card" style={fixedMenuStyle(thinkingMenuRect, 180)}>
+                  <div className="menu-card" style={fixedMenuStyle(thinkingMenuRect, 112)}>
                     {THINKING_LEVELS.filter((lvl) => {
                       if (!availableThinkingLevels) return true;
                       if (lvl === "auto") return true;
                       return availableThinkingLevels.includes(lvl);
                     }).map((lvl) => {
                       const isActive = (thinkingLevel ?? "auto") === lvl;
-                      const desc = t(THINKING_LEVEL_KEYS[lvl]);
+                      const label = t(THINKING_LEVEL_KEYS[lvl]);
+                      // Provider-facing token when the model remaps this level (e.g. xhigh→max).
                       const mappedVal = (lvl !== "auto" && thinkingLevelMap) ? thinkingLevelMap[lvl] : undefined;
-                      const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : lvl;
-                      const showOriginal = mappedVal != null && mappedVal !== lvl;
+                      const showMapped = mappedVal != null && mappedVal !== "" && mappedVal !== lvl;
                       return (
                         <button
                           key={lvl}
@@ -2071,10 +2066,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                             ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
                             : <span style={{ width: 10, flexShrink: 0 }} />}
                           <span style={{ flex: 1 }}>
-                            {displayLabel}
-                            {showOriginal && <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>({lvl})</span>}
+                            {label}
+                            {showMapped && (
+                              <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>
+                                ({mappedVal})
+                              </span>
+                            )}
                           </span>
-                          <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
                         </button>
                       );
                     })}
