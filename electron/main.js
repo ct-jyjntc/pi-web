@@ -576,6 +576,14 @@ ipcMain.handle("pi-desktop:notify", (_event, payload = {}) => {
       mainWindow.show();
       mainWindow.focus();
     });
+    // Electron 42+ macOS UNNotification: unsigned / linker-signed apps emit
+    // `failed` instead of showing a banner (often UNErrorDomain error 1).
+    n.on("failed", (_event, error) => {
+      console.warn(
+        "[electron] Notification failed (macOS needs real ad-hoc or Developer ID signature):",
+        error,
+      );
+    });
     n.show();
     return { ok: true };
   } catch (error) {

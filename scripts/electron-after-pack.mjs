@@ -1,5 +1,9 @@
 // electron-builder afterPack: force-copy Next standalone node_modules + bundled Node.
 // FileMatcher injects an exclude for node_modules which strips deps from extraResources.
+//
+// macOS signing: package.json sets mac.identity to "-" (ad-hoc). electron-builder
+// runs @electron/osx-sign AFTER this hook, so resource copies are included in the
+// final seal. That real ad-hoc signature is what Electron 42+ UNNotification needs.
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "fs";
 import { join } from "path";
 
@@ -122,4 +126,12 @@ export default async function afterPack(context) {
     context.electronPlatformName,
     productFilename,
   );
+
+  if (context.electronPlatformName === "darwin") {
+    // Signing is deferred to electron-builder (mac.identity: "-") so nested
+    // Electron Framework helpers are signed correctly after these copies.
+    console.log(
+      `[afterPack] macOS ad-hoc signing deferred to electron-builder (identity: "-") for ${productFilename}.app`,
+    );
+  }
 }

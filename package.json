@@ -30,7 +30,7 @@
     "package.json"
   ],
   "scripts": {
-    "postinstall": "node scripts/fix-node-pty-perms.mjs",
+    "postinstall": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs",
     "dev": "node scripts/fix-node-pty-perms.mjs && next dev -H 127.0.0.1 -p 30141",
     "dev:lan": "node scripts/fix-node-pty-perms.mjs && next dev -H 0.0.0.0 -p 30141",
     "build": "node scripts/fix-node-pty-perms.mjs && next build --webpack",
@@ -39,8 +39,10 @@
     "start:lan": "node scripts/fix-node-pty-perms.mjs && next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
     "verify": "node scripts/verify.mjs",
-    "electron": "node scripts/fix-node-pty-perms.mjs && electron .",
-    "electron:dev": "node scripts/fix-node-pty-perms.mjs && electron .",
+    "smoke:electron": "node scripts/smoke-electron.mjs",
+    "smoke:electron-notify": "node scripts/smoke-electron-notify.mjs",
+    "electron": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs && electron .",
+    "electron:dev": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs && electron .",
     "electron:prod": "npm run build:electron && npm run electron",
     "electron:rebuild": "npm run build:electron && npm run electron",
     "dist:dmg": "npm run build:electron && electron-builder --mac dmg",
@@ -101,7 +103,7 @@
       ],
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "identity": null
+      "identity": "-"
     },
     "dmg": {
       "title": "Pi Web ${version}",
@@ -182,7 +184,7 @@
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/ws": "^8.18.1",
-    "electron": "^37.10.3",
+    "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
