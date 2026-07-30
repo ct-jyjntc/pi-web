@@ -30,9 +30,15 @@ export type LspServerStatus = {
   available: boolean;
   /** Absolute path when resolved */
   resolvedPath: string | null;
+  /** Primary install command for the *current* OS */
   install: string;
+  /** Optional secondary tip (e.g. Homebrew on macOS only) */
+  installTip?: string;
+  /** @deprecated Prefer install / installTip — kept for older callers */
   brew?: string;
   npmGlobal?: string;
+  /** Runtime platform used to pick install hints */
+  platform: NodeJS.Platform;
 };
 
 /** Built-in catalog of language servers we know how to launch. */
@@ -176,14 +182,81 @@ export function resolveCatalogCommand(
   return { command: entry.command, path: null };
 }
 
+/** Pick install command for the running OS — never prefer macOS brew on Windows/Linux. */
+export function resolveInstallHints(entry: LspCatalogEntry, platform: NodeJS.Platform = process.platform): {
+  install: string;
+  installTip?: string;
+} {
+  // Cross-platform package managers first (npm / pip / go / rustup).
+  if (platform === "win32") {
+    switch (entry.id) {
+      case "clangd":
+        return {
+          install: "winget install LLVM.LLVM",
+          installTip: "Or install from https://clangd.llvm.org/installation.html",
+        };
+      case "lua-language-server":
+        return {
+          install: "winget install LuaLS.LuaLanguageServer",
+          installTip: "Or see https://luals.github.io/#install",
+        };
+      case "gopls":
+        return { install: "go install golang.org/x/tools/gopls@latest" };
+      case "rust-analyzer":
+        return { install: "rustup component add rust-analyzer" };
+      case "pylsp":
+        return { install: "pip install \"python-lsp-server[all]\"" };
+      default:
+        return { install: entry.install };
+    }
+  }
+
+  if (platform === "linux") {
+    switch (entry.id) {
+      case "clangd":
+        return {
+          install: "sudo apt install clangd",
+          installTip: "Fedora: sudo dnf install clang-tools-extra · Arch: sudo pacman -S clang",
+        };
+      case "lua-language-server":
+        return {
+          install: entry.install,
+          installTip: "Many distros: sudo apt/dnf/pacman install lua-language-server",
+        };
+      case "gopls":
+        return { install: "go install golang.org/x/tools/gopls@latest" };
+      case "rust-analyzer":
+        return { install: "rustup component add rust-analyzer" };
+      default:
+        return { install: entry.install };
+    }
+  }
+
+  // darwin (and others): portable install primary; brew only as optional tip
+  const tip =
+    entry.brew && entry.brew !== entry.install && entry.brew.includes("brew ")
+      ? entry.brew
+      : undefined;
+  if (entry.id === "clangd") {
+    return {
+      install: "brew install llvm  # then add $(brew --prefix llvm)/bin to PATH",
+      installTip: "Or download from https://clangd.llvm.org/installation.html",
+    };
+  }
+  return { install: entry.install, installTip: tip };
+}
+
 export function getLspHealth(cwd?: string | null): {
   servers: LspServerStatus[];
   availableCount: number;
   total: number;
   builtinNote: string;
+  platform: NodeJS.Platform;
 } {
+  const platform = process.platform;
   const servers: LspServerStatus[] = LSP_CATALOG.map((entry) => {
     const { command, path } = resolveCatalogCommand(entry, cwd);
+    const hints = resolveInstallHints(entry, platform);
     return {
       id: entry.id,
       label: entry.label,
@@ -192,15 +265,19 @@ export function getLspHealth(cwd?: string | null): {
       languages: entry.languages,
       available: Boolean(path),
       resolvedPath: path,
-      install: entry.install,
-      brew: entry.brew,
+      install: hints.install,
+      installTip: hints.installTip,
+      // Keep brew only when it is actually the mac tip (not for Windows clients).
+      brew: platform === "darwin" ? entry.brew : undefined,
       npmGlobal: entry.npmGlobal,
+      platform,
     };
   });
   return {
     servers,
     availableCount: servers.filter((s) => s.available).length,
     total: servers.length,
+    platform,
     builtinNote:
       "TypeScript/JavaScript also has a built-in language service fallback for references/rename when no external TS server is present.",
   };
@@ -240,7 +317,7 @@ export function formatLspHealthReport(cwd?: string | null): string {
     } else {
       lines.push(`✗ ${s.id} — ${s.label} (not on PATH)`);
       lines.push(`    install: ${s.install}`);
-      if (s.brew) lines.push(`    tip: ${s.brew}`);
+      if (s.installTip) lines.push(`    tip: ${s.installTip}`);
     }
   }
   return lines.join("\n");

@@ -1523,6 +1523,25 @@ textarea.input-base:focus-visible {
   min-width: 32px;
   padding: 0;
 }
+/* Quiet update pill to the right of Settings */
+.chrome-btn.app-update-chip {
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+}
+.chrome-btn.app-update-chip:hover:not(:disabled) {
+  color: var(--text);
+}
+.app-update-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+}
 .app-topbar .chrome-btn {
   height: 100%;
   min-height: 0;

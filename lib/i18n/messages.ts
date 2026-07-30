@@ -27,6 +27,8 @@ const en = {
   "shell.models": "Models",
   "shell.skills": "Skills",
   "shell.settings": "Settings",
+  "shell.updateAvailable": "Update {version}",
+  "shell.updateAvailableTitle": "Update available: {version}. Click to open the release page.",
 
   // Top bar
   "shell.hideSidebar": "Hide sidebar",
@@ -911,6 +913,8 @@ const zh: Record<MessageKey, string> = {
   "shell.models": "模型",
   "shell.skills": "技能",
   "shell.settings": "设置",
+  "shell.updateAvailable": "更新 {version}",
+  "shell.updateAvailableTitle": "发现新版本 {version}，点击打开发布页。",
 
   "shell.hideSidebar": "隐藏侧栏",
   "shell.showSidebar": "显示侧栏",

@@ -12,6 +12,7 @@ import { SettingsToggle } from "./SettingsToggle";
 import { UsagePanel, prefetchUsage } from "./UsagePanel";
 import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
+import { getAppUpdateInfo, setAppUpdateInfo, subscribeAppUpdate } from "@/lib/app-update-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 
 export type SettingsSection =
@@ -33,8 +34,11 @@ type LspServerRow = {
   languages: string[];
   available: boolean;
   resolvedPath: string | null;
+  /** Platform-resolved install command (not brew-first). */
   install: string;
+  installTip?: string;
   brew?: string;
+  platform?: string;
 };
 
 type ModelOption = {
@@ -406,41 +410,29 @@ export function SettingsPage({
     }
   }, [appearance]);
 
-  // Background update check when enabled.
+  // Sync About panel with the shared store (AppShell owns background auto-check).
   useEffect(() => {
-    if (!prefs.autoCheckUpdates) return;
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const res = await fetch("/api/app-update", { method: "POST" });
-        const data = await res.json() as {
-          updateAvailable?: boolean;
-          latestVersion?: string;
-          releaseUrl?: string;
-          currentVersion?: string;
-        };
-        if (cancelled) return;
-        if (data.currentVersion) setCurrentVersion(data.currentVersion);
-        if (data.updateAvailable && data.latestVersion && data.releaseUrl) {
-          setUpdateStatus({
-            kind: "available",
-            version: data.latestVersion,
-            releaseUrl: data.releaseUrl,
-          });
-          if (prefs.autoDownloadUpdates) {
-            window.open(data.releaseUrl, "_blank", "noopener,noreferrer");
-          }
-        }
-      } catch {
-        // silent background check
+    const info = getAppUpdateInfo();
+    if (info) {
+      setUpdateStatus({
+        kind: "available",
+        version: info.latestVersion,
+        releaseUrl: info.releaseUrl,
+      });
+      if (info.currentVersion) setCurrentVersion(info.currentVersion);
+    }
+    return subscribeAppUpdate(() => {
+      const next = getAppUpdateInfo();
+      if (next) {
+        setUpdateStatus({
+          kind: "available",
+          version: next.latestVersion,
+          releaseUrl: next.releaseUrl,
+        });
+        if (next.currentVersion) setCurrentVersion(next.currentVersion);
       }
-    };
-    const t = window.setTimeout(() => void run(), 8_000);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [prefs.autoCheckUpdates, prefs.autoDownloadUpdates]);
+    });
+  }, []);
 
   const checkForAppUpdate = useCallback(async () => {
     setUpdateChecking(true);
@@ -458,10 +450,17 @@ export function SettingsPage({
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
       if (data.currentVersion) setCurrentVersion(data.currentVersion);
       if (data.message === "no_releases") {
+        setAppUpdateInfo(null);
         setUpdateStatus({ kind: "empty" });
         return;
       }
       if (data.updateAvailable && data.latestVersion && data.releaseUrl) {
+        setAppUpdateInfo({
+          currentVersion: data.currentVersion ?? "",
+          latestVersion: data.latestVersion,
+          releaseUrl: data.releaseUrl,
+          checkedAt: Date.now(),
+        });
         setUpdateStatus({
           kind: "available",
           version: data.latestVersion,
@@ -470,6 +469,7 @@ export function SettingsPage({
         window.open(data.releaseUrl, "_blank", "noopener,noreferrer");
         return;
       }
+      setAppUpdateInfo(null);
       setUpdateStatus({ kind: "latest" });
     } catch (error) {
       setUpdateStatus({
@@ -1798,36 +1798,46 @@ export function SettingsPage({
               {s.languages.join(", ")}
             </div>
             {!s.available && (
-              <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <code
-                  style={{
-                    fontSize: 11,
-                    fontFamily: "var(--font-mono)",
-                    background: "var(--bg-subtle)",
-                    padding: "4px 8px",
-                    borderRadius: "var(--radius-xs)",
-                    border: "1px solid var(--border)",
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  {s.brew || s.install}
-                </code>
-                <button
-                  type="button"
-                  className="btn-ghost btn-compact"
-                  onClick={async () => {
-                    const text = s.brew || s.install;
-                    try {
-                      await navigator.clipboard.writeText(text);
-                      setLspCopiedId(s.id);
-                      window.setTimeout(() => setLspCopiedId((id) => (id === s.id ? null : id)), 1500);
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                >
-                  {lspCopiedId === s.id ? t("settings.lspCopied") : t("settings.lspCopyInstall")}
-                </button>
+              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <code
+                    style={{
+                      fontSize: 11,
+                      fontFamily: "var(--font-mono)",
+                      background: "var(--bg-subtle)",
+                      padding: "4px 8px",
+                      borderRadius: "var(--radius-xs)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-muted)",
+                      maxWidth: "100%",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {s.install}
+                  </code>
+                  <button
+                    type="button"
+                    className="btn-ghost btn-compact"
+                    onClick={async () => {
+                      // Always copy the platform-resolved primary command (never force brew on Windows).
+                      const text = s.install;
+                      try {
+                        await navigator.clipboard.writeText(text);
+                        setLspCopiedId(s.id);
+                        window.setTimeout(() => setLspCopiedId((id) => (id === s.id ? null : id)), 1500);
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                  >
+                    {lspCopiedId === s.id ? t("settings.lspCopied") : t("settings.lspCopyInstall")}
+                  </button>
+                </div>
+                {s.installTip && (
+                  <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
+                    {s.installTip}
+                  </div>
+                )}
               </div>
             )}
           </div>

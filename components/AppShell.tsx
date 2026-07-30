@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
@@ -24,6 +24,7 @@ import { DebugPanel } from "./DebugPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
+import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@/lib/app-update-store";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 
 type AutoNameStatus =
@@ -50,6 +51,12 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+  const appUpdate = useSyncExternalStore(subscribeAppUpdate, getAppUpdateInfo, () => null);
+
+  // Background update check when Settings → auto-check is enabled.
+  useEffect(() => {
+    startAppUpdateAutoCheck({ delayMs: 8_000 });
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -1016,6 +1023,20 @@ export function AppShell() {
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
+            {appUpdate && (
+              <button
+                type="button"
+                className="chrome-btn app-update-chip"
+                onClick={() => {
+                  window.open(appUpdate.releaseUrl, "_blank", "noopener,noreferrer");
+                }}
+                title={t("shell.updateAvailableTitle", { version: appUpdate.latestVersion })}
+                aria-label={t("shell.updateAvailableTitle", { version: appUpdate.latestVersion })}
+              >
+                <span className="app-update-dot" aria-hidden />
+                <span>{t("shell.updateAvailable", { version: appUpdate.latestVersion })}</span>
+              </button>
+            )}
           </div>
           <div className="chrome-divider" aria-hidden style={{ flexShrink: 0 }} />
           {/* Middle: drag + chat actions + stats — may collapse when narrow */}
