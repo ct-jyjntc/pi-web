@@ -35,8 +35,8 @@
   --radius-lg: 10px;  /* composer, tool blocks, modal shells */
   --radius-pill: 999px;
 
-  --bg: oklch(0.995 0 0);
-  --bg-panel: oklch(0.975 0.002 90);
+  --bg: #ffffff;
+  --bg-panel: #f5f5f5;
   --bg-hover: oklch(0.96 0.002 90);
   --bg-selected: oklch(0.94 0.003 90);
   --border: oklch(0.91 0 0);
@@ -73,8 +73,8 @@
 }
 
 html.dark {
-  --bg: oklch(0.13 0 0);
-  --bg-panel: oklch(0.18 0 0);
+  --bg: #1a1a1a;
+  --bg-panel: #242424;
   --bg-hover: oklch(0.22 0 0);
   --bg-selected: oklch(0.25 0 0);
   --border: oklch(0.27 0 0);
