@@ -342,6 +342,46 @@ export function ContextPanel() {
         </div>
       </div>
 
+      {compactState?.error && (
+        <div
+          role="alert"
+          style={{
+            margin: "8px 12px 0",
+            padding: "7px 10px",
+            border: "1px solid var(--destructive-border)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--destructive-bg)",
+            color: "var(--destructive)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            lineHeight: 1.45,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+            flexShrink: 0,
+          }}
+        >
+          {compactState.error}
+        </div>
+      )}
+      {compactState?.resultText && !compactState.error && (
+        <div
+          style={{
+            margin: "8px 12px 0",
+            padding: "7px 10px",
+            border: "1px solid var(--success-border)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--success-bg)",
+            color: "var(--success)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            lineHeight: 1.45,
+            flexShrink: 0,
+          }}
+        >
+          {compactState.resultText}
+        </div>
+      )}
+
       {ctx?.contextWindow && (
         <div
           className="git-panel-subheader"

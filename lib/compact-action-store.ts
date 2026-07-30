@@ -6,6 +6,8 @@ type CompactHandlers = {
   compact: () => void;
   abort?: () => void;
   isCompacting: boolean;
+  error?: string | null;
+  resultText?: string | null;
 };
 
 type Listener = () => void;

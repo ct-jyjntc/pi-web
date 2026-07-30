@@ -7,7 +7,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ReviewSummaryCard } from "./ReviewSummaryCard";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { isEmptyThinkingBlock } from "@/lib/message-display";
+import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { parseReviewReport } from "@/lib/review-report";
 import type {
@@ -440,6 +440,7 @@ function AssistantMessageView({
     .map((block, originalIndex) => ({ block, originalIndex }))
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming }));
   const blocks = blockItems.map(({ block }) => block);
+  const providerError = getAssistantErrorMessage(message, { isStreaming });
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const streamStartRef = useRef<number | null>(null);
@@ -548,7 +549,7 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
-  if (blocks.length === 0 && !isStreaming) return null;
+  if (blocks.length === 0 && !isStreaming && !providerError) return null;
 
   return (
     <div
@@ -607,6 +608,27 @@ function AssistantMessageView({
         ))}
         {reviewReport && <ReviewSummaryCard report={reviewReport} />}
       </div>
+
+      {providerError && (
+        <div
+          role="alert"
+          style={{
+            marginTop: blocks.length > 0 ? 8 : 0,
+            padding: "7px 10px",
+            border: "1px solid var(--destructive-border)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--destructive-bg)",
+            color: "var(--destructive)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+        >
+          Error: {providerError}
+        </div>
+      )}
 
       <div style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,

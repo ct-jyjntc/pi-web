@@ -117,12 +117,23 @@ export interface ChatInputHandle {
 const PERMISSION_MODES = ["ask", "full"] as const;
 type PermissionMode = (typeof PERMISSION_MODES)[number];
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
+const MODEL_FILTER_THRESHOLD = 8;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function compareModelOptions(a: ModelOption, b: ModelOption): number {
   return MODEL_OPTION_COLLATOR.compare(a.name || a.modelId, b.name || b.modelId)
     || MODEL_OPTION_COLLATOR.compare(a.provider, b.provider)
     || MODEL_OPTION_COLLATOR.compare(a.modelId, b.modelId);
+}
+
+export function filterModelOptions(options: ModelOption[], query: string): ModelOption[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return options;
+  return options.filter((option) => (
+    `${option.name} ${option.modelId}`
+      .toLocaleLowerCase()
+      .includes(normalizedQuery)
+  ));
 }
 
 const THINKING_LEVELS = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -307,6 +318,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [modelFilter, setModelFilter] = useState("");
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [permissionDropdownOpen, setPermissionDropdownOpen] = useState(false);
   // Fixed-position anchors (same pattern as model picker) so menus escape overflow clipping
@@ -1042,16 +1054,22 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     })).sort(compareModelOptions);
   }, [modelList, modelNames, model?.provider]);
 
+  const filteredModelOptions = useMemo(
+    () => filterModelOptions(modelOptions, modelFilter),
+    [modelOptions, modelFilter],
+  );
+  const showModelFilter = modelOptions.length > MODEL_FILTER_THRESHOLD;
+
   // Group options by provider, preserving insertion order
   const modelsByProvider: { provider: string; options: ModelOption[] }[] = useMemo(() => {
     const groups: { provider: string; options: ModelOption[] }[] = [];
-    for (const opt of modelOptions) {
+    for (const opt of filteredModelOptions) {
       const group = groups.find((g) => g.provider === opt.provider);
       if (group) group.options.push(opt);
       else groups.push({ provider: opt.provider, options: [opt] });
     }
     return groups;
-  }, [modelOptions]);
+  }, [filteredModelOptions]);
 
   const displayModelName = model
     ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
@@ -1118,6 +1136,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         modelDropdownPanelRef.current && !modelDropdownPanelRef.current.contains(e.target as Node)
       ) {
         setModelDropdownOpen(false);
+        setModelFilter("");
       }
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
@@ -1783,7 +1802,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     onClick={(e) => {
                       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                       setModelDropdownRect({ top: rect.top, left: rect.left, width: rect.width });
-                      setModelDropdownOpen((v) => !v);
+                      setModelDropdownOpen((open) => {
+                        if (open) setModelFilter("");
+                        return !open;
+                      });
                     }}
                     disabled={isStreaming}
                     title={modelOptions.length > 0 ? (currentName ?? t("chat.changeModel")) : t("chat.noAvailableModels")}
@@ -1823,52 +1845,90 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       bottom,
                       ...panelPos,
                       zIndex: 500,
-                      maxHeight: maxH, overflowY: "auto",
+                      maxHeight: maxH,
+                      overflow: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
                       }}>
-                      {modelsByProvider.length === 0 ? (
-                        <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                          {t("chat.noAvailableModels")}
+                      {showModelFilter && (
+                        <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                          <input
+                            value={modelFilter}
+                            onChange={(e) => setModelFilter(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setModelFilter("");
+                                setModelDropdownOpen(false);
+                              }
+                            }}
+                            placeholder={t("chat.filterModels")}
+                            aria-label={t("chat.filterModels")}
+                            autoFocus
+                            autoComplete="off"
+                            spellCheck={false}
+                            className="input-base"
+                            style={{
+                              width: "100%",
+                              minWidth: isMobile ? 0 : 220,
+                              fontSize: 11,
+                              fontFamily: "var(--font-mono)",
+                              padding: "5px 8px",
+                              borderRadius: 0,
+                              boxSizing: "border-box",
+                            }}
+                          />
                         </div>
-                      ) : modelsByProvider.map((group, gi) => (
-                        <div key={group.provider}>
-                          {(modelsByProvider.length > 1) && (
-                            <div style={{
-                              padding: "6px 12px 4px",
-                              fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
-                              textTransform: "uppercase", letterSpacing: "0.06em",
-                              borderTop: gi > 0 ? "1px solid var(--border)" : "none",
-                            }}>
-                              {group.provider}
-                            </div>
-                          )}
-                          {group.options.map((opt) => {
-                            const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
-                            return (
-                              <button
-                                key={`${opt.provider}:${opt.modelId}`}
-                                onClick={() => { setModelDropdownOpen(false); if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId); }}
-                                style={{
-                                  display: "flex", alignItems: "center", gap: 8,
-                                  width: "100%", padding: "7px 12px",
-                                  background: isActive ? "var(--bg-selected)" : "none",
-                                  border: "none",
-                                  color: isActive ? "var(--text)" : "var(--text-muted)",
-                                  cursor: "pointer", fontSize: 12, textAlign: "left",
-                                  fontWeight: isActive ? 600 : 400,
-                                  whiteSpace: "nowrap",
-                                }}
-                                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                              >
-                                {isActive
-                                  ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
-                                  : <span style={{ width: 10, flexShrink: 0 }} />}
-                                {opt.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
+                      )}
+                      <div style={{ minHeight: 0, overflowY: "auto" }}>
+                        {modelsByProvider.length === 0 ? (
+                          <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
+                            {modelFilter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
+                          </div>
+                        ) : modelsByProvider.map((group, gi) => (
+                          <div key={group.provider}>
+                            {(modelsByProvider.length > 1) && (
+                              <div style={{
+                                padding: "6px 12px 4px",
+                                fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
+                                textTransform: "uppercase", letterSpacing: "0.06em",
+                                borderTop: gi > 0 ? "1px solid var(--border)" : "none",
+                              }}>
+                                {group.provider}
+                              </div>
+                            )}
+                            {group.options.map((opt) => {
+                              const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
+                              return (
+                                <button
+                                  key={`${opt.provider}:${opt.modelId}`}
+                                  onClick={() => {
+                                    setModelDropdownOpen(false);
+                                    setModelFilter("");
+                                    if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId);
+                                  }}
+                                  style={{
+                                    display: "flex", alignItems: "center", gap: 8,
+                                    width: "100%", padding: "7px 12px",
+                                    background: isActive ? "var(--bg-selected)" : "none",
+                                    border: "none",
+                                    color: isActive ? "var(--text)" : "var(--text-muted)",
+                                    cursor: "pointer", fontSize: 12, textAlign: "left",
+                                    fontWeight: isActive ? 600 : 400,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                                >
+                                  {isActive
+                                    ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                                    : <span style={{ width: 10, flexShrink: 0 }} />}
+                                  {opt.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     );
                   })()}

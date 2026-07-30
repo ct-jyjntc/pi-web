@@ -1063,8 +1063,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "prompt_done":
         if (!agentRunningRef.current) break;
+        // Extension commands can call pi.sendUserMessage(), which starts its
+        // agent run asynchronously. In that case prompt_done for the command
+        // arrives before agent_start for the injected message. Give that run
+        // time to start and settle against server state instead of ending the
+        // UI immediately and dropping its subsequent streaming events.
         // Bind to the current run so a late prompt_done cannot finish a newer one.
-        void finishPromptWithoutStream(sessionIdRef.current, promptRunIdRef.current);
+        if (sessionIdRef.current) {
+          void waitForPromptSettlement(sessionIdRef.current, promptRunIdRef.current);
+        }
         break;
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? t("agent.commandFailed") });
@@ -1204,7 +1211,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, clearPendingStreamUpdate, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd]);
+  }, [addNotice, clearPendingStreamUpdate, handleExtensionUiRequest, loadSession, onAgentEnd, waitForPromptSettlement]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1922,13 +1929,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => controller.abort();
   }, [loadModels, modelsRefreshKey]);
 
-  // Compact error auto-dismiss
-  useEffect(() => {
-    if (!compactError) return;
-    const t = setTimeout(() => setCompactError(null), 3000);
-    return () => clearTimeout(t);
-  }, [compactError]);
-
+  // Keep compact result toast brief; leave compactError sticky until the next
+  // compact attempt so provider/compaction failures stay visible.
   useEffect(() => {
     if (!compactResult) return;
     const t = setTimeout(() => setCompactResult(null), 6000);

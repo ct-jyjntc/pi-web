@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -61,7 +61,9 @@ const CHAT_COLUMN_PADDING = 16;
 
 function hasFinalAssistantAnswer(message: AgentMessage): boolean {
   if (message.role !== "assistant") return false;
-  return getFinalAssistantParts(message as AssistantMessage).answerBlocks.some((block) => (
+  const assistant = message as AssistantMessage;
+  if (getAssistantErrorMessage(assistant)) return true;
+  return getFinalAssistantParts(assistant).answerBlocks.some((block) => (
     block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
   ));
 }
@@ -140,7 +142,7 @@ function getFinalAssistantParts(message: AssistantMessage): FinalAssistantParts 
       processMessage: split.processBlocks.length > 0
         ? withAssistantBlocks(message, split.processBlocks, { omitUsage: true })
         : null,
-      answerMessage: split.answerBlocks.length > 0
+      answerMessage: split.answerBlocks.length > 0 || getAssistantErrorMessage(message)
         ? withAssistantBlocks(message, split.answerBlocks)
         : null,
     };
@@ -728,13 +730,18 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       setCompactHandlers(null);
       return;
     }
+    const resultText = compactResult
+      ? `Compacted · tokens ${compactResult.tokensBefore} → ${compactResult.estimatedTokensAfter}`
+      : null;
     setCompactHandlers({
       compact: () => { void handleCompact(); },
       abort: handleAbortCompaction,
       isCompacting,
+      error: compactError,
+      resultText,
     });
     return () => setCompactHandlers(null);
-  }, [session, isNew, handleCompact, handleAbortCompaction, isCompacting]);
+  }, [session, isNew, handleCompact, handleAbortCompaction, isCompacting, compactError, compactResult]);
 
   const advisorBanner = advisorNote ? (
     <div
