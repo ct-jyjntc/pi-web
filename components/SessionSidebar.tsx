@@ -775,10 +775,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         style={{ flexShrink: 0 }}
       >
         {/* Row 1: project path + New + Refresh — height matches app top bar on macOS */}
-        <div className="sidebar-toolbar-row sidebar-desktop-title-row titlebar-drag">
+        {/* position:relative on the full row so the project menu spans the whole sidebar (like worktree). */}
+        <div
+          ref={dropdownRef}
+          className="sidebar-toolbar-row sidebar-desktop-title-row titlebar-drag"
+          style={{ position: "relative" }}
+        >
           {/* macOS: reserves space under traffic lights; --traffic-lights-pad is 0 elsewhere */}
           <div className="titlebar-drag traffic-lights-spacer" aria-hidden />
-          <div ref={dropdownRef} className="titlebar-no-drag" style={{ position: "relative", flex: 1, minWidth: 0, display: "flex" }}>
+          <div className="titlebar-no-drag" style={{ flex: 1, minWidth: 0, display: "flex" }}>
             <button
               type="button"
               className={`sidebar-strip-btn sidebar-strip-grow${selectedCwd ? "" : " is-empty"}${dropdownOpen ? " is-active" : ""}`}
@@ -814,13 +819,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <polyline points="2 3.5 5 6.5 8 3.5" />
               </svg>
             </button>
+          </div>
 
             <AnimatedDropdown
               open={dropdownOpen}
               className="menu-card"
               style={{
                 position: "absolute",
-                top: "calc(100% + 0px)",
+                top: "100%",
                 left: 0,
                 right: 0,
                 zIndex: 100,
@@ -902,12 +908,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <span>{t("sidebar.customPath")}</span>
               </button>
             </AnimatedDropdown>
-          </div>
 
           <button
             type="button"
             className="sidebar-strip-btn sidebar-strip-action titlebar-no-drag"
-            onClick={handleNewSession}
+            onClick={() => {
+              setDropdownOpen(false);
+              handleNewSession();
+            }}
             disabled={!selectedCwd}
             title={selectedCwd ? t("sidebar.newSessionIn", { cwd: selectedCwd }) : t("sidebar.selectProjectFirst")}
           >
@@ -920,7 +928,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <button
             type="button"
             className={`sidebar-strip-btn sidebar-strip-icon titlebar-no-drag${sessionRefreshDone ? " is-success" : ""}`}
-            onClick={() => loadSessions(false)}
+            onClick={() => {
+              setDropdownOpen(false);
+              loadSessions(false);
+            }}
             title={t("common.refresh")}
             aria-label={t("common.refresh")}
           >
