@@ -88,19 +88,6 @@ function saveUnreadSessionIds(ids: Set<string>): void {
   }
 }
 
-function formatRelativeTime(dateStr: string, t: (key: MessageKey, params?: Record<string, string | number>) => string, locale: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (mins < 1) return t("sidebar.justNow");
-  if (mins < 60) return t("sidebar.minsAgo", { n: mins });
-  if (hours < 24) return t("sidebar.hoursAgo", { n: hours });
-  if (days < 7) return t("sidebar.daysAgo", { n: days });
-  return date.toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US");
-}
 
 /**
  * Return all projects (deduped by projectRoot so worktrees collapse into their
@@ -260,8 +247,58 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
   return roots;
 }
 
+
+type SessionTimeBucket = "today" | "yesterday" | "week" | "month" | "older";
+
+const SESSION_TIME_BUCKETS: SessionTimeBucket[] = ["today", "yesterday", "week", "month", "older"];
+
+function startOfLocalDay(d = new Date()): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function getSessionTimeBucket(modified: string, now = new Date()): SessionTimeBucket {
+  const date = new Date(modified);
+  if (!Number.isFinite(date.getTime())) return "older";
+  const today = startOfLocalDay(now);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const week = new Date(today);
+  week.setDate(week.getDate() - 7);
+  const month = new Date(today);
+  month.setDate(month.getDate() - 30);
+  if (date >= today) return "today";
+  if (date >= yesterday) return "yesterday";
+  if (date >= week) return "week";
+  if (date >= month) return "month";
+  return "older";
+}
+
+function groupSessionTreeByTime(roots: SessionTreeNode[]): Array<{ bucket: SessionTimeBucket; nodes: SessionTreeNode[] }> {
+  const map = new Map<SessionTimeBucket, SessionTreeNode[]>();
+  for (const b of SESSION_TIME_BUCKETS) map.set(b, []);
+  for (const node of roots) {
+    map.get(getSessionTimeBucket(node.session.modified))!.push(node);
+  }
+  return SESSION_TIME_BUCKETS
+    .map((bucket) => ({ bucket, nodes: map.get(bucket)! }))
+    .filter((g) => g.nodes.length > 0);
+}
+
+function sessionTimeBucketLabel(
+  bucket: SessionTimeBucket,
+  t: (key: MessageKey, params?: Record<string, string | number>) => string,
+): string {
+  switch (bucket) {
+    case "today": return t("sidebar.groupToday");
+    case "yesterday": return t("sidebar.groupYesterday");
+    case "week": return t("sidebar.groupPast7Days");
+    case "month": return t("sidebar.groupPast30Days");
+    case "older": return t("sidebar.groupOlder");
+  }
+}
+
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1176,21 +1213,39 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionTree.map((node) => (
-          <SessionTreeItem
-            key={node.session.id}
-            node={node}
-            selectedSessionId={selectedSessionId}
-            runningSessionIds={runningSessionIds}
-            unreadSessionIds={unreadSessionIds}
-            onSelectSession={handleSelectSessionFromList}
-            onRenamed={loadSessions}
-            onSessionDeleted={(id) => {
-              onSessionDeleted?.(id);
-              loadSessions();
-            }}
-            depth={0}
-          />
+        {groupSessionTreeByTime(sessionTree).map(({ bucket, nodes }, groupIndex) => (
+          <div key={bucket} className="sidebar-session-group">
+            <div
+              className="sidebar-session-group-label"
+              style={{
+                padding: groupIndex === 0 ? "8px 12px 4px" : "12px 12px 4px",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+                color: "var(--text-dim)",
+                userSelect: "none",
+                lineHeight: 1.3,
+              }}
+            >
+              {sessionTimeBucketLabel(bucket, t)}
+            </div>
+            {nodes.map((node) => (
+              <SessionTreeItem
+                key={node.session.id}
+                node={node}
+                selectedSessionId={selectedSessionId}
+                runningSessionIds={runningSessionIds}
+                unreadSessionIds={unreadSessionIds}
+                onSelectSession={handleSelectSessionFromList}
+                onRenamed={loadSessions}
+                onSessionDeleted={(id) => {
+                  onSessionDeleted?.(id);
+                  loadSessions();
+                }}
+                depth={0}
+              />
+            ))}
+          </div>
         ))}
       </div>
 
@@ -1310,7 +1365,7 @@ function SessionTreeItem({
         {depth > 0 && (
           <div style={{
             position: "absolute",
-            left: depth * 12 + 6,
+            left: 22 + (depth - 1) * 12 + 6,
             top: 0, bottom: 0,
             width: 1,
             background: "var(--border)",
@@ -1442,7 +1497,7 @@ function SessionItem({
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const [hovered, setHovered] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -1506,11 +1561,14 @@ function SessionItem({
     setConfirmDelete(false);
   }, []);
 
-  // Fixed-height outer wrapper — content swaps in place so the list never reflows
-  const ITEM_HEIGHT = 48;
+  // Fixed-height single-line row — content swaps in place so the list never reflows
+  const ITEM_HEIGHT = 32;
+  // Indent under time-group labels; forks go one step further.
+  const padLeft = depth > 0 ? 22 + depth * 12 : 22;
 
   return (
     <div
+      className={`sidebar-session-item${isSelected ? " is-active" : ""}${hovered ? " is-hover" : ""}`}
       onClick={confirmDelete || renaming ? undefined : onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
@@ -1518,7 +1576,7 @@ function SessionItem({
         height: ITEM_HEIGHT,
         display: "flex",
         alignItems: "center",
-        paddingLeft: depth > 0 ? depth * 12 + 12 : 12,
+        paddingLeft: padLeft,
         paddingRight: 6,
         cursor: confirmDelete || renaming ? "default" : "pointer",
         background: confirmDelete
@@ -1573,7 +1631,7 @@ function SessionItem({
           }}
         />
       ) : (
-        /* ── Normal view ── */
+        /* ── Normal view: single-line title row ── */
         <>
           {/* Fork indicator for child sessions */}
           {depth > 0 && (
@@ -1584,48 +1642,52 @@ function SessionItem({
               <path d="M18 9a9 9 0 0 1-9 9" />
             </svg>
           )}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                minWidth: 0,
-                fontSize: 13,
-                fontWeight: isSelected ? 500 : 400,
-                lineHeight: 1.3,
-                color: "var(--text)",
-              }}
-              title={title}
-            >
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                {title}
+          {isRunning ? (
+            <RunningSessionIndicator />
+          ) : isUnread ? (
+            <UnreadSessionIndicator />
+          ) : null}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12.5,
+              fontWeight: isSelected ? 600 : 400,
+              lineHeight: 1.3,
+              color: isSelected ? "var(--text)" : "var(--text-muted)",
+            }}
+            title={title}
+          >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+              {title}
+            </span>
+            {session.worktreeBranch && (
+              <span
+                title={t("sidebar.worktree", { branch: session.worktreeBranch })}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  color: "var(--text-dim)",
+                  fontSize: 11,
+                  flexShrink: 1,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  maxWidth: "40%",
+                }}
+              >
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <line x1="6" y1="3" x2="6" y2="15" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.worktreeBranch}</span>
               </span>
-            </div>
-            <div style={{ marginTop: 1, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
-              {isRunning ? (
-                <RunningSessionIndicator />
-              ) : isUnread ? (
-                <UnreadSessionIndicator />
-              ) : (
-                <span title={session.modified}>{formatRelativeTime(session.modified, t, locale)}</span>
-              )}
-              <span>{t("sidebar.msgs", { n: session.messageCount })}</span>
-              {session.worktreeBranch && (
-                <span
-                  title={t("sidebar.worktree", { branch: session.worktreeBranch })}
-                  style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)", minWidth: 0, overflow: "hidden" }}
-                >
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.worktreeBranch}</span>
-                </span>
-              )}
-            </div>
+            )}
           </div>
 
           {/* Collapse toggle — always visible when has children */}
