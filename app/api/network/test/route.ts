@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 const DEFAULT_TARGETS = [
   "https://www.baidu.com",
   "https://cdn.jsdelivr.net/npm/jquery@3.7.1/package.json",
-  "https://example.com",
+  // Lightweight real endpoint (not a placeholder domain).
+  "https://www.cloudflare.com/cdn-cgi/trace",
 ];
 
 export async function POST(request: NextRequest) {
