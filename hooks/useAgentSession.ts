@@ -13,6 +13,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useLocale } from "@/hooks/useLocale";
 import { getFullToolNames } from "@/lib/tool-presets";
+import { ensureWebSettings } from "@/lib/web-settings-store";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 export interface SessionData {
@@ -92,6 +93,18 @@ function normalizeQueuedMessages(q?: { steering?: string[]; followUp?: string[] 
   return { steering: q?.steering ?? [], followUp: q?.followUp ?? [] };
 }
 
+function sameStringList(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function queuedMessagesEqual(a: QueuedMessages, b: QueuedMessages): boolean {
+  return sameStringList(a.steering, b.steering) && sameStringList(a.followUp, b.followUp);
+}
+
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
 export type NoticeType = "info" | "success" | "warning" | "error";
@@ -160,7 +173,7 @@ export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" 
 const PROGRAMMATIC_SCROLL_IGNORE_MS = 250;
 const NEAR_BOTTOM_PX = 80;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
-const PROMPT_SETTLE_POLL_MS = 600;
+const PROMPT_SETTLE_POLL_MS = 1_500;
 const PROMPT_SETTLE_MAX_MS = 20_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
@@ -399,10 +412,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => {
     if (!isNew) return;
     let cancelled = false;
-    fetch("/api/web-settings")
-      .then(async (res) => {
-        const data = await res.json() as { settings?: { defaultThinkingLevel?: string } };
-        const level = data.settings?.defaultThinkingLevel;
+    void ensureWebSettings()
+      .then((settings) => {
+        const level = settings?.defaultThinkingLevel;
         if (cancelled || !level) return;
         const allowed: ThinkingLevelOption[] = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
         if (allowed.includes(level as ThinkingLevelOption)) {
@@ -439,6 +451,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const agentRunningRef = useRef(false);
   const bashRunningRef = useRef(false);
   const bashRecoveryIdRef = useRef(0);
+  /** Cancellation token for the prompt settlement poll loop (unmount / newer loop). */
+  const promptSettleIdRef = useRef(0);
+  /** Prompt run id currently owning a settlement loop, so it never runs twice. */
+  const promptSettleRunIdRef = useRef<number | null>(null);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
   /** Monotonic id for the active prompt run; used to drop late SSE / loadSession results. */
   const promptRunIdRef = useRef(0);
@@ -870,25 +886,56 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [loadSession, onAgentEnd]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
-    await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
-    const startedAt = Date.now();
+    // One settlement loop per run: a slash command starts one from handleSend and
+    // its prompt_done starts another for the same run. Two loops only double the
+    // /api/agent/[id] polling rate (each request re-estimates context tokens over
+    // the whole message list) while SSE is already streaming normally.
+    const runKey = runId ?? promptRunIdRef.current;
+    if (promptSettleRunIdRef.current === runKey) return;
+    promptSettleRunIdRef.current = runKey;
+    // Cancellation token, same shape as bashRecoveryIdRef: bumped by a newer loop
+    // and by unmount cleanup so a stale hook cannot keep polling for 20s after a
+    // session switch (and cannot call finishPromptWithoutStream → loadSession).
+    const settleId = promptSettleIdRef.current + 1;
+    promptSettleIdRef.current = settleId;
 
-    while (agentRunningRef.current && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS) {
-      if (runId !== undefined && promptRunIdRef.current !== runId) return;
-      try {
-        const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
-        if (res.ok) {
-          const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
-          const state = data.state;
-          if (!data.running || !state || (!state.isStreaming && !state.isPromptRunning)) {
-            await finishPromptWithoutStream(sid, runId);
-            return;
+    try {
+      await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
+      const startedAt = Date.now();
+
+      while (
+        agentRunningRef.current
+        && mountedRef.current
+        && promptSettleIdRef.current === settleId
+        && sessionIdRef.current === sid
+        && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS
+      ) {
+        if (runId !== undefined && promptRunIdRef.current !== runId) return;
+        try {
+          const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+          if (res.ok) {
+            const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
+            const state = data.state;
+            if (!data.running || !state || (!state.isStreaming && !state.isPromptRunning)) {
+              // The fetch above straddles the cancellation checks, so re-verify
+              // before the expensive finish path (loadSession + full reconcile).
+              if (!mountedRef.current || promptSettleIdRef.current !== settleId) return;
+              await finishPromptWithoutStream(sid, runId);
+              return;
+            }
           }
+        } catch {
+          // SSE remains the primary completion path.
         }
-      } catch {
-        // SSE remains the primary completion path.
+        await delay(PROMPT_SETTLE_POLL_MS);
       }
-      await delay(PROMPT_SETTLE_POLL_MS);
+    } finally {
+      // Release the per-run slot only if no newer loop took over, so a second
+      // prompt_done for the same run (extension-injected prompts) can still get
+      // a fresh safety net once this one is done.
+      if (promptSettleIdRef.current === settleId && promptSettleRunIdRef.current === runKey) {
+        promptSettleRunIdRef.current = null;
+      }
     }
   }, [finishPromptWithoutStream]);
 
@@ -941,7 +988,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // would otherwise leave the "Stop compaction" UI stuck. No state
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
-      setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
+      // Reconciliation runs every 15s while the agent is busy; a fresh object
+      // would re-render the whole chat (and remount ChatInput's composer
+      // observer) even though the queue is almost always unchanged.
+      const nextQueued = normalizeQueuedMessages(state?.queuedMessages);
+      setQueuedMessages((prev) => queuedMessagesEqual(prev, nextQueued) ? prev : nextQueued);
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy || !agentRunningRef.current) return;
@@ -988,7 +1039,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Coalesce high-frequency streaming updates: dispatch at most once per
   // 80ms window (leading + trailing) so each SSE token doesn't re-render
   // the whole chat tree.
-  const pendingStreamUpdateRef = useRef<AgentMessage | null>(null);
+  const pendingStreamUpdateRef = useRef<Partial<AgentMessage> | null>(null);
   const streamUpdateTimerRef = useRef<number | null>(null);
   const clearPendingStreamUpdate = useCallback(() => {
     pendingStreamUpdateRef.current = null;
@@ -1005,6 +1056,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Wrapper gone (idle/fork/delete). Stop reconnect thrash and finish the
         // local run if we still think it's active — do not leave a ghost stream.
         sseReconnectAttemptRef.current = EVENT_STREAM_RECONNECT_MAX_ATTEMPTS + 1;
+        if (sseReconnectTimerRef.current) {
+          clearTimeout(sseReconnectTimerRef.current);
+          sseReconnectTimerRef.current = null;
+        }
+        // The server closes the stream right after this event. A server-side
+        // close leaves EventSource in CONNECTING (not CLOSED), so it silently
+        // auto-reconnects — and the events route recreates the whole agent
+        // session for an unknown id, restarting its 10-minute idle timer. That
+        // resurrection loop never ends, so close the stream explicitly here.
+        eventSourceRef.current?.close();
+        eventSourceRef.current = null;
         if (agentRunningRef.current) {
           void finishPromptWithoutStream(sessionIdRef.current, promptRunIdRef.current);
         }
@@ -1096,19 +1158,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           break;
         }
         if (msg) {
-          const normalized = normalizeToolCalls(msg as AgentMessage);
           if (streamUpdateTimerRef.current === null) {
-            dispatch({ type: "update", message: normalized });
+            dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
             streamUpdateTimerRef.current = window.setTimeout(() => {
               streamUpdateTimerRef.current = null;
               const pending = pendingStreamUpdateRef.current;
               pendingStreamUpdateRef.current = null;
               if (pending && agentRunningRef.current) {
-                dispatch({ type: "update", message: pending });
+                dispatch({ type: "update", message: normalizeToolCalls(pending as AgentMessage) });
               }
             }, 100); // slightly longer coalesce window = fewer full-tree paints while typing tokens
           } else {
-            pendingStreamUpdateRef.current = normalized;
+            // Keep the raw event message: only the last one inside the coalesce
+            // window ever reaches React, so normalizing here would allocate a
+            // new content array per token for a result that gets overwritten.
+            pendingStreamUpdateRef.current = msg;
           }
         }
         setAgentPhase(null);
@@ -1710,6 +1774,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
+  // ChatWindow swaps the scroll container in/out around the empty state, so scroll
+  // effects key off this boolean instead of messages.length: it flips once instead
+  // of on every appended message.
+  const hasMessages = messages.length > 0;
+
   const isNearBottom = useCallback((container: HTMLElement, threshold = NEAR_BOTTOM_PX) => {
     return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
   }, []);
@@ -1735,6 +1804,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setStickToBottom(true);
     scrollToBottom("smooth");
   }, [scrollToBottom]);
+
+  // Pin the viewport to the tail, coalesced into one layout read/write per frame.
+  // Called from the growth ResizeObserver and from stream ticks: doing the work in
+  // rAF keeps the observer callback free of forced synchronous layout, and the
+  // no-op short circuit avoids a scroll event (and the minimap work behind it)
+  // when we are already at the bottom.
+  const pinFrameRef = useRef<number | null>(null);
+  const schedulePinToBottom = useCallback(() => {
+    if (!stickToBottomRef.current) return;
+    if (pinFrameRef.current !== null) return;
+    pinFrameRef.current = window.requestAnimationFrame(() => {
+      pinFrameRef.current = null;
+      if (!stickToBottomRef.current) return;
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      const target = Math.max(0, container.scrollHeight - container.clientHeight);
+      // Keep suppressing position-based detach for the whole pin sequence, even
+      // on frames where the scroll position is already correct.
+      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+      if (Math.abs(target - container.scrollTop) < 2) return;
+      container.scrollTop = target;
+    });
+  }, []);
+
+  const cancelScheduledPin = useCallback(() => {
+    if (pinFrameRef.current === null) return;
+    window.cancelAnimationFrame(pinFrameRef.current);
+    pinFrameRef.current = null;
+  }, []);
 
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1819,6 +1917,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => {
       mountedRef.current = false;
       bashRecoveryIdRef.current += 1;
+      promptSettleIdRef.current += 1;
+      promptSettleRunIdRef.current = null;
       if (sseReconnectTimerRef.current) {
         clearTimeout(sseReconnectTimerRef.current);
         sseReconnectTimerRef.current = null;
@@ -1865,7 +1965,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("scroll", handleScrollPositionChange);
     };
-  }, [messages.length, loading, handleScrollPositionChange, detachStickToBottom]);
+    // Same "container may have just mounted" trigger as the pin effect: only the
+    // empty/non-empty transition can swap the scroll container in or out, so the
+    // listeners no longer get torn down and re-added for every new message.
+  }, [hasMessages, loading, handleScrollPositionChange, detachStickToBottom]);
 
   // Initial / send-time scroll placement.
   useEffect(() => {
@@ -1885,40 +1988,41 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages.length, scrollToBottom, scrollUserMsgToTop]);
 
   // While stick-to-bottom is active, keep the viewport pinned as content grows
-  // (streaming text, tool results, phase labels).
+  // (streaming text, tool results, phase labels). The ResizeObserver on the
+  // message column is the single trigger: it fires for every height change, so
+  // this effect only needs to be rebuilt when the container itself (re)mounts —
+  // not on every new message.
   useEffect(() => {
     if (!stickToBottom) return;
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    const pin = () => {
-      if (!stickToBottomRef.current) return;
-      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-      container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    };
-
-    pin();
+    schedulePinToBottom();
     const ro = typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(() => pin())
+      ? new ResizeObserver(schedulePinToBottom)
       : null;
     ro?.observe(container);
     // Observe the message column (first child) which is what grows during stream.
     const content = container.firstElementChild;
     if (content) ro?.observe(content);
 
-    return () => ro?.disconnect();
-  }, [stickToBottom, messages.length, agentRunning, bashRunning]);
+    return () => {
+      ro?.disconnect();
+      cancelScheduledPin();
+    };
+    // hasMessages / loading / running flags stand in for "the scroll container
+    // may have just mounted" (ChatWindow renders a loading or empty-state view
+    // instead of it); a ref assignment alone cannot re-trigger this effect.
+  }, [stickToBottom, hasMessages, loading, agentRunning, bashRunning, schedulePinToBottom, cancelScheduledPin]);
 
-  // Token-level stream updates may not always fire ResizeObserver reliably
-  // across browsers; pin again when the streaming bubble content changes.
+  // Streaming token updates can land without a measurable size change in some
+  // browsers, so re-request a pin on every stream tick. schedulePinToBottom
+  // dedupes against the ResizeObserver's request for the same frame, so this
+  // costs nothing when the observer already handled the growth.
   useEffect(() => {
-    if (!stickToBottomRef.current) return;
     if (!streamState.isStreaming && !agentRunning) return;
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-  }, [streamState.streamingMessage, streamState.isStreaming, agentRunning, messages.length]);
+    schedulePinToBottom();
+  }, [streamState.streamingMessage, streamState.isStreaming, agentRunning, schedulePinToBottom]);
 
   // Load model list
   useEffect(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, memo, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -86,6 +86,16 @@ function saveUnreadSessionIds(ids: Set<string>): void {
   } catch {
     // ignore storage quota / privacy-mode errors
   }
+}
+
+/** True when both sets hold exactly the same ids — lets us keep the previous Set
+ *  identity so an unchanged SSE frame does not re-render the whole session list. */
+function sameIdSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) {
+    if (!b.has(id)) return false;
+  }
+  return true;
 }
 
 
@@ -256,28 +266,51 @@ function startOfLocalDay(d = new Date()): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function getSessionTimeBucket(modified: string, now = new Date()): SessionTimeBucket {
-  const date = new Date(modified);
-  if (!Number.isFinite(date.getTime())) return "older";
+/** Bucket edges as epoch timestamps so bucketing a session is pure number math. */
+interface SessionTimeBounds {
+  todayTs: number;
+  yesterdayTs: number;
+  weekTs: number;
+  monthTs: number;
+}
+
+/**
+ * Compute the four bucket edges once per grouping pass instead of allocating
+ * ~7 Date objects per session. Every edge is still the start of a natural LOCAL
+ * day (same semantics as startOfLocalDay + setDate, DST shifts included), so
+ * bucket membership across midnight is unchanged.
+ */
+function getSessionTimeBounds(now: Date = new Date()): SessionTimeBounds {
   const today = startOfLocalDay(now);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const week = new Date(today);
-  week.setDate(week.getDate() - 7);
-  const month = new Date(today);
-  month.setDate(month.getDate() - 30);
-  if (date >= today) return "today";
-  if (date >= yesterday) return "yesterday";
-  if (date >= week) return "week";
-  if (date >= month) return "month";
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const day = today.getDate();
+  return {
+    todayTs: today.getTime(),
+    yesterdayTs: new Date(year, month, day - 1).getTime(),
+    weekTs: new Date(year, month, day - 7).getTime(),
+    monthTs: new Date(year, month, day - 30).getTime(),
+  };
+}
+
+function getSessionTimeBucket(modified: string, bounds: SessionTimeBounds): SessionTimeBucket {
+  const ts = Date.parse(modified);
+  if (!Number.isFinite(ts)) return "older";
+  if (ts >= bounds.todayTs) return "today";
+  if (ts >= bounds.yesterdayTs) return "yesterday";
+  if (ts >= bounds.weekTs) return "week";
+  if (ts >= bounds.monthTs) return "month";
   return "older";
 }
 
-function groupSessionTreeByTime(roots: SessionTreeNode[]): Array<{ bucket: SessionTimeBucket; nodes: SessionTreeNode[] }> {
+function groupSessionTreeByTime(
+  roots: SessionTreeNode[],
+  bounds: SessionTimeBounds = getSessionTimeBounds(),
+): Array<{ bucket: SessionTimeBucket; nodes: SessionTreeNode[] }> {
   const map = new Map<SessionTimeBucket, SessionTreeNode[]>();
   for (const b of SESSION_TIME_BUCKETS) map.set(b, []);
   for (const node of roots) {
-    map.get(getSessionTimeBucket(node.session.modified))!.push(node);
+    map.get(getSessionTimeBucket(node.session.modified, bounds))!.push(node);
   }
   return SESSION_TIME_BUCKETS
     .map((bucket) => ({ bucket, nodes: map.get(bucket)! }))
@@ -297,7 +330,7 @@ function sessionTimeBucketLabel(
   }
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
+export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
   const { t } = useLocale();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -350,7 +383,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       // Treat the fetched running set as an initial fallback only. Once SSE is
       // live it owns this state, so a slow fetch can't revive a stale snapshot.
       if (!sseAuthoritativeRef.current) {
-        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setRunningSessionIds((prev) => {
+          const next = new Set(data.runningSessionIds ?? []);
+          return sameIdSet(prev, next) ? prev : next;
+        });
       }
       // Drop unread markers for sessions that no longer exist (e.g. deleted).
       const existingIds = new Set(data.sessions.map((s) => s.id));
@@ -395,7 +431,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[] };
         if (data.type === "running") {
           sseAuthoritativeRef.current = true;
-          setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+          // Keep the previous Set identity when the frame carries the same ids:
+          // the server re-pushes on every start/stop, and a fresh Set would
+          // re-render every session row for nothing.
+          setRunningSessionIds((prev) => {
+            const next = new Set(data.runningSessionIds ?? []);
+            return sameIdSet(prev, next) ? prev : next;
+          });
         }
       } catch {
         // ignore malformed frames
@@ -412,11 +454,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const newlyRunning = [...runningSessionIds];
 
     if (completedInBackground.length > 0 || newlyRunning.length > 0) {
+      // Only allocate when the marker set really changes — otherwise a running
+      // session would hand every row a new Set (and rewrite localStorage) on
+      // every SSE frame. The two id lists are disjoint by construction, so
+      // testing against `prev` stays correct while building `next`.
       setUnreadSessionIds((prev) => {
-        const next = new Set(prev);
-        newlyRunning.forEach((id) => next.delete(id));
-        completedInBackground.forEach((id) => next.add(id));
-        return next;
+        let next: Set<string> | null = null;
+        for (const id of newlyRunning) {
+          if (!prev.has(id)) continue;
+          next ??= new Set(prev);
+          next.delete(id);
+        }
+        for (const id of completedInBackground) {
+          if (prev.has(id)) continue;
+          next ??= new Set(prev);
+          next.add(id);
+        }
+        return next ?? prev;
       });
     }
 
@@ -712,17 +766,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentProjects = getRecentProjects(allSessions);
+  // Derived session data is memoized: any AppShell render (right-panel drag,
+  // running-id SSE frame, refresh timers) re-renders the sidebar, and these
+  // passes are O(sessions) with Map/sort allocations.
+  const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
   const showProjectFilter = recentProjects.length > 8;
-  const visibleProjects = projectFilter.trim()
-    ? recentProjects.filter((p) => p.toLowerCase().includes(projectFilter.trim().toLowerCase()))
-    : recentProjects;
+  const visibleProjects = useMemo(() => {
+    const needle = projectFilter.trim().toLowerCase();
+    if (!needle) return recentProjects;
+    return recentProjects.filter((p) => p.toLowerCase().includes(needle));
+  }, [recentProjects, projectFilter]);
 
   // Sessions of every worktree in the selected project are shown together
-  const selectedProject = projectRootFor(selectedCwd);
-  const filteredSessions = selectedProject
-    ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
-    : allSessions;
+  const selectedProject = useMemo(() => projectRootFor(selectedCwd), [projectRootFor, selectedCwd]);
+  const filteredSessions = useMemo(() => (
+    selectedProject
+      ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
+      : allSessions
+  ), [allSessions, selectedProject]);
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -753,7 +814,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   // Build parent-child tree within the filtered set
-  const sessionTree = buildSessionTree(filteredSessions);
+  const sessionTree = useMemo(() => buildSessionTree(filteredSessions), [filteredSessions]);
+  // Local-day bucket edges are recomputed with the grouping, so a day rollover
+  // is picked up on the next session refresh without any timer.
+  const sessionGroups = useMemo(() => groupSessionTreeByTime(sessionTree), [sessionTree]);
+
+  const handleSessionRenamed = useCallback(() => {
+    void loadSessions();
+  }, [loadSessions]);
+
+  const handleSessionDeletedFromList = useCallback((id: string) => {
+    onSessionDeleted?.(id);
+    void loadSessions();
+  }, [onSessionDeleted, loadSessions]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -1224,7 +1297,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("sidebar.noSessions")}
           </div>
         )}
-        {groupSessionTreeByTime(sessionTree).map(({ bucket, nodes }, groupIndex) => (
+        {sessionGroups.map(({ bucket, nodes }, groupIndex) => (
           <div key={bucket} className="sidebar-session-group">
             <div
               className="sidebar-session-group-label"
@@ -1248,11 +1321,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 runningSessionIds={runningSessionIds}
                 unreadSessionIds={unreadSessionIds}
                 onSelectSession={handleSelectSessionFromList}
-                onRenamed={loadSessions}
-                onSessionDeleted={(id) => {
-                  onSessionDeleted?.(id);
-                  loadSessions();
-                }}
+                onRenamed={handleSessionRenamed}
+                onSessionDeleted={handleSessionDeletedFromList}
                 depth={0}
               />
             ))}
@@ -1345,9 +1415,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       )}
     </div>
   );
-}
+});
 
-function SessionTreeItem({
+const SessionTreeItem = memo(function SessionTreeItem({
   node,
   selectedSessionId,
   runningSessionIds,
@@ -1368,6 +1438,11 @@ function SessionTreeItem({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasChildren = node.children.length > 0;
+  const session = node.session;
+
+  // Stable identities so the memoized row only re-renders on real prop changes.
+  const handleClick = useCallback(() => onSelectSession(session), [onSelectSession, session]);
+  const handleToggleCollapse = useCallback(() => setCollapsed((v) => !v), []);
 
   return (
     <div>
@@ -1384,17 +1459,17 @@ function SessionTreeItem({
           }} />
         )}
         <SessionItem
-          session={node.session}
-          isSelected={node.session.id === selectedSessionId}
-          isRunning={runningSessionIds.has(node.session.id)}
-          isUnread={unreadSessionIds.has(node.session.id)}
-          onClick={() => onSelectSession(node.session)}
+          session={session}
+          isSelected={session.id === selectedSessionId}
+          isRunning={runningSessionIds.has(session.id)}
+          isUnread={unreadSessionIds.has(session.id)}
+          onClick={handleClick}
           onRenamed={onRenamed}
-          onDeleted={(id) => onSessionDeleted?.(id)}
+          onDeleted={onSessionDeleted}
           depth={depth}
           hasChildren={hasChildren}
           collapsed={collapsed}
-          onToggleCollapse={() => setCollapsed((v) => !v)}
+          onToggleCollapse={handleToggleCollapse}
         />
       </div>
       {hasChildren && !collapsed && (
@@ -1416,7 +1491,7 @@ function SessionTreeItem({
       )}
     </div>
   );
-}
+});
 
 function RunningSessionIndicator() {
   const { t } = useLocale();
@@ -1483,7 +1558,7 @@ function UnreadSessionIndicator() {
   );
 }
 
-function SessionItem({
+const SessionItem = memo(function SessionItem({
   session,
   isSelected,
   isRunning,
@@ -1763,4 +1838,4 @@ function SessionItem({
       )}
     </div>
   );
-}
+});

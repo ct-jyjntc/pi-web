@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createReadStream, statSync } from "fs";
+import { createReadStream } from "fs";
 import { createInterface } from "readline";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { listSessionFiles, readSessionHeader } from "@/lib/session-reader";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
  * Usage statistics aggregated from pi session .jsonl files.
  *
  * Session archives can be large, so:
+ * - the session list comes from readdir + header-only reads (never a full parse)
  * - lines are streamed (no full-file reads)
  * - field extraction is substring-based (assistant lines carry huge thinking blocks)
  * - per-file results are cached by size:mtime so only changed sessions are re-parsed
@@ -167,24 +168,33 @@ function mergeSlices(slices: Iterable<FileDaySlice[]>): Map<string, DayBucket> {
   return days;
 }
 
+/** Session id from the archive's header line, or undefined when unreadable. */
+function readSessionId(filePath: string): string | undefined {
+  try {
+    return readSessionHeader(filePath)?.id;
+  } catch {
+    return undefined;
+  }
+}
+
 async function buildAggregate(): Promise<{ data: UsageAggregate; signature: string }> {
-  const sessions = await SessionManager.listAll();
+  // Path-sorted so the aggregate signature is stable across readdir orderings.
+  const files = (await listSessionFiles()).sort((a, b) => a.path.localeCompare(b.path));
   const cache = fileCache();
   const livePaths = new Set<string>();
   const sigParts: string[] = [];
   const queue: Array<{ path: string; id: string; sig: string }> = [];
 
-  for (const s of sessions) {
-    livePaths.add(s.path);
-    let sig = `${s.path}:gone`;
-    try {
-      const st = statSync(s.path);
-      sig = `${s.path}:${st.size}:${Math.round(st.mtimeMs)}`;
-    } catch {
-      // unreadable
-    }
+  for (const file of files) {
+    // The session id sits in the header line; SessionManager.listAll() would parse
+    // every archive end-to-end (~180ms / 68MB locally) just to hand back path + id.
+    const id = readSessionId(file.path);
+    // Headerless archives are skipped by SessionManager.listAll() as well.
+    if (!id) continue;
+    livePaths.add(file.path);
+    const sig = `${file.path}:${file.size}:${Math.round(file.mtimeMs)}`;
     sigParts.push(sig);
-    queue.push({ path: s.path, id: s.id, sig });
+    queue.push({ path: file.path, id, sig });
   }
 
   // Drop entries for sessions that no longer exist.

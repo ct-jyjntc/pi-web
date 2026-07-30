@@ -21,6 +21,7 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
+import { invalidateUtilityModelRuntimes } from "./utility-model";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
@@ -91,6 +92,30 @@ type ExtensionBindingOptions = {
 };
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+
+/**
+ * Per-chunk streaming events. pi emits these hundreds to thousands of times per
+ * reply, and none of them can change `AgentSessionWrapper.isRunning()`, which is
+ * `_alive && (promptRunning || inner.isStreaming || inner.isCompacting || inner.isBashRunning)`:
+ *
+ * - `promptRunning` only flips in `send("prompt")`, which notifies explicitly.
+ * - `inner.isStreaming` (`_isAgentRunActive`) is set before `agent_start` and
+ *   cleared right before `agent_settled`.
+ * - `inner.isCompacting` tracks the compaction/branch-summary abort controllers,
+ *   whose windows are bracketed by `compaction_start` / `compaction_end` (and by
+ *   `send("compact")` / `send("navigate_tree")` notifying on completion).
+ * - `inner.isBashRunning` is only ever set by `AgentSession.executeBash()`, whose
+ *   single caller is `send("bash")` — it notifies before and after.
+ *
+ * This is deliberately a deny-list rather than an allow-list: any event type a
+ * future SDK version adds still triggers a notification, so a new running-state
+ * transition can never leave the sidebar badge stuck.
+ */
+const STREAMING_ONLY_EVENT_TYPES = new Set([
+  "message_update", // one per text/thinking/toolcall delta
+  "tool_execution_update", // one per streamed partial tool result
+  "bash_execution_update", // one per shell output chunk
+]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
 class PlainTextTheme extends Theme {
@@ -188,9 +213,10 @@ export class AgentSessionWrapper {
         invalidateSessionListCache();
       }
       this.emit(event);
-      // Streaming / compaction / tool events flow through here; re-broadcast
-      // the running-status snapshot so the sidebar can update live.
-      notifyRunningChange();
+      // Compaction / run-lifecycle / tool events can change the running status;
+      // re-broadcast the snapshot so the sidebar updates live. Per-chunk
+      // streaming events cannot, so they skip the registry scan entirely.
+      if (!STREAMING_ONLY_EVENT_TYPES.has(event.type)) notifyRunningChange();
     });
     this.resetIdleTimer();
     notifyRunningChange();
@@ -458,6 +484,7 @@ export class AgentSessionWrapper {
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
         invalidateModelsCache();
+        invalidateUtilityModelRuntimes();
         invalidateSessionListCache();
         return { id: model.id, provider: model.provider };
       }
@@ -506,7 +533,11 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot navigate while a shell command is running");
         }
-        const result = await this.inner.navigateTree(command.targetId as string, {});
+        // Branch summarization keeps isCompacting() true for the whole call and
+        // emits no event on completion — notify so the badge clears.
+        const result = await this.withFinalRunningNotification(() =>
+          this.inner.navigateTree(command.targetId as string, {})
+        );
         return { cancelled: result.cancelled };
       }
 
@@ -631,6 +662,7 @@ export class AgentSessionWrapper {
         }
         this.applyForcedEmptySystemPrompt();
         invalidateModelsCache();
+        invalidateUtilityModelRuntimes();
         return { success: true };
       }
 
@@ -1140,6 +1172,7 @@ declare global {
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
   var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
+  var __piLastRunningSnapshot: string | undefined;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -1221,17 +1254,19 @@ export function subscribeRunningSessions(listener: (ids: string[]) => void): () 
   return () => { listeners.delete(listener); };
 }
 
-let lastRunningSnapshot = "";
-
 /**
  * Recompute the running-session-id set and, if it changed since the last
  * notification, broadcast it to subscribers. Cheap to call often.
+ *
+ * The dedupe snapshot lives on globalThis next to the listener set: a module-level
+ * variable would drift out of sync with the listeners across HMR reloads or when
+ * several bundles (route handlers vs. server components) load this module.
  */
 export function notifyRunningChange(): void {
   const ids = getRunningRpcSessionIds();
   const snapshot = JSON.stringify([...ids].sort());
-  if (snapshot === lastRunningSnapshot) return;
-  lastRunningSnapshot = snapshot;
+  if (snapshot === globalThis.__piLastRunningSnapshot) return;
+  globalThis.__piLastRunningSnapshot = snapshot;
   for (const listener of getRunningListeners()) {
     try { listener(ids); } catch { /* ignore listener errors */ }
   }

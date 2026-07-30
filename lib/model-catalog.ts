@@ -382,6 +382,63 @@ function matchRank(entry: ModelCatalogEntry, query: string, providerHint: string
   return rank;
 }
 
+// String.prototype.localeCompare re-derives a collator from the options object on
+// every call; hoisting the two collators used by the ranking chain removes that
+// per-comparison setup. Same locale/options => same ordering as before.
+const providerNameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+const modelNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+interface RankedCatalogEntry {
+  entry: ModelCatalogEntry;
+  rank: number;
+  /** Position in the source catalog; final tiebreak so ties keep input order. */
+  index: number;
+}
+
+/**
+ * Total order matching the previous `.sort()` chain, with the source index as a
+ * last tiebreak. That makes it equivalent to a stable sort, which is what lets
+ * the bounded selection below reproduce `sort().slice(limit)` exactly.
+ */
+function compareRankedEntries(a: RankedCatalogEntry, b: RankedCatalogEntry): number {
+  return a.rank - b.rank
+    || providerNameCollator.compare(a.entry.providerName, b.entry.providerName)
+    || modelNameCollator.compare(a.entry.name, b.entry.name)
+    || modelNameCollator.compare(a.entry.id, b.entry.id)
+    || a.index - b.index;
+}
+
+/** Restore the max-heap property downwards from `root`. */
+function siftDown(heap: RankedCatalogEntry[], root: number): void {
+  const size = heap.length;
+  let node = root;
+  for (;;) {
+    const left = node * 2 + 1;
+    if (left >= size) return;
+    const right = left + 1;
+    let largest = compareRankedEntries(heap[left], heap[node]) > 0 ? left : node;
+    if (right < size && compareRankedEntries(heap[right], heap[largest]) > 0) largest = right;
+    if (largest === node) return;
+    const swap = heap[node];
+    heap[node] = heap[largest];
+    heap[largest] = swap;
+    node = largest;
+  }
+}
+
+/** Restore the max-heap property upwards from `start`. */
+function siftUp(heap: RankedCatalogEntry[], start: number): void {
+  let node = start;
+  while (node > 0) {
+    const parent = (node - 1) >> 1;
+    if (compareRankedEntries(heap[node], heap[parent]) <= 0) return;
+    const swap = heap[node];
+    heap[node] = heap[parent];
+    heap[parent] = swap;
+    node = parent;
+  }
+}
+
 export function searchModelCatalog(
   entries: readonly ModelCatalogEntry[],
   query: string,
@@ -392,13 +449,26 @@ export function searchModelCatalog(
   const normalizedProvider = providerHint.trim().toLocaleLowerCase();
   const cappedLimit = Math.max(1, Math.min(100, Math.floor(limit) || 50));
 
-  return entries
-    .map((entry) => ({ entry, rank: matchRank(entry, normalizedQuery, normalizedProvider) }))
-    .filter(({ rank }) => !normalizedQuery || rank < 20)
-    .sort((a, b) => a.rank - b.rank
-      || a.entry.providerName.localeCompare(b.entry.providerName, undefined, { sensitivity: "base" })
-      || a.entry.name.localeCompare(b.entry.name, undefined, { numeric: true, sensitivity: "base" })
-      || a.entry.id.localeCompare(b.entry.id, undefined, { numeric: true, sensitivity: "base" }))
-    .slice(0, cappedLimit)
-    .map(({ entry }) => entry);
+  // Top-k selection instead of sorting the whole catalog: the catalog is a few
+  // thousand entries, every keystroke re-runs this, and the comparison chain is
+  // ICU collation. A bounded max-heap costs one comparison per entry once full
+  // (O(n log k) worst case) instead of O(n log n), and because
+  // compareRankedEntries is a total order the result is byte-identical to
+  // sort().slice(cappedLimit).
+  const heap: RankedCatalogEntry[] = [];
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index];
+    const rank = matchRank(entry, normalizedQuery, normalizedProvider);
+    if (normalizedQuery && rank >= 20) continue;
+    const candidate: RankedCatalogEntry = { entry, rank, index };
+    if (heap.length < cappedLimit) {
+      heap.push(candidate);
+      siftUp(heap, heap.length - 1);
+    } else if (compareRankedEntries(candidate, heap[0]) < 0) {
+      heap[0] = candidate;
+      siftDown(heap, 0);
+    }
+  }
+
+  return heap.sort(compareRankedEntries).map(({ entry }) => entry);
 }

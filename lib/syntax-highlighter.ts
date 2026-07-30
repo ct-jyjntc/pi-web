@@ -1,20 +1,16 @@
-// Shared syntax highlighter with an on-demand language set.
+// Shared syntax highlighter with an on-demand language and theme set.
 //
 // The default `Prism` export of react-syntax-highlighter bundles
 // `refractor/all` (~290 languages, ~600KB minified) into the first-load
 // chunk. PrismLight with explicitly registered languages keeps only the
 // languages the app realistically renders; unregistered languages fall
-// back to plain text.
+// back to plain text. Themes follow the same rule: only the two defaults are
+// static, the rest are fetched when selected (see THEME_LOADERS).
 import type { CSSProperties } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
-import {
-  vs as vsRaw,
-  vscDarkPlus as vscDarkPlusRaw,
-  oneLight as oneLightRaw,
-  oneDark as oneDarkRaw,
-  ghcolors as ghcolorsRaw,
-  materialDark as materialDarkRaw,
-} from "react-syntax-highlighter/dist/esm/styles/prism";
+import vsRaw from "react-syntax-highlighter/dist/esm/styles/prism/vs";
+import vscDarkPlusRaw from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
+import { setAppearanceSnapshot } from "@/lib/appearance-store";
 import type { CodeThemeId } from "@/lib/web-settings";
 
 import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
@@ -145,19 +141,46 @@ function normalizePrismBackground(
 
 export const vs = normalizePrismBackground(vsRaw as Record<string, CSSProperties>);
 export const vscDarkPlus = normalizePrismBackground(vscDarkPlusRaw as Record<string, CSSProperties>);
-export const oneLight = normalizePrismBackground(oneLightRaw as Record<string, CSSProperties>);
-export const oneDark = normalizePrismBackground(oneDarkRaw as Record<string, CSSProperties>);
-export const ghcolors = normalizePrismBackground(ghcolorsRaw as Record<string, CSSProperties>);
-export const materialDark = normalizePrismBackground(materialDarkRaw as Record<string, CSSProperties>);
 
-const THEME_MAP: Record<CodeThemeId, Record<string, CSSProperties>> = {
-  vs,
-  ghcolors,
-  oneLight,
-  vscDarkPlus,
-  oneDark,
-  materialDark,
+/**
+ * Only the two default themes ship in the first-load chunk. The other four are
+ * ~29KB raw / ~4.7KB gzip of style objects that most users never select, so
+ * they are fetched the first time they are actually asked for.
+ */
+const THEME_LOADERS: Partial<Record<CodeThemeId, () => Promise<{ default: Record<string, CSSProperties> }>>> = {
+  oneLight: () => import("react-syntax-highlighter/dist/esm/styles/prism/one-light"),
+  oneDark: () => import("react-syntax-highlighter/dist/esm/styles/prism/one-dark"),
+  ghcolors: () => import("react-syntax-highlighter/dist/esm/styles/prism/ghcolors"),
+  materialDark: () => import("react-syntax-highlighter/dist/esm/styles/prism/material-dark"),
 };
+
+const THEME_MAP: Partial<Record<CodeThemeId, Record<string, CSSProperties>>> = {
+  vs,
+  vscDarkPlus,
+};
+
+const loadingThemes = new Set<CodeThemeId>();
+
+function loadTheme(id: CodeThemeId): void {
+  // SSR only ever asks for the two defaults (useAppearance falls back to
+  // DEFAULTS on the server), so keep module state request-independent.
+  if (typeof window === "undefined") return;
+  const loader = THEME_LOADERS[id];
+  if (!loader || loadingThemes.has(id)) return;
+  loadingThemes.add(id);
+  void loader()
+    .then((mod) => {
+      THEME_MAP[id] = normalizePrismBackground(mod.default);
+      // getCodeThemeStyle() has to stay synchronous — its callers read it
+      // straight out of render. Every one of them also reads useAppearance(),
+      // so re-emitting the (unchanged) snapshot is what repaints them with the
+      // real theme once the chunk lands.
+      setAppearanceSnapshot({});
+    })
+    .catch(() => {
+      loadingThemes.delete(id);
+    });
+}
 
 export const CODE_THEME_OPTIONS: Array<{ id: CodeThemeId; label: string; mode: "light" | "dark" }> = [
   { id: "vs", label: "VS Light", mode: "light" },
@@ -168,7 +191,15 @@ export const CODE_THEME_OPTIONS: Array<{ id: CodeThemeId; label: string; mode: "
   { id: "materialDark", label: "Material Dark", mode: "dark" },
 ];
 
+/**
+ * Synchronous by contract. A theme that has not been fetched yet renders with
+ * the matching default for one paint and upgrades in place.
+ */
 export function getCodeThemeStyle(id: CodeThemeId | undefined, isDark: boolean): Record<string, CSSProperties> {
-  if (id && THEME_MAP[id]) return THEME_MAP[id];
-  return isDark ? vscDarkPlus : vs;
+  const fallback = isDark ? vscDarkPlus : vs;
+  if (!id) return fallback;
+  const loaded = THEME_MAP[id];
+  if (loaded) return loaded;
+  loadTheme(id);
+  return fallback;
 }

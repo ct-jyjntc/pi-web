@@ -54,6 +54,17 @@ function asOptionalBool(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+/**
+ * `?utilityModels=0` skips the model catalog for callers that only need the
+ * settings object (the transcript polls this endpoint for booleans). Default
+ * stays "include" so existing callers are unaffected.
+ */
+function wantsUtilityModels(raw: string | null): boolean {
+  if (raw === null) return true;
+  const value = raw.trim().toLowerCase();
+  return value !== "0" && value !== "false" && value !== "no";
+}
+
 export async function GET(req: NextRequest) {
   try {
     const requested = req.nextUrl.searchParams.get("cwd");
@@ -69,10 +80,12 @@ export async function GET(req: NextRequest) {
 
     const settings = readWebSettings();
     let models: Awaited<ReturnType<typeof listUtilityModels>> = [];
-    try {
-      models = await listUtilityModels(cwd);
-    } catch {
-      models = [];
+    if (wantsUtilityModels(req.nextUrl.searchParams.get("utilityModels"))) {
+      try {
+        models = await listUtilityModels(cwd);
+      } catch {
+        models = [];
+      }
     }
 
     return NextResponse.json({

@@ -6,6 +6,7 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { getProjectTrustStatus, trustProject } from "@/lib/project-trust";
 import { destroyRpcSessionsForCwd, hasBusyRpcSessionForCwd } from "@/lib/rpc-manager";
+import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,7 @@ export async function POST(req: Request) {
 
     const status = trustProject(result.cwd, agentDir);
     invalidateModelsCache();
+    invalidateUtilityModelRuntimes();
     destroyRpcSessionsForCwd(result.cwd);
     return NextResponse.json(status);
   } catch (error) {

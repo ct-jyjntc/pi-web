@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { invalidateWebSettings, patchWebSettings, useWebSettings } from "@/lib/web-settings-store";
 
 function playTone(ctx: AudioContext) {
   const now = ctx.currentTime;
@@ -33,24 +34,16 @@ export function useAudio() {
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
 
-  // Hydrate from server web-settings (source of truth across devices/restarts).
+  // Server web-settings is the source of truth across devices/restarts; the
+  // shared store keeps this to one request for the whole app and pushes later
+  // changes (e.g. the Settings panel toggle) without a remount.
+  const serverSoundEnabled = useWebSettings()?.soundEnabled;
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/web-settings")
-      .then(async (res) => {
-        const data = await res.json() as { settings?: { soundEnabled?: boolean } };
-        if (cancelled || typeof data.settings?.soundEnabled !== "boolean") return;
-        enabledRef.current = data.settings.soundEnabled;
-        localStorage.setItem("pi-sound-enabled", String(data.settings.soundEnabled));
-        setEnabled(data.settings.soundEnabled);
-      })
-      .catch(() => {
-        // keep localStorage value
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (typeof serverSoundEnabled !== "boolean") return;
+    enabledRef.current = serverSoundEnabled;
+    localStorage.setItem("pi-sound-enabled", String(serverSoundEnabled));
+    setEnabled(serverSoundEnabled);
+  }, [serverSoundEnabled]);
 
   const ctxRef = useRef<AudioContext | null>(null);
   const getCtx = useCallback((): AudioContext | null => {
@@ -76,11 +69,16 @@ export function useAudio() {
     enabledRef.current = next;
     localStorage.setItem("pi-sound-enabled", String(next));
     setEnabled(next);
+    // Keep the shared cache in sync so other consumers do not read a stale value.
+    patchWebSettings({ soundEnabled: next });
     void fetch("/api/web-settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ soundEnabled: next }),
-    }).catch(() => {});
+    }).catch(() => {
+      // Write may have failed — force the next read to hit the server.
+      invalidateWebSettings();
+    });
   }, [unlockAudio]);
 
   const setSoundEnabled = useCallback((next: boolean) => {

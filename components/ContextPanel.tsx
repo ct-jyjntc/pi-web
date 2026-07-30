@@ -42,20 +42,6 @@ function visibleExtensionStatuses(statuses: ExtensionStatusItem[]): ExtensionSta
 
 type SessionCopyField = "file" | "id";
 
-export function ContextTabBadge() {
-  const { contextUsage } = useSessionMetrics();
-  const pct = contextUsage?.percent;
-  if (pct == null) return null;
-  return (
-    <span
-      className="right-workspace-tab-count"
-      style={pct > 90 ? { color: "var(--destructive)" } : undefined}
-    >
-      {`${Math.round(pct)}%`}
-    </span>
-  );
-}
-
 export function ContextPanel() {
   const { t } = useLocale();
   const { contextUsage, sessionStats, extensionStatuses } = useSessionMetrics();

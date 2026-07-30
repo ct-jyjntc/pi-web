@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       ...health,
-      report: formatLspHealthReport(cwd),
+      report: formatLspHealthReport(health),
     });
   } catch (error) {
     return NextResponse.json(

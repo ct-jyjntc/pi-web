@@ -3,6 +3,8 @@
  * Auto-check runs once per page load when settings.autoCheckUpdates is true.
  */
 
+import { ensureWebSettings } from "@/lib/web-settings-store";
+
 export type AppUpdateInfo = {
   currentVersion: string;
   latestVersion: string;
@@ -152,15 +154,13 @@ export function startAppUpdateAutoCheck(options?: {
   window.setTimeout(() => {
     void (async () => {
       try {
-        const res = await fetch("/api/web-settings");
-        const data = await res.json() as {
-          settings?: { autoCheckUpdates?: boolean; autoDownloadUpdates?: boolean };
-        };
-        if (data.settings?.autoCheckUpdates === false) return;
+        const settings = await ensureWebSettings();
+        // Unreadable prefs: skip rather than risk an unwanted network check.
+        if (!settings || settings.autoCheckUpdates === false) return;
         const info = await checkAppUpdate();
         if (info) {
           options?.onAvailable?.(info);
-          if (data.settings?.autoDownloadUpdates) {
+          if (settings?.autoDownloadUpdates) {
             window.open(info.releaseUrl, "_blank", "noopener,noreferrer");
           }
         }

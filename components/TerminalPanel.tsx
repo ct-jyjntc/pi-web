@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useLocale } from "@/hooks/useLocale";
+import { ensureWebSettings } from "@/lib/web-settings-store";
 // xterm.css is vendored into app/globals.css — avoid PostCSS/lightningcss on the package CSS.
 
 interface Props {
@@ -303,10 +304,9 @@ export function TerminalPanel({
     void start();
 
     // Apply terminal font from web-settings when available.
-    void fetch("/api/web-settings")
-      .then(async (res) => {
-        const data = await res.json() as { settings?: { terminalFont?: string } };
-        const font = data.settings?.terminalFont?.trim();
+    void ensureWebSettings()
+      .then((settings) => {
+        const font = settings?.terminalFont?.trim();
         if (!font || disposedRef.current || !termRef.current) return;
         try {
           localStorage.setItem("pi-terminal-font", font);

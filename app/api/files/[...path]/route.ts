@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
+import fs, { promises as fsp } from "fs";
 import path from "path";
 import {
   getAllowedFileRoots,
@@ -8,6 +8,7 @@ import {
   isWindowsAbsolutePath,
   normalizeSlashes,
 } from "@/lib/file-access";
+import { resolveRealRoots } from "@/lib/path-security";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import {
   MAX_UPLOAD_FILE_BYTES,
@@ -41,6 +42,9 @@ const IGNORED_NAMES = new Set([
 ]);
 
 const IGNORED_SUFFIXES = [".pyc"];
+
+/** Reused across watch events — a new TextEncoder per SSE frame is pure garbage. */
+const textEncoder = new TextEncoder();
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
@@ -93,7 +97,7 @@ async function getUploadDirectory(segments: string[]): Promise<
 
   let stat: fs.Stats;
   try {
-    stat = fs.statSync(directory);
+    stat = await fsp.stat(directory);
   } catch {
     return { response: NextResponse.json({ error: "Upload directory not found" }, { status: 404 }) };
   }
@@ -103,16 +107,10 @@ async function getUploadDirectory(segments: string[]): Promise<
 
   // A browsable directory can be a symlink. Resolve both sides before writes
   // so a symlink inside an allowed root cannot redirect uploads outside it.
-  const realDirectory = fs.realpathSync(directory);
-  const realRoots = new Set<string>();
-  for (const root of allowedRoots) {
-    try {
-      realRoots.add(fs.realpathSync(root));
-    } catch {
-      // Ignore stale session roots that no longer exist.
-    }
-  }
-  if (!isFilePathAllowed(realDirectory, realRoots)) {
+  // The resolved path is the one authorized *and* the one written to, so there is
+  // no window where the checked path and the target path can diverge.
+  const realDirectory = await fsp.realpath(directory);
+  if (!isFilePathAllowed(realDirectory, resolveRealRoots(allowedRoots))) {
     return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
   }
 
@@ -219,7 +217,7 @@ export async function POST(
 
       if (conflictSet.has(file.name)) {
         try {
-          fs.unlinkSync(destination);
+          await fsp.unlink(destination);
         } catch (error) {
           errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
           continue;
@@ -227,7 +225,9 @@ export async function POST(
       }
 
       try {
-        fs.writeFileSync(destination, bytes, { flag: "wx" });
+        // "wx" keeps the write atomic against a concurrent create: a file that
+        // reappeared after inspectUploadTargets() must fail, not be overwritten.
+        await fsp.writeFile(destination, bytes, { flag: "wx" });
         uploaded.push(file.name);
       } catch (error) {
         errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
@@ -439,7 +439,7 @@ export async function GET(
 
     let stat: fs.Stats;
     try {
-      stat = fs.statSync(filePath);
+      stat = await fsp.stat(filePath);
     } catch {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -470,7 +470,7 @@ export async function GET(
       if (stat.size > TEXT_PREVIEW_MAX_BYTES) {
         return NextResponse.json({ error: "File too large for preview (>256KB)" }, { status: 413 });
       }
-      const content = fs.readFileSync(filePath, "utf-8");
+      const content = await fsp.readFile(filePath, "utf-8");
       const language = getLanguage(filePath);
       return NextResponse.json({ content, language, size: stat.size });
     }
@@ -541,7 +541,7 @@ export async function GET(
           const send = (eventName: string, data: Record<string, unknown>) => {
             const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
             try {
-              controller.enqueue(new TextEncoder().encode(payload));
+              controller.enqueue(textEncoder.encode(payload));
             } catch {
               // client disconnected
             }
@@ -550,17 +550,19 @@ export async function GET(
           send("connected", { filePath });
           try {
             watcher = fs.watch(filePath, () => {
-              try {
-                const s = fs.statSync(filePath);
+              // Async stat: a watch event must not block the event loop. stat()
+              // always reports current state, so a late resolution can only send
+              // a redundant change event, never miss one.
+              void fsp.stat(filePath).then((s) => {
                 // Some platforms emit watch events for file reads/attribute
                 // access. Ignore those or the client's refresh read loops.
                 if (s.mtimeMs === lastMtimeMs && s.size === lastSize) return;
                 lastMtimeMs = s.mtimeMs;
                 lastSize = s.size;
                 send("change", { mtime: s.mtime.toISOString(), size: s.size });
-              } catch {
+              }).catch(() => {
                 send("change", { mtime: new Date().toISOString(), size: 0 });
-              }
+              });
             });
             watcher.on("error", () => {
               try { controller.close(); } catch { /* ignore */ }
@@ -591,7 +593,7 @@ export async function GET(
 
     // Avoid per-entry stat calls for normal files and directories. Symlinks and
     // filesystems without directory type information use the stat fallback.
-    const dirents = fs.readdirSync(filePath, { withFileTypes: true });
+    const dirents = await fsp.readdir(filePath, { withFileTypes: true });
     const entries = dirents
       .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
       .flatMap((d) => {

@@ -105,6 +105,9 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  /** Host measures the toolbar strip for the composer underlay — handed over by
+   *  ref so the host's ResizeObserver never has to querySelector on each tick. */
+  toolbarRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 export interface ChatInputHandle {
@@ -117,6 +120,11 @@ export interface ChatInputHandle {
 const PERMISSION_MODES = ["ask", "full"] as const;
 type PermissionMode = (typeof PERMISSION_MODES)[number];
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
+/** Composer textarea autosize bounds, measured with multi-line metrics
+ *  (font-size 14 / line-height 1.45 / 6px vertical padding, 32px min-height):
+ *  one line lands at ~32px, a wrapped second line at ~53px. */
+const SINGLE_LINE_MAX_HEIGHT = 44;
+const MAX_INPUT_HEIGHT = 200;
 const MODEL_FILTER_THRESHOLD = 8;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
@@ -308,6 +316,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  toolbarRef,
 
 }: Props, ref) {
   const { t } = useLocale();
@@ -347,6 +356,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRowRef = useRef<HTMLElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
@@ -544,21 +554,38 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    const row = ta.closest(".composer-input-row");
-    // Measure natural height with single-line metrics first.
-    ta.style.height = "32px";
-    ta.style.lineHeight = "32px";
-    ta.style.padding = "0";
-    // Expand for multi-line content.
+    // Cache the row: the textarea never moves between parents, and `closest()`
+    // on every keystroke walks the DOM for nothing.
+    let row = inputRowRef.current;
+    if (!row) {
+      row = ta.closest<HTMLElement>(".composer-input-row");
+      inputRowRef.current = row;
+    }
+    // An empty composer can never be multi-line — reset without measuring, so
+    // clearing the input after send costs zero forced layouts.
+    if (!value) {
+      row?.classList.remove("is-multiline");
+      ta.style.lineHeight = "32px";
+      ta.style.padding = "0";
+      ta.style.height = "32px";
+      return;
+    }
+    // One measurement per keystroke. Reading `scrollHeight` forces a full
+    // document layout (the transcript shares the layout tree), so measure
+    // directly in multi-line metrics: a single line still floors at the 32px
+    // min-height, anything that wraps clears SINGLE_LINE_MAX_HEIGHT.
+    ta.style.lineHeight = "1.45";
+    ta.style.padding = "6px 0";
+    ta.style.height = "auto";
     const natural = ta.scrollHeight;
-    const multiline = Boolean(value) && natural > 36;
+    const multiline = natural > SINGLE_LINE_MAX_HEIGHT;
     row?.classList.toggle("is-multiline", multiline);
     if (multiline) {
-      ta.style.lineHeight = "1.45";
-      ta.style.padding = "6px 0";
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      ta.style.height = `${Math.min(natural, MAX_INPUT_HEIGHT)}px`;
     } else {
+      // Single-line metrics: line box equals the control height → true centering.
+      ta.style.lineHeight = "32px";
+      ta.style.padding = "0";
       ta.style.height = "32px";
     }
   }, [value]);
@@ -1078,8 +1105,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const thinkingDisplayLabel = (() => {
     const lvl = thinkingLevel ?? "auto";
-    if (lvl === "auto" || !thinkingLevelMap) return lvl;
-    return thinkingLevelMap[lvl] ?? lvl;
+    const raw = (lvl === "auto" || !thinkingLevelMap) ? lvl : (thinkingLevelMap[lvl] ?? lvl);
+    // Toolbar shows the level token in uppercase (AUTO / LOW / HIGH…).
+    return String(raw).toUpperCase();
   })();
   const permissionLabel = permissionMode === "full" ? t("chat.permissionFull") : t("chat.permissionAsk");
 
@@ -1777,7 +1805,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           </div>
 
           {/* Toolbar strip — same chrome language as top bar */}
-          <div className="composer-toolbar">
+          <div ref={toolbarRef} className="composer-toolbar">
           {/* LEFT: attach + model selector */}
           <div className={`chrome-controls composer-toolbar-start`} style={{ flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
             <button

@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, promises as fsp, rmSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { promisify } from "util";
@@ -79,8 +79,9 @@ async function getPiCliPath(): Promise<string | null> {
 }
 
 /**
- * Patch the exported HTML to fix recursive functions that overflow
- * the call stack on deep linear session trees (e.g., 5000+ entries).
+ * Patches applied by patchExportHtml() to the exported HTML, replacing recursive
+ * functions that overflow the call stack on deep linear session trees
+ * (e.g., 5000+ entries).
  *
  * ## Root Cause
  * pi-coding-agent's template.js uses recursive helpers to render and
@@ -113,40 +114,29 @@ async function getPiCliPath(): Promise<string | null> {
  *                   stack2 for processing children before parent)
  *
  * ## Line Ending Normalization
- * This file (route.ts) uses CRLF (Windows), while template.js uses LF
- * (Unix). The template strings in the backtick literals inherit the
- * file's CRLF line endings. At runtime, readFileSync() also returns
- * CRLF on Windows. We normalize everything to LF before matching.
+ * This file (route.ts) may be checked out with CRLF (Windows), while
+ * template.js uses LF (Unix). The template strings in the backtick
+ * literals inherit the file's line endings, so a patch written here can
+ * differ from the exported HTML by \r\n vs \n alone.
  *
- * The helper `n(s)` strips \r\n → \n on both the HTML and the
- * replacement strings, ensuring cross-platform matching.
+ * The exported HTML inlines the whole session JSON and can reach tens of
+ * MB, so it is never copied to normalize line endings. Each patch is
+ * looked up with LF needles first and CRLF needles only on a miss, then
+ * all patches are spliced into the document in a single pass.
  */
-function patchExportHtml(html: string): string {
-  // Normalize line endings: route.ts is CRLF, template.js is LF.
-  // Without this, the replace() below would fail on Windows.
-  const n = (s: string) => s.replace(/\r\n/g, "\n");
-  html = n(html);
+type ExportHtmlPatch = { name: string; search: string; replacement: string };
+type LocatedExportHtmlPatch = { index: number; length: number; replacement: string };
 
-  const replaceRequired = (source: string, name: string, search: string, replacement: string) => {
-    const normalizedSearch = n(search);
-    const normalizedReplacement = n(replacement);
-    const matches = source.split(normalizedSearch).length - 1;
-    if (matches !== 1) {
-      throw new Error(`Failed to patch exported HTML: ${name} expected 1 match, found ${matches}`);
-    }
-    return source.replace(normalizedSearch, normalizedReplacement);
-  };
-
-  html = replaceRequired(
-    html,
-    "sortChildren",
-    `        function sortChildren(node) {
+const EXPORT_HTML_PATCHES: ExportHtmlPatch[] = [
+  {
+    name: "sortChildren",
+    search: `        function sortChildren(node) {
           node.children.sort((a, b) =>
             new Date(a.entry.timestamp).getTime() - new Date(b.entry.timestamp).getTime()
           );
           node.children.forEach(sortChildren);
         }`,
-    `        function sortChildren(root) {
+    replacement: `        function sortChildren(root) {
           const stack = [root];
           while (stack.length) {
             const node = stack.pop();
@@ -157,31 +147,27 @@ function patchExportHtml(html: string): string {
               stack.push(node.children[i]);
             }
           }
-        }`
-  );
-
-  html = replaceRequired(
-    html,
-    "mapNodes",
-    `          function mapNodes(node) {
+        }`,
+  },
+  {
+    name: "mapNodes",
+    search: `          function mapNodes(node) {
             treeNodeMap.set(node.entry.id, node);
             node.children.forEach(mapNodes);
           }
           tree.forEach(mapNodes);`,
-    `          const stack = [...tree].reverse();
+    replacement: `          const stack = [...tree].reverse();
           while (stack.length) {
             const node = stack.pop();
             treeNodeMap.set(node.entry.id, node);
             for (let i = node.children.length - 1; i >= 0; i--) {
               stack.push(node.children[i]);
             }
-          }`
-  );
-
-  html = replaceRequired(
-    html,
-    "markActive",
-    `        function markActive(node) {
+          }`,
+  },
+  {
+    name: "markActive",
+    search: `        function markActive(node) {
           let has = activePathIds.has(node.entry.id);
           for (const child of node.children) {
             if (markActive(child)) has = true;
@@ -189,7 +175,7 @@ function patchExportHtml(html: string): string {
           containsActive.set(node, has);
           return has;
         }`,
-    `        function markActive(root) {
+    replacement: `        function markActive(root) {
           // Post-order traversal using two stacks
           const stack1 = [root];
           const stack2 = [];
@@ -208,10 +194,66 @@ function patchExportHtml(html: string): string {
             }
             containsActive.set(node, has);
           }
-        }`
-  );
+        }`,
+  },
+];
 
-  return html;
+const toLf = (value: string): string => value.replace(/\r\n/g, "\n");
+const toCrlf = (value: string): string => toLf(value).replace(/\n/g, "\r\n");
+
+/** First offset and total occurrence count of `search`, without allocating.
+ *  `split(search).length - 1` would build an array of substrings spanning the
+ *  entire multi-MB export just to count matches. */
+function findOccurrences(source: string, search: string): { first: number; count: number } {
+  let first = -1;
+  let count = 0;
+  for (let index = source.indexOf(search); index !== -1; index = source.indexOf(search, index + search.length)) {
+    if (count === 0) first = index;
+    count += 1;
+  }
+  return { first, count };
+}
+
+/** Resolve one patch to a single document offset. Throws unless the needle hits
+ *  exactly once — a silently unpatched export still overflows the browser stack,
+ *  so a missed patch must fail loudly instead. */
+function locateExportHtmlPatch(html: string, patch: ExportHtmlPatch): LocatedExportHtmlPatch {
+  const lfSearch = toLf(patch.search);
+  const lf = findOccurrences(html, lfSearch);
+  if (lf.count === 1) {
+    return { index: lf.first, length: lfSearch.length, replacement: toLf(patch.replacement) };
+  }
+
+  // Fall back to CRLF needles: a multi-line LF needle can never match inside a
+  // CRLF document, so the counts sum to the number of logical matches.
+  const crlfSearch = toCrlf(patch.search);
+  const crlf = crlfSearch === lfSearch ? { first: -1, count: 0 } : findOccurrences(html, crlfSearch);
+  if (lf.count === 0 && crlf.count === 1) {
+    return { index: crlf.first, length: crlfSearch.length, replacement: toCrlf(patch.replacement) };
+  }
+
+  throw new Error(
+    `Failed to patch exported HTML: ${patch.name} expected 1 match, found ${lf.count + crlf.count}`
+  );
+}
+
+function patchExportHtml(html: string): string {
+  const located = EXPORT_HTML_PATCHES.map((patch) => locateExportHtmlPatch(html, patch));
+  located.sort((a, b) => a.index - b.index);
+
+  // Splice every patch in one pass: three sequential replace() calls would each
+  // materialize another full copy of the document.
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const patch of located) {
+    if (patch.index < cursor) {
+      throw new Error("Failed to patch exported HTML: overlapping patch ranges");
+    }
+    parts.push(html.slice(cursor, patch.index), patch.replacement);
+    cursor = patch.index + patch.length;
+  }
+  parts.push(html.slice(cursor));
+  return parts.join("");
 }
 
 async function exportSession(filePath: string, outputPath: string): Promise<void> {
@@ -261,7 +303,7 @@ export async function GET(
     try {
       await exportSession(filePath, outputPath);
 
-      const html = readFileSync(outputPath, "utf8");
+      const html = await fsp.readFile(outputPath, "utf8");
       const patchedHtml = patchExportHtml(html);
       return new Response(patchedHtml, {
         headers: {

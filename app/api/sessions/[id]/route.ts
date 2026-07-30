@@ -9,12 +9,39 @@ import {
   invalidateSessionListCache,
   buildSessionContext,
   readSessionHeader,
+  getSessionManager,
+  getSessionEntries,
 } from "@/lib/session-reader";
 import { estimateSessionContextUsage } from "@/lib/context-usage";
+import { normalizeToolCalls } from "@/lib/normalize";
 import { getRpcSession } from "@/lib/rpc-manager";
+import type { AgentMessage, SessionContext, SessionEntry } from "@/lib/types";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
 const MAX_PROJECTED_TREE_DEPTH = 200;
+
+/**
+ * Undo the defer transforms for token estimation only.
+ *
+ * The client always asks for deferred thinking/media, but the usage number must
+ * reflect the full history. Rebuilding the context a second time without the
+ * defer flags re-walks every entry in the archive; instead, restore each context
+ * slot from its source entry: buildSessionContext renders a `message` entry as
+ * exactly `normalizeToolCalls(entry.message)` when nothing is deferred, and
+ * `entryIds[i]` is parallel to `messages[i]`. Non-message entries (compaction,
+ * branch summaries, custom messages) are never deferred, so they pass through.
+ */
+function restoreDeferredMessages(
+  context: SessionContext,
+  entries: SessionEntry[],
+): AgentMessage[] {
+  const byId = new Map<string, SessionEntry>();
+  for (const entry of entries) byId.set(entry.id, entry);
+  return context.messages.map((message, index) => {
+    const entry = byId.get(context.entryIds[index]);
+    return entry?.type === "message" ? normalizeToolCalls(entry.message) : message;
+  });
+}
 
 /**
  * Project the session tree into the shallow navigation tree sent to the client.
@@ -124,8 +151,12 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = SessionManager.open(filePath);
-    const entries = sm.getEntries() as never;
+    // Read-only: reuse the cached parse instead of re-reading the whole archive
+    // (~62-75ms of blocked event loop on a 26MB session) on every loadSession.
+    // Both accessors share one cache entry; `getSessionEntries` returns the
+    // memoized array rather than re-filtering `fileEntries` per call.
+    const sm = getSessionManager(filePath);
+    const entries = getSessionEntries(filePath);
     const leafId = sm.getLeafId();
     const tree = projectTreeForResponse(sm.getTree());
     const searchParams = new URL(req.url).searchParams;
@@ -162,7 +193,7 @@ export async function GET(
     let contextUsage: Awaited<ReturnType<typeof estimateSessionContextUsage>> = null;
     try {
       const usageMessages = (deferThinking || deferToolResultImages)
-        ? buildSessionContext(entries, leafId).messages
+        ? restoreDeferredMessages(context, entries)
         : context.messages;
       contextUsage = await estimateSessionContextUsage({
         cwd: header?.cwd ?? process.cwd(),

@@ -1,5 +1,6 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
 export const dynamic = "force-dynamic";
 
@@ -14,5 +15,6 @@ export async function POST(
   }
   await modelRuntime.logout(provider);
   invalidateModelsCache();
+  invalidateUtilityModelRuntimes();
   return Response.json({ ok: true });
 }

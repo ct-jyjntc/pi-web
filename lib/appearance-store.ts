@@ -2,6 +2,7 @@
  * Client appearance prefs — hydrated from /api/web-settings, applied live.
  */
 import { useSyncExternalStore } from "react";
+import { ensureWebSettings } from "@/lib/web-settings-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 
 export type AppearanceSnapshot = {
@@ -75,11 +76,9 @@ export function hydrateAppearanceFromServer(): void {
   } catch {
     // ignore
   }
-  void fetch("/api/web-settings")
-    .then(async (res) => {
-      const data = await res.json() as { settings?: Partial<AppearanceSnapshot> };
-      if (!data.settings) return;
-      const s = data.settings;
+  void ensureWebSettings()
+    .then((s) => {
+      if (!s) return;
       snapshot = {
         themeMode: (s.themeMode as ThemeMode) ?? snapshot.themeMode,
         uiFontSize: typeof s.uiFontSize === "number" ? s.uiFontSize : snapshot.uiFontSize,

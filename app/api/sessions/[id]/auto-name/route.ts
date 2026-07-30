@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { SessionManager, type AgentSession } from "@earendil-works/pi-coding-agent";
+import { type AgentSession } from "@earendil-works/pi-coding-agent";
 import { generateSessionTitle } from "@/lib/session-title";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
-import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
+import { invalidateSessionListCache, readSessionHeader, resolveSessionPath } from "@/lib/session-reader";
 import { readWebSettings } from "@/lib/web-settings";
 import { resolvePreferredSessionModel, resolveUtilityModel } from "@/lib/utility-model";
 
@@ -18,7 +18,9 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
+    // Header-only read; a full SessionManager.open() parse costs ~60ms of blocked
+    // event loop on large archives and nothing else here needs the entries.
+    const cwd = readSessionHeader(filePath)?.cwd ?? process.cwd();
     const existing = getRpcSession(id);
     const { session } = existing?.isAlive()
       ? { session: existing }

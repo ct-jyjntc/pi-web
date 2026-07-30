@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "
 import { join, dirname } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +90,7 @@ export async function PUT(req: Request) {
     const body = await req.json() as Record<string, unknown>;
     writeModelsJson(normalizeProvidersCost(body));
     invalidateModelsCache();
+    invalidateUtilityModelRuntimes();
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

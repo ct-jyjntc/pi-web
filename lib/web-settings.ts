@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
@@ -283,15 +283,63 @@ function normalizeWebSettings(raw: unknown): WebSettings {
   };
 }
 
+// readWebSettings() is called on almost every API request (~20 call sites, some
+// twice per chain), and each call used to re-read + re-parse + re-validate the
+// file. Cache the parsed result and revalidate with a single statSync so external
+// edits are still picked up. On globalThis to survive Next.js hot-reload.
+declare global {
+  var __piWebSettingsCache:
+    | { path: string; mtimeMs: number; size: number; value: WebSettings }
+    | undefined;
+}
+
+/** Stat stamp used to revalidate the cache; null when the file does not exist. */
+function statSettingsFile(path: string): { mtimeMs: number; size: number } | null {
+  try {
+    const info = statSync(path);
+    return { mtimeMs: info.mtimeMs, size: info.size };
+  } catch {
+    return null;
+  }
+}
+
+/** Copy every mutable container so callers can never write into the cache. */
+function cloneWebSettings(settings: WebSettings): WebSettings {
+  return {
+    ...settings,
+    titleModel: settings.titleModel ? { ...settings.titleModel } : null,
+    commitModel: settings.commitModel ? { ...settings.commitModel } : null,
+    advisorModel: settings.advisorModel ? { ...settings.advisorModel } : null,
+    modelRoles: {
+      default: settings.modelRoles.default ? { ...settings.modelRoles.default } : null,
+      smol: settings.modelRoles.smol ? { ...settings.modelRoles.smol } : null,
+      plan: settings.modelRoles.plan ? { ...settings.modelRoles.plan } : null,
+    },
+    projectMemory: { ...settings.projectMemory },
+  };
+}
+
 export function readWebSettings(): WebSettings {
   const path = getWebSettingsPath();
-  try {
-    if (!existsSync(path)) return { ...DEFAULT_SETTINGS };
-    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    return normalizeWebSettings(raw);
-  } catch {
-    return { ...DEFAULT_SETTINGS };
+  const stamp = statSettingsFile(path);
+  // -1 marks "no file", so creating or deleting it always misses the cache.
+  const mtimeMs = stamp?.mtimeMs ?? -1;
+  const size = stamp?.size ?? -1;
+  const cached = globalThis.__piWebSettingsCache;
+  if (cached && cached.path === path && cached.mtimeMs === mtimeMs && cached.size === size) {
+    return cloneWebSettings(cached.value);
   }
+
+  let value: WebSettings;
+  try {
+    value = stamp
+      ? normalizeWebSettings(JSON.parse(readFileSync(path, "utf8")) as unknown)
+      : cloneWebSettings(DEFAULT_SETTINGS);
+  } catch {
+    value = cloneWebSettings(DEFAULT_SETTINGS);
+  }
+  globalThis.__piWebSettingsCache = { path, mtimeMs, size, value };
+  return cloneWebSettings(value);
 }
 
 export function writeWebSettings(next: Partial<WebSettings>): WebSettings {
@@ -304,5 +352,14 @@ export function writeWebSettings(next: Partial<WebSettings>): WebSettings {
   const path = getWebSettingsPath();
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  // Prime the cache from what we just wrote: filesystem timestamp granularity
+  // could otherwise hide a write that lands in the same millisecond.
+  const stamp = statSettingsFile(path);
+  globalThis.__piWebSettingsCache = {
+    path,
+    mtimeMs: stamp?.mtimeMs ?? -1,
+    size: stamp?.size ?? -1,
+    value: cloneWebSettings(normalized),
+  };
   return normalized;
 }

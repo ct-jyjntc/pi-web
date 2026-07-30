@@ -13,6 +13,12 @@ import { UsagePanel, prefetchUsage } from "./UsagePanel";
 import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import { getAppUpdateInfo, setAppUpdateInfo, subscribeAppUpdate } from "@/lib/app-update-store";
+import {
+  applyWebSettings,
+  fetchWebSettingsWithModels,
+  invalidateWebSettings,
+  type WebSettingsData,
+} from "@/lib/web-settings-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 
 export type SettingsSection =
@@ -206,22 +212,12 @@ export function SettingsPage({
     let cancelled = false;
     setLoadingModels(true);
     setSaveError(null);
-    const params = new URLSearchParams();
-    if (cwd) params.set("cwd", cwd);
-    fetch(`/api/web-settings?${params.toString()}`)
-      .then(async (res) => {
-        const data = await res.json() as {
-          settings?: Record<string, unknown> & {
-            titleModelRef?: string;
-            commitModelRef?: string;
-            modelRolesRefs?: { default?: string; smol?: string; plan?: string };
-          };
-          models?: ModelOption[];
-          error?: string;
-        };
-        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+    // Full read (this panel is the only consumer of the utility-model catalog);
+    // it also refreshes the shared settings cache for everyone else.
+    fetchWebSettingsWithModels(cwd)
+      .then((data) => {
         if (cancelled) return;
-        setModels(data.models ?? []);
+        setModels(data.models);
         setTitleModelRef(data.settings?.titleModelRef ?? "");
         setCommitModelRef(data.settings?.commitModelRef ?? "");
         setRoleDefaultRef(data.settings?.modelRolesRefs?.default ?? "");
@@ -325,15 +321,16 @@ export function SettingsPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [key]: value || null }),
       });
-      const data = await res.json() as {
-        error?: string;
-        settings?: { titleModelRef?: string; commitModelRef?: string };
-      };
+      const data = await res.json() as { error?: string; settings?: WebSettingsData };
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      // PUT echoes the whole settings object — refresh the shared cache instead
+      // of leaving other consumers on a stale copy for up to a refresh window.
+      if (data.settings) applyWebSettings(data.settings);
       setTitleModelRef(data.settings?.titleModelRef ?? (key === "titleModel" ? value : titleModelRef));
       setCommitModelRef(data.settings?.commitModelRef ?? (key === "commitModel" ? value : commitModelRef));
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
+      invalidateWebSettings();
     } finally {
       setSavingKey(null);
     }
@@ -355,16 +352,15 @@ export function SettingsPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ modelRole: role, modelRoleRef: value || null }),
       });
-      const data = await res.json() as {
-        error?: string;
-        settings?: { modelRolesRefs?: { default?: string; smol?: string; plan?: string } };
-      };
+      const data = await res.json() as { error?: string; settings?: WebSettingsData };
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.settings) applyWebSettings(data.settings);
       setRoleDefaultRef(data.settings?.modelRolesRefs?.default ?? (role === "default" ? value : roleDefaultRef));
       setRoleSmolRef(data.settings?.modelRolesRefs?.smol ?? (role === "smol" ? value : roleSmolRef));
       setRolePlanRef(data.settings?.modelRolesRefs?.plan ?? (role === "plan" ? value : rolePlanRef));
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
+      invalidateWebSettings();
     } finally {
       setSavingKey(null);
     }
@@ -379,8 +375,11 @@ export function SettingsPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      const data = await res.json() as { error?: string; settings?: Record<string, unknown> };
+      const data = await res.json() as { error?: string; settings?: WebSettingsData };
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      // Push the saved values into the shared cache so thinking blocks, the
+      // terminal font, sound and appearance consumers see them immediately.
+      if (data.settings) applyWebSettings(data.settings);
       if (opts?.restart) setRestartHint(true);
       if (typeof patch.soundEnabled === "boolean") {
         try { localStorage.setItem("pi-sound-enabled", String(patch.soundEnabled)); } catch { /* ignore */ }
@@ -407,6 +406,8 @@ export function SettingsPage({
       }
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
+      // The optimistic setPrefs above may not match disk — force a refetch.
+      invalidateWebSettings();
     }
   }, [appearance]);
 

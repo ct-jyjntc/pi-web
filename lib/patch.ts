@@ -14,14 +14,29 @@ export interface SplitDiffFile {
   oldPath?: string;
   newPath?: string;
   rows: SplitDiffRow[];
+  /** Set on the last returned file when `maxRows` dropped trailing rows. */
+  truncated?: boolean;
+  /** Number of `line` rows dropped because of `maxRows` (0 when untruncated). */
+  hiddenRows?: number;
 }
+
+export interface ParseUnifiedPatchOptions {
+  /** Cap on emitted `line` rows across all files. Omit for no limit. */
+  maxRows?: number;
+}
+
+/** Default row budget for inline diff rendering — keeps the DOM bounded. */
+export const MAX_DIFF_ROWS = 400;
 
 interface PendingChangeLine {
   lineNo: number;
   text: string;
 }
 
-export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
+export function parseUnifiedPatch(text: string, options?: ParseUnifiedPatchOptions): SplitDiffFile[] | null {
+  const maxRows = options?.maxRows ?? Number.POSITIVE_INFINITY;
+  let emittedRows = 0;
+  let hiddenRows = 0;
   const files: SplitDiffFile[] = [];
   let current: SplitDiffFile | null = null;
   let pendingOldPath: string | undefined;
@@ -39,6 +54,10 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
     }
     const count = Math.max(removed.length, added.length);
     for (let i = 0; i < count; i++) {
+      if (emittedRows >= maxRows) {
+        hiddenRows += count - i;
+        break;
+      }
       const left = removed[i]
         ? { lineNo: removed[i].lineNo, text: removed[i].text, type: "removed" as const }
         : emptyCell();
@@ -46,6 +65,7 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
         ? { lineNo: added[i].lineNo, text: added[i].text, type: "added" as const }
         : emptyCell();
       current.rows.push({ type: "line", left, right });
+      emittedRows++;
     }
     removed = [];
     added = [];
@@ -74,7 +94,8 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
       flushChanges();
       oldLineNo = Number(hunk[1]);
       newLineNo = Number(hunk[2]);
-      current.rows.push({ type: "hunk", text: line });
+      // Meta rows are dropped once the budget is spent — they carry no content.
+      if (hiddenRows === 0) current.rows.push({ type: "hunk", text: line });
       continue;
     }
 
@@ -82,7 +103,7 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
 
     if (line.startsWith("\\ ")) {
       flushChanges();
-      current.rows.push({ type: "hunk", text: line });
+      if (hiddenRows === 0) current.rows.push({ type: "hunk", text: line });
       continue;
     }
 
@@ -91,25 +112,38 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
 
     if (prefix === " ") {
       flushChanges();
-      current.rows.push({
-        type: "line",
-        left: { lineNo: oldLineNo++, text: content, type: "context" },
-        right: { lineNo: newLineNo++, text: content, type: "context" },
-      });
+      if (emittedRows >= maxRows) {
+        hiddenRows++;
+        oldLineNo++;
+        newLineNo++;
+      } else {
+        current.rows.push({
+          type: "line",
+          left: { lineNo: oldLineNo++, text: content, type: "context" },
+          right: { lineNo: newLineNo++, text: content, type: "context" },
+        });
+        emittedRows++;
+      }
     } else if (prefix === "-") {
       removed.push({ lineNo: oldLineNo++, text: content });
     } else if (prefix === "+") {
       added.push({ lineNo: newLineNo++, text: content });
     } else if (line !== "") {
       flushChanges();
-      current.rows.push({ type: "hunk", text: line });
+      if (hiddenRows === 0) current.rows.push({ type: "hunk", text: line });
     }
   }
 
   flushChanges();
 
   const parsed = files.filter((file) => file.rows.some((row) => row.type === "line"));
-  return parsed.length > 0 ? parsed : null;
+  if (parsed.length === 0) return null;
+  if (hiddenRows > 0) {
+    const last = parsed[parsed.length - 1];
+    last.truncated = true;
+    last.hiddenRows = hiddenRows;
+  }
+  return parsed;
 }
 
 function cleanPatchPath(path: string): string {

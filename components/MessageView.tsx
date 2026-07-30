@@ -2,14 +2,15 @@
 
 import { useLocale } from "@/hooks/useLocale";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import { MarkdownBody } from "./MarkdownBody";
 import { ReviewSummaryCard } from "./ReviewSummaryCard";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
-import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
+import { MAX_DIFF_ROWS, parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { parseReviewReport } from "@/lib/review-report";
+import { ensureWebSettings } from "@/lib/web-settings-store";
 import type {
   AgentMessage,
   UserMessage,
@@ -143,6 +144,37 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
 const USER_MSG_COLLAPSE_CHARS = 420;
 const USER_MSG_COLLAPSE_LINES = 8;
 
+/**
+ * Wrapper that owns the hover/focus state used to reveal a message's action row.
+ * The message body is passed as `children`, so its element identity stays stable
+ * across hover updates and React bails out of re-rendering that subtree — a
+ * mouseenter no longer rebuilds thousands of diff rows below.
+ */
+function MessageHoverShell({ style, renderActions, children }: {
+  style: CSSProperties;
+  renderActions: (active: boolean) => ReactNode;
+  children: ReactNode;
+}) {
+  const [active, setActive] = useState(false);
+
+  return (
+    <div
+      style={style}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={(e) => {
+        // React onBlur is focusout: ignore focus moves between our own children.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setActive(false);
+      }}
+    >
+      {children}
+      {renderActions(active)}
+    </div>
+  );
+}
+
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
   message: UserMessage;
   cwd?: string;
@@ -155,7 +187,6 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   onEditContent?: (content: string) => void;
 }) {
   const { t } = useLocale();
-  const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -194,10 +225,115 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   };
 
   return (
-    <div
+    <MessageHoverShell
       style={{ marginBottom: 12, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      renderActions={(active) => (
+        // Bottom row: action buttons + timestamp
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "flex-end",
+          gap: 6, marginTop: 3,
+        }}>
+          <div style={{
+            display: "flex", gap: 3,
+            opacity: active ? 1 : 0,
+            pointerEvents: active ? "auto" : "none",
+            transition: "opacity 0.12s",
+          }}>
+            <button
+              onClick={copyContent}
+              title={t("msg.copyMessage")}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "3px 8px", height: 22,
+                background: "none", border: "none",
+                borderRadius: "var(--radius-sm)",
+                color: copied ? "var(--accent)" : "var(--text-dim)",
+                cursor: "pointer",
+                fontSize: 11, fontWeight: 400,
+                whiteSpace: "nowrap",
+                transition: "color 0.12s",
+              }}
+              onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
+            >
+              {copied ? (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+              {copied ? t("common.copied") : t("common.copy")}
+            </button>
+          </div>
+          {(canFork || canNavigate) && (
+            <div style={{
+              display: "flex", gap: 3,
+              opacity: (active || forking) ? 1 : 0,
+              pointerEvents: (active || forking) ? "auto" : "none",
+              transition: "opacity 0.12s",
+            }}>
+              {canNavigate && (
+                <button
+                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(content); }}
+                  title={t("msg.editFromHereTitle")}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "3px 8px", height: 22,
+                    background: "none", border: "none",
+                    borderRadius: "var(--radius-sm)",
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    fontSize: 11, fontWeight: 400,
+                    whiteSpace: "nowrap",
+                    transition: "color 0.12s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 10 20 15 15 20" />
+                    <path d="M4 4v7a4 4 0 0 0 4 4h12" />
+                  </svg>
+                  {t("msg.editFromHere")}
+                </button>
+              )}
+              {canFork && (
+                <button
+                  onClick={() => { onFork!(entryId!); }}
+                  disabled={forking}
+                  title={forking ? t("msg.creatingSession") : t("msg.newSessionTitle")}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "3px 8px", height: 22,
+                    background: "none", border: "none",
+                    borderRadius: "var(--radius-sm)",
+                    color: forking ? "var(--accent)" : "var(--text-dim)",
+                    cursor: forking ? "not-allowed" : "pointer",
+                    fontSize: 11, fontWeight: 400,
+                    whiteSpace: "nowrap",
+                    transition: "color 0.12s",
+                  }}
+                  onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
+                  onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="6" y1="3" x2="6" y2="15" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <path d="M18 9a9 9 0 0 1-9 9" />
+                  </svg>
+                  {forking ? t("msg.creating") : t("msg.newSession")}
+                </button>
+              )}
+            </div>
+          )}
+          {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
+        </div>
+      )}
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         <div
@@ -299,116 +435,40 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
         </div>
 
       </div>
-
-      {/* Bottom row: action buttons + timestamp */}
-      {(
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "flex-end",
-          gap: 6, marginTop: 3,
-        }}>
-          <div style={{
-            display: "flex", gap: 3,
-            opacity: hovered ? 1 : 0,
-            pointerEvents: hovered ? "auto" : "none",
-            transition: "opacity 0.12s",
-          }}>
-            <button
-              onClick={copyContent}
-              title={t("msg.copyMessage")}
-              style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "3px 8px", height: 22,
-                background: "none", border: "none",
-                borderRadius: "var(--radius-sm)",
-                color: copied ? "var(--accent)" : "var(--text-dim)",
-                cursor: "pointer",
-                fontSize: 11, fontWeight: 400,
-                whiteSpace: "nowrap",
-                transition: "color 0.12s",
-              }}
-              onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-              onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
-            >
-              {copied ? (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              )}
-              {copied ? t("common.copied") : t("common.copy")}
-            </button>
-          </div>
-          {(canFork || canNavigate) && (
-            <div style={{
-              display: "flex", gap: 3,
-              opacity: (hovered || forking) ? 1 : 0,
-              pointerEvents: (hovered || forking) ? "auto" : "none",
-              transition: "opacity 0.12s",
-            }}>
-              {canNavigate && (
-                <button
-                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(content); }}
-                  title={t("msg.editFromHereTitle")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: "var(--radius-sm)",
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 10 20 15 15 20" />
-                    <path d="M4 4v7a4 4 0 0 0 4 4h12" />
-                  </svg>
-                  {t("msg.editFromHere")}
-                </button>
-              )}
-              {canFork && (
-                <button
-                  onClick={() => { onFork!(entryId!); }}
-                  disabled={forking}
-                  title={forking ? t("msg.creatingSession") : t("msg.newSessionTitle")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: "var(--radius-sm)",
-                    color: forking ? "var(--accent)" : "var(--text-dim)",
-                    cursor: forking ? "not-allowed" : "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                  {forking ? t("msg.creating") : t("msg.newSession")}
-                </button>
-              )}
-            </div>
-          )}
-          {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
-        </div>
-      )}
-    </div>
+    </MessageHoverShell>
   );
+}
+
+/**
+ * Cheap stand-in for `JSON.stringify(value).length`: walks the value and sums
+ * string lengths (O(1) each) instead of allocating a copy of a possibly 100KB+
+ * tool input on every streaming frame.
+ */
+function approxJsonLength(value: unknown, depth: number): number {
+  if (typeof value === "string") return value.length + 2;
+  if (typeof value === "number" || typeof value === "boolean") return String(value).length;
+  if (value === null || value === undefined) return 4;
+  if (depth > 4 || typeof value !== "object") return 0;
+  if (Array.isArray(value)) {
+    let total = 2;
+    for (const item of value) total += approxJsonLength(item, depth + 1) + 1;
+    return total;
+  }
+  let total = 2;
+  const record = value as Record<string, unknown>;
+  for (const key in record) total += key.length + 4 + approxJsonLength(record[key], depth + 1);
+  return total;
+}
+
+/** Approximate streamed character count behind the est-tokens / t-per-s readouts. */
+function estimateStreamChars(blocks: AssistantContentBlock[]): number {
+  let chars = 0;
+  for (const b of blocks) {
+    if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
+    else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
+    else if (b.type === "toolCall") chars += approxJsonLength((b as ToolCallContent).input ?? {}, 0);
+  }
+  return chars;
 }
 
 function AssistantMessageView({
@@ -436,12 +496,14 @@ function AssistantMessageView({
 }) {
   const { t } = useLocale();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
-  const blockItems = (message.content ?? [])
-    .map((block, originalIndex) => ({ block, originalIndex }))
-    .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming }));
-  const blocks = blockItems.map(({ block }) => block);
+  const blockItems = useMemo(
+    () => (message.content ?? [])
+      .map((block, originalIndex) => ({ block, originalIndex }))
+      .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })),
+    [message.content, isStreaming],
+  );
+  const blocks = useMemo(() => blockItems.map(({ block }) => block), [blockItems]);
   const providerError = getAssistantErrorMessage(message, { isStreaming });
-  const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const streamStartRef = useRef<number | null>(null);
   const [tps, setTps] = useState<number | null>(null);
@@ -475,10 +537,20 @@ function AssistantMessageView({
     return map;
   }, [toolResults, message.timestamp]);
 
-  const textContent = blocks
-    .filter((b): b is TextContent => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
+  const textContent = useMemo(
+    () => blocks
+      .filter((b): b is TextContent => b.type === "text")
+      .map((b) => b.text)
+      .join("\n"),
+    [blocks],
+  );
+
+  // Streamed character estimate — computed once per render and reused by the
+  // tps interval, so no tick re-scans the blocks.
+  const estChars = useMemo(() => (isStreaming ? estimateStreamChars(blocks) : 0), [isStreaming, blocks]);
+  const estCharsRef = useRef(estChars);
+  estCharsRef.current = estChars;
+  const estTokens = Math.round(estChars / 4);
 
   const reviewReport = useMemo(
     () => (!isStreaming ? parseReviewReport(textContent) : null),
@@ -497,11 +569,15 @@ function AssistantMessageView({
       // Finalise any un-finished thinking block durations on stream end
       const now = new Date().getTime();
       setStreamingDurations((prev: Map<number, number>) => {
+        let changed = false;
         const next = new Map(prev);
         for (const [idx, start] of blockStartTimesRef.current) {
-          if (!next.has(idx)) next.set(idx, Math.round((now - start) / 1000));
+          if (!next.has(idx)) {
+            next.set(idx, Math.round((now - start) / 1000));
+            changed = true;
+          }
         }
-        return next;
+        return changed ? next : prev;
       });
       streamStartRef.current = null;
       setTps(null);
@@ -509,7 +585,6 @@ function AssistantMessageView({
     }
     const tick = () => {
       const items = blockItemsRef.current;
-      const bs = items.map(({ block }) => block);
       const now = Date.now();
 
       // Record start time for each block the first time we see it
@@ -534,16 +609,14 @@ function AssistantMessageView({
         return changed ? next : prev;
       });
 
-      let chars = 0;
-      for (const b of bs) {
-        if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
-        else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
-        else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
-      }
+      const chars = estCharsRef.current;
       if (chars === 0) return;
       if (streamStartRef.current === null) streamStartRef.current = now;
       const elapsed = (now - streamStartRef.current) / 1000;
-      if (elapsed > 0.5) setTps(chars / 4 / elapsed);
+      if (elapsed <= 0.5) return;
+      const next = chars / 4 / elapsed;
+      // Only re-render when the displayed (one decimal) value actually moves.
+      setTps((prev) => (prev !== null && Math.round(prev * 10) === Math.round(next * 10) ? prev : next));
     };
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
@@ -552,10 +625,55 @@ function AssistantMessageView({
   if (blocks.length === 0 && !isStreaming && !providerError) return null;
 
   return (
-    <div
+    <MessageHoverShell
       style={{ marginBottom: 16 }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      renderActions={(active) => (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8, marginTop: 4,
+        }}>
+          {message.usage && !isStreaming && (
+            <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              {formatUsage(message.usage)}
+            </div>
+          )}
+          {textContent && !isStreaming && (
+            <button
+              onClick={copyContent}
+              title={t("msg.copyMessage")}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "3px 8px", height: 22,
+                background: "none", border: "none",
+                borderRadius: "var(--radius-sm)",
+                color: copied ? "var(--accent)" : "var(--text-dim)",
+                cursor: "pointer",
+                fontSize: 11, fontWeight: 400,
+                whiteSpace: "nowrap",
+                opacity: active ? 1 : 0,
+                pointerEvents: active ? "auto" : "none",
+                transition: "opacity 0.12s, color 0.12s",
+              }}
+              onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
+            >
+              {copied ? (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+              {copied ? t("common.copied") : t("common.copy")}
+            </button>
+          )}
+          {time && !isStreaming && (
+            <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
+          )}
+        </div>
+      )}
     >
       {/* Model label */}
       <div
@@ -571,35 +689,21 @@ function AssistantMessageView({
         {message.provider && (
           <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
         )}
-        {isStreaming && (() => {
-          let chars = 0;
-          for (const b of blocks) {
-            if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
-            else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
-            else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
-          }
-          const est = Math.round(chars / 4);
-          return (
-            <>
-
-              {est > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("msg.estTokens")}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                    </svg>
-                    {est}
-                  </span>
-                  {tps !== null && (
-                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: "var(--radius-pill)", background: "var(--bg-selected)", color: "var(--text-muted)", fontSize: 11, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>
-                        {tps.toFixed(1)} t/s
-                      </span>
-                  )}
-                </span>
-              )}
-            </>
-          );
-        })()}
+        {isStreaming && estTokens > 0 && (
+          <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("msg.estTokens")}>
+            <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
+              </svg>
+              {estTokens}
+            </span>
+            {tps !== null && (
+              <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: "var(--radius-pill)", background: "var(--bg-selected)", color: "var(--text-muted)", fontSize: 11, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>
+                {tps.toFixed(1)} t/s
+              </span>
+            )}
+          </span>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -629,53 +733,7 @@ function AssistantMessageView({
           Error: {providerError}
         </div>
       )}
-
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginTop: 4,
-      }}>
-        {message.usage && !isStreaming && (
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {formatUsage(message.usage)}
-          </div>
-        )}
-        {textContent && !isStreaming && (
-          <button
-            onClick={copyContent}
-            title={t("msg.copyMessage")}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: "3px 8px", height: 22,
-              background: "none", border: "none",
-              borderRadius: "var(--radius-sm)",
-              color: copied ? "var(--accent)" : "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 11, fontWeight: 400,
-              whiteSpace: "nowrap",
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? "auto" : "none",
-              transition: "opacity 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-            onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
-          >
-            {copied ? (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-            )}
-            {copied ? t("common.copied") : t("common.copy")}
-          </button>
-        )}
-        {time && !isStreaming && (
-          <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
-        )}
-      </div>
-    </div>
+    </MessageHoverShell>
   );
 }
 
@@ -716,14 +774,16 @@ function ThinkingBlock({
   const autoOpenTried = useRef(false);
 
   // Honor settings.showThinking: expand thinking by default when enabled.
+  // Reads the shared settings cache — one block per assistant message would
+  // otherwise mean one /api/web-settings request per rendered block.
   useEffect(() => {
     if (autoOpenTried.current) return;
     autoOpenTried.current = true;
     let cancelled = false;
-    fetch("/api/web-settings")
-      .then(async (res) => {
-        const data = await res.json() as { settings?: { showThinking?: boolean } };
-        if (cancelled || data.settings?.showThinking === false) return;
+    void ensureWebSettings()
+      .then(async (settings) => {
+        // A failed read leaves settings null; stay collapsed, as before.
+        if (cancelled || !settings || settings.showThinking === false) return;
         // Expand (and load deferred content if needed).
         setExpanded(true);
         if (!block.deferred) return;
@@ -862,10 +922,16 @@ function parseEditFailureKind(text: string | null | undefined): string | null {
   return m?.[1] ?? null;
 }
 
-function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
+const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
-  const inputStr = JSON.stringify(block.input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
+  // Serializing the input can mean 100KB+ of file content — only pay for it
+  // when the args pane is actually on screen.
+  const showInputArgs = expanded && !isEditTool;
+  const inputStr = useMemo(
+    () => (showInputArgs ? JSON.stringify(block.input, null, 2) : ""),
+    [showInputArgs, block.input],
+  );
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
   const editMeta = result && !result.isError && isEditTool ? getEditResultMeta(result) : null;
 
@@ -984,7 +1050,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
       </button>
 
       {/* ── Expanded: input args ── */}
-      {expanded && !isEditTool && (
+      {showInputArgs && (
         <pre
           style={{
             margin: 0,
@@ -1035,7 +1101,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
       )}
     </div>
   );
-}
+});
 
 interface ResultDiff {
   text: string;
@@ -1056,11 +1122,18 @@ function PairedDiffResult({ diff }: {
   );
 }
 
-function SplitPatchView({ text }: { text: string }) {
+const SplitPatchView = memo(function SplitPatchView({ text }: { text: string }) {
   const { t } = useLocale();
-  const files = useMemo(() => parseUnifiedPatch(text), [text]);
+  const [showAllRows, setShowAllRows] = useState(false);
+  // Big edits are capped so a transcript of long diffs cannot blow up the DOM;
+  // the full patch is only parsed/rendered after an explicit click.
+  const files = useMemo(
+    () => parseUnifiedPatch(text, showAllRows ? undefined : { maxRows: MAX_DIFF_ROWS }),
+    [text, showAllRows],
+  );
   if (!files) return <PatchTextView text={text} />;
   const showFileHeaders = files.length > 1;
+  const hiddenRows = files.reduce((sum, file) => sum + (file.hiddenRows ?? 0), 0);
 
   return (
     <div style={{ maxHeight: 560, overflowY: "auto", overflowX: "hidden", background: "var(--bg)" }}>
@@ -1108,9 +1181,33 @@ function SplitPatchView({ text }: { text: string }) {
           </div>
         </div>
       ))}
+      {hiddenRows > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAllRows(true)}
+          style={{
+            display: "block",
+            position: "sticky",
+            bottom: 0,
+            zIndex: 1,
+            width: "100%",
+            padding: "6px 10px",
+            border: "none",
+            borderTop: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            textAlign: "left",
+          }}
+        >
+          {t("msg.showMore")} (+{hiddenRows})
+        </button>
+      )}
     </div>
   );
-}
+});
 
 function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right" }) {
   return (
@@ -1130,7 +1227,7 @@ function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right
   );
 }
 
-function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
+const SplitDiffCellView = memo(function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
   const bg =
     cell.type === "added"
       ? "var(--diff-add-bg)"
@@ -1193,10 +1290,10 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
       </span>
     </div>
   );
-}
+});
 
 function PatchTextView({ text }: { text: string }) {
-  const lines = text.split(/\r?\n/);
+  const lines = useMemo(() => text.split(/\r?\n/), [text]);
 
   return (
     <div style={{ maxHeight: 520, overflowY: "auto", overflowX: "hidden", fontFamily: "var(--font-mono)", fontSize: 12.5, lineHeight: 1.55, minWidth: 0 }}>

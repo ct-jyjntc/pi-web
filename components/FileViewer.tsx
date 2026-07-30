@@ -3,7 +3,7 @@
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
 
-import { useEffect, useState, useRef, useCallback, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useState, useRef, useCallback, memo, type MouseEvent } from "react";
 import {
   SyntaxHighlighter,
   createSyntaxElement as renderSyntaxNode,
@@ -23,7 +23,8 @@ import {
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { resolveLocalFileHref } from "@/lib/file-links";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins } from "@/lib/markdown";
-import { parseUnifiedPatch } from "@/lib/patch";
+import { DiffView, FILE_CODE_STYLE, FILE_LINE_NUMBER_STYLE } from "./DiffView";
+import type { CodeThemeId } from "@/lib/web-settings";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 
 interface Props {
@@ -123,30 +124,6 @@ const DISPLAY_MODE_LABELS: Record<DisplayMode, MessageKey> = {
   diff: "viewer.diff",
 };
 
-const FILE_CODE_STYLE: CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: 12.5,
-  lineHeight: 1.6,
-};
-
-const FILE_LINE_NUMBER_STYLE: CSSProperties = {
-  width: 48,
-  minWidth: 48,
-  padding: "0 10px",
-  textAlign: "right",
-  color: "var(--text-dim)",
-  background: "var(--bg-panel)",
-  borderRight: "1px solid var(--border)",
-  fontFamily: "var(--font-mono)",
-  fontSize: 11,
-  fontStyle: "normal",
-  fontVariantNumeric: "tabular-nums",
-  lineHeight: "20.8px",
-  userSelect: "none",
-  flexShrink: 0,
-  verticalAlign: "top",
-};
-
 type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["renderer"]>>[0] & {
   wrapLines: boolean;
 };
@@ -231,6 +208,75 @@ function SourceCodeRenderer({
   });
 }
 
+interface SourceViewProps {
+  content: string;
+  language: string;
+  codeThemeId: CodeThemeId | undefined;
+  isDark: boolean;
+  wrapLines: boolean;
+  showLineNumbers: boolean;
+  codeFontSize: number;
+  diagnosticsByLine: Map<number, LineDiagnostic[]>;
+}
+
+/**
+ * Memoized so unrelated parent re-renders (panel resize, toolbar state, chat
+ * updates) never re-run refractor tokenization over the whole file. Props are
+ * value-semantic: only a real content/theme/wrap/diagnostics change rebuilds.
+ */
+const SourceView = memo(function SourceView({
+  content,
+  language,
+  codeThemeId,
+  isDark,
+  wrapLines,
+  showLineNumbers,
+  codeFontSize,
+  diagnosticsByLine,
+}: SourceViewProps) {
+  return (
+    <SyntaxHighlighter
+      className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
+      language={language === "text" ? "plaintext" : language}
+      style={getCodeThemeStyle(codeThemeId, isDark)}
+      showLineNumbers={showLineNumbers}
+      lineNumberStyle={{
+        ...FILE_LINE_NUMBER_STYLE,
+        fontSize: codeFontSize,
+      }}
+      customStyle={{
+        margin: 0,
+        padding: 0,
+        border: 0,
+        backgroundColor: "var(--bg)",
+        ...FILE_CODE_STYLE,
+        fontSize: codeFontSize,
+        width: wrapLines ? "100%" : "max-content",
+        minWidth: "100%",
+        minHeight: "100%",
+        overflow: "visible",
+      }}
+      codeTagProps={{
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: codeFontSize,
+          overflowWrap: wrapLines ? "anywhere" : "normal",
+        },
+      }}
+      renderer={(rendererProps) => (
+        <SourceCodeRenderer
+          {...rendererProps}
+          wrapLines={wrapLines}
+          diagnosticsByLine={diagnosticsByLine}
+        />
+      )}
+      wrapLongLines={wrapLines}
+    >
+      {content}
+    </SyntaxHighlighter>
+  );
+});
+
 function getFileApiUrl(
   filePath: string,
   type: "read" | "download" | "meta" | "preview" | "watch",
@@ -265,184 +311,10 @@ function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceS
   );
 }
 
-type DiffLine = {
-  type: "unchanged" | "removed" | "added";
-  text: string;
-  oldLineNo: number | null;
-  newLineNo: number | null;
-};
-
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function diffLines(patch: string): DiffLine[] {
-  const files = parseUnifiedPatch(patch);
-  if (!files) return [];
-
-  return files.flatMap((file) => file.rows.flatMap((row): DiffLine[] => {
-    if (row.type === "hunk") return [];
-    if (row.left.type === "context" && row.right.type === "context") {
-      return [{
-        type: "unchanged",
-        text: row.right.text,
-        oldLineNo: row.left.lineNo,
-        newLineNo: row.right.lineNo,
-      }];
-    }
-
-    const lines: DiffLine[] = [];
-    if (row.left.type === "removed") {
-      lines.push({
-        type: "removed",
-        text: row.left.text,
-        oldLineNo: row.left.lineNo,
-        newLineNo: null,
-      });
-    }
-    if (row.right.type === "added") {
-      lines.push({
-        type: "added",
-        text: row.right.text,
-        oldLineNo: null,
-        newLineNo: row.right.lineNo,
-      });
-    }
-    return lines;
-  }));
-}
-
-export function DiffView({ patch, wrapLines = true }: { patch: string; wrapLines?: boolean }) {
-  const diff = diffLines(patch);
-
-  const hasChanges = diff.some((l) => l.type !== "unchanged");
-  if (!hasChanges) {
-    return (
-      <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-        No changes
-      </div>
-    );
-  }
-
-  // Render with context: show 3 lines around each change, collapse the rest
-  const CONTEXT = 3;
-  const changed = new Set(diff.flatMap((l, i) => (l.type !== "unchanged" ? [i] : [])));
-  const visible = new Set<number>();
-  for (const ci of changed) {
-    for (let j = Math.max(0, ci - CONTEXT); j <= Math.min(diff.length - 1, ci + CONTEXT); j++) {
-      visible.add(j);
-    }
-  }
-
-  const segments: Array<{ hidden: true; count: number } | { hidden: false; lines: DiffLine[] }> = [];
-  let i = 0;
-  while (i < diff.length) {
-    if (visible.has(i)) {
-      const block: DiffLine[] = [];
-      while (i < diff.length && visible.has(i)) {
-        block.push(diff[i]);
-        i++;
-      }
-      segments.push({ hidden: false, lines: block });
-    } else {
-      let count = 0;
-      while (i < diff.length && !visible.has(i)) {
-        count++;
-        i++;
-      }
-      segments.push({ hidden: true, count });
-    }
-  }
-
-  return (
-    <div
-      className={`file-diff-view${wrapLines ? " is-wrapped" : ""}`}
-      style={{
-        width: wrapLines ? "100%" : "max-content",
-        minWidth: "100%",
-        ...FILE_CODE_STYLE,
-      }}
-    >
-      {segments.map((seg, si) => {
-        if (seg.hidden) {
-          const result = (
-            <div
-              key={si}
-              className="file-diff-collapsed"
-            >
-              ... {seg.count} unchanged lines ...
-            </div>
-          );
-          return result;
-        }
-        const lines = seg.lines.map((line, li) => {
-          const bg =
-            line.type === "added"
-              ? "var(--diff-add-bg)"
-              : line.type === "removed"
-              ? "var(--diff-del-bg)"
-              : "transparent";
-          const prefix =
-            line.type === "added" ? "+" : line.type === "removed" ? "-" : " ";
-          const prefixColor =
-            line.type === "added" ? "var(--success)" : line.type === "removed" ? "var(--destructive)" : "var(--text-dim)";
-
-          return (
-            <div
-              key={li}
-              className={`file-diff-line file-diff-line-${line.type}`}
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                width: "100%",
-                minWidth: 0,
-                background: bg,
-                borderLeft: line.type === "added"
-                  ? "3px solid var(--success)"
-                  : line.type === "removed"
-                  ? "3px solid var(--destructive)"
-                  : "3px solid transparent",
-              }}
-            >
-              <span style={FILE_LINE_NUMBER_STYLE}>
-                {line.type === "removed" ? line.oldLineNo : line.newLineNo}
-              </span>
-              <span
-                style={{
-                  minWidth: 16,
-                  padding: "0 6px",
-                  color: prefixColor,
-                  userSelect: "none",
-                  flexShrink: 0,
-                  fontWeight: 600,
-                  lineHeight: "20.8px",
-                }}
-              >
-                {prefix}
-              </span>
-              <span
-                className="file-diff-line-content"
-                style={{
-                  flex: "1 1 auto",
-                  minWidth: 0,
-                  padding: "0 10px 0 0",
-                  whiteSpace: wrapLines ? "pre-wrap" : "pre",
-                  overflowWrap: wrapLines ? "anywhere" : "normal",
-                  wordBreak: wrapLines ? "break-word" : "normal",
-                  color: "var(--text)",
-                }}
-              >
-                {line.text || "\u00a0"}
-              </span>
-            </div>
-          );
-        });
-        return <div key={si}>{lines}</div>;
-      })}
-    </div>
-  );
 }
 
 function ImageViewer({
@@ -838,10 +710,6 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   const { t } = useLocale();
   const { isDark } = useTheme();
   const appearance = useAppearance();
-  const codeThemeStyle = getCodeThemeStyle(
-    isDark ? appearance.codeThemeDark : appearance.codeThemeLight,
-    isDark,
-  );
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1302,45 +1170,16 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
             </ReactMarkdown>
           </div>
         ) : (
-          <SyntaxHighlighter
-            className={(wrapLines || appearance.wrapCodeLines) ? "file-source-view is-wrapped" : "file-source-view"}
-            language={data.language === "text" ? "plaintext" : data.language}
-            style={codeThemeStyle}
+          <SourceView
+            content={data.content}
+            language={data.language}
+            codeThemeId={isDark ? appearance.codeThemeDark : appearance.codeThemeLight}
+            isDark={isDark}
+            wrapLines={wrapLines || appearance.wrapCodeLines}
             showLineNumbers={appearance.showCodeLineNumbers}
-            lineNumberStyle={{
-              ...FILE_LINE_NUMBER_STYLE,
-              fontSize: appearance.codeFontSize,
-            }}
-            customStyle={{
-              margin: 0,
-              padding: 0,
-              border: 0,
-              backgroundColor: "var(--bg)",
-              ...FILE_CODE_STYLE,
-              fontSize: appearance.codeFontSize,
-              width: (wrapLines || appearance.wrapCodeLines) ? "100%" : "max-content",
-              minWidth: "100%",
-              minHeight: "100%",
-              overflow: "visible",
-            }}
-            codeTagProps={{
-              style: {
-                fontFamily: "var(--font-mono)",
-                fontSize: appearance.codeFontSize,
-                overflowWrap: (wrapLines || appearance.wrapCodeLines) ? "anywhere" : "normal",
-              },
-            }}
-            renderer={(rendererProps) => (
-              <SourceCodeRenderer
-                {...rendererProps}
-                wrapLines={wrapLines || appearance.wrapCodeLines}
-                diagnosticsByLine={diagnosticsByLine}
-              />
-            )}
-            wrapLongLines={wrapLines || appearance.wrapCodeLines}
-          >
-            {data.content}
-          </SyntaxHighlighter>
+            codeFontSize={appearance.codeFontSize}
+            diagnosticsByLine={diagnosticsByLine}
+          />
         )}
       </div>
 

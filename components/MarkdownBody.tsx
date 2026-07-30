@@ -2,7 +2,7 @@
 
 import { useLocale } from "@/hooks/useLocale";
 
-import { useEffect, useMemo, useState, memo, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, memo, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { useTheme } from "@/hooks/useTheme";
@@ -10,7 +10,15 @@ import { useAppearance } from "@/lib/appearance-store";
 import { copyText } from "@/lib/clipboard";
 import { resolveLocalFileHref } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
-import { markdownRehypePlugins, markdownRemarkPlugins } from "@/lib/markdown";
+import {
+  getLoadedKatexRehypePlugin,
+  loadKatexRehypePlugin,
+  markdownRehypePlugins,
+  markdownRemarkPlugins,
+  MARKDOWN_MATH_PATTERN,
+  type MarkdownRehypePlugin,
+  type MarkdownRehypePlugins,
+} from "@/lib/markdown";
 
 interface MarkdownBodyProps {
   children: string;
@@ -23,18 +31,69 @@ interface MarkdownBodyProps {
 export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
 
+  // While streaming, split the document at the last "safe" paragraph boundary
+  // and render the stable prefix as a memoized segment. Each 100ms stream tick
+  // then only re-runs the remark/rehype pipeline over the short tail being
+  // typed, instead of the whole (growing) message.
+  const { stable, tail, streamingCode } = useMemo(
+    () =>
+      isStreaming
+        ? splitStreamingMarkdown(normalizedMarkdown)
+        : { stable: normalizedMarkdown, tail: "", streamingCode: null },
+    [isStreaming, normalizedMarkdown],
+  );
+
+  // Read through a ref instead of a `components` dependency: a new components
+  // map busts MarkdownSegment's memo, which would re-parse the stable prefix on
+  // every tick — exactly what the split above exists to avoid.
+  const streamingCodeRef = useRef<string | null>(null);
+  streamingCodeRef.current = streamingCode;
+
+  // KaTeX is a 264KB / 76KB gzip download, so it only arrives once a message
+  // actually contains math. `normalizedMarkdown` grows during streaming, so a
+  // formula appearing in a later token flips this and triggers the load then.
+  const [katexPlugin, setKatexPlugin] = useState<MarkdownRehypePlugin | null>(getLoadedKatexRehypePlugin);
+  const needsMath = useMemo(() => MARKDOWN_MATH_PATTERN.test(normalizedMarkdown), [normalizedMarkdown]);
+
+  useEffect(() => {
+    if (!needsMath || katexPlugin) return;
+    let live = true;
+    loadKatexRehypePlugin().then(
+      (plugin) => {
+        if (live) setKatexPlugin(() => plugin);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [needsMath, katexPlugin]);
+
+  const rehypePlugins = useMemo<MarkdownRehypePlugins>(
+    () => (katexPlugin ? [...markdownRehypePlugins, katexPlugin] : markdownRehypePlugins),
+    [katexPlugin],
+  );
+
   // Stable components map — recreating this every render forces ReactMarkdown to
   // drop internal memoization and re-walk the whole AST on every token.
   const components = useMemo(() => ({
           code({ className, children, ...props }: { className?: string; children?: ReactNode; node?: unknown }) {
+            // remark-math emits `<code class="language-math math-inline|math-display">`
+            // and rehype-katex replaces those nodes once it has loaded. Until
+            // then render the TeX source as plain text rather than dropping it
+            // into code-block chrome.
+            if (className?.includes("math-inline") || className?.includes("math-display")) {
+              return <>{children}</>;
+            }
             const lang = className?.replace("language-", "").toLowerCase() ?? "";
             const raw = String(children);
             const isBlock = className?.includes("language-") || raw.includes("\n");
             if (isBlock) {
+              const code = raw.replace(/\n$/, "");
               if (lang === "mermaid") {
-                return <MermaidBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} />;
+                return <MermaidBlock code={code} isStreaming={isStreaming} />;
               }
-              return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
+              return <CodeBlock code={code} lang={lang} plain={code === streamingCodeRef.current} />;
             }
             return (
               <code
@@ -100,30 +159,29 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
           },
   }), [cwd, isStreaming, onOpenFile]);
 
-  // While streaming, split the document at the last "safe" paragraph boundary
-  // and render the stable prefix as a memoized segment. Each 100ms stream tick
-  // then only re-runs the remark/rehype pipeline over the short tail being
-  // typed, instead of the whole (growing) message.
-  const { stable, tail } = useMemo(
-    () => (isStreaming ? splitStreamingMarkdown(normalizedMarkdown) : { stable: normalizedMarkdown, tail: "" }),
-    [isStreaming, normalizedMarkdown],
-  );
-
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
-      <MarkdownSegment text={stable} components={components} />
-      {tail && <MarkdownSegment text={tail} components={components} />}
+      <MarkdownSegment text={stable} components={components} rehypePlugins={rehypePlugins} />
+      {tail && <MarkdownSegment text={tail} components={components} rehypePlugins={rehypePlugins} />}
     </div>
   );
 });
 
 type MarkdownComponents = NonNullable<Parameters<typeof ReactMarkdown>[0]["components"]>;
 
-const MarkdownSegment = memo(function MarkdownSegment({ text, components }: { text: string; components: MarkdownComponents }) {
+const MarkdownSegment = memo(function MarkdownSegment({
+  text,
+  components,
+  rehypePlugins,
+}: {
+  text: string;
+  components: MarkdownComponents;
+  rehypePlugins: MarkdownRehypePlugins;
+}) {
   return (
     <ReactMarkdown
       remarkPlugins={markdownRemarkPlugins}
-      rehypePlugins={markdownRehypePlugins}
+      rehypePlugins={rehypePlugins}
       components={components}
     >
       {text}
@@ -136,14 +194,24 @@ const MarkdownSegment = memo(function MarkdownSegment({ text, components }: { te
 // numbering/markers across blank lines), indented continuations, and tables.
 const UNSAFE_BLOCK_START = /^(\s|[-*+]\s|\d+[.)]\s|\||\$\$)/;
 
+interface StreamingSplit {
+  stable: string;
+  tail: string;
+  /**
+   * Body of the trailing unclosed fence, i.e. the code block the model is still
+   * typing, or null when the document does not end inside a fence.
+   */
+  streamingCode: string | null;
+}
+
 /**
  * Split markdown at the last safe paragraph boundary outside code fences.
  * `stable` only changes when a new paragraph completes, so a memoized segment
  * rendering it is a cache hit on almost every streaming tick.
  */
-function splitStreamingMarkdown(markdown: string): { stable: string; tail: string } {
+function splitStreamingMarkdown(markdown: string): StreamingSplit {
   const lines = markdown.split(/\r?\n/);
-  let fence: { marker: string; size: number } | null = null;
+  let fence: { marker: string; size: number; line: number } | null = null;
   let splitLine = -1;
 
   for (let i = 0; i < lines.length; i++) {
@@ -152,7 +220,7 @@ function splitStreamingMarkdown(markdown: string): { stable: string; tail: strin
     if (fenceMatch) {
       const marker = fenceMatch[1][0];
       const size = fenceMatch[1].length;
-      if (!fence) fence = { marker, size };
+      if (!fence) fence = { marker, size, line: i };
       else if (marker === fence.marker && size >= fence.size) fence = null;
       continue;
     }
@@ -167,11 +235,20 @@ function splitStreamingMarkdown(markdown: string): { stable: string; tail: strin
     }
   }
 
-  if (splitLine <= 0) return { stable: markdown, tail: "" };
+  // An unclosed fence at EOF grows on every tick. Matching the string that
+  // react-markdown hands to the `code` component (\r\n normalized, trailing
+  // newline dropped) lets CodeBlock skip tokenizing it; on a mismatch we simply
+  // fall back to highlighting.
+  const streamingCode = fence
+    ? lines.slice(fence.line + 1).join("\n").replace(/\n$/, "")
+    : null;
+
+  if (splitLine <= 0) return { stable: markdown, tail: "", streamingCode };
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
   return {
     stable: lines.slice(0, splitLine).join(lineBreak),
     tail: lines.slice(splitLine).join(lineBreak),
+    streamingCode,
   };
 }
 
@@ -343,7 +420,21 @@ function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boole
 
 // Memoized so that during streaming, already-complete code blocks skip
 // re-tokenizing on every markdown re-parse (props are primitive strings).
-const CodeBlock = memo(function CodeBlock({ code, lang, headerAction }: { code: string; lang: string; headerAction?: ReactNode }) {
+const CodeBlock = memo(function CodeBlock({
+  code,
+  lang,
+  headerAction,
+  plain,
+}: {
+  code: string;
+  lang: string;
+  headerAction?: ReactNode;
+  /**
+   * Block is still being streamed. Refractor would re-tokenize the whole
+   * (growing) body on every tick, which is O(n^2) over a long code block.
+   */
+  plain?: boolean;
+}) {
   const { isDark } = useTheme();
   const appearance = useAppearance();
   const [copied, setCopied] = useState(false);
@@ -374,7 +465,11 @@ const CodeBlock = memo(function CodeBlock({ code, lang, headerAction }: { code: 
         </div>
       </div>
       <SyntaxHighlighter
-        language={lang || "text"}
+        // "text" is react-syntax-highlighter's documented no-op language: it
+        // skips the refractor pass but keeps the exact same <pre>/<code>/line
+        // number tree and styles, so closing the fence only paints token colors
+        // in — no font, padding, gutter or line-height shift.
+        language={plain ? "text" : (lang || "text")}
         style={themeStyle}
         showLineNumbers={appearance.showCodeLineNumbers}
         wrapLongLines={appearance.wrapCodeLines}

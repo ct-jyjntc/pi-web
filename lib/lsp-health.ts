@@ -246,13 +246,41 @@ export function resolveInstallHints(entry: LspCatalogEntry, platform: NodeJS.Pla
   return { install: entry.install, installTip: tip };
 }
 
-export function getLspHealth(cwd?: string | null): {
+export type LspHealth = {
   servers: LspServerStatus[];
   availableCount: number;
   total: number;
   builtinNote: string;
   platform: NodeJS.Platform;
-} {
+};
+
+// Resolving the catalog costs one statSync per (candidate command × PATH entry) —
+// ~200 sync syscalls per call on a normal machine. PATH barely changes inside a
+// process, so memoize per cwd behind a short TTL (a freshly installed server
+// shows up within LSP_HEALTH_TTL_MS). On globalThis to survive hot-reload.
+declare global {
+  var __piLspHealthCache: Map<string, { health: LspHealth; expiresAt: number }> | undefined;
+}
+
+const LSP_HEALTH_TTL_MS = 30_000;
+const MAX_LSP_HEALTH_ENTRIES = 16;
+
+function getLspHealthCache(): Map<string, { health: LspHealth; expiresAt: number }> {
+  if (!globalThis.__piLspHealthCache) globalThis.__piLspHealthCache = new Map();
+  return globalThis.__piLspHealthCache;
+}
+
+/** Discovered servers for `cwd`. Treat the result as read-only — it is memoized. */
+export function getLspHealth(cwd?: string | null): LspHealth {
+  const cache = getLspHealthCache();
+  const key = cwd ?? "";
+  const now = Date.now();
+  const cached = cache.get(key);
+  if (cached) {
+    if (cached.expiresAt > now) return cached.health;
+    cache.delete(key);
+  }
+
   const platform = process.platform;
   const servers: LspServerStatus[] = LSP_CATALOG.map((entry) => {
     const { command, path } = resolveCatalogCommand(entry, cwd);
@@ -273,7 +301,7 @@ export function getLspHealth(cwd?: string | null): {
       platform,
     };
   });
-  return {
+  const health: LspHealth = {
     servers,
     availableCount: servers.filter((s) => s.available).length,
     total: servers.length,
@@ -281,6 +309,22 @@ export function getLspHealth(cwd?: string | null): {
     builtinNote:
       "TypeScript/JavaScript also has a built-in language service fallback for references/rename when no external TS server is present.",
   };
+
+  for (const [entryKey, entry] of cache) {
+    if (entry.expiresAt <= now) cache.delete(entryKey);
+  }
+  while (cache.size >= MAX_LSP_HEALTH_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+  cache.set(key, { health, expiresAt: now + LSP_HEALTH_TTL_MS });
+  return health;
+}
+
+/** Drop memoized discovery results (e.g. after installing a server). */
+export function invalidateLspHealthCache(): void {
+  getLspHealthCache().clear();
 }
 
 /** Specs ready to launch (for lsp-client). */
@@ -302,8 +346,9 @@ export function getAvailableLspSpecs(cwd?: string | null): Array<{
     }));
 }
 
-export function formatLspHealthReport(cwd?: string | null): string {
-  const health = getLspHealth(cwd);
+/** Pass an already-computed health object when you have one; a cwd is resolved first. */
+export function formatLspHealthReport(source?: string | null | LspHealth): string {
+  const health = typeof source === "object" && source !== null ? source : getLspHealth(source);
   const lines: string[] = [
     `LSP servers: ${health.availableCount}/${health.total} available`,
     health.builtinNote,

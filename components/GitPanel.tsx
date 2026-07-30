@@ -5,7 +5,7 @@ import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { getFileName } from "@/lib/file-paths";
-import { DiffView } from "./FileViewer";
+import { DiffView } from "./DiffView";
 
 interface Props {
   cwd: string | null;

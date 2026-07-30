@@ -1,15 +1,12 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
+import { useState, useCallback, useRef, useEffect, useSyncExternalStore, type CSSProperties } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
-import { FileViewer } from "./FileViewer";
-import { GitPanel } from "./GitPanel";
-import { TerminalPanel } from "./TerminalPanel";
 import { TabBar, type Tab } from "./TabBar";
-import { SettingsPage } from "./SettingsPage";
 import { hydrateAppearanceFromServer } from "@/lib/appearance-store";
 import { BranchNavigator } from "./BranchNavigator";
 import { useLocale } from "@/hooks/useLocale";
@@ -19,13 +16,76 @@ import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText }
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
-import { ContextPanel, ContextTabBadge } from "./ContextPanel";
-import { DebugPanel } from "./DebugPanel";
+import { ContextTabBadge } from "./ContextTabBadge";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@/lib/app-update-store";
 import type { ProjectTrustStatus } from "@/lib/api-types";
+
+/**
+ * Lazy panels. None of these can be on screen at first paint — the right
+ * workspace starts collapsed and Settings starts closed — so keeping them out
+ * of the entry chunk is pure first-load savings with no behaviour change.
+ * ContextTabBadge lives in its own leaf module (./ContextTabBadge) so the
+ * always-present workspace tab strip does not pin ContextPanel to the entry.
+ */
+const LAZY_PANEL_FALLBACK_STYLE: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  height: "100%",
+  background: "var(--bg)",
+};
+
+/** Fills exactly the box the real panel will occupy, so no layout shift. */
+function LazyPanelFallback() {
+  return <div style={LAZY_PANEL_FALLBACK_STYLE} aria-hidden />;
+}
+
+const FileViewer = dynamic(() => import("./FileViewer").then((m) => m.FileViewer), {
+  ssr: false,
+  loading: LazyPanelFallback,
+});
+
+const GitPanel = dynamic(() => import("./GitPanel").then((m) => m.GitPanel), {
+  ssr: false,
+  loading: LazyPanelFallback,
+});
+
+const DebugPanel = dynamic(() => import("./DebugPanel").then((m) => m.DebugPanel), {
+  ssr: false,
+  loading: LazyPanelFallback,
+});
+
+const ContextPanel = dynamic(() => import("./ContextPanel").then((m) => m.ContextPanel), {
+  ssr: false,
+  loading: LazyPanelFallback,
+});
+
+const TerminalPanel = dynamic(() => import("./TerminalPanel").then((m) => m.TerminalPanel), {
+  ssr: false,
+  loading: LazyPanelFallback,
+});
+
+const SettingsPage = dynamic(() => import("./SettingsPage").then((m) => m.SettingsPage), {
+  ssr: false,
+  // Settings is a fixed full-screen overlay; match its box so the shell below
+  // never reflows while the chunk loads.
+  loading: () => (
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 1200, background: "var(--bg)" }}
+      aria-hidden
+    />
+  ),
+});
+
+/**
+ * Every turn's `agent_end` used to fire a full session-list reload plus a
+ * FileExplorer remount. Debounce both on the trailing edge so back-to-back
+ * turns collapse into one refresh; the last one always lands.
+ */
+const SESSION_REFRESH_DEBOUNCE_MS = 1500;
+const EXPLORER_REFRESH_DEBOUNCE_MS = 300;
 
 type AutoNameStatus =
   | { kind: "idle" }
@@ -117,12 +177,21 @@ export function AppShell() {
   // Session metrics live in session-metrics-store (ContextPanel/ContextTabBadge subscribe).
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Trailing-edge debounce timers for the post-turn refreshes (see handleAgentEnd).
+  const agentEndTimersRef = useRef<{
+    sessions: ReturnType<typeof setTimeout> | null;
+    explorer: ReturnType<typeof setTimeout> | null;
+  }>({ sessions: null, explorer: null });
   const activeSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
   activeSessionIdRef.current = selectedSession?.id ?? null;
 
   useEffect(() => {
+    // Stable ref object; only its timer fields are reassigned.
+    const timers = agentEndTimersRef.current;
     return () => {
       if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
+      if (timers.sessions) clearTimeout(timers.sessions);
+      if (timers.explorer) clearTimeout(timers.explorer);
     };
   }, []);
 
@@ -164,9 +233,13 @@ export function AppShell() {
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT);
 
   const [rightPanelResizing, setRightPanelResizing] = useState(false);
-  const rightPanelWidthRef = useRef(rightPanelWidth);
-  rightPanelWidthRef.current = rightPanelWidth;
+  const rightPanelContainerRef = useRef<HTMLDivElement | null>(null);
   const rightPanelResizeCleanupRef = useRef<(() => void) | null>(null);
+  const rightPanelDraggingRef = useRef(false);
+  const rightPanelWidthRef = useRef(rightPanelWidth);
+  // A live drag owns the width and writes it straight to the CSS variable, so
+  // an unrelated re-render must not snap the ref back to the committed value.
+  if (!rightPanelDraggingRef.current) rightPanelWidthRef.current = rightPanelWidth;
   /** Right workspace: permanent Review | Files | Context | Terminal (like Files, always present) */
   type WorkspaceTab =
     | { id: "review"; kind: "review" }
@@ -182,6 +255,16 @@ export function AppShell() {
     { id: "terminal", kind: "terminal" },
   ];
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string>("review");
+  // Workspace panels stay mounted behind display:none once opened so they keep
+  // scroll position, expanded diffs and inputs across tab switches. Only the
+  // *first* mount is deferred, to the first time the panel is actually shown.
+  const [mountedWorkspaceTabIds, setMountedWorkspaceTabIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!rightPanelOpen) return;
+    setMountedWorkspaceTabIds((prev) => (
+      prev.includes(activeWorkspaceTabId) ? prev : [...prev, activeWorkspaceTabId]
+    ));
+  }, [activeWorkspaceTabId, rightPanelOpen]);
   // Terminal sessions live inside the permanent Terminal workspace (like file subtabs).
   type TerminalSessionTab = {
     id: string;
@@ -471,8 +554,21 @@ export function AppShell() {
   }, [router, hydrateSelectedSession]);
 
   const handleAgentEnd = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-    setExplorerRefreshKey((k) => k + 1);
+    const timers = agentEndTimersRef.current;
+    // The session list only carries messageCount / mtime here — running badges
+    // already stream over /api/agent/running/events — so it can lag a turn.
+    if (timers.sessions) clearTimeout(timers.sessions);
+    timers.sessions = setTimeout(() => {
+      timers.sessions = null;
+      setRefreshKey((k) => k + 1);
+    }, SESSION_REFRESH_DEBOUNCE_MS);
+    // The file tree / git status must show what the agent just wrote, so this
+    // only coalesces true bursts instead of adding perceptible latency.
+    if (timers.explorer) clearTimeout(timers.explorer);
+    timers.explorer = setTimeout(() => {
+      timers.explorer = null;
+      setExplorerRefreshKey((k) => k + 1);
+    }, EXPLORER_REFRESH_DEBOUNCE_MS);
   }, []);
 
   const handleAutoName = useCallback(async () => {
@@ -606,8 +702,18 @@ export function AppShell() {
 
   // Always clear a half-finished resize on unmount
   useEffect(() => () => {
+    // A live drag keeps the width in a ref, so the commit in cleanup() lands on
+    // an unmounted tree — persist it here instead of losing it.
+    const draggedWidth = rightPanelDraggingRef.current ? rightPanelWidthRef.current : null;
     rightPanelResizeCleanupRef.current?.();
     rightPanelResizeCleanupRef.current = null;
+    if (draggedWidth !== null) {
+      try {
+        window.localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(draggedWidth));
+      } catch {
+        // ignore quota / private mode
+      }
+    }
   }, []);
 
   const handleRightPanelResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -622,7 +728,9 @@ export function AppShell() {
     const startX = e.clientX;
     const startW = rightPanelWidthRef.current;
     const handle = e.currentTarget;
+    const container = rightPanelContainerRef.current;
     const pointerId = e.pointerId;
+    rightPanelDraggingRef.current = true;
     setRightPanelResizing(true);
 
     try {
@@ -637,12 +745,22 @@ export function AppShell() {
       const delta = startX - ev.clientX;
       const max = Math.min(RIGHT_PANEL_MAX, Math.floor(window.innerWidth * 0.72));
       const next = Math.min(max, Math.max(RIGHT_PANEL_MIN, Math.round(startW + delta)));
+      if (next === rightPanelWidthRef.current) return;
       rightPanelWidthRef.current = next;
-      setRightPanelWidth(next);
+      // Width only feeds a CSS variable, so drive it straight from the DOM.
+      // A setState here would re-render the whole shell on every pointer frame
+      // (session tree, open file + syntax highlighting) and freeze the window.
+      container?.style.setProperty("--right-panel-width", `${next}px`);
+      handle.setAttribute("aria-valuenow", String(next));
     };
 
     const cleanup = () => {
+      if (!rightPanelDraggingRef.current) return;
+      rightPanelDraggingRef.current = false;
       setRightPanelResizing(false);
+      // Commit once at the end: React state drives persistence and the inline
+      // style, and matches the value already written to the DOM (no jump).
+      setRightPanelWidth(rightPanelWidthRef.current);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       handle.removeEventListener("pointermove", onMove);
@@ -1334,6 +1452,7 @@ export function AppShell() {
 
       {/* Right panel */}
       <div
+        ref={rightPanelContainerRef}
         className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizing ? " is-resizing" : ""}`}
         style={{
           display: "flex",
@@ -1405,7 +1524,8 @@ export function AppShell() {
         </div>
 
         <div style={{ flex: 1, overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
-          {/* Keep Terminal mounted when hidden so the shell session stays alive (Files-like permanence). */}
+          {/* Panels mount on first open and stay mounted (hidden) afterwards,
+              so switching tabs never resets their internal state. */}
           <div style={{
             display: activeWorkspaceTabId === "review" ? "flex" : "none",
             flexDirection: "column",
@@ -1413,33 +1533,35 @@ export function AppShell() {
             minHeight: 0,
             overflow: "hidden",
           }}>
-            <GitPanel
-              cwd={activeCwd}
-              refreshKey={explorerRefreshKey}
-              focusPath={gitFocusPath}
-              defaultExpanded
-              onOpenFile={(filePath, fileName) => {
-                handleOpenFile(filePath, fileName);
-              }}
-              onReviewSessionStarted={(session) => {
-                setNewSessionCwd(null);
-                setSelectedSession({
-                  id: session.id,
-                  path: "",
-                  cwd: session.cwd,
-                  created: new Date().toISOString(),
-                  modified: new Date().toISOString(),
-                  messageCount: 1,
-                  firstMessage: session.name ?? "Git review",
-                  name: session.name,
-                });
-                setSessionKey((k) => k + 1);
-                setRefreshKey((k) => k + 1);
-                hydrateSelectedSession(session.id);
-                router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-                if (isMobile) setSidebarOpen(false);
-              }}
-            />
+            {mountedWorkspaceTabIds.includes("review") && (
+              <GitPanel
+                cwd={activeCwd}
+                refreshKey={explorerRefreshKey}
+                focusPath={gitFocusPath}
+                defaultExpanded
+                onOpenFile={(filePath, fileName) => {
+                  handleOpenFile(filePath, fileName);
+                }}
+                onReviewSessionStarted={(session) => {
+                  setNewSessionCwd(null);
+                  setSelectedSession({
+                    id: session.id,
+                    path: "",
+                    cwd: session.cwd,
+                    created: new Date().toISOString(),
+                    modified: new Date().toISOString(),
+                    messageCount: 1,
+                    firstMessage: session.name ?? "Git review",
+                    name: session.name,
+                  });
+                  setSessionKey((k) => k + 1);
+                  setRefreshKey((k) => k + 1);
+                  hydrateSelectedSession(session.id);
+                  router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+                  if (isMobile) setSidebarOpen(false);
+                }}
+              />
+            )}
           </div>
 
           <div style={{
@@ -1487,7 +1609,7 @@ export function AppShell() {
             minHeight: 0,
             overflow: "hidden",
           }}>
-            <ContextPanel />
+            {mountedWorkspaceTabIds.includes("context") && <ContextPanel />}
           </div>
 
           <div style={{
@@ -1497,12 +1619,14 @@ export function AppShell() {
             minHeight: 0,
             overflow: "hidden",
           }}>
-            <DebugPanel
-              cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
-              onOpenSource={(filePath, line) => {
-                handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null, line);
-              }}
-            />
+            {mountedWorkspaceTabIds.includes("debug") && (
+              <DebugPanel
+                cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
+                onOpenSource={(filePath, line) => {
+                  handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null, line);
+                }}
+              />
+            )}
           </div>
 
           <div style={{

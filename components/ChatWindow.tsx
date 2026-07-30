@@ -58,6 +58,8 @@ function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Record<stri
 const CHAT_RAIL_BTN_WIDTH = 36;
 const CHAT_RAIL_WIDTH = CHAT_RAIL_BTN_WIDTH + 1; // + left divider
 const CHAT_COLUMN_PADDING = 16;
+/** Floor between two /api/web-settings reads (tab focus flapping is cheap now). */
+const SETTINGS_REFRESH_MIN_MS = 30_000;
 
 function hasFinalAssistantAnswer(message: AgentMessage): boolean {
   if (message.role !== "assistant") return false;
@@ -93,19 +95,51 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
+// `getDisplayableAssistantBlocks` allocates a fresh filtered array per call and
+// the transcript asks the same questions about the same messages on every
+// render. Cache per message object — messages are immutable once appended
+// (same contract `finalAssistantPartsCache` below relies on).
+const displayableBlocksCache = new WeakMap<AssistantMessage, AssistantContentBlock[]>();
+
+function getCachedDisplayableBlocks(message: AssistantMessage): AssistantContentBlock[] {
+  let blocks = displayableBlocksCache.get(message);
+  if (!blocks) {
+    blocks = getDisplayableAssistantBlocks(message);
+    displayableBlocksCache.set(message, blocks);
+  }
+  return blocks;
+}
+
 function countToolCalls(messages: AgentMessage[], indices: number[]): number {
   let count = 0;
   for (const idx of indices) {
     const msg = messages[idx];
     if (msg?.role !== "assistant") continue;
-    count += countToolCallBlocks(getDisplayableAssistantBlocks(msg as AssistantMessage));
+    count += countToolCallBlocks(getCachedDisplayableBlocks(msg as AssistantMessage));
   }
+  return count;
+}
+
+// Keyed by the turn's final assistant message: that message identifies the turn
+// and changes whenever the turn grows another assistant reply.
+const turnToolCallCountCache = new WeakMap<AssistantMessage, number>();
+
+function getTurnToolCallCount(
+  messages: AgentMessage[],
+  processIndices: number[],
+  finalAssistant: AssistantMessage,
+  finalProcessBlocks: AssistantContentBlock[],
+): number {
+  const cached = turnToolCallCountCache.get(finalAssistant);
+  if (cached !== undefined) return cached;
+  const count = countToolCalls(messages, processIndices) + countToolCallBlocks(finalProcessBlocks);
+  turnToolCallCountCache.set(finalAssistant, count);
   return count;
 }
 
 function hasDisplayableProcessMessage(message: AgentMessage): boolean {
   if (message.role === "assistant") {
-    return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0;
+    return getCachedDisplayableBlocks(message as AssistantMessage).length > 0;
   }
   return message.role === "custom";
 }
@@ -150,6 +184,25 @@ function getFinalAssistantParts(message: AssistantMessage): FinalAssistantParts 
   }
   return parts;
 }
+
+/**
+ * One top-level transcript item, described without building React elements.
+ * The plan is built for every message (cheap: role scan + WeakMap-cached block
+ * lookups) so the render window can be sliced with the exact same semantics as
+ * before, while element creation stays limited to the visible slice.
+ */
+type RenderPlanItem =
+  | { kind: "message"; idx: number }
+  | { kind: "answer"; idx: number; message: AssistantMessage }
+  | {
+    kind: "process";
+    userIdx: number;
+    finalAssistantIdx: number;
+    /** Already filtered to messages that actually render something. */
+    processIndices: number[];
+    processCount: number;
+    hasAnswer: boolean;
+  };
 
 function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
   const { t } = useLocale();
@@ -200,6 +253,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
   const composerDockRef = useRef<HTMLDivElement>(null);
+  const composerUnderlayRef = useRef<HTMLDivElement>(null);
+  const composerToolbarRef = useRef<HTMLDivElement | null>(null);
   const [composerDockH, setComposerDockH] = useState(128);
 
 
@@ -220,10 +275,17 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   } | null>(null);
   const advisorEnabledRef = useRef(false);
   const messagesForAdvisorRef = useRef<AgentMessage[]>([]);
+  const settingsLoadedAtRef = useRef(0);
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      fetch("/api/web-settings")
+      // The transcript only needs a handful of booleans, so skip the utility
+      // model catalog and throttle: `visibilitychange` fires on every tab
+      // switch and the settings file barely ever changes.
+      const now = Date.now();
+      if (now - settingsLoadedAtRef.current < SETTINGS_REFRESH_MIN_MS) return;
+      settingsLoadedAtRef.current = now;
+      fetch("/api/web-settings?utilityModels=0")
         .then(async (res) => {
           const data = await res.json() as {
             settings?: {
@@ -492,19 +554,23 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       const dock = el.getBoundingClientRect();
       const h = Math.ceil(dock.height);
       if (h > 0) setComposerDockH(h);
-      const toolbar = el.querySelector(".composer-toolbar");
-      if (toolbar instanceof HTMLElement) {
+      // Toolbar arrives by ref (no per-tick querySelector) and the custom
+      // property lands on the absolutely-positioned underlay instead of the
+      // observed dock, so the observer can never resize its own target.
+      const toolbar = composerToolbarRef.current;
+      const underlay = composerUnderlayRef.current;
+      if (toolbar && underlay) {
         const top = toolbar.getBoundingClientRect().top;
         // From the input/model divider down to the dock bottom.
-        const underlay = Math.max(40, Math.ceil(dock.bottom - top));
-        el.style.setProperty("--composer-underlay-h", `${underlay}px`);
+        const underlayH = Math.max(40, Math.ceil(dock.bottom - top));
+        underlay.style.setProperty("--composer-underlay-h", `${underlayH}px`);
       }
     };
     apply();
     const ro = new ResizeObserver(apply);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [isEmptyNew, sessionBusy, queuedMessages, advisorNote]);
+  }, [isEmptyNew, sessionBusy, advisorNote]);
 
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
 
@@ -546,6 +612,68 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         visibleRefIndexByMessage.set(idx, refIdx++);
       }
     });
+
+    // Pass 1 — plan every render item. ChatMinimap walks the full message list
+    // and keeps its own running ref index, so `visibleRefIndexByMessage` above
+    // must stay global; only element creation below is windowed.
+    const plan: RenderPlanItem[] = [];
+    for (let idx = 0; idx < messages.length;) {
+      const msg = messages[idx];
+      if (msg.role !== "user") {
+        plan.push({ kind: "message", idx });
+        idx += 1;
+        continue;
+      }
+
+      const userIdx = idx;
+      let endIdx = userIdx + 1;
+      while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1;
+
+      const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
+      // Turns with no assistant answer, and the still-running tail, stay flat:
+      // one item per message, no process grouping.
+      const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastUserIdx;
+      if (finalAssistantIdx === -1 || isLiveTail) {
+        for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
+          plan.push({ kind: "message", idx: renderIdx });
+        }
+        idx = endIdx;
+        continue;
+      }
+
+      plan.push({ kind: "message", idx: userIdx });
+
+      const processIndices: number[] = [];
+      for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
+        if (hasDisplayableProcessMessage(messages[processIdx])) processIndices.push(processIdx);
+      }
+      const finalSplit = getFinalAssistantParts(messages[finalAssistantIdx] as AssistantMessage);
+      const finalAnswerMessage = finalSplit.answerMessage;
+
+      const processCount = processIndices.length + (finalSplit.processMessage ? 1 : 0);
+      if (processCount > 0) {
+        plan.push({
+          kind: "process",
+          userIdx,
+          finalAssistantIdx,
+          processIndices,
+          processCount,
+          hasAnswer: finalAnswerMessage !== null,
+        });
+      }
+
+      if (finalAnswerMessage) {
+        plan.push({ kind: "answer", idx: finalAssistantIdx, message: finalAnswerMessage });
+      }
+      for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
+        plan.push({ kind: "message", idx: renderIdx });
+      }
+      idx = endIdx;
+    }
+
+    // Same window arithmetic as before — `visibleCount` counts render items,
+    // not messages and not turns — but applied before elements exist.
+    const { startIndex, hasMore } = getVisibleRenderWindow(plan.length, visibleCount);
 
     const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
       messageRefs.current[refIndex] = el;
@@ -602,86 +730,42 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       );
     };
 
-    const rendered: ReactNode[] = [];
-    for (let idx = 0; idx < messages.length;) {
-      const msg = messages[idx];
-      if (msg.role !== "user") {
-        rendered.push(renderMessage(idx));
-        idx += 1;
-        continue;
-      }
-
-      const userIdx = idx;
-      let endIdx = userIdx + 1;
-      while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1;
-
-      const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
-
-      if (finalAssistantIdx === -1) {
-        for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-          rendered.push(renderMessage(renderIdx));
-        }
-        idx = endIdx;
-        continue;
-      }
-
-      const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastUserIdx;
-      if (isLiveTail) {
-        for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-          rendered.push(renderMessage(renderIdx));
-        }
-        idx = endIdx;
-        continue;
-      }
-
-      rendered.push(renderMessage(userIdx));
-
-      const processIndices: number[] = [];
-      for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
-        processIndices.push(processIdx);
-      }
-      const visibleProcessIndices = processIndices.filter((processIdx) => hasDisplayableProcessMessage(messages[processIdx]));
-      const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
+    const renderProcessGroup = (item: Extract<RenderPlanItem, { kind: "process" }>): ReactNode => {
+      const finalAssistant = messages[item.finalAssistantIdx] as AssistantMessage;
       const finalSplit = getFinalAssistantParts(finalAssistant);
-      const finalProcessMessage = finalSplit.processMessage;
-      const finalAnswerMessage = finalSplit.answerMessage;
+      const processRefIdx = item.processIndices
+        .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
+        .find((value): value is number => typeof value === "number")
+        ?? (item.hasAnswer ? undefined : visibleRefIndexByMessage.get(item.finalAssistantIdx));
+      const processGroup = (
+        <ProcessDetailsGroup
+          messageCount={item.processCount}
+          toolCallCount={getTurnToolCallCount(messages, item.processIndices, finalAssistant, finalSplit.processBlocks)}
+        >
+          {item.processIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
+          {finalSplit.processMessage && renderMessage(item.finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalSplit.processMessage, showTimestamp: false })}
+        </ProcessDetailsGroup>
+      );
+      return (
+        <div
+          key={`process-group-${item.userIdx}-${item.finalAssistantIdx}`}
+          className="chat-message-item"
+          ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
+        >
+          {processGroup}
+        </div>
+      );
+    };
 
-      const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
-      if (processCount > 0) {
-        const processRefIdx = visibleProcessIndices
-          .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
-          .find((value): value is number => typeof value === "number")
-          ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
-        const processGroup = (
-          <ProcessDetailsGroup
-            messageCount={processCount}
-            toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
-          >
-            {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
-            {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
-          </ProcessDetailsGroup>
-        );
-        rendered.push(
-          <div
-            key={`process-group-${userIdx}-${finalAssistantIdx}`}
-            className="chat-message-item"
-            ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
-          >
-            {processGroup}
-          </div>,
-        );
-      }
-
-      if (finalAnswerMessage) {
-        rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
-      }
-      for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
-        rendered.push(renderMessage(renderIdx));
-      }
-      idx = endIdx;
+    // Pass 2 — build elements for the visible window only.
+    const rendered: ReactNode[] = [];
+    for (let planIdx = startIndex; planIdx < plan.length; planIdx++) {
+      const item = plan[planIdx];
+      if (item.kind === "message") rendered.push(renderMessage(item.idx));
+      else if (item.kind === "answer") rendered.push(renderMessage(item.idx, { messageOverride: item.message }));
+      else rendered.push(renderProcessGroup(item));
     }
 
-    const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
     return (
       <>
         {hasMore && (
@@ -689,7 +773,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             Scroll up to load earlier messages ({startIndex} hidden)
           </div>
         )}
-        {rendered.slice(startIndex)}
+        {rendered}
       </>
     );
   }, [
@@ -804,6 +888,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     {advisorBanner}
     <ChatInput
       ref={chatInputRef}
+      toolbarRef={composerToolbarRef}
       onSend={handleSend}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
@@ -1051,7 +1136,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
         {/* Floating composer: widgets sit above the input card (separate). */}
         <div ref={composerDockRef} className="chat-composer-float">
-          <div className="chat-composer-float-underlay" aria-hidden />
+          <div ref={composerUnderlayRef} className="chat-composer-float-underlay" aria-hidden />
           <div className="chat-composer-float-body">
             <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
               <div style={{ maxWidth: 820, margin: "0 auto" }}>

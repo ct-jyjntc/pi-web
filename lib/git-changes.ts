@@ -19,6 +19,25 @@ const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_NETWORK_TIMEOUT_MS = 120_000;
 const GIT_STATUS_MAX_BUFFER = 8 * 1024 * 1024;
+const BRANCH_HEADER_PREFIX = "## ";
+const DETACHED_HEADER = "HEAD (no branch)";
+const NEWLINE_BYTE = 0x0a;
+const UNTRACKED_LINE_COUNT_CONCURRENCY = 8;
+
+/** Branch/upstream state parsed from the porcelain `--branch` header. */
+type GitHeadInfo = {
+  /** null for a detached HEAD — resolveBranchLabel() falls back to the sha. */
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+};
+
+/** One `git status --porcelain --branch` read, shared by status and diff calls. */
+type GitStatusSnapshot = {
+  entries: GitPorcelainEntry[];
+  head: GitHeadInfo;
+};
 
 async function git(
   cwd: string,
@@ -41,12 +60,223 @@ async function git(
   }
 }
 
-async function findRepositoryRoot(cwd: string): Promise<string | null> {
-  try {
-    return (await git(cwd, ["rev-parse", "--show-toplevel"])).trim() || null;
-  } catch {
-    return null;
+// ============================================================================
+// Read caches
+//
+// One getGitStatus() round spawns several git processes, the Git panel and the
+// file explorer poll the same cwd, and every expanded file diff needs the same
+// porcelain snapshot. Cached reads therefore get a very short TTL plus
+// in-flight coalescing — same shape as loadModelsWithCache() in
+// lib/models-cache.ts, kept on globalThis so dev hot-reload does not reset it
+// (like globalThis.__piSessions in lib/rpc-manager.ts).
+//
+// Three layers keep the UI from showing a stale tree, strongest first:
+//   1. every mutating helper below calls invalidateGitStatusCache() right after
+//      the write and before it re-reads the status,
+//   2. cached values are revalidated against a fingerprint of the repository
+//      index/HEAD, so writes this module does not perform (git-conflict.ts,
+//      git-merge.ts, a `git add` typed into the built-in terminal) are picked
+//      up immediately,
+//   3. the TTL is 1s, so whatever the first two miss (a plain worktree edit)
+//      appears on the next poll.
+// ============================================================================
+
+const GIT_CACHE_TTL_MS = 1_000;
+/** cwd → repository root is structural: it only changes on init/clone/move. */
+const GIT_ROOT_CACHE_TTL_MS = 30_000;
+const MAX_GIT_CACHE_ENTRIES = 32;
+
+/** How a cached value is revalidated when it is read back. */
+type GitCacheGuard =
+  | { kind: "fingerprint"; repositoryRoot: string; fingerprint: string }
+  | { kind: "ttl" }
+  | { kind: "never" };
+
+type GitCacheEntry<T> = { value: T; expiresAt: number; guard: GitCacheGuard };
+
+type GitCacheBucket<T> = {
+  entries: Map<string, GitCacheEntry<T>>;
+  inFlight: Map<string, Promise<T>>;
+};
+
+type GitCacheLoad<T> = { value: T; guard: GitCacheGuard };
+
+type GitCacheState = {
+  /** cwd → full status response */
+  status: GitCacheBucket<GitStatusResponse>;
+  /** repository root → porcelain snapshot shared by status and diff reads */
+  snapshots: GitCacheBucket<GitStatusSnapshot>;
+  /** cwd → repository root */
+  roots: GitCacheBucket<string | null>;
+  /** repository root → git dir (`.git` is a file inside linked worktrees) */
+  gitDirs: Map<string, string | null>;
+};
+
+declare global {
+  var __piGitCacheState: GitCacheState | undefined;
+}
+
+function createGitCacheBucket<T>(): GitCacheBucket<T> {
+  return { entries: new Map(), inFlight: new Map() };
+}
+
+function getGitCacheState(): GitCacheState {
+  if (!globalThis.__piGitCacheState) {
+    globalThis.__piGitCacheState = {
+      status: createGitCacheBucket<GitStatusResponse>(),
+      snapshots: createGitCacheBucket<GitStatusSnapshot>(),
+      roots: createGitCacheBucket<string | null>(),
+      gitDirs: new Map(),
+    };
   }
+  return globalThis.__piGitCacheState;
+}
+
+/**
+ * Drop every cached status/porcelain snapshot. Called after each mutating git
+ * operation — clearing globally instead of per cwd is deliberate: one
+ * repository is reachable through many cwds (subdirectories, worktrees) and a
+ * write through any of them makes all of their snapshots stale. Repository-root
+ * lookups are structural and survive.
+ */
+export function invalidateGitStatusCache(): void {
+  const state = globalThis.__piGitCacheState;
+  if (!state) return;
+  state.status.entries.clear();
+  state.status.inFlight.clear();
+  state.snapshots.entries.clear();
+  state.snapshots.inFlight.clear();
+}
+
+function resolveGitDir(repositoryRoot: string): string | null {
+  const state = getGitCacheState();
+  const cached = state.gitDirs.get(repositoryRoot);
+  if (cached !== undefined) return cached;
+  let gitDir: string | null = null;
+  try {
+    const dotGit = path.join(repositoryRoot, ".git");
+    if (fs.statSync(dotGit).isDirectory()) {
+      gitDir = dotGit;
+    } else {
+      // Linked worktree: `.git` is a file containing "gitdir: <path>".
+      const match = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, "utf8"));
+      const target = match?.[1]?.trim();
+      gitDir = target ? path.resolve(repositoryRoot, target) : null;
+    }
+  } catch {
+    gitDir = null;
+  }
+  state.gitDirs.set(repositoryRoot, gitDir);
+  return gitDir;
+}
+
+/**
+ * Cheap change token for a repository: index + HEAD mtime/size. Every git write
+ * rewrites at least one of them, so a changed token means cached snapshots must
+ * not be reused. Returns "" when the layout cannot be read, which callers treat
+ * as "not cacheable".
+ */
+function repositoryFingerprint(repositoryRoot: string): string {
+  const gitDir = resolveGitDir(repositoryRoot);
+  if (!gitDir) return "";
+  const stamp = (name: string): string => {
+    try {
+      const stat = fs.statSync(path.join(gitDir, name));
+      return `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      return "-";
+    }
+  };
+  return `${stamp("index")}|${stamp("HEAD")}`;
+}
+
+/**
+ * Guard for a value read between two fingerprints: if the repository changed
+ * while we were reading it, the value may already describe the past and is not
+ * cached at all.
+ */
+function fingerprintGuard(repositoryRoot: string, before: string): GitCacheGuard {
+  if (!before || before !== repositoryFingerprint(repositoryRoot)) return { kind: "never" };
+  return { kind: "fingerprint", repositoryRoot, fingerprint: before };
+}
+
+function guardHolds(guard: GitCacheGuard): boolean {
+  if (guard.kind === "ttl") return true;
+  if (guard.kind === "never") return false;
+  return repositoryFingerprint(guard.repositoryRoot) === guard.fingerprint;
+}
+
+function pruneGitCacheBucket<T>(bucket: GitCacheBucket<T>): void {
+  const now = Date.now();
+  for (const [key, entry] of bucket.entries) {
+    if (entry.expiresAt <= now) bucket.entries.delete(key);
+  }
+  while (bucket.entries.size >= MAX_GIT_CACHE_ENTRIES) {
+    const oldestKey = bucket.entries.keys().next().value;
+    if (oldestKey === undefined) break;
+    bucket.entries.delete(oldestKey);
+  }
+}
+
+function withGitCache<T>(
+  bucket: GitCacheBucket<T>,
+  key: string,
+  load: () => Promise<GitCacheLoad<T>>,
+  options?: { ttlMs?: number; allowCached?: boolean },
+): Promise<T> {
+  const cached = bucket.entries.get(key);
+  if (cached) {
+    if (options?.allowCached !== false && cached.expiresAt > Date.now() && guardHolds(cached.guard)) {
+      return Promise.resolve(cached.value);
+    }
+    bucket.entries.delete(key);
+  }
+
+  // Coalesce even when a fresh value was requested: a load that is already
+  // running is at most one request old, and this is what collapses a fan-out of
+  // parallel diff requests into a single git call.
+  const existing = bucket.inFlight.get(key);
+  if (existing) return existing;
+
+  const ttlMs = options?.ttlMs ?? GIT_CACHE_TTL_MS;
+  const loadPromise: Promise<T> = Promise.resolve()
+    .then(load)
+    .then(({ value, guard }) => {
+      // invalidateGitStatusCache() drops in-flight entries; the identity check
+      // keeps a load started before a write from repopulating the cache.
+      if (guard.kind !== "never" && bucket.inFlight.get(key) === loadPromise) {
+        pruneGitCacheBucket(bucket);
+        bucket.entries.set(key, { value, expiresAt: Date.now() + ttlMs, guard });
+      }
+      return value;
+    })
+    .finally(() => {
+      if (bucket.inFlight.get(key) === loadPromise) bucket.inFlight.delete(key);
+    });
+
+  bucket.inFlight.set(key, loadPromise);
+  return loadPromise;
+}
+
+function findRepositoryRoot(cwd: string): Promise<string | null> {
+  return withGitCache(getGitCacheState().roots, cwd, async () => {
+    let root: string | null = null;
+    try {
+      root = (await git(cwd, ["rev-parse", "--show-toplevel"])).trim() || null;
+    } catch {
+      root = null;
+    }
+    // Positives only: a plain directory can become a repository at any time
+    // (git init / clone) and a miss costs a single spawn.
+    return { value: root, guard: root ? { kind: "ttl" } : { kind: "never" } };
+  }, { ttlMs: GIT_ROOT_CACHE_TTL_MS });
+}
+
+function forgetRepositoryRoot(cwd: string): void {
+  const state = globalThis.__piGitCacheState;
+  if (!state) return;
+  state.roots.entries.delete(cwd);
+  state.gitDirs.clear();
 }
 
 function realPath(p: string): string {
@@ -57,24 +287,94 @@ function realPath(p: string): string {
   }
 }
 
+/** isWithinPath() with the parent already resolved — hoist it out of loops. */
+function isWithinRealPath(realParent: string, target: string): boolean {
+  const relative = path.relative(realParent, realPath(target));
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
 function isWithinPath(parent: string, target: string): boolean {
   // realpath so macOS /var → /private/var (and similar) still counts as inside.
-  const relative = path.relative(realPath(parent), realPath(target));
-  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+  return isWithinRealPath(realPath(parent), target);
 }
 
 function toGitPath(filePath: string): string {
   return filePath.split(path.sep).join("/");
 }
 
-async function readStatusEntries(repositoryRoot: string): Promise<GitPorcelainEntry[]> {
+async function readStatusSnapshot(
+  repositoryRoot: string,
+  options?: { allowCached?: boolean },
+): Promise<GitStatusSnapshot> {
+  return withGitCache(getGitCacheState().snapshots, repositoryRoot, async () => {
+    const before = repositoryFingerprint(repositoryRoot);
+    const value = await loadStatusSnapshot(repositoryRoot);
+    return { value, guard: fingerprintGuard(repositoryRoot, before) };
+  }, { allowCached: options?.allowCached });
+}
+
+/**
+ * `--branch` prepends one NUL-terminated header record to the porcelain output,
+ * which hands us branch + upstream + ahead/behind without the three extra
+ * spawns (`branch --show-current`, `rev-parse @{upstream}`, `rev-list`).
+ */
+async function loadStatusSnapshot(repositoryRoot: string): Promise<GitStatusSnapshot> {
   const output = await git(repositoryRoot, [
     "status",
     "--porcelain=v1",
     "-z",
+    "--branch",
     "--untracked-files=all",
   ]);
-  return parseGitPorcelainV1(output);
+  if (!output.startsWith(BRANCH_HEADER_PREFIX)) {
+    return { entries: parseGitPorcelainV1(output), head: emptyHeadInfo() };
+  }
+  const headerEnd = output.indexOf("\0");
+  const header = headerEnd === -1 ? output : output.slice(0, headerEnd);
+  const body = headerEnd === -1 ? "" : output.slice(headerEnd + 1);
+  return { entries: parseGitPorcelainV1(body), head: parseBranchHeader(header) };
+}
+
+function emptyHeadInfo(): GitHeadInfo {
+  return { branch: null, upstream: null, ahead: 0, behind: 0 };
+}
+
+/**
+ * Parse the porcelain v1 branch header, one of:
+ *   "## main...origin/main [ahead 1, behind 2]" · "## main" ·
+ *   "## HEAD (no branch)" · "## No commits yet on main"
+ */
+function parseBranchHeader(header: string): GitHeadInfo {
+  const head = emptyHeadInfo();
+  let text = header.slice(BRANCH_HEADER_PREFIX.length).trim();
+  if (!text || text === DETACHED_HEADER) return head;
+
+  let gone = false;
+  const divergence = /\s\[([^\]]*)\]$/.exec(text);
+  if (divergence) {
+    text = text.slice(0, divergence.index);
+    const state = divergence[1] ?? "";
+    // "[gone]" = the tracked branch was deleted upstream; report no upstream,
+    // which is what resolving @{upstream} used to yield.
+    gone = state.trim() === "gone";
+    const ahead = /ahead (\d+)/.exec(state);
+    const behind = /behind (\d+)/.exec(state);
+    head.ahead = ahead ? Number.parseInt(ahead[1] ?? "0", 10) || 0 : 0;
+    head.behind = behind ? Number.parseInt(behind[1] ?? "0", 10) || 0 : 0;
+  }
+
+  // Refs cannot contain "..", so the first "..." separates local from upstream.
+  const separator = text.indexOf("...");
+  let local = separator === -1 ? text : text.slice(0, separator);
+  if (separator !== -1 && !gone) head.upstream = text.slice(separator + 3).trim() || null;
+  local = local.replace(/^No commits yet on /, "").trim();
+  head.branch = local || null;
+  return head;
+}
+
+/** Detached HEAD (and unexpected header shapes) still need the old lookup. */
+async function resolveBranchLabel(repositoryRoot: string, head: GitHeadInfo): Promise<string | null> {
+  return head.branch ?? await readBranch(repositoryRoot);
 }
 
 function isStaged(entry: GitPorcelainEntry): boolean {
@@ -85,6 +385,10 @@ function isUnstaged(entry: GitPorcelainEntry): boolean {
   // worktreeStatus is " " when clean; "?" for untracked (??) and letter codes for edits.
   // (Do not add `=== "?"` after a `!== " "` check — TS narrows worktree to " " on the RHS.)
   return entry.worktreeStatus !== " ";
+}
+
+function isUntracked(entry: GitPorcelainEntry): boolean {
+  return entry.indexStatus === "?" && entry.worktreeStatus === "?";
 }
 
 async function readBranch(repositoryRoot: string): Promise<string | null> {
@@ -102,26 +406,58 @@ async function readBranch(repositoryRoot: string): Promise<string | null> {
   }
 }
 
-async function readUpstreamTracking(repositoryRoot: string): Promise<{ upstream: string | null; ahead: number; behind: number }> {
+/**
+ * Line count for an untracked file without buffering it: stat first (the old
+ * version read a 500MB file into memory before noticing it was oversized), then
+ * stream and bail out as soon as it turns out to be binary. Returns 0 for
+ * binary / oversized / unreadable files, matching the previous behaviour.
+ */
+async function countTextLines(absolutePath: string): Promise<number> {
+  let stat: fs.Stats;
   try {
-    const upstream = (await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "@{upstream}"])).trim();
-    if (!upstream || upstream === "@{{upstream}}") {
-      return { upstream: null, ahead: 0, behind: 0 };
-    }
-    try {
-      const counts = (await git(repositoryRoot, ["rev-list", "--left-right", "--count", `@{upstream}...HEAD`])).trim();
-      const [behindRaw, aheadRaw] = counts.split(/\s+/);
-      return {
-        upstream,
-        ahead: Number.parseInt(aheadRaw ?? "0", 10) || 0,
-        behind: Number.parseInt(behindRaw ?? "0", 10) || 0,
-      };
-    } catch {
-      return { upstream, ahead: 0, behind: 0 };
-    }
+    stat = await fs.promises.stat(absolutePath);
   } catch {
-    return { upstream: null, ahead: 0, behind: 0 };
+    return 0;
   }
+  if (!stat.isFile() || stat.size === 0 || stat.size > TEXT_PREVIEW_MAX_BYTES) return 0;
+
+  return new Promise<number>((resolve) => {
+    const stream = fs.createReadStream(absolutePath);
+    let lines = 0;
+    let lastByte = 0;
+    let binary = false;
+    stream.on("data", (chunk: string | Buffer) => {
+      const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+      if (buf.includes(0)) {
+        binary = true;
+        stream.destroy();
+        return;
+      }
+      for (let at = buf.indexOf(NEWLINE_BYTE); at !== -1; at = buf.indexOf(NEWLINE_BYTE, at + 1)) {
+        lines += 1;
+      }
+      lastByte = buf[buf.length - 1] ?? lastByte;
+    });
+    stream.on("error", () => resolve(0));
+    // Counts newline-terminated lines plus a trailing unterminated one.
+    stream.on("close", () => resolve(binary ? 0 : lines + (lastByte === NEWLINE_BYTE ? 0 : 1)));
+  });
+}
+
+async function forEachLimited<T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor];
+      cursor += 1;
+      if (item !== undefined) await task(item);
+    }
+  });
+  await Promise.all(workers);
 }
 
 async function readNumstatMap(repositoryRoot: string): Promise<Map<string, { insertions: number; deletions: number }>> {
@@ -144,71 +480,68 @@ async function readNumstatMap(repositoryRoot: string): Promise<Map<string, { ins
     }
   };
   try {
+    // Worktree vs HEAD already covers staged changes, so `--cached` is only a
+    // fallback for repositories without a HEAD; merging both double-counted
+    // every staged file.
     merge(await git(repositoryRoot, ["diff", "--numstat", "HEAD"]));
   } catch {
-    // no HEAD yet
-  }
-  try {
-    merge(await git(repositoryRoot, ["diff", "--cached", "--numstat"]));
-  } catch {
-    // ignore
-  }
-  // untracked files: count lines as insertions
-  try {
-    const untracked = (await git(repositoryRoot, ["ls-files", "--others", "--exclude-standard", "-z"]))
-      .split("\0")
-      .filter(Boolean);
-    for (const rel of untracked) {
-      if (map.has(rel)) continue;
-      try {
-        const abs = path.resolve(repositoryRoot, rel);
-        const buf = fs.readFileSync(abs);
-        if (buf.includes(0) || buf.length > TEXT_PREVIEW_MAX_BYTES) {
-          map.set(rel, { insertions: 0, deletions: 0 });
-          continue;
-        }
-        const text = buf.toString("utf8");
-        const lines = text.length === 0 ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
-        map.set(rel, { insertions: Math.max(lines, 0), deletions: 0 });
-      } catch {
-        map.set(rel, { insertions: 0, deletions: 0 });
-      }
+    try {
+      merge(await git(repositoryRoot, ["diff", "--cached", "--numstat"]));
+    } catch {
+      // no HEAD and nothing staged
     }
-  } catch {
-    // ignore
   }
   return map;
 }
 
-export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
-  const repositoryRoot = await findRepositoryRoot(cwd);
-  if (!repositoryRoot) {
-    return {
-      isGitRepository: false,
-      repositoryRoot: null,
-      branch: null,
-      upstream: null,
-      ahead: 0,
-      behind: 0,
-      files: [],
-      stagedCount: 0,
-      unstagedCount: 0,
-      conflictCount: 0,
-      insertions: 0,
-      deletions: 0,
-    };
-  }
+/**
+ * Untracked files carry no diff, so their insertions come from counting lines.
+ * The paths come from the porcelain snapshot we already have — `ls-files
+ * --others --exclude-standard` returns exactly the same set for one more spawn.
+ */
+async function addUntrackedLineCounts(
+  repositoryRoot: string,
+  entries: GitPorcelainEntry[],
+  map: Map<string, { insertions: number; deletions: number }>,
+): Promise<void> {
+  const untracked = entries
+    .filter((entry) => isUntracked(entry) && !map.has(entry.path))
+    .map((entry) => entry.path);
+  await forEachLimited(untracked, UNTRACKED_LINE_COUNT_CONCURRENCY, async (rel) => {
+    const insertions = await countTextLines(path.resolve(repositoryRoot, rel));
+    map.set(rel, { insertions, deletions: 0 });
+  });
+}
 
-  const [entries, branch, tracking, numstat] = await Promise.all([
-    readStatusEntries(repositoryRoot),
-    readBranch(repositoryRoot),
-    readUpstreamTracking(repositoryRoot),
-    readNumstatMap(repositoryRoot),
-  ]);
+function notARepositoryStatus(): GitStatusResponse {
+  return {
+    isGitRepository: false,
+    repositoryRoot: null,
+    branch: null,
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    files: [],
+    stagedCount: 0,
+    unstagedCount: 0,
+    conflictCount: 0,
+    insertions: 0,
+    deletions: 0,
+  };
+}
 
-  const files = entries.flatMap((entry): GitFileStatus[] => {
+function toStatusFiles(
+  cwd: string,
+  repositoryRoot: string,
+  entries: GitPorcelainEntry[],
+  numstat: Map<string, { insertions: number; deletions: number }>,
+): GitFileStatus[] {
+  // Resolve the boundary once instead of once per entry: 500 changed files used
+  // to mean 1000 realpathSync calls.
+  const realCwd = realPath(cwd);
+  return entries.flatMap((entry): GitFileStatus[] => {
     const filePath = path.resolve(repositoryRoot, entry.path);
-    if (!isWithinPath(cwd, filePath)) return [];
+    if (!isWithinRealPath(realCwd, filePath)) return [];
     const classified = classifyGitStatus(entry);
     const stats = numstat.get(entry.path) ?? { insertions: 0, deletions: 0 };
     return [{
@@ -222,27 +555,60 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
       deletions: stats.deletions,
     }];
   });
+}
 
-  return {
-    isGitRepository: true,
-    repositoryRoot,
-    branch,
-    upstream: tracking.upstream,
-    ahead: tracking.ahead,
-    behind: tracking.behind,
-    files,
-    stagedCount: files.filter((f) => f.staged).length,
-    unstagedCount: files.filter((f) => f.unstaged).length,
-    conflictCount: files.filter((f) => f.status === "conflict").length,
-    insertions: files.reduce((n, f) => n + f.insertions, 0),
-    deletions: files.reduce((n, f) => n + f.deletions, 0),
-  };
+export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
+  return withGitCache(getGitCacheState().status, cwd, async () => {
+    const repositoryRoot = await findRepositoryRoot(cwd);
+    if (!repositoryRoot) {
+      return { value: notARepositoryStatus(), guard: { kind: "ttl" } };
+    }
+
+    try {
+      const before = repositoryFingerprint(repositoryRoot);
+      // Always re-read the porcelain snapshot here (this response has its own
+      // TTL; layering two caches would stack their staleness) while still
+      // publishing it for the diff requests that share the bucket.
+      const [snapshot, numstat] = await Promise.all([
+        readStatusSnapshot(repositoryRoot, { allowCached: false }),
+        readNumstatMap(repositoryRoot),
+      ]);
+      await addUntrackedLineCounts(repositoryRoot, snapshot.entries, numstat);
+      const branch = await resolveBranchLabel(repositoryRoot, snapshot.head);
+      const files = toStatusFiles(cwd, repositoryRoot, snapshot.entries, numstat);
+
+      return {
+        value: {
+          isGitRepository: true,
+          repositoryRoot,
+          branch,
+          upstream: snapshot.head.upstream,
+          ahead: snapshot.head.ahead,
+          behind: snapshot.head.behind,
+          files,
+          stagedCount: files.filter((f) => f.staged).length,
+          unstagedCount: files.filter((f) => f.unstaged).length,
+          conflictCount: files.filter((f) => f.status === "conflict").length,
+          insertions: files.reduce((n, f) => n + f.insertions, 0),
+          deletions: files.reduce((n, f) => n + f.deletions, 0),
+        },
+        guard: fingerprintGuard(repositoryRoot, before),
+      };
+    } catch (error) {
+      // The remembered root stopped resolving (repository deleted or moved):
+      // forget it so the next poll re-detects instead of failing until the
+      // root entry expires.
+      forgetRepositoryRoot(cwd);
+      throw error;
+    }
+  });
 }
 
 function resolveRepoPaths(repositoryRoot: string, filePaths: string[]): string[] {
+  const realRoot = realPath(repositoryRoot);
   return filePaths.map((filePath) => {
     const resolved = path.resolve(filePath);
-    if (!isWithinPath(repositoryRoot, resolved)) {
+    if (!isWithinRealPath(realRoot, resolved)) {
       throw new Error(`Path outside repository: ${filePath}`);
     }
     return toGitPath(path.relative(repositoryRoot, resolved));
@@ -254,7 +620,12 @@ export async function stageGitFiles(cwd: string, filePaths: string[]): Promise<G
   if (!repositoryRoot) throw new Error("Not a git repository");
   if (filePaths.length === 0) throw new Error("No files to stage");
   const rels = resolveRepoPaths(repositoryRoot, filePaths);
-  await git(repositoryRoot, ["add", "--", ...rels]);
+  try {
+    await git(repositoryRoot, ["add", "--", ...rels]);
+  } finally {
+    // Also on failure: `git add` can apply partially, and hooks may edit files.
+    invalidateGitStatusCache();
+  }
   return getGitStatus(cwd);
 }
 
@@ -265,9 +636,13 @@ export async function unstageGitFiles(cwd: string, filePaths: string[]): Promise
   const rels = resolveRepoPaths(repositoryRoot, filePaths);
   // restore --staged works even without HEAD in newer git; fallback for empty repos
   try {
-    await git(repositoryRoot, ["restore", "--staged", "--", ...rels]);
-  } catch {
-    await git(repositoryRoot, ["reset", "HEAD", "--", ...rels]);
+    try {
+      await git(repositoryRoot, ["restore", "--staged", "--", ...rels]);
+    } catch {
+      await git(repositoryRoot, ["reset", "HEAD", "--", ...rels]);
+    }
+  } finally {
+    invalidateGitStatusCache();
   }
   return getGitStatus(cwd);
 }
@@ -297,6 +672,9 @@ export async function commitGitChanges(
     // execFile puts stderr in error - surface a cleaner message
     const stderr = (error as { stderr?: string })?.stderr;
     throw new Error((stderr || msg).trim() || "Commit failed");
+  } finally {
+    // A failed commit can still have moved the tree (pre-commit hooks).
+    invalidateGitStatusCache();
   }
 
   let commit: string | null = null;
@@ -315,41 +693,47 @@ export async function discardGitFiles(cwd: string, filePaths: string[]): Promise
 
   const status = await getGitStatus(cwd);
   const byPath = new Map(status.files.map((f) => [path.resolve(f.filePath), f]));
+  const realRoot = realPath(repositoryRoot);
 
   const tracked: string[] = [];
   const untracked: string[] = [];
 
-  for (const filePath of filePaths) {
-    const resolved = path.resolve(filePath);
-    if (!isWithinPath(repositoryRoot, resolved)) {
-      throw new Error(`Path outside repository: ${filePath}`);
-    }
-    const entry = byPath.get(resolved);
-    const rel = toGitPath(path.relative(repositoryRoot, resolved));
-    if (!entry || entry.status === "untracked") {
-      untracked.push(rel);
-    } else {
-      tracked.push(rel);
-      // staged changes: drop from index too so discard is complete
-      if (entry.staged) {
-        try {
-          await git(repositoryRoot, ["restore", "--staged", "--", rel]);
-        } catch {
+  try {
+    for (const filePath of filePaths) {
+      const resolved = path.resolve(filePath);
+      if (!isWithinRealPath(realRoot, resolved)) {
+        throw new Error(`Path outside repository: ${filePath}`);
+      }
+      const entry = byPath.get(resolved);
+      const rel = toGitPath(path.relative(repositoryRoot, resolved));
+      if (!entry || entry.status === "untracked") {
+        untracked.push(rel);
+      } else {
+        tracked.push(rel);
+        // staged changes: drop from index too so discard is complete
+        if (entry.staged) {
           try {
-            await git(repositoryRoot, ["reset", "HEAD", "--", rel]);
+            await git(repositoryRoot, ["restore", "--staged", "--", rel]);
           } catch {
-            // ignore
+            try {
+              await git(repositoryRoot, ["reset", "HEAD", "--", rel]);
+            } catch {
+              // ignore
+            }
           }
         }
       }
     }
-  }
 
-  if (tracked.length > 0) {
-    await git(repositoryRoot, ["restore", "--worktree", "--source=HEAD", "--", ...tracked]);
-  }
-  if (untracked.length > 0) {
-    await git(repositoryRoot, ["clean", "-f", "--", ...untracked]);
+    if (tracked.length > 0) {
+      await git(repositoryRoot, ["restore", "--worktree", "--source=HEAD", "--", ...tracked]);
+    }
+    if (untracked.length > 0) {
+      await git(repositoryRoot, ["clean", "-f", "--", ...untracked]);
+    }
+  } finally {
+    // Discard is partially applied when one of the paths is rejected.
+    invalidateGitStatusCache();
   }
   return getGitStatus(cwd);
 }
@@ -357,8 +741,17 @@ export async function discardGitFiles(cwd: string, filePaths: string[]): Promise
 export async function pushGit(cwd: string): Promise<{ message: string; status: GitStatusResponse }> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) throw new Error("Not a git repository");
+  // Push only moves refs, which the index/HEAD fingerprint cannot see — the
+  // ahead/behind counters would keep the pre-push numbers without this.
+  const run = async (args: string[]): Promise<string> => {
+    try {
+      return await git(repositoryRoot, args, GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+    } finally {
+      invalidateGitStatusCache();
+    }
+  };
   try {
-    const out = await git(repositoryRoot, ["push"], GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+    const out = await run(["push"]);
     return {
       message: (out || "Push completed").trim() || "Push completed",
       status: await getGitStatus(cwd),
@@ -366,7 +759,7 @@ export async function pushGit(cwd: string): Promise<{ message: string; status: G
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     if (/no upstream|has no upstream|set-upstream/i.test(msg)) {
-      const out = await git(repositoryRoot, ["push", "-u", "origin", "HEAD"], GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+      const out = await run(["push", "-u", "origin", "HEAD"]);
       return {
         message: (out || "Push completed").trim() || "Push completed",
         status: await getGitStatus(cwd),
@@ -379,8 +772,15 @@ export async function pushGit(cwd: string): Promise<{ message: string; status: G
 export async function pullGit(cwd: string): Promise<{ message: string; status: GitStatusResponse }> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) throw new Error("Not a git repository");
+  const run = async (args: string[]): Promise<string> => {
+    try {
+      return await git(repositoryRoot, args, GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+    } finally {
+      invalidateGitStatusCache();
+    }
+  };
   try {
-    const out = await git(repositoryRoot, ["pull", "--ff-only"], GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+    const out = await run(["pull", "--ff-only"]);
     return {
       message: (out || "Already up to date.").trim() || "Pull completed",
       status: await getGitStatus(cwd),
@@ -389,7 +789,7 @@ export async function pullGit(cwd: string): Promise<{ message: string; status: G
     // fallback to regular pull if no upstream / ff-only fails with diverged history message
     const msg = error instanceof Error ? error.message : String(error);
     if (/Not possible to fast-forward|diverged|no tracking information/i.test(msg)) {
-      const out = await git(repositoryRoot, ["pull", "--no-rebase"], GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+      const out = await run(["pull", "--no-rebase"]);
       return {
         message: (out || "Pull completed").trim() || "Pull completed",
         status: await getGitStatus(cwd),
@@ -416,7 +816,11 @@ export async function checkoutGitBranch(cwd: string, branch: string): Promise<Gi
   if (name.includes("..") || /[\s~^:?*\[\\]/.test(name)) {
     throw new Error("Invalid branch name");
   }
-  await git(repositoryRoot, ["checkout", name]);
+  try {
+    await git(repositoryRoot, ["checkout", name]);
+  } finally {
+    invalidateGitStatusCache();
+  }
   return getGitStatus(cwd);
 }
 
@@ -428,10 +832,14 @@ export async function createGitBranch(cwd: string, branch: string, checkout = tr
   if (name.includes("..") || /[\s~^:?*\[\\]/.test(name)) {
     throw new Error("Invalid branch name");
   }
-  if (checkout) {
-    await git(repositoryRoot, ["checkout", "-b", name]);
-  } else {
-    await git(repositoryRoot, ["branch", name]);
+  try {
+    if (checkout) {
+      await git(repositoryRoot, ["checkout", "-b", name]);
+    } else {
+      await git(repositoryRoot, ["branch", name]);
+    }
+  } finally {
+    invalidateGitStatusCache();
   }
   return getGitStatus(cwd);
 }
@@ -449,9 +857,9 @@ export type CommitDiffContext = {
 /** Collect a truncated, model-friendly summary of the changes about to be committed. */
 export async function getCommitDiffContext(
   cwd: string,
-  options?: { includeUnstaged?: boolean; maxChars?: number },
+  options?: { includeUnstaged?: boolean; maxChars?: number; repositoryRoot?: string },
 ): Promise<CommitDiffContext> {
-  const repositoryRoot = await findRepositoryRoot(cwd);
+  const repositoryRoot = options?.repositoryRoot ?? await findRepositoryRoot(cwd);
   if (!repositoryRoot) throw new Error("Not a git repository");
 
   const includeUnstaged = options?.includeUnstaged === true;
@@ -478,45 +886,56 @@ export async function getCommitDiffContext(
     parts.push(`- …and ${files.length - 40} more files`);
   }
 
-  const appendSection = async (title: string, args: string[]) => {
-    try {
-      const text = (await git(repositoryRoot, args)).trim();
-      if (!text) return;
-      parts.push("", title, text);
-    } catch {
-      // ignore missing HEAD / empty diffs
-    }
-  };
-
+  const sections: Array<{ title: string; args: string[] }> = [];
   if (files.some((f) => f.staged)) {
-    await appendSection("Staged stat:", ["diff", "--cached", "--stat"]);
-    await appendSection("Staged name-status:", ["diff", "--cached", "--name-status"]);
-    await appendSection("Staged patch:", ["diff", "--cached", "--no-color", "--unified=3"]);
+    sections.push(
+      { title: "Staged stat:", args: ["diff", "--cached", "--stat"] },
+      { title: "Staged name-status:", args: ["diff", "--cached", "--name-status"] },
+      { title: "Staged patch:", args: ["diff", "--cached", "--no-color", "--unified=3"] },
+    );
+  }
+  const withUnstaged = includeUnstaged && files.some((f) => f.unstaged);
+  if (withUnstaged) {
+    sections.push(
+      { title: "Unstaged stat:", args: ["diff", "--stat"] },
+      { title: "Unstaged name-status:", args: ["diff", "--name-status"] },
+      { title: "Unstaged patch:", args: ["diff", "--no-color", "--unified=3"] },
+    );
   }
 
-  if (includeUnstaged && files.some((f) => f.unstaged)) {
-    await appendSection("Unstaged stat:", ["diff", "--stat"]);
-    await appendSection("Unstaged name-status:", ["diff", "--name-status"]);
-    await appendSection("Unstaged patch:", ["diff", "--no-color", "--unified=3"]);
+  // Independent diffs — run them together instead of six serial spawns.
+  const rendered = await Promise.all(sections.map(async (section) => {
+    try {
+      return { title: section.title, text: (await git(repositoryRoot, section.args)).trim() };
+    } catch {
+      // ignore missing HEAD / empty diffs
+      return { title: section.title, text: "" };
+    }
+  }));
+  for (const section of rendered) {
+    if (section.text) parts.push("", section.title, section.text);
+  }
 
+  if (withUnstaged) {
     const untracked = files.filter((f) => f.status === "untracked").slice(0, 12);
     if (untracked.length > 0) {
       parts.push("", "Untracked previews:");
-      for (const file of untracked) {
+      parts.push(...await Promise.all(untracked.map(async (file) => {
         const rel = toGitPath(path.relative(repositoryRoot, file.filePath));
         try {
-          const buf = fs.readFileSync(file.filePath);
-          if (buf.includes(0) || buf.length > TEXT_PREVIEW_MAX_BYTES) {
-            parts.push(`--- ${rel} (binary or large, skipped)`);
-            continue;
+          // Size first, then read: the old version buffered the file to find out.
+          const stat = await fs.promises.stat(file.filePath);
+          if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) {
+            return `--- ${rel} (binary or large, skipped)`;
           }
-          const text = buf.toString("utf8");
-          const preview = text.split("\n").slice(0, 40).join("\n");
-          parts.push(`--- ${rel}`, preview);
+          const buf = await fs.promises.readFile(file.filePath);
+          if (hasNullByte(buf)) return `--- ${rel} (binary or large, skipped)`;
+          const preview = buf.toString("utf8").split("\n").slice(0, 40).join("\n");
+          return `--- ${rel}\n${preview}`;
         } catch {
-          parts.push(`--- ${rel} (unreadable)`);
+          return `--- ${rel} (unreadable)`;
         }
-      }
+      })));
     }
   }
 
@@ -536,12 +955,13 @@ export async function getCommitDiffContext(
 /** Build a concise commit message from staged changes (no LLM). */
 export async function draftCommitMessage(
   cwd: string,
-  options?: { includeUnstaged?: boolean },
+  options?: { includeUnstaged?: boolean; repositoryRoot?: string },
 ): Promise<string> {
-  const repositoryRoot = await findRepositoryRoot(cwd);
+  const repositoryRoot = options?.repositoryRoot ?? await findRepositoryRoot(cwd);
   if (!repositoryRoot) throw new Error("Not a git repository");
   const context = await getCommitDiffContext(cwd, {
     includeUnstaged: options?.includeUnstaged,
+    repositoryRoot,
   });
   if (!context.hasChanges) {
     throw new Error(options?.includeUnstaged ? "No changes to commit" : "No staged changes");
@@ -558,13 +978,15 @@ export async function draftCommitMessage(
       stat = (await git(repositoryRoot, ["diff", "--cached", "--stat"])).trim();
     } else {
       // Combined view when drafting over staged+unstaged without staging yet.
-      const cached = target.some((f) => f.staged)
-        ? (await git(repositoryRoot, ["diff", "--cached", "--stat"]).catch(() => "")).trim()
-        : "";
-      const worktree = target.some((f) => f.unstaged)
-        ? (await git(repositoryRoot, ["diff", "--stat"]).catch(() => "")).trim()
-        : "";
-      stat = [cached, worktree].filter(Boolean).join("\n");
+      const [cached, worktree] = await Promise.all([
+        target.some((f) => f.staged)
+          ? git(repositoryRoot, ["diff", "--cached", "--stat"]).catch(() => "")
+          : Promise.resolve(""),
+        target.some((f) => f.unstaged)
+          ? git(repositoryRoot, ["diff", "--stat"]).catch(() => "")
+          : Promise.resolve(""),
+      ]);
+      stat = [cached.trim(), worktree.trim()].filter(Boolean).join("\n");
     }
   } catch {
     stat = "";
@@ -646,21 +1068,23 @@ export async function getGitFileDiff(cwd: string, filePath: string): Promise<Git
   const resolvedFilePath = path.resolve(filePath);
   let stat: fs.Stats;
   try {
-    stat = fs.lstatSync(resolvedFilePath);
+    stat = await fs.promises.lstat(resolvedFilePath);
   } catch {
     return { supported: false };
   }
   if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
 
   const relativePath = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
-  const entries = await readStatusEntries(repositoryRoot);
+  // Shared snapshot: expanding N files in the Git panel fires N diff requests
+  // that used to run a full-repository status each.
+  const { entries } = await readStatusSnapshot(repositoryRoot);
   const entry = entries.find((candidate) => candidate.path === relativePath);
   if (!entry) return { supported: false };
 
   const { status } = classifyGitStatus(entry);
   if (status === "deleted") return { supported: false };
 
-  const currentBuffer = fs.readFileSync(resolvedFilePath);
+  const currentBuffer = await fs.promises.readFile(resolvedFilePath);
   if (hasNullByte(currentBuffer)) return { supported: false };
   const newContent = currentBuffer.toString("utf8");
 

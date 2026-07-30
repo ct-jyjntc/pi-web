@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
-import { resolveSessionPath } from "@/lib/session-reader";
+import { readSessionHeader, resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -26,7 +25,9 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
+    // Read only the header line: SessionManager.open() would parse and index the
+    // whole archive synchronously (~60ms on a 26MB session) just for this field.
+    const cwd = readSessionHeader(filePath)?.cwd ?? process.cwd();
 
     const { session } = await startRpcSession(id, filePath, cwd);
     if (!session.isAlive()) {

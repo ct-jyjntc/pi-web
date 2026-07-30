@@ -15,6 +15,13 @@ export interface FileIndexEntry {
   /** Path relative to the session cwd, "/"-separated, no trailing slash */
   path: string;
   isDir: boolean;
+  /**
+   * Lowercased `path`, cached by buildEntriesFromFiles. Ranking needs it for
+   * every entry on every keystroke; without the cache a 200k-entry git index
+   * allocates 200k throwaway strings per keystroke. Internal to ranking —
+   * filterFileEntries strips it so results keep the public two-field shape.
+   */
+  lowerPath?: string;
 }
 
 /**
@@ -66,10 +73,10 @@ export function buildEntriesFromFiles(files: string[]): FileIndexEntry[] {
     }
   }
   const entries: FileIndexEntry[] = [];
-  for (const d of dirs) entries.push({ path: d, isDir: true });
+  for (const d of dirs) entries.push({ path: d, isDir: true, lowerPath: d.toLowerCase() });
   for (const f of files) {
     if (!f) continue;
-    entries.push({ path: f, isDir: false });
+    entries.push({ path: f, isDir: false, lowerPath: f.toLowerCase() });
   }
   entries.sort((a, b) => pathDepth(a.path) - pathDepth(b.path) || a.path.localeCompare(b.path));
   return entries;
@@ -95,7 +102,7 @@ function isSubsequence(needle: string, haystack: string): boolean {
  * src directory itself, since "src" does not start with "src/").
  */
 function scoreEntry(entry: FileIndexEntry, lowerQuery: string): number {
-  const lowerPath = entry.path.toLowerCase();
+  const lowerPath = entry.lowerPath ?? entry.path.toLowerCase();
   let score = 0;
   if (lowerQuery.includes("/")) {
     if (lowerPath === lowerQuery) score = 100;
@@ -117,13 +124,18 @@ function scoreEntry(entry: FileIndexEntry, lowerQuery: string): number {
 
 export const AT_RESULT_LIMIT = 20;
 
+/** Drop the internal lowerPath cache so callers (and API payloads) see only the public shape. */
+function publicEntry(entry: FileIndexEntry): FileIndexEntry {
+  return { path: entry.path, isDir: entry.isDir };
+}
+
 export function filterFileEntries(
   entries: FileIndexEntry[],
   query: string,
   limit: number = AT_RESULT_LIMIT,
 ): FileIndexEntry[] {
   const lowerQuery = query.toLowerCase();
-  if (!lowerQuery) return entries.slice(0, limit);
+  if (!lowerQuery) return entries.slice(0, limit).map(publicEntry);
 
   const scored: Array<{ entry: FileIndexEntry; score: number }> = [];
   for (const entry of entries) {
@@ -134,7 +146,7 @@ export function filterFileEntries(
     b.score - a.score
     || pathDepth(a.entry.path) - pathDepth(b.entry.path)
     || a.entry.path.localeCompare(b.entry.path));
-  return scored.slice(0, limit).map((s) => s.entry);
+  return scored.slice(0, limit).map((s) => publicEntry(s.entry));
 }
 
 export interface AtInsertion {

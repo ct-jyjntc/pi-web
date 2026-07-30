@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Noto_Sans_Mono } from "next/font/google";
-import "katex/dist/katex.min.css";
+// katex.min.css is loaded on demand alongside rehype-katex (lib/markdown.ts);
+// importing it here made it a render-blocking first-load stylesheet.
 import "./globals.css";
 
 const inter = Inter({

@@ -110,16 +110,91 @@ export type ResolvedUtilityModel = {
   modelRuntime: ModelRuntimeLike;
 };
 
-async function loadModelRuntime(cwd: string): Promise<{
+type ModelRuntimeBundle = {
   modelRuntime: ModelRuntimeLike;
   settings: SettingsManager;
-}> {
+};
+
+type ModelRuntimeCacheState = {
+  entries: Map<string, { bundle: ModelRuntimeBundle; expiresAt: number }>;
+  inFlight: Map<string, Promise<ModelRuntimeBundle>>;
+  generation: number;
+};
+
+// createAgentSessionServices() rebuilds the whole agent runtime on every call
+// (auth.json + models.json parse, settings load, extension/skill/command scan)
+// — ~570ms cold. Endpoints the UI polls (e.g. /api/web-settings) must not pay
+// that per request, so memoize per cwd with a short TTL and merge concurrent
+// loads. Same shape as lib/models-cache.ts; on globalThis to survive hot-reload.
+declare global {
+  var __piUtilityRuntimeCache: ModelRuntimeCacheState | undefined;
+}
+
+const RUNTIME_CACHE_TTL_MS = 30_000;
+const MAX_RUNTIME_CACHE_ENTRIES = 8;
+
+function getRuntimeCacheState(): ModelRuntimeCacheState {
+  if (!globalThis.__piUtilityRuntimeCache) {
+    globalThis.__piUtilityRuntimeCache = {
+      entries: new Map(),
+      inFlight: new Map(),
+      generation: 0,
+    };
+  }
+  return globalThis.__piUtilityRuntimeCache;
+}
+
+/** Drop cached runtimes (auth / models.json / settings changed). */
+export function invalidateUtilityModelRuntimes(): void {
+  const state = getRuntimeCacheState();
+  state.generation += 1;
+  state.entries.clear();
+  state.inFlight.clear();
+}
+
+async function createModelRuntime(cwd: string): Promise<ModelRuntimeBundle> {
   const agentDir = getAgentDir();
   const services = await createAgentSessionServices({ cwd, agentDir });
   return {
     modelRuntime: services.modelRuntime as unknown as ModelRuntimeLike,
     settings: services.settingsManager,
   };
+}
+
+function loadModelRuntime(cwd: string): Promise<ModelRuntimeBundle> {
+  const state = getRuntimeCacheState();
+  const cached = state.entries.get(cwd);
+  if (cached) {
+    if (cached.expiresAt > Date.now()) return Promise.resolve(cached.bundle);
+    state.entries.delete(cwd);
+  }
+
+  const existingLoad = state.inFlight.get(cwd);
+  if (existingLoad) return existingLoad;
+
+  const generation = state.generation;
+  const loadPromise: Promise<ModelRuntimeBundle> = createModelRuntime(cwd)
+    .then((bundle) => {
+      if (state.generation === generation && state.inFlight.get(cwd) === loadPromise) {
+        const now = Date.now();
+        for (const [key, entry] of state.entries) {
+          if (entry.expiresAt <= now) state.entries.delete(key);
+        }
+        while (state.entries.size >= MAX_RUNTIME_CACHE_ENTRIES) {
+          const oldestKey = state.entries.keys().next().value;
+          if (oldestKey === undefined) break;
+          state.entries.delete(oldestKey);
+        }
+        state.entries.set(cwd, { bundle, expiresAt: now + RUNTIME_CACHE_TTL_MS });
+      }
+      return bundle;
+    })
+    .finally(() => {
+      if (state.inFlight.get(cwd) === loadPromise) state.inFlight.delete(cwd);
+    });
+
+  state.inFlight.set(cwd, loadPromise);
+  return loadPromise;
 }
 
 function applyModelVisibilityFilters<T extends { id: string; provider: string }>(

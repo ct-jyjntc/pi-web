@@ -79,10 +79,13 @@ async function listWithGit(cwd: string): Promise<FileListing | null> {
 
 async function listWithWalk(cwd: string): Promise<FileListing> {
   const files: string[] = [];
-  // BFS so shallow files win when the cap truncates the listing.
+  // BFS so shallow files win when the cap truncates the listing. The queue is
+  // drained with an index cursor rather than shift(): shift() memmoves the whole
+  // array on every pop, which makes the walk quadratic as the queue grows toward
+  // WALK_HARD_CAP.
   const queue: Array<{ abs: string; rel: string; depth: number }> = [{ abs: cwd, rel: "", depth: 0 }];
-  while (queue.length > 0) {
-    const { abs, rel, depth } = queue.shift()!;
+  for (let head = 0; head < queue.length; head++) {
+    const { abs, rel, depth } = queue[head];
     let dirents: fs.Dirent[];
     try {
       dirents = await fs.promises.readdir(abs, { withFileTypes: true });
