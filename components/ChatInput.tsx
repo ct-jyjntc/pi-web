@@ -13,6 +13,7 @@ import {
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import { FolderIcon, getFileIcon } from "./FileIcons";
+import { PreviewableImage } from "./PreviewableImage";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -1328,10 +1329,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
             {attachedImages.map((img, i) => (
               <div key={i} style={{ position: "relative", flexShrink: 0 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <PreviewableImage
                   src={img.previewUrl}
                   alt=""
+                  className="composer-attach-thumb"
+                  previewLabel={t("msg.imagePreview")}
                   style={{ width: 56, height: 56, objectFit: "cover", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", display: "block" }}
                 />
                 <button

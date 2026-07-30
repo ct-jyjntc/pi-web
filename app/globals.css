@@ -439,26 +439,127 @@ pre, code {
   border-radius: var(--radius-sm);
   cursor: zoom-in;
 }
-.markdown-image-preview-backdrop {
+/* Full-screen image preview (portal to body) */
+.image-preview-fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  z-index: 3000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: var(--overlay-bg);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: color-mix(in oklab, black 92%, var(--bg));
   cursor: zoom-out;
+  overscroll-behavior: none;
+  animation: image-preview-fade-in 0.12s ease-out;
 }
-.markdown-image-preview-backdrop img {
-  max-width: min(96vw, 1400px);
-  max-height: 92vh;
+.image-preview-fullscreen-img {
+  display: block;
+  max-width: 100vw;
+  max-height: 100vh;
   width: auto;
   height: auto;
+  object-fit: contain;
   margin: 0;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   cursor: default;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.image-preview-fullscreen-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid color-mix(in oklab, white 18%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, black 45%, transparent);
+  color: color-mix(in oklab, white 88%, transparent);
+  cursor: pointer;
+}
+.image-preview-fullscreen-close:hover {
+  background: color-mix(in oklab, black 60%, transparent);
+  color: white;
+}
+.image-preview-fullscreen-close:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@keyframes image-preview-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .image-preview-fullscreen {
+    animation: none;
+  }
+}
+/* Keep old class names as aliases for any leftover markup */
+.image-preview-backdrop,
+.markdown-image-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: color-mix(in oklab, black 92%, var(--bg));
+  cursor: zoom-out;
+}
+.image-preview-backdrop img,
+.markdown-image-preview-backdrop img {
+  max-width: 100vw;
+  max-height: 100vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: default;
+}
+/* User/custom message image thumbnails */
+.chat-sent-image {
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  display: block;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+}
+/* Composer attachment thumbnails */
+.composer-attach-thumb {
+  cursor: zoom-in;
+}
+.chat-sent-image:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.previewable-image {
+  cursor: zoom-in;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .markdown-body .markdown-inline-code {
   background: var(--bg-subtle);
@@ -3193,17 +3294,270 @@ textarea.input-base:focus-visible {
   height: 16px;
 }
 
-/* Usage stats — 3-col stat cards, collapses on mobile */
+/* ── Usage stats (settings → Usage) ──────────────────────────────────── */
+.usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.usage-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.usage-header-title .settings-section-title {
+  margin: 0;
+  padding: 0;
+}
+.usage-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.usage-header-status {
+  font-size: 11px;
+  color: var(--text-dim);
+}
 .usage-stat-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 @media (max-width: 640px) {
   .usage-stat-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+.usage-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+.usage-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.2;
+}
+.usage-stat-label svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.usage-stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-stat-value.is-mono {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+.usage-stat-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-section {
+  margin-top: 4px;
+}
+.usage-section .settings-section-title {
+  margin-top: 16px;
+}
+.usage-heatmap-scroll {
+  overflow-x: auto;
+  padding: 2px 0 4px;
+}
+.usage-heatmap {
+  display: flex;
+  gap: 3px;
+  width: max-content;
+}
+.usage-heatmap-week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.usage-heatmap-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-xs);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+}
+.usage-heatmap-cell.is-empty {
+  background: transparent;
+  border-color: transparent;
+}
+.usage-heatmap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.usage-heatmap-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  box-sizing: border-box;
+}
+.usage-trend-chart {
+  border-bottom: 1px solid var(--border);
+  padding-top: 4px;
+}
+.usage-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+}
+.usage-trend-bars.is-week {
+  gap: 10px;
+}
+.usage-trend-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.usage-trend-seg {
+  flex-shrink: 0;
+  min-height: 2px;
+}
+.usage-trend-seg.is-top {
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+}
+.usage-trend-labels {
+  display: flex;
+  margin-top: 6px;
+}
+.usage-trend-label {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.usage-series-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 10px;
+}
+.usage-series-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+.usage-series-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.usage-series-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-model-split {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.usage-donut {
+  flex-shrink: 0;
+}
+.usage-model-list {
+  flex: 1;
+  min-width: 220px;
+}
+.usage-model-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  font-size: 12px;
+}
+.usage-model-row:last-child {
+  border-bottom: none;
+}
+.usage-model-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-model-tokens {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.usage-model-share {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  width: 40px;
+  text-align: right;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.usage-state {
+  padding: 28px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.usage-state-text {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.usage-state-text.is-error {
+  color: var(--destructive);
 }
 
 /* Shared quiet switch — single toggle recipe for settings/mcp/skills */

@@ -4,6 +4,7 @@ import { useLocale } from "@/hooks/useLocale";
 
 import { memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import { MarkdownBody } from "./MarkdownBody";
+import { PreviewableImage } from "./PreviewableImage";
 import { ReviewSummaryCard } from "./ReviewSummaryCard";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
@@ -353,23 +354,15 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           {imageBlocks.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
               {imageBlocks.map((img, i) => {
-                // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
-                // pi-ai on-disk format uses flat {data, mimeType} — handle both
-                const flat = img as unknown as { data?: string; mimeType?: string };
-                const src = img.source
-                  ? img.source.type === "base64"
-                    ? `data:${img.source.media_type};base64,${img.source.data}`
-                    : img.source.url ?? ""
-                  : flat.data
-                    ? `data:${flat.mimeType};base64,${flat.data}`
-                    : "";
+                const src = imageSource(img);
+                if (!src) return null;
                 return (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <PreviewableImage
                     key={i}
                     src={src}
                     alt=""
-                    style={{ maxWidth: 240, maxHeight: 240, borderRadius: "var(--radius-sm)", objectFit: "contain", display: "block", border: "1px solid var(--border)" }}
+                    className="chat-sent-image"
+                    previewLabel={t("msg.imagePreview")}
                   />
                 );
               })}
@@ -1604,12 +1597,12 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                   const src = imageSource(img);
                   if (!src) return null;
                   return (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <PreviewableImage
                       key={i}
                       src={src}
                       alt=""
-                      style={{ maxWidth: 240, maxHeight: 240, borderRadius: "var(--radius-sm)", objectFit: "contain", display: "block", border: "1px solid var(--border)" }}
+                      className="chat-sent-image"
+                      previewLabel={t("msg.imagePreview")}
                     />
                   );
                 })}

@@ -530,6 +530,7 @@ const en = {
 
   // Message chrome
   "msg.copyMessage": "Copy message",
+  "msg.imagePreview": "Image preview",
   "msg.showMore": "Show more",
   "msg.showLess": "Show less",
   "msg.diffBefore": "Before",
@@ -1410,6 +1411,7 @@ const zh: Record<MessageKey, string> = {
   "branch.branches": "分支",
 
   "msg.copyMessage": "复制消息",
+  "msg.imagePreview": "图片预览",
   "msg.showMore": "展开",
   "msg.showLess": "收起",
   "msg.diffBefore": "修改前",

@@ -62,6 +62,11 @@ function seriesColor(i: number): string {
   return SERIES_COLORS[Math.min(i, SERIES_COLORS.length - 1)];
 }
 
+function fmtShare(share: number): string {
+  if (share > 0 && share < 0.095) return `${(share * 100).toFixed(1)}%`;
+  return `${Math.round(share * 100)}%`;
+}
+
 function StatIcon({ path }: { path: ReactNode }) {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -78,26 +83,13 @@ function StatCard({ icon, label, value, sub, mono }: {
   mono?: boolean;
 }) {
   return (
-    <div className="settings-status-card" style={{ flexDirection: "column", alignItems: "stretch", gap: 2, minHeight: 0 }}>
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-dim)" }}>
+    <div className="usage-stat-card">
+      <span className="usage-stat-label">
         {icon}
         {label}
       </span>
-      <span
-        style={{
-          fontSize: mono ? 13 : 18,
-          fontWeight: 600,
-          color: "var(--text)",
-          fontVariantNumeric: "tabular-nums",
-          fontFamily: mono ? "var(--font-mono)" : "inherit",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {value}
-      </span>
-      {sub && <span style={{ fontSize: 11, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{sub}</span>}
+      <span className={`usage-stat-value${mono ? " is-mono" : ""}`}>{value}</span>
+      {sub && <span className="usage-stat-sub">{sub}</span>}
     </div>
   );
 }
@@ -231,24 +223,18 @@ export function UsagePanel() {
     [data],
   );
 
-  const sectionTitle = (text: string) => (
-    <div className="settings-section-title">{text}</div>
-  );
-
   const modelLabel = (id: string) => (id === "__other__" ? t("usage.other") : id);
 
   return (
     <div className="settings-page-general">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <div className="settings-section-title" style={{ margin: 0, padding: 0 }}>
-            {t("settings.usage")}
-          </div>
+      <div className="usage-header">
+        <div className="usage-header-title">
+          <div className="settings-section-title">{t("settings.usage")}</div>
           {refreshing && data && (
-            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("common.loading")}</span>
+            <span className="usage-header-status">{t("common.loading")}</span>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <div className="usage-header-actions">
           <div className="settings-segmented" style={{ minWidth: 0 }}>
             {([7, 30] as const).map((d) => (
               <button
@@ -276,10 +262,12 @@ export function UsagePanel() {
       </div>
 
       {loading && !data ? (
-        <div className="settings-row-desc" style={{ padding: "24px 0", textAlign: "center" }}>{t("common.loading")}</div>
+        <div className="usage-state">
+          <div className="usage-state-text">{t("common.loading")}</div>
+        </div>
       ) : error && !data ? (
-        <div style={{ padding: "24px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <div style={{ fontSize: 12, color: "var(--destructive)" }}>
+        <div className="usage-state">
+          <div className="usage-state-text is-error">
             {t("usage.loadError")}: {error}
           </div>
           <button type="button" className="btn-ghost btn-compact" onClick={() => void load(days, false)}>
@@ -287,7 +275,9 @@ export function UsagePanel() {
           </button>
         </div>
       ) : !data || (data.totals.messages === 0 && data.heatmap.every((d) => d.messages === 0)) ? (
-        <div className="settings-row-desc" style={{ padding: "24px 0", textAlign: "center" }}>{t("usage.empty")}</div>
+        <div className="usage-state">
+          <div className="usage-state-text">{t("usage.empty")}</div>
+        </div>
       ) : (
         <>
           <div className="usage-stat-grid">
@@ -326,161 +316,147 @@ export function UsagePanel() {
             />
           </div>
 
-          {sectionTitle(t("usage.heatmap"))}
-          <div style={{ overflowX: "auto", paddingBottom: 2 }}>
-            <div style={{ display: "flex", gap: 2, width: "max-content" }}>
-              {heatWeeks.map((week, wi) => (
-                <div key={wi} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  {week.map((cell, di) => (
-                    <div
-                      key={cell?.date ?? `blank-${wi}-${di}`}
-                      title={cell ? `${cell.date} · ${t("usage.messagesCount", { n: cell.messages })}` : undefined}
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "var(--radius-xs)",
-                        background: cell ? HEAT_LEVELS[heatLevel(cell.messages)] : "transparent",
-                        flexShrink: 0,
-                      }}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 6 }}>
-            <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{t("usage.less")}</span>
-            {HEAT_LEVELS.map((c) => (
-              <span key={c} style={{ width: 10, height: 10, borderRadius: "var(--radius-xs)", background: c }} />
-            ))}
-            <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{t("usage.more")}</span>
-          </div>
-
-          {sectionTitle(t("usage.trend"))}
-          <div style={{ borderBottom: "1px solid var(--border)" }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: days === 7 ? 10 : 3, height: 120 }}>
-              {data.trend.map((day) => {
-                const dm = dayModels(day);
-                const painted = series
-                  .map((id, i) => ({ id, i, v: dm[id] ?? 0 }))
-                  .filter((s) => s.v > 0);
-                return (
-                  <div
-                    key={day.date}
-                    title={`${day.date} · ${fmtTokens(day.tokens, locale)} tokens`}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      height: "100%",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    {painted.map((s, pi) => (
+          <div className="usage-section">
+            <div className="settings-section-title">{t("usage.heatmap")}</div>
+            <div className="usage-heatmap-scroll">
+              <div className="usage-heatmap">
+                {heatWeeks.map((week, wi) => (
+                  <div key={wi} className="usage-heatmap-week">
+                    {week.map((cell, di) => (
                       <div
-                        key={s.id}
-                        style={{
-                          height: Math.max(2, (s.v / trendMax) * 118),
-                          background: seriesColor(s.i),
-                          flexShrink: 0,
-                          // Only the topmost segment rounds its top corners;
-                          // the base sits squarely on the axis line.
-                          ...(pi === painted.length - 1
-                            ? { borderRadius: "var(--radius-xs) var(--radius-xs) 0 0" }
-                            : {}),
-                        }}
+                        key={cell?.date ?? `blank-${wi}-${di}`}
+                        className={`usage-heatmap-cell${cell ? "" : " is-empty"}`}
+                        title={cell ? `${cell.date} · ${t("usage.messagesCount", { n: cell.messages })}` : undefined}
+                        style={cell ? { background: HEAT_LEVELS[heatLevel(cell.messages)] } : undefined}
                       />
                     ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="usage-heatmap-legend">
+              <span>{t("usage.less")}</span>
+              {HEAT_LEVELS.map((c) => (
+                <span key={c} className="usage-heatmap-legend-swatch" style={{ background: c }} />
+              ))}
+              <span>{t("usage.more")}</span>
+            </div>
+          </div>
+
+          <div className="usage-section">
+            <div className="settings-section-title">{t("usage.trend")}</div>
+            <div className="usage-trend-chart">
+              <div className={`usage-trend-bars${days === 7 ? " is-week" : ""}`}>
+                {data.trend.map((day) => {
+                  const dm = dayModels(day);
+                  const painted = series
+                    .map((id, i) => ({ id, i, v: dm[id] ?? 0 }))
+                    .filter((s) => s.v > 0);
+                  return (
+                    <div
+                      key={day.date}
+                      className="usage-trend-col"
+                      title={`${day.date} · ${fmtTokens(day.tokens, locale)} ${t("usage.tokens")}`}
+                    >
+                      {painted.map((s, pi) => (
+                        <div
+                          key={s.id}
+                          className={`usage-trend-seg${pi === painted.length - 1 ? " is-top" : ""}`}
+                          style={{
+                            height: Math.max(2, (s.v / trendMax) * 118),
+                            background: seriesColor(s.i),
+                          }}
+                        />
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="usage-trend-labels">
+              {data.trend.map((day, i) => {
+                const step = Math.ceil(data.trend.length / 6);
+                const show = i % step === 0 || i === data.trend.length - 1;
+                return (
+                  <div key={day.date} className="usage-trend-label">
+                    {show ? fmtDayLabel(day.date, locale) : ""}
                   </div>
                 );
               })}
             </div>
-          </div>
-          <div style={{ display: "flex", marginTop: 4 }}>
-            {data.trend.map((day, i) => {
-              const step = Math.ceil(data.trend.length / 6);
-              const show = i % step === 0 || i === data.trend.length - 1;
-              return (
-                <div key={day.date} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 10, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                  {show ? fmtDayLabel(day.date, locale) : ""}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginTop: 8 }}>
-            {series.map((id, i) => (
-              <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)" }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: seriesColor(i), flexShrink: 0 }} />
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{modelLabel(id)}</span>
-              </span>
-            ))}
-          </div>
-
-          {sectionTitle(t("usage.modelUsage"))}
-          <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
-            <svg width="128" height="128" viewBox="0 0 128 128" role="img" aria-label={t("usage.modelUsage")} style={{ flexShrink: 0 }}>
-              <circle cx="64" cy="64" r="50" fill="none" style={{ stroke: "var(--bg-subtle)" }} strokeWidth="16" />
-              {(() => {
-                const C = 2 * Math.PI * 50;
-                let acc = 0;
-                return donutSegments.map((m, i) => {
-                  const frac = data.totals.tokens > 0 ? m.tokens / data.totals.tokens : 0;
-                  if (frac <= 0) return null;
-                  const dash = frac * C;
-                  const offset = -acc * C;
-                  acc += frac;
-                  return (
-                    <circle
-                      key={m.id}
-                      cx="64"
-                      cy="64"
-                      r="50"
-                      fill="none"
-                      style={{ stroke: seriesColor(i) }}
-                      strokeWidth="16"
-                      strokeDasharray={`${dash} ${C - dash}`}
-                      strokeDashoffset={offset}
-                      transform="rotate(-90 64 64)"
-                    />
-                  );
-                });
-              })()}
-              <text x="64" y="60" textAnchor="middle" style={{ fill: "var(--text)", fontSize: 15, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                {fmtTokens(data.totals.tokens, locale)}
-              </text>
-              <text x="64" y="76" textAnchor="middle" style={{ fill: "var(--text-dim)", fontSize: 10 }}>
-                tokens
-              </text>
-            </svg>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              {donutSegments.map((m, i) => (
-                <div
-                  key={m.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "5px 0",
-                    borderBottom: i < donutSegments.length - 1 ? "1px solid color-mix(in oklab, var(--border) 70%, transparent)" : "none",
-                    fontSize: 12,
-                  }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: seriesColor(i), flexShrink: 0 }} />
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {modelLabel(m.id)}
-                  </span>
-                  <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 11, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
-                    {fmtTokens(m.tokens, locale)} tokens
-                  </span>
-                  <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums", width: 40, textAlign: "right", flexShrink: 0 }}>
-                    {`${m.share > 0 && m.share < 0.095 ? (m.share * 100).toFixed(1) : Math.round(m.share * 100)}%`}
-                  </span>
-                </div>
+            <div className="usage-series-legend">
+              {series.map((id, i) => (
+                <span key={id} className="usage-series-item">
+                  <span className="usage-series-dot" style={{ background: seriesColor(i) }} />
+                  <span className="usage-series-name">{modelLabel(id)}</span>
+                </span>
               ))}
             </div>
           </div>
 
+          <div className="usage-section">
+            <div className="settings-section-title">{t("usage.modelUsage")}</div>
+            <div className="usage-model-split">
+              <svg
+                className="usage-donut"
+                width="128"
+                height="128"
+                viewBox="0 0 128 128"
+                role="img"
+                aria-label={t("usage.modelUsage")}
+              >
+                <circle cx="64" cy="64" r="50" fill="none" style={{ stroke: "var(--bg-subtle)" }} strokeWidth="16" />
+                {(() => {
+                  const C = 2 * Math.PI * 50;
+                  let acc = 0;
+                  return donutSegments.map((m, i) => {
+                    const frac = data.totals.tokens > 0 ? m.tokens / data.totals.tokens : 0;
+                    if (frac <= 0) return null;
+                    const dash = frac * C;
+                    const offset = -acc * C;
+                    acc += frac;
+                    return (
+                      <circle
+                        key={m.id}
+                        cx="64"
+                        cy="64"
+                        r="50"
+                        fill="none"
+                        style={{ stroke: seriesColor(i) }}
+                        strokeWidth="16"
+                        strokeDasharray={`${dash} ${C - dash}`}
+                        strokeDashoffset={offset}
+                        transform="rotate(-90 64 64)"
+                      />
+                    );
+                  });
+                })()}
+                <text
+                  x="64"
+                  y="60"
+                  textAnchor="middle"
+                  style={{ fill: "var(--text)", fontSize: 15, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}
+                >
+                  {fmtTokens(data.totals.tokens, locale)}
+                </text>
+                <text x="64" y="76" textAnchor="middle" style={{ fill: "var(--text-dim)", fontSize: 10 }}>
+                  {t("usage.tokens")}
+                </text>
+              </svg>
+              <div className="usage-model-list">
+                {donutSegments.map((m, i) => (
+                  <div key={m.id} className="usage-model-row">
+                    <span className="usage-series-dot" style={{ background: seriesColor(i) }} />
+                    <span className="usage-model-name" title={modelLabel(m.id)}>{modelLabel(m.id)}</span>
+                    <span className="usage-model-tokens">
+                      {fmtTokens(m.tokens, locale)}
+                    </span>
+                    <span className="usage-model-share">{fmtShare(m.share)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </>
       )}
     </div>
