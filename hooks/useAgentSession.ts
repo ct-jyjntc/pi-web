@@ -604,7 +604,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!includeState) return null;
 
       try {
-        const stateRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/state`);
+        // Same live snapshot as settlement/reconcile — one endpoint for all readers.
+        const stateRes = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
         if (sessionIdRef.current !== sid) return null;
@@ -1064,12 +1065,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [finishPromptWithoutStream]);
 
-  // Recovery net for missed SSE events: while the agent is running, verify
-  // against the server periodically and whenever the tab returns to the
-  // foreground or the network comes back.
+  // Recovery net for missed SSE when settlement is not already polling:
+  // tab foreground / network restore, plus a slow interval as last resort.
+  // Settlement owns the happy-path idle flip — skip while it is active.
   useEffect(() => {
     if (!agentRunning) return;
     const reconcile = () => {
+      if (promptSettleRunIdRef.current !== null) return;
       // Read the ref on every tick: for brand-new sessions the id is
       // assigned only after ensure_session returns.
       const sid = sessionIdRef.current;
@@ -1156,32 +1158,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         dispatch({ type: "end" });
         const sid = sessionIdRef.current;
         if (sid) {
-          void (async () => {
-            await loadSession(sid);
-            if (promptRunIdRef.current !== runId || sessionIdRef.current !== sid) return;
-            try {
-              const r = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
-              const d = await r.json() as { state?: AgentStateResponse };
-              if (promptRunIdRef.current !== runId || sessionIdRef.current !== sid) return;
-              applyLiveAgentStateFields(d.state, {
-                setContextUsage,
-                setSystemPrompt,
-                setExtensionStatuses,
-                setExtensionWidgets,
-              });
-              // Aborted turns can leave messages queued in pi (delivered with the
-              // next turn); dead wrapper (no state) means the queue is gone.
-              setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
-            } catch {
-              // ignore
-            }
-          })();
-        }
-        // Do not call onAgentEnd here — wait for settlement so completion sound
-        // / notifications fire once when the logical prompt is truly idle.
-        // Kick settlement even if prompt_done is delayed/missing; the poll exits
-        // early while the server is still streaming / prompt-running.
-        if (sid) {
+          // One reload with live state (queue / usage / widgets). Settlement
+          // still owns the final idle flip — do not also GET /api/agent here.
+          void loadSession(sid, false, true);
+          // Kick settlement even if prompt_done is delayed/missing.
           void waitForPromptSettlement(sid, runId);
         }
         break;

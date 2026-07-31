@@ -1,5 +1,6 @@
 import {
   getProjectMemorySettings,
+  listMemoryFacts,
   memoryAutoInjectEnabled,
   recallMemoryFacts,
   type MemoryFact,
@@ -18,6 +19,9 @@ const FENCE_NOTE =
  * fence. Delivered as a hidden nextTurn custom message so the model sees it
  * but the transcript doesn't. Returns null when auto-inject is off, the query
  * is empty, or nothing matched.
+ *
+ * Facts already present in the system-prompt auto-inject top-K are skipped so
+ * the same lines are not delivered twice in one turn.
  */
 export function buildQueryMemoryContext(cwd: string, query: string): string | null {
   if (!query.trim()) return null;
@@ -25,8 +29,15 @@ export function buildQueryMemoryContext(cwd: string, query: string): string | nu
   // Only inject when pi-web auto-inject is on (not just "memory tools enabled").
   if (!memoryAutoInjectEnabled(settings)) return null;
 
+  // System prompt already carries the top-K stable facts — don't re-send them.
+  const alreadyInjected = new Set(
+    listMemoryFacts(cwd).slice(0, settings.autoInjectTopK).map((fact) => fact.text),
+  );
+
   const budget = MAX_BLOCK_CHARS - FENCE_NOTE.length - "<memory-context>\n\n</memory-context>".length;
-  const facts: MemoryFact[] = recallMemoryFacts(cwd, query, PER_SCOPE_LIMIT);
+  const facts: MemoryFact[] = recallMemoryFacts(cwd, query, PER_SCOPE_LIMIT + alreadyInjected.size)
+    .filter((fact) => !alreadyInjected.has(fact.text))
+    .slice(0, PER_SCOPE_LIMIT);
   const lines: string[] = [];
   let used = "Project memory:".length + 1;
   for (const fact of facts) {

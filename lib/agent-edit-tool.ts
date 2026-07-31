@@ -87,6 +87,63 @@ function normalizeClassicEdits(args: Record<string, unknown>): {
   };
 }
 
+const HASHLINE_RECOVERY_HINT = [
+  "",
+  "Preferred recovery (hashline):",
+  "  1. read the file → copy [path#TAG] and line numbers",
+  "  2. edit({ input: \"[path#TAG]\\nSWAP N.=M:\\n+new lines\" })",
+  "Avoid rewrite-with-write for local changes.",
+].join("\n");
+
+/** Single error enricher for classic + hashline failures. */
+function enrichEditError(
+  cwd: string,
+  error: unknown,
+  args: Record<string, unknown>,
+  options?: { absolutePath?: string; extraNote?: string; appendRecoveryHint?: boolean },
+): Error {
+  if (error instanceof Error && error.message.startsWith("Edit failed")) return error;
+  if (error instanceof Error && /aborted/i.test(error.message)) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  const info = classifyEditFailure(error);
+  if (info.kind === "aborted") {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  // Hashline-specific errors already have actionable text.
+  if (error instanceof Error && (
+    /Stale or wrong tag|Expected section header|Unrecognized hashline|out of bounds|hash mismatch|not unique|not found/i.test(error.message)
+  )) {
+    return error;
+  }
+
+  const pathGuess =
+    options?.absolutePath
+    ?? resolveEditPath(cwd, args?.path)
+    ?? (typeof args?.input === "string"
+      ? (() => {
+          const m = String(args.input).match(/\[(.+?)#[0-9A-Fa-f]{4}\]/);
+          return m ? resolveEditPath(cwd, m[1]) : undefined;
+        })()
+      : undefined)
+    ?? (info.path ? resolveEditPath(cwd, info.path) : undefined);
+
+  let message = formatEditFailureMessage(info, {
+    absolutePath: pathGuess,
+    oldText: firstOldText(args),
+  });
+  if (options?.extraNote) message += `\n\n${options.extraNote}`;
+  if (options?.appendRecoveryHint) message += HASHLINE_RECOVERY_HINT;
+
+  const enriched = new Error(message);
+  if (error instanceof Error && error.stack) {
+    enriched.stack = `${enriched.stack}\nCaused by: ${error.stack}`;
+  }
+  return enriched;
+}
+
 const HASHLINE_GUIDELINES = [
   "Prefer hashline patch language via edit({ input }) — default and most reliable path.",
   "Every section starts with [path#TAG]. TAG is the 4-hex file fingerprint from a fresh read of the file (shown as [path#TAG] / 1:line). Never invent tags.",
@@ -187,16 +244,15 @@ export function createPiWebEditToolDefinition(
           };
         }
 
-        // 3) Classic path+edits — strict hashline hunks first, then SDK fuzzy classic
+        // 3) Classic path+edits — exact unique match first, then SDK fuzzy classic
         if (isClassicEditArgs(args)) {
           const { path, edits } = normalizeClassicEdits(args);
 
-          // Strict unique exact match via hashline hunks
+          // Exact unique replace (no self-computed hash — hash would always match).
           try {
             const hunks: HashlineHunk[] = edits.map((e) => ({
               oldText: e.oldText,
               newText: e.newText,
-              hash: hashBlock(e.oldText),
             }));
             const result = applyHashlineEdits(cwd, path, hunks);
             return {
@@ -222,41 +278,27 @@ export function createPiWebEditToolDefinition(
                 onUpdate,
                 ctx,
               ) as { content?: unknown; details?: Record<string, unknown> };
-              // Annotate classic success so UI can still show a mode badge via text
               if (classicResult && typeof classicResult === "object") {
-                const details = {
-                  ...(classicResult.details ?? {}),
-                  mode: "classic-fuzzy",
+                return {
+                  ...classicResult,
+                  details: {
+                    ...(classicResult.details ?? {}),
+                    mode: "classic-fuzzy",
+                  },
                 };
-                return { ...classicResult, details };
               }
               return classicResult;
             } catch (classicError) {
-              // Prefer classic error enrichment; mention strict failure if different
-              const info = classifyEditFailure(classicError);
-              if (info.kind === "aborted") throw classicError;
-              const absolutePath = resolveEditPath(cwd, path) ?? (
-                info.path ? resolveEditPath(cwd, info.path) : undefined
-              );
-              let message = formatEditFailureMessage(info, {
-                absolutePath,
-                oldText: firstOldText({ path, edits }),
+              const strictNote = strictError instanceof Error
+                && classicError instanceof Error
+                && strictError.message !== classicError.message
+                ? `(hashline-strict also failed: ${strictError.message})`
+                : undefined;
+              throw enrichEditError(cwd, classicError, { path, edits }, {
+                absolutePath: resolveEditPath(cwd, path),
+                extraNote: strictNote,
+                appendRecoveryHint: true,
               });
-              if (strictError instanceof Error && strictError.message !== (classicError instanceof Error ? classicError.message : "")) {
-                message += `\n\n(hashline-strict also failed: ${strictError.message})`;
-              }
-              message += [
-                "",
-                "Preferred recovery (hashline):",
-                "  1. read the file → copy [path#TAG] and line numbers",
-                "  2. edit({ input: \"[path#TAG]\\nSWAP N.=M:\\n+new lines\" })",
-                "Avoid rewrite-with-write for local changes.",
-              ].join("\n");
-              const enriched = new Error(message);
-              if (classicError instanceof Error && classicError.stack) {
-                enriched.stack = `${enriched.stack}\nCaused by: ${classicError.stack}`;
-              }
-              throw enriched;
             }
           }
         }
@@ -269,41 +311,7 @@ export function createPiWebEditToolDefinition(
             "Re-read the target file to obtain a fresh #TAG before hashline edits.",
         );
       } catch (error) {
-        // Already enriched classic errors rethrow as-is if they contain "Edit failed"
-        if (error instanceof Error && error.message.startsWith("Edit failed")) throw error;
-        if (error instanceof Error && /aborted/i.test(error.message)) throw error;
-
-        // Enrich non-classic failures (hashline patch / validation)
-        const info = classifyEditFailure(error);
-        if (info.kind === "aborted") throw error;
-
-        // For hashline-specific errors, keep the detailed message; still attach excerpt when path known
-        const pathGuess =
-          resolveEditPath(cwd, args?.path) ??
-          (typeof args?.input === "string"
-            ? (() => {
-                const m = String(args.input).match(/\[(.+?)#[0-9A-Fa-f]{4}\]/);
-                return m ? resolveEditPath(cwd, m[1]) : undefined;
-              })()
-            : undefined) ??
-          (info.path ? resolveEditPath(cwd, info.path) : undefined);
-
-        // Stale tag / parse errors already have good text — only wrap generic ones
-        if (error instanceof Error && (
-          /Stale or wrong tag|Expected section header|Unrecognized hashline|out of bounds|hash mismatch|not unique|not found/i.test(error.message)
-        )) {
-          throw error;
-        }
-
-        const message = formatEditFailureMessage(info, {
-          absolutePath: pathGuess,
-          oldText: firstOldText(args ?? {}),
-        });
-        const enriched = new Error(message);
-        if (error instanceof Error && error.stack) {
-          enriched.stack = `${enriched.stack}\nCaused by: ${error.stack}`;
-        }
-        throw enriched;
+        throw enrichEditError(cwd, error, args ?? {});
       }
     },
   };

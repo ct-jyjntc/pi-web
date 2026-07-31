@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { readSessionHeader, resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { readLiveAgentState } from "@/lib/agent-live-state";
+import { jsonError } from "@/lib/api-response";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -51,14 +53,8 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const session = getRpcSession(id);
-    if (!session || !session.isAlive()) {
-      return NextResponse.json({ running: false });
-    }
-
-    const state = await session.send({ type: "get_state" });
-    return NextResponse.json({ running: true, state });
+    return NextResponse.json(await readLiveAgentState(id));
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return jsonError(error);
   }
 }
