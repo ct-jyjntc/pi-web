@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Copy, Minus, Square, X } from "lucide-react";
+import { Icon } from "./Icon";
 
 /**
  * Custom Windows/Linux caption buttons (min / max-restore / close).
@@ -53,9 +55,7 @@ export function WindowControls() {
         title="Minimize"
         aria-label="Minimize"
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <path d="M1 5h8" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-        </svg>
+        <Icon icon={Minus} size={10} strokeWidth={1.2} />
       </button>
       <button
         type="button"
@@ -65,28 +65,9 @@ export function WindowControls() {
         aria-label={maximized ? "Restore" : "Maximize"}
       >
         {maximized ? (
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-            <path
-              d="M3 3.5h4.5V8H3V3.5zM2.5 2h4v1H3.5v3.5h-1V2z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.1"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <Icon icon={Copy} size={10} strokeWidth={1.2} />
         ) : (
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-            <rect
-              x="1.5"
-              y="1.5"
-              width="7"
-              height="7"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              rx="0.4"
-            />
-          </svg>
+          <Icon icon={Square} size={10} strokeWidth={1.2} />
         )}
       </button>
       <button
@@ -96,15 +77,7 @@ export function WindowControls() {
         title="Close"
         aria-label="Close"
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <path
-            d="M2 2l6 6M8 2L2 8"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            strokeLinecap="round"
-          />
-        </svg>
+        <Icon icon={X} size={10} strokeWidth={1.2} />
       </button>
     </div>
   );

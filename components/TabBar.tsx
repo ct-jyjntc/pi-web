@@ -1,7 +1,9 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { getFileIcon } from "./FileIcons";
+import { Icon } from "./Icon";
 
 export interface Tab {
   id: string;
@@ -66,10 +68,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               title={t("tab.close")}
               aria-label={t("tab.closeNamed", { name: tab.label })}
             >
-              <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                <line x1="2" y1="2" x2="8" y2="8" />
-                <line x1="8" y1="2" x2="2" y2="8" />
-              </svg>
+              <Icon icon={X} size={11} strokeWidth={1.8} />
             </button>
           </div>
         );

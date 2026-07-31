@@ -1,10 +1,12 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ConfigPanelBackdrop, ConfigPanelShell } from "./ConfigPanelShell";
+import { Icon } from "./Icon";
 import type {
   SkillInfo as Skill,
   SkillInstallScope,
@@ -977,19 +979,7 @@ export function SkillsConfig({
                 className={`chrome-btn${addMode ? " is-active" : ""}`}
                 onClick={() => setAddMode(true)}
               >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
+                <Icon icon={Plus} size="lg" strokeWidth={2} />
                 {t("skills.addSkill")}
               </button>
             </div>

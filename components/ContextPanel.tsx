@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AlignLeft, Check, Copy, FileText, Square } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { copyText } from "@/lib/clipboard";
 import { useSessionMetrics } from "@/lib/session-metrics-store";
 import { getCompactHandlers, requestCompact, subscribeCompactHandlers } from "@/lib/compact-action-store";
 import type { ExtensionStatusItem } from "@/lib/types";
+import { Icon } from "./Icon";
 
 function isPermissionStatus(status: { key: string; text: string }): boolean {
   const k = status.key.toLowerCase();
@@ -272,16 +274,12 @@ export function ContextPanel() {
             >
               {compactState.isCompacting ? (
                 <>
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
-                    <rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" />
-                  </svg>
+                  <Icon icon={Square} size={10} fill="currentColor" strokeWidth={0} />
                   <span>{t("chat.compacting")}</span>
                 </>
               ) : (
                 <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M4 7h16" /><path d="M4 12h10" /><path d="M4 17h7" />
-                  </svg>
+                  <Icon icon={AlignLeft} size={12} strokeWidth={1.8} />
                   <span>{t("chat.compact")}</span>
                 </>
               )}
@@ -296,13 +294,9 @@ export function ContextPanel() {
               aria-label={t("shell.copyFilePath")}
             >
               {copiedSessionField === "file" ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <Icon icon={Check} size={13} strokeWidth={2} />
               ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-                </svg>
+                <Icon icon={FileText} size={13} strokeWidth={1.8} />
               )}
             </button>
           )}
@@ -315,13 +309,9 @@ export function ContextPanel() {
               aria-label={t("shell.copySessionId")}
             >
               {copiedSessionField === "id" ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <Icon icon={Check} size={13} strokeWidth={2} />
               ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
+                <Icon icon={Copy} size={13} strokeWidth={1.8} />
               )}
             </button>
           )}

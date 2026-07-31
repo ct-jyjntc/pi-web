@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown } from "lucide-react";
 import { parseCollabChat, type CollabChatMessage } from "@/lib/collab-messages";
+import { Icon } from "./Icon";
 
 export function CollabViewer({ token }: { token: string }) {
   const [status, setStatus] = useState<"connecting" | "live" | "error">("connecting");
@@ -293,9 +295,7 @@ export function CollabViewer({ token }: { token: string }) {
                 gap: 8,
               }}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
-              </svg>
+              <Icon icon={ArrowDown} size={12} strokeWidth={2} />
               Jump to latest
               {unread > 0 && (
                 <span

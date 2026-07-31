@@ -1,6 +1,8 @@
 "use client";
 
+import { ShieldCheck } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
+import { Icon } from "./Icon";
 
 export function ProjectTrustDialog({
   cwd,
@@ -35,21 +37,12 @@ export function ProjectTrustDialog({
       >
         <div className="modal-header" style={{ height: "auto", minHeight: 44, alignItems: "flex-start", padding: "12px 14px" }}>
           <div style={{ display: "flex", gap: 10, minWidth: 0 }}>
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--text-muted)"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-              style={{ flexShrink: 0, marginTop: 2 }}
-            >
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-              <path d="m9 12 2 2 4-4" />
-            </svg>
+            <Icon
+              icon={ShieldCheck}
+              size="3xl"
+              strokeWidth={1.8}
+              style={{ color: "var(--text-muted)", flexShrink: 0, marginTop: 2 }}
+            />
             <div style={{ minWidth: 0 }}>
               <div id="project-trust-title" className="modal-title">
                 {t("trust.dialogTitle")}

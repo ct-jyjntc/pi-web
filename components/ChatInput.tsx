@@ -12,8 +12,26 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
+import {
+  AlertTriangle,
+  ArrowRight,
+  ArrowUpToLine,
+  Check,
+  Cpu,
+  Image,
+  Lightbulb,
+  Lock,
+  LockOpen,
+  RefreshCw,
+  Square,
+  Undo2,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
 import { ComposerPalette } from "./ComposerPalette";
 import { FolderIcon, getFileIcon } from "./FileIcons";
+import { Icon } from "./Icon";
 import { PreviewableImage } from "./PreviewableImage";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocale } from "@/hooks/useLocale";
@@ -303,22 +321,7 @@ function ModelErrorBanner({ error }: { error?: string | null }) {
         lineHeight: 1.45,
       }}
     >
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ flexShrink: 0, marginTop: 1 }}
-        aria-hidden="true"
-      >
-        <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
-        <line x1="12" y1="9" x2="12" y2="13" />
-        <line x1="12" y1="17" x2="12.01" y2="17" />
-      </svg>
+      <Icon icon={AlertTriangle} size={13} strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 600 }}>{t("chat.modelError")}</div>
         <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{error}</div>
@@ -1318,10 +1321,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     e.currentTarget.style.borderColor = "var(--border)";
                   }}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="9 14 4 9 9 4" />
-                    <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-                  </svg>
+                  <Icon icon={Undo2} size={13} strokeWidth={2} />
                   {t("chat.recallQueue")}
                 </button>
               )}
@@ -1343,10 +1343,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             borderRadius: "var(--radius-sm)", fontSize: 12, color: "var(--text)",
             display: "flex", alignItems: "center", gap: 6,
           }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
+            <Icon icon={RefreshCw} size={11} strokeWidth={2} style={{ flexShrink: 0 }} />
             {t("chat.retrying", { n: retryInfo.attempt, m: retryInfo.maxAttempts })}{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
           </div>
         )}
@@ -1372,9 +1369,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     cursor: "pointer", padding: 0, color: "var(--text-muted)",
                   }}
                 >
-                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                    <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
-                  </svg>
+                  <Icon icon={X} size={8} strokeWidth={1.5} />
                 </button>
               </div>
             ))}
@@ -1706,9 +1701,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     disabled={!canQueueStreamingMessage}
                     title={attachedImages.length ? t("chat.queueNoImages") : t("chat.steerTitle")}
                   >
-                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
-                    </svg>
+                    <Icon icon={ArrowRight} size={12} strokeWidth={1.8} />
                     {t("chat.steer")}
                   </button>
                 )}
@@ -1720,10 +1713,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     disabled={!canQueueStreamingMessage}
                     title={attachedImages.length ? t("chat.queueNoImages") : t("chat.followUpTitle")}
                   >
-                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
-                      <line x1="2" y1="9" x2="8" y2="9" />
-                    </svg>
+                    <Icon icon={ArrowUpToLine} size={12} strokeWidth={1.8} />
                     {t("chat.followUp")}
                   </button>
                 )}
@@ -1748,10 +1738,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   transition: "background 0.15s, box-shadow 0.15s",
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="2" y1="7" x2="11" y2="7" />
-                  <polyline points="7.5 3 12 7 7.5 11" />
-                </svg>
+                <Icon icon={ArrowRight} size={14} strokeWidth={2} />
                 {t("chat.send")}
               </button>
             )}
@@ -1769,11 +1756,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               disabled={isStreaming || !supportsImageInput}
               title={supportsImageInput ? t("chat.attachImage") : t("chat.attachImageDisabled")}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
-              </svg>
+              <Icon icon={Image} size={15} strokeWidth={1.8} />
             </button>
             {/* Model selector — visible always, disabled during streaming */}
             {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
@@ -1800,14 +1783,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       overflow: "hidden",
                     }}
                   >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="4" y="4" width="16" height="16" rx="2" />
-                      <rect x="9" y="9" width="6" height="6" />
-                      <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                      <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                      <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                      <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-                    </svg>
+                    <Icon icon={Cpu} size={11} strokeWidth={2} />
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                       {currentName ?? (modelOptions.length > 0 ? t("chat.selectModel") : t("chat.noModels"))}
                     </span>
@@ -1902,7 +1878,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                                   onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
                                 >
                                   {isActive
-                                    ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                                    ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, color: "var(--accent)" }} />
                                     : <span style={{ width: 10, flexShrink: 0 }} />}
                                   {opt.name}
                                 </button>
@@ -1985,11 +1961,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   aria-label={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
                   style={isMobile ? { padding: "0 6px" } : undefined}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.7.78 3.21 2 4.21V14a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-2.29c1.22-1 2-2.51 2-4.21A5.5 5.5 0 0 0 9.5 2z" />
-                    <line x1="7" y1="18" x2="12" y2="18" />
-                    <line x1="8" y1="21" x2="11" y2="21" />
-                  </svg>
+                  <Icon icon={Lightbulb} size={11} strokeWidth={1.8} />
                   {(!isMobile || controlsMenuOpen) && <span>{thinkingDisplayLabel}</span>}
                 </button>
                 {thinkingDropdownOpen && thinkingMenuRect && (
@@ -2022,7 +1994,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                           onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
                         >
                           {isActive
-                            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                            ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, color: "var(--accent)" }} />
                             : <span style={{ width: 10, flexShrink: 0 }} />}
                           <span style={{ flex: 1 }}>
                             {label}
@@ -2056,19 +2028,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   opacity: permissionBusy ? 0.6 : undefined,
                 }}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  {permissionMode === "full" ? (
-                    <>
-                      <rect x="3" y="11" width="18" height="11" rx="2" />
-                      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
-                    </>
-                  ) : (
-                    <>
-                      <rect x="3" y="11" width="18" height="11" rx="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </>
-                  )}
-                </svg>
+                <Icon icon={permissionMode === "full" ? LockOpen : Lock} size={12} strokeWidth={2} />
                 {(!isMobile || controlsMenuOpen) && <span>{permissionLabel}</span>}
               </button>
               {permissionError && (() => {
@@ -2118,7 +2078,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                         onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
                       >
                         {isActive
-                          ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 3 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                          ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, marginTop: 3, color: "var(--accent)" }} />
                           : <span style={{ width: 10, flexShrink: 0 }} />}
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <span style={{ display: "block", color: mode === "full" ? "var(--destructive)" : "inherit" }}>{title}</span>
@@ -2138,9 +2098,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 onClick={onAbort}
                 title={t("chat.stopAgent")}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
-                </svg>
+                <Icon icon={Square} size={10} fill="currentColor" strokeWidth={0} />
                 {t("chat.stop")}
               </button>
             )}
@@ -2155,17 +2113,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 style={{ opacity: soundEnabled ? 1 : 0.55 }}
               >
                 {soundEnabled ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                  </svg>
+                  <Icon icon={Volume2} size={12} strokeWidth={2} />
                 ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                    <line x1="23" y1="9" x2="17" y2="15" />
-                    <line x1="17" y1="9" x2="23" y2="15" />
-                  </svg>
+                  <Icon icon={VolumeX} size={12} strokeWidth={2} />
                 )}
               </button>
             )}
@@ -2202,10 +2152,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   e.currentTarget.style.background = "var(--bg-hover)";
                 }}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+                <Icon icon={X} size={13} strokeWidth={2} />
               </button>
             )}
             </div>

@@ -1,11 +1,27 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, memo, type CSSProperties, type ReactNode } from "react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  EllipsisVertical,
+  Folder,
+  GitBranch,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { Icon } from "./Icon";
 
 declare global {
   interface Window {
@@ -930,9 +946,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                   {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
                 </span>
               )}
-              <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.55 }}>
-                <polyline points="2 3.5 5 6.5 8 3.5" />
-              </svg>
+              <Icon icon={ChevronDown} size={9} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.55 }} />
             </button>
           </div>
 
@@ -980,9 +994,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                     title={project}
                   >
                     {project === selectedProject ? (
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                        <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                      </svg>
+                      <Icon icon={Check} size={10} strokeWidth={2} style={{ color: "var(--accent)", flexShrink: 0 }} />
                     ) : (
                       <span style={{ width: 10, flexShrink: 0 }} />
                     )}
@@ -1001,9 +1013,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                   onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
                   style={{ borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none" }}
                 >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
-                  </svg>
+                  <Icon icon={Folder} size={10} strokeWidth={1.4} style={{ flexShrink: 0 }} />
                   <span>{t("sidebar.useDefaultDir")}</span>
                 </button>
               )}
@@ -1016,10 +1026,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                   void handleCustomPathClick();
                 }}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" style={{ flexShrink: 0 }}>
-                  <line x1="5" y1="1" x2="5" y2="9" />
-                  <line x1="1" y1="5" x2="9" y2="5" />
-                </svg>
+                <Icon icon={Plus} size={10} strokeWidth={1.4} style={{ flexShrink: 0 }} />
                 <span>{t("sidebar.customPath")}</span>
               </button>
             </AnimatedDropdown>
@@ -1034,10 +1041,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
             disabled={!selectedCwd}
             title={selectedCwd ? t("sidebar.newSessionIn", { cwd: selectedCwd }) : t("sidebar.selectProjectFirst")}
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="6" y1="1" x2="6" y2="11" />
-              <line x1="1" y1="6" x2="11" y2="6" />
-            </svg>
+            <Icon icon={Plus} size={12} strokeWidth={2} />
             {t("common.new")}
           </button>
           <button
@@ -1051,14 +1055,9 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
             aria-label={t("common.refresh")}
           >
             {sessionRefreshDone ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Icon icon={Check} size={15} strokeWidth={2.5} />
             ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
+              <Icon icon={RefreshCw} size={15} strokeWidth={1.8} />
             )}
           </button>
         </div>
@@ -1082,12 +1081,12 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                 title={currentWt ? t("sidebar.switchWorktreeNamed", { name: currentWt.path }) : t("sidebar.switchWorktree")}
                 style={{ WebkitAppRegion: "no-drag", width: "100%" } as React.CSSProperties}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: currentWt && !currentWt.isMain ? 1 : 0.55 }}>
-                  <line x1="6" y1="3" x2="6" y2="15" />
-                  <circle cx="18" cy="6" r="3" />
-                  <circle cx="6" cy="18" r="3" />
-                  <path d="M18 9a9 9 0 0 1-9 9" />
-                </svg>
+                <Icon
+                  icon={GitBranch}
+                  size={12}
+                  strokeWidth={1.8}
+                  style={{ flexShrink: 0, opacity: currentWt && !currentWt.isMain ? 1 : 0.55 }}
+                />
                 <PathLabel
                   text={currentWt ? (currentWt.branch ?? displayCwd(currentWt.path, homeDir)) : "…"}
                   style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, color: "inherit" }}
@@ -1100,9 +1099,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                     {worktreeState.worktrees.length}
                   </span>
                 )}
-                <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.55 }}>
-                  <polyline points="2 3.5 5 6.5 8 3.5" />
-                </svg>
+                <Icon icon={ChevronDown} size={9} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.55 }} />
               </button>
 
               <AnimatedDropdown
@@ -1186,9 +1183,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                             style={{ flex: 1, fontFamily: "var(--font-mono)" }}
                           >
                             {isCurrent ? (
-                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                              </svg>
+                              <Icon icon={Check} size={10} strokeWidth={2} style={{ color: "var(--accent)", flexShrink: 0 }} />
                             ) : (
                               <span style={{ width: 10, flexShrink: 0 }} />
                             )}
@@ -1206,12 +1201,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                               onMouseEnter={(e) => { e.currentTarget.style.color = "var(--destructive)"; e.currentTarget.style.background = "color-mix(in oklab, var(--destructive) 10%, transparent)"; }}
                               onMouseLeave={(e) => { e.currentTarget.style.color = ""; e.currentTarget.style.background = ""; }}
                             >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                <polyline points="3 6 5 6 21 6" />
-                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                                <path d="M10 11v6M14 11v6" />
-                                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                              </svg>
+                              <Icon icon={Trash2} size={12} strokeWidth={1.8} />
                             </button>
                           )}
                         </div>
@@ -1236,10 +1226,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                       title={t("sidebar.createWorktreeHint")}
                       style={{ borderTop: "1px solid var(--border)" }}
                     >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" style={{ flexShrink: 0 }}>
-                        <line x1="5" y1="1" x2="5" y2="9" />
-                        <line x1="1" y1="5" x2="9" y2="5" />
-                      </svg>
+                      <Icon icon={Plus} size={10} strokeWidth={1.4} style={{ flexShrink: 0 }} />
                       <span>{t("sidebar.newWorktree")}</span>
                     </button>
                   ) : (
@@ -1310,12 +1297,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
               title={inactiveWorktreeSelector.title}
               style={{ width: "100%", whiteSpace: "nowrap" }}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.55 }}>
-                <line x1="6" y1="3" x2="6" y2="15" />
-                <circle cx="18" cy="6" r="3" />
-                <circle cx="6" cy="18" r="3" />
-                <path d="M18 9a9 9 0 0 1-9 9" />
-              </svg>
+              <Icon icon={GitBranch} size={12} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.55 }} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{inactiveWorktreeSelector.label}</span>
             </button>
           </div>
@@ -1390,13 +1372,12 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
               className="sidebar-section-label"
               onClick={() => setExplorerOpen((v) => !v)}
             >
-              <svg
-                width="9" height="9" viewBox="0 0 10 10" fill="none"
-                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+              <Icon
+                icon={ChevronRight}
+                size={9}
+                strokeWidth={1.8}
                 style={{ transform: explorerOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}
-              >
-                <polyline points="3 2 7 5 3 8" />
-              </svg>
+              />
               {t("sidebar.explorer")}
             </button>
             {explorerOpen && (
@@ -1408,11 +1389,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                 title={t("sidebar.uploadToRoot")}
                 aria-label={t("sidebar.uploadFiles")}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <path d="m17 8-5-5-5 5" />
-                  <path d="M12 3v12" />
-                </svg>
+                <Icon icon={Upload} size={13} strokeWidth={1.8} />
               </button>
             )}
             <button
@@ -1429,14 +1406,9 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
               aria-label={t("sidebar.refreshExplorer")}
             >
               {explorerRefreshDone ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <Icon icon={Check} size={13} strokeWidth={2.5} />
               ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                </svg>
+                <Icon icon={RefreshCw} size={13} strokeWidth={1.8} />
               )}
             </button>
           </div>
@@ -1789,12 +1761,7 @@ const SessionItem = memo(function SessionItem({
         <>
           {/* Fork indicator for child sessions */}
           {depth > 0 && (
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
-            </svg>
+            <Icon icon={GitBranch} size={10} strokeWidth={1.8} style={{ color: "var(--text-dim)", flexShrink: 0 }} />
           )}
           {isRunning ? (
             <RunningSessionIndicator />
@@ -1833,12 +1800,7 @@ const SessionItem = memo(function SessionItem({
                   maxWidth: "40%",
                 }}
               >
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                  <line x1="6" y1="3" x2="6" y2="15" />
-                  <circle cx="18" cy="6" r="3" />
-                  <circle cx="6" cy="18" r="3" />
-                  <path d="M18 9a9 9 0 0 1-9 9" />
-                </svg>
+                <Icon icon={GitBranch} size={9} strokeWidth={2.4} style={{ flexShrink: 0 }} />
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.worktreeBranch}</span>
               </span>
             )}
@@ -1856,9 +1818,7 @@ const SessionItem = memo(function SessionItem({
                 transition: "transform 0.15s, background 0.15s, color 0.15s",
               } as React.CSSProperties}
             >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="2 3.5 5 6.5 8 3.5" />
-              </svg>
+              <Icon icon={ChevronDown} size={10} strokeWidth={1.8} />
             </button>
           )}
 
@@ -1882,12 +1842,7 @@ const SessionItem = memo(function SessionItem({
                   boxShadow: "none",
                 }}
               >
-                {/* Vertical ellipsis */}
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <circle cx="12" cy="5" r="1.7" />
-                  <circle cx="12" cy="12" r="1.7" />
-                  <circle cx="12" cy="19" r="1.7" />
-                </svg>
+                <Icon icon={EllipsisVertical} size={14} strokeWidth={2} />
               </button>
               {menuOpen && menuPos && (
                 <div
@@ -1910,9 +1865,7 @@ const SessionItem = memo(function SessionItem({
                     className="sidebar-menu-item"
                     onClick={startRename}
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                    </svg>
+                    <Icon icon={Pencil} size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
                     {t("common.rename")}
                   </button>
                   <button
@@ -1928,16 +1881,9 @@ const SessionItem = memo(function SessionItem({
                     }
                   >
                     {naming ? (
-                      <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden style={{ flexShrink: 0 }}>
-                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                      </svg>
+                      <Icon icon={Loader2} size={13} strokeWidth={2} className="animate-spin" style={{ flexShrink: 0 }} />
                     ) : (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                        <path d="m15 4 5 5L7 22l-5-5Z" />
-                        <path d="m14 5 5 5" />
-                        <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
-                      </svg>
+                      <Icon icon={Sparkles} size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
                     )}
                     {naming ? t("shell.generating") : t("shell.generateTitle")}
                   </button>
@@ -1948,12 +1894,7 @@ const SessionItem = memo(function SessionItem({
                     onClick={() => void performDelete()}
                     style={{ color: "var(--destructive)" }}
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                      <path d="M10 11v6M14 11v6" />
-                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                    </svg>
+                    <Icon icon={Trash2} size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
                     {t("common.delete")}
                   </button>
                 </div>

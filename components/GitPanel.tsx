@@ -6,6 +6,22 @@ import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { getFileName } from "@/lib/file-paths";
 import { DiffView } from "./DiffView";
+import { Icon } from "./Icon";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ClipboardCheck,
+  GitBranch,
+  GitCommitHorizontal,
+  Minus,
+  Plus,
+  RefreshCw,
+  Split,
+  Trash2,
+} from "lucide-react";
 
 interface Props {
   cwd: string | null;
@@ -657,10 +673,7 @@ export function GitPanel({
           title={reviewing ? t("git.reviewRunning") : t("git.review")}
           aria-label={reviewing ? t("git.reviewRunning") : t("git.review")}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M9 11l3 3L22 4" />
-            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-          </svg>
+          <Icon icon={ClipboardCheck} size={12} />
           <span>{reviewing ? t("git.reviewRunning") : t("git.review")}</span>
         </button>
         <button
@@ -671,9 +684,7 @@ export function GitPanel({
           title={t("git.stageAll")}
           aria-label={t("git.stageAll")}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
-          </svg>
+          <Icon icon={ArrowDown} size={12} />
           <span>{t("git.stageAll")}</span>
         </button>
         <button
@@ -684,9 +695,7 @@ export function GitPanel({
           title={t("git.discardAll")}
           aria-label={t("git.discardAll")}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" />
-          </svg>
+          <Icon icon={Trash2} size={12} />
           <span>{t("git.discardAll")}</span>
         </button>
         <button
@@ -703,13 +712,9 @@ export function GitPanel({
           }}
         >
           {openDiffs.size > 0 ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
+            <Icon icon={Minus} size={14} />
           ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-              <line x1="5" y1="12" x2="19" y2="12" /><line x1="12" y1="5" x2="12" y2="19" />
-            </svg>
+            <Icon icon={Plus} size={14} />
           )}
         </button>
 
@@ -721,10 +726,7 @@ export function GitPanel({
           title={t("git.refresh")}
           aria-label={t("git.refresh")}
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-            <path d="M3 3v5h5" />
-          </svg>
+          <Icon icon={RefreshCw} size={13} />
         </button>
 
         <div ref={commitRef} style={{ position: "relative", flexShrink: 0, display: "flex", flexDirection: "row", height: "100%" }}>
@@ -740,13 +742,9 @@ export function GitPanel({
               setCommitOpen((v) => !v);
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <circle cx="12" cy="12" r="3" /><path d="M12 3v6M12 15v6" />
-            </svg>
+            <Icon icon={GitCommitHorizontal} size={12} strokeWidth={2} />
             <span className="git-panel-commit-label">{t("git.commitOrPush")}</span>
-            <svg className="git-panel-commit-chevron" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-              <polyline points="2 3.5 5 6.5 8 3.5" />
-            </svg>
+            <Icon icon={ChevronDown} size={9} strokeWidth={1.6} className="git-panel-commit-chevron" />
           </button>
 
           {commitOpen && (
@@ -766,9 +764,7 @@ export function GitPanel({
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ opacity: 0.6, flexShrink: 0 }}>
-                    <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
+                  <Icon icon={GitBranch} size={12} style={{ opacity: 0.6, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {status?.branch ?? "—"}
                   </span>
@@ -841,9 +837,7 @@ export function GitPanel({
                 onClick={() => void planSplit()}
                 style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M16 3h5v5" /><path d="M8 3H3v5" /><path d="M12 22v-8" /><path d="m9 12 3-3 3 3" /><path d="M21 3l-7 7" /><path d="M3 3l7 7" />
-                </svg>
+                <Icon icon={Split} size={12} />
                 {splitPlanning ? t("git.splitRunning") : t("git.splitCommits")}
               </button>
 
@@ -855,7 +849,7 @@ export function GitPanel({
                 style={{ width: "100%", height: 34, justifyContent: "space-between", padding: "0 12px", background: "var(--bg-selected)" }}
               >
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 3v6M12 15v6" /></svg>
+                  <Icon icon={GitCommitHorizontal} size={12} strokeWidth={2} />
                   {busy ? t("git.committing") : t("git.commit")}
                 </span>
               </button>
@@ -866,9 +860,7 @@ export function GitPanel({
                 onClick={() => void runCommit(true)}
                 style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 19V5" /><path d="m5 12 7-7 7 7" />
-                </svg>
+                <Icon icon={ArrowUp} size={12} />
                 {t("git.commitAndPush")}
               </button>
               <button
@@ -878,9 +870,7 @@ export function GitPanel({
                 onClick={() => void pushOnly()}
                 style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 19V5" /><path d="m5 12 7-7 7 7" />
-                </svg>
+                <Icon icon={ArrowUp} size={12} />
                 {t("git.push")}
               </button>
             </div>
@@ -906,9 +896,7 @@ export function GitPanel({
               {status?.upstream && (
                 <span className="git-panel-branch-upstream">→ {status.upstream}</span>
               )}
-              <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ opacity: 0.5, display: "block", flexShrink: 0 }} aria-hidden>
-                <polyline points="2 3.5 5 6.5 8 3.5" />
-              </svg>
+              <Icon icon={ChevronDown} size={9} strokeWidth={1.6} style={{ opacity: 0.5, display: "block", flexShrink: 0 }} />
             </button>
             {branchOpen && (
               <div className="menu-card" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, minWidth: 220, zIndex: 70, maxHeight: 260, overflow: "auto" }}>
@@ -922,7 +910,7 @@ export function GitPanel({
                     style={{ fontFamily: "var(--font-mono)" }}
                   >
                     {b === status?.branch ? (
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2"><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                      <Icon icon={Check} size={10} strokeWidth={2} style={{ color: "var(--accent)" }} />
                     ) : <span style={{ width: 10 }} />}
                     {b}
                   </button>
@@ -1019,9 +1007,7 @@ export function GitPanel({
             title={t("git.pull")}
             aria-label={t("git.pull")}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
-            </svg>
+            <Icon icon={ArrowDown} size={12} />
             <span>{t("git.pull")}</span>
           </button>
         </div>
@@ -1349,9 +1335,11 @@ function FileRow({
             : hovered || expanded ? "var(--bg-hover)" : "transparent",
         }}
       >
-        <svg
+        <Icon
+          icon={ChevronRight}
+          size={9}
+          strokeWidth={1.6}
           className={`git-file-chevron${expanded ? " is-open" : ""}`}
-          width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6"
           style={{
             flexShrink: 0,
             opacity: 0.55,
@@ -1359,9 +1347,7 @@ function FileRow({
             transform: expanded ? "rotate(90deg)" : "none",
             transition: "transform 0.12s ease",
           }}
-        >
-          <polyline points="3 2 7 5 3 8" />
-        </svg>
+        />
         <span
           className="git-file-code"
           style={{

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { Bot, ListTodo } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import {
   chromeWidgetSummary,
@@ -8,11 +9,11 @@ import {
   parseWidget,
   type ParsedAgentsWidget,
   type ParsedTodoWidget,
-  type TodoItem,
 } from "@/lib/extension-widgets";
 import { useChromeWidgetsMetric } from "@/lib/session-metrics-store";
 import type { ExtensionWidgetItem } from "@/lib/types";
 import { TodoItemRow } from "./extension/TodoAtoms";
+import { Icon } from "./Icon";
 
 const POPOVER_WIDTH = 300;
 
@@ -131,25 +132,6 @@ function isCapsuleActive(key: string, lines: string[]): boolean {
     return /running|active|progress|working|执行|运行|进行/.test(text);
   }
   return false;
-}
-
-function TodoIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: "block", flexShrink: 0 }}>
-      <path d="M9 11l3 3L22 4" />
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-    </svg>
-  );
-}
-
-function AgentsIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: "block", flexShrink: 0 }}>
-      <circle cx="12" cy="8" r="3.5" />
-      <path d="M5 20a7 7 0 0 1 14 0" />
-      <path d="M19 4v3M19 10h.01" />
-    </svg>
-  );
 }
 
 /**
@@ -279,7 +261,11 @@ export function TopBarChromeWidgets() {
                   lineHeight: 0,
                 }}
               >
-                {kind === "todo" ? <TodoIcon /> : <AgentsIcon />}
+                {kind === "todo" ? (
+                  <Icon icon={ListTodo} size={13} strokeWidth={1.8} style={{ display: "block", flexShrink: 0 }} />
+                ) : (
+                  <Icon icon={Bot} size={13} strokeWidth={1.8} style={{ display: "block", flexShrink: 0 }} />
+                )}
               </span>
               <span
                 style={{

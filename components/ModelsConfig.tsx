@@ -17,6 +17,8 @@ import {
   TOKENRHYTHM_PROVIDER_ID,
 } from "@/lib/tokenrhythm-constants";
 import { SettingsToggle } from "./SettingsToggle";
+import { Icon } from "./Icon";
+import { Check as CheckIcon, Cpu, Eye, EyeOff, Plus, Search } from "lucide-react";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
 // Color icons (have their own fill colors — no background needed)
@@ -293,17 +295,9 @@ function SecretTextInput({
         } as React.CSSProperties}
       >
         {visible ? (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C7 20 2.73 16.89 1 12a18.45 18.45 0 0 1 5.06-6.94" />
-            <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c5 0 9.27 3.11 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-            <path d="M14.12 14.12A3 3 0 0 1 9.88 9.88" />
-            <path d="M1 1l22 22" />
-          </svg>
+          <Icon icon={EyeOff} size={15} strokeWidth={2} />
         ) : (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
+          <Icon icon={Eye} size={15} strokeWidth={2} />
         )}
       </button>
     </div>
@@ -1089,9 +1083,7 @@ function ModelDetail({
             }}
           >
             {testState.phase === "success" && (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Icon icon={CheckIcon} size={11} strokeWidth={3} />
             )}
             {testState.phase === "testing" ? t("modal.testing") : testState.phase === "success" ? t("modal.ok") : t("modal.test")}
           </button>
@@ -1834,9 +1826,7 @@ function ApiKeyDetail({ provider, onRefresh, onModelsChanged }: { provider: ApiK
             }}
           >
             {savedOk && (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Icon icon={CheckIcon} size={12} strokeWidth={3} />
             )}
             {savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}
           </button>
@@ -1998,9 +1988,7 @@ function AddProviderPicker({
       >
         {/* Search — borderless strip (avoids a heavy focused frame in the dialog chrome) */}
         <div className="modal-header" style={{ gap: 8, padding: "0 12px" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
-            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          <Icon icon={Search} size={13} strokeWidth={2} style={{ color: "var(--text-dim)", flexShrink: 0 }} />
           <input
             ref={inputRef}
             value={search}
@@ -2068,9 +2056,7 @@ function AddProviderPicker({
                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{t("models.customEndpoint")}</div>
                   </div>
                   <span style={{ width: 26, height: 26, borderRadius: "var(--radius-sm)", background: "var(--bg-hover)", border: "1px dashed var(--border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)" }}>
-                      <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
+                    <Icon icon={Plus} size={13} strokeWidth={2} style={{ color: "var(--text-dim)" }} />
                   </span>
                 </button>
               )}
@@ -2591,13 +2577,7 @@ export function ModelsConfig({
                       {managed ? (
                         <ProviderIcon id={freeDef.iconId} size={14} />
                       ) : (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
-                          <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                          <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                          <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                          <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                          <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-                        </svg>
+                        <Icon icon={Cpu} size={11} strokeWidth={2} style={{ color: "var(--text-dim)", flexShrink: 0 }} />
                       )}
                       <span className={`modal-nav-label${managed ? "" : " is-mono"}${isProviderSelected ? " is-strong" : ""}`}>{providerLabel}</span>
                       {managed && (
@@ -2686,10 +2666,12 @@ export function ModelsConfig({
             }}
           >
             {savedOk && (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}>
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Icon
+                icon={CheckIcon}
+                size={14}
+                strokeWidth={3}
+                style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}
+              />
             )}
             <span>{savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}</span>
           </button>

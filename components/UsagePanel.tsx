@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Calendar,
+  Flame,
+  MessageSquare,
+  MessagesSquare,
+  Package,
+  Zap,
+} from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
+import { Icon } from "./Icon";
 
 type UsageData = {
   generatedAt: string;
@@ -67,12 +77,8 @@ function fmtShare(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
 
-function StatIcon({ path }: { path: ReactNode }) {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      {path}
-    </svg>
-  );
+function StatIcon({ icon }: { icon: LucideIcon }) {
+  return <Icon icon={icon} size={11} strokeWidth={1.8} />;
 }
 
 function StatCard({ icon, label, value, sub, mono }: {
@@ -282,33 +288,33 @@ export function UsagePanel() {
         <>
           <div className="usage-stat-grid">
             <StatCard
-              icon={<StatIcon path={<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />} />}
+              icon={<StatIcon icon={Flame} />}
               label={t("usage.tokens")}
               value={fmtTokens(data.totals.tokens, locale)}
               sub={data.totals.cost > 0 ? fmtCost(data.totals.cost) : undefined}
             />
             <StatCard
-              icon={<StatIcon path={<><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></>} />}
+              icon={<StatIcon icon={MessageSquare} />}
               label={t("usage.sessions")}
               value={data.totals.sessions.toLocaleString()}
             />
             <StatCard
-              icon={<StatIcon path={<><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2v5z" /><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" /></>} />}
+              icon={<StatIcon icon={MessagesSquare} />}
               label={t("usage.messages")}
               value={data.totals.messages.toLocaleString()}
             />
             <StatCard
-              icon={<StatIcon path={<><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4" /><path d="M8 2v4" /><path d="M3 10h18" /></>} />}
+              icon={<StatIcon icon={Calendar} />}
               label={t("usage.activeDays")}
               value={String(data.totals.activeDays)}
             />
             <StatCard
-              icon={<StatIcon path={<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />} />}
+              icon={<StatIcon icon={Zap} />}
               label={t("usage.streak")}
               value={String(data.streak)}
             />
             <StatCard
-              icon={<StatIcon path={<><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></>} />}
+              icon={<StatIcon icon={Package} />}
               label={t("usage.topModel")}
               value={data.topModel?.id ?? "—"}
               sub={data.topModel ? t("usage.shareOfTokens", { pct: Math.round(data.topModel.share * 100) }) : undefined}

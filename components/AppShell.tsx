@@ -3,6 +3,21 @@
 import { useState, useCallback, useRef, useEffect, useSyncExternalStore, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowLeft,
+  Bug,
+  CircleGauge,
+  FileText,
+  Folder,
+  Menu,
+  PanelLeft,
+  PanelRight,
+  Plus,
+  Settings,
+  ShieldAlert,
+  Terminal,
+  X,
+} from "lucide-react";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
@@ -23,6 +38,7 @@ import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metr
 import { TopBarChromeWidgets } from "./TopBarChromeWidgets";
 import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@/lib/app-update-store";
 import type { ProjectTrustStatus } from "@/lib/api-types";
+import { Icon } from "./Icon";
 
 /**
  * Lazy panels. None of these can be on screen at first paint — the right
@@ -1093,13 +1109,9 @@ export function AppShell() {
               aria-label={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
             >
               {sidebarOpen ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
-                </svg>
+                <Icon icon={PanelLeft} size={16} strokeWidth={2} />
               ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-                </svg>
+                <Icon icon={Menu} size={18} strokeWidth={2} />
               )}
             </button>
             <button
@@ -1113,10 +1125,7 @@ export function AppShell() {
               title={t("shell.settings")}
               aria-label={t("shell.settings")}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
+              <Icon icon={Settings} size={16} strokeWidth={2} />
             </button>
             {appUpdate && (
               <button
@@ -1162,12 +1171,12 @@ export function AppShell() {
                 aria-pressed={activeTopPanel === "system"}
                 style={activeTopPanel === "system" ? { boxShadow: "inset 0 -2px 0 0 var(--accent)" } : undefined}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemPrompt ? "var(--text)" : "var(--text-dim)", flexShrink: 0 }}>
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="8" y1="13" x2="16" y2="13" />
-                  <line x1="8" y1="17" x2="13" y2="17" />
-                </svg>
+                <Icon
+                  icon={FileText}
+                  size={12}
+                  strokeWidth={2}
+                  style={{ color: systemPrompt ? "var(--text)" : "var(--text-dim)", flexShrink: 0 }}
+                />
                 {!isMobile && <span>{t("shell.system")}</span>}
               </button>
             </div>
@@ -1185,9 +1194,7 @@ export function AppShell() {
               aria-label={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
               style={{ flexShrink: 0 }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-              </svg>
+              <Icon icon={PanelRight} size={16} strokeWidth={1.8} />
             </button>
           </div>
           {/* Custom Windows/Linux caption buttons — only when this bar is rightmost. */}
@@ -1263,11 +1270,7 @@ export function AppShell() {
                 flexShrink: 0,
               }}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-                <path d="M12 8v4" />
-                <path d="M12 16h.01" />
-              </svg>
+              <Icon icon={ShieldAlert} size={13} strokeWidth={1.8} />
               <span style={{ fontSize: 12 }}>{t("trust.resourcesNotLoaded")}</span>
               <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)" }}>{t("trust.trustProject")}</span>
             </button>
@@ -1315,9 +1318,12 @@ export function AppShell() {
               </div>
             ) : (
               <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "flex-start", gap: 8, userSelect: "none", pointerEvents: "none" }}>
-                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7, flexShrink: 0 }}>
-                  <line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" />
-                </svg>
+                <Icon
+                  icon={ArrowLeft}
+                  size={44}
+                  strokeWidth={1.5}
+                  style={{ color: "var(--accent)", opacity: 0.7, flexShrink: 0 }}
+                />
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{t("shell.getStarted")}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
@@ -1413,25 +1419,15 @@ export function AppShell() {
                   aria-pressed={active}
                 >
                   {tab.kind === "review" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-                    </svg>
+                    <Icon icon={FileText} size={12} strokeWidth={1.8} />
                   ) : tab.kind === "files" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    </svg>
+                    <Icon icon={Folder} size={12} strokeWidth={1.8} />
                   ) : tab.kind === "context" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M3 20V10a9 9 0 0 1 18 0v10" /><line x1="3" y1="20" x2="21" y2="20" />
-                    </svg>
+                    <Icon icon={CircleGauge} size={12} strokeWidth={1.8} />
                   ) : tab.kind === "debug" ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="m8 2 1.88 1.88" /><path d="M14.12 3.88 16 2" /><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" /><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" /><path d="M12 20v-9" /><path d="M6.53 9C4.6 11.3 3 14.5 3 18" /><path d="M20.97 9C19.1 11.3 17.5 14.5 17.5 18" />
-                    </svg>
+                    <Icon icon={Bug} size={12} strokeWidth={1.8} />
                   ) : (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
-                    </svg>
+                    <Icon icon={Terminal} size={12} strokeWidth={1.8} />
                   )}
                   <span className="right-workspace-tab-label">{label}</span>
                   {tab.kind === "context" && <ContextTabBadge />}
@@ -1590,9 +1586,7 @@ export function AppShell() {
                     }}
                   >
                     <span className="file-subtab-icon" aria-hidden>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
-                      </svg>
+                      <Icon icon={Terminal} size={12} strokeWidth={1.8} />
                     </span>
                     <span className="file-subtab-label">{tab.label}</span>
                     <button
@@ -1605,9 +1599,7 @@ export function AppShell() {
                         closeTerminalSession(tab.id);
                       }}
                     >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-                        <line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" />
-                      </svg>
+                      <Icon icon={X} size={10} strokeWidth={1.8} />
                     </button>
                   </div>
                 );
@@ -1619,9 +1611,7 @@ export function AppShell() {
                 title={t("git.newTerminal")}
                 aria-label={t("git.newTerminal")}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
+                <Icon icon={Plus} size={12} strokeWidth={2} />
               </button>
             </div>
 

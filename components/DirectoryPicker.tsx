@@ -2,7 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { ChevronUp, Folder, X } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
+import { Icon } from "./Icon";
 
 interface DirectoryEntry {
   name: string;
@@ -22,14 +24,6 @@ async function loadDirectories(directory?: string): Promise<BrowseResponse> {
   const data = await response.json() as BrowseResponse;
   if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
   return data;
-}
-
-function FolderIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <path d="M1.5 3h4l1.5 2h7.5v7.5h-13z" />
-    </svg>
-  );
 }
 
 interface Props {
@@ -119,7 +113,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
             title={t("common.close")}
             aria-label={t("common.close")}
           >
-            ×
+            <Icon icon={X} size={14} strokeWidth={1.8} />
           </button>
         </div>
 
@@ -133,9 +127,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
             aria-label={t("picker.goParent")}
             style={{ "--icon-btn-size": "36px" } as CSSProperties}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m18 15-6-6-6 6" />
-            </svg>
+            <Icon icon={ChevronUp} size={16} strokeWidth={1.8} />
           </button>
           <label htmlFor="directory-path" style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>
             {t("picker.directoryPath")}
@@ -179,7 +171,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
                 className="modal-nav-item"
                 style={{ minHeight: 30, gap: 7, fontFamily: "var(--font-mono)", fontSize: 11 }}
               >
-                <FolderIcon />
+                <Icon icon={Folder} size={14} strokeWidth={1.3} style={{ flexShrink: 0 }} />
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
               </button>
             ))

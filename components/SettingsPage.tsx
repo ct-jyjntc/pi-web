@@ -20,6 +20,8 @@ import {
   type WebSettingsData,
 } from "@/lib/web-settings-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
+import { Icon } from "./Icon";
+import { ChevronLeft } from "lucide-react";
 
 export type SettingsSection =
   | "general"
@@ -1934,9 +1936,7 @@ export function SettingsPage({
               fontWeight: 600,
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
+            <Icon icon={ChevronLeft} size={14} />
             <span>{t("settings.backToWorkspace")}</span>
           </button>
         </div>
