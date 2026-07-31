@@ -128,6 +128,9 @@ hooks/
 ### ToolCall field normalization
 Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `useAgentSession.handleAgentEvent()` (streaming).
 
+### Chat scroll follow
+Scroll follow is owned by the `use-stick-to-bottom` package (same as Hermes desktop) — `useAgentSession` creates it with `{ initial: "instant", resize: "instant" }` and exposes `stickToBottom` (= `isAtBottom`), `resumeStickToBottom`, `bindScrollContainer`, `chatContentRef`. The library handles at-bottom detection (70px threshold), escape on upward scroll/wheel only, and automatic re-attach when scrolling back down — do not write `scrollTop` from app code except the pagination restore and the minimap, which are treated as user scrolls by design.
+
 ### New session tools
 Every session uses the full built-in tool set (`getFullToolNames()` → `toolNames[]` on `POST /api/agent/new` and `set_tools` on mount). When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
 

@@ -172,7 +172,8 @@
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "undici": "8.5.0"
+    "undici": "8.5.0",
+    "use-stick-to-bottom": "^1.1.6"
   },
   "optionalDependencies": {
     "lightningcss-darwin-arm64": "^1.33.0",

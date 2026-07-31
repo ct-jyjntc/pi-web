@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
+import { useStickToBottom } from "use-stick-to-bottom";
 import type {
   AgentMessage,
   ExtensionStatusItem,
@@ -170,8 +171,6 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
-const PROGRAMMATIC_SCROLL_IGNORE_MS = 250;
-const NEAR_BOTTOM_PX = 80;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 1_500;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -184,7 +183,6 @@ const EVENT_STREAM_RECONNECT_MAX_ATTEMPTS = 6;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
-const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Space", "Spacebar"]);
 
 type EventStreamConnectionStatus = "connected" | "timeout" | "closed";
 
@@ -468,15 +466,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const sseReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contextRequestIdRef = useRef(0);
   const mountedRef = useRef(true);
-  const initialScrollDoneRef = useRef(false);
-  const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
-  const pendingScrollToUserRef = useRef(false);
-  const stickToBottomRef = useRef(true);
-  const [stickToBottom, setStickToBottom] = useState(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
-  const ignoreProgrammaticScrollUntilRef = useRef(0);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  // Scroll follow is owned by use-stick-to-bottom (same approach as Hermes
+  // desktop): it handles at-bottom detection, escape on upward intent, and
+  // re-attach when scrolling back down. scrollContainerRef stays as our own
+  // handle for the minimap and the page-up pagination restore.
+  const {
+    scrollRef: stickScrollRef,
+    contentRef: chatContentRef,
+    isAtBottom: stickToBottom,
+    scrollToBottom: stickScrollToBottom,
+  } = useStickToBottom({ initial: "instant", resize: "instant" });
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const bindScrollContainer = useCallback(
+    (el: HTMLDivElement | null) => {
+      stickScrollRef(el);
+      scrollContainerRef.current = el;
+    },
+    [stickScrollRef],
+  );
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
   const newSessionPromotedRef = useRef(false);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
@@ -1330,11 +1338,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     dispatch({ type: "start" });
-    // Without the old full-viewport spacer, pin to the live tail so the
-    // growing model reply stays in view (user message stays just above it).
-    pendingScrollToUserRef.current = false;
-    stickToBottomRef.current = true;
-    setStickToBottom(true);
+    // Match Hermes desktop's runStart behavior: re-engage follow mode so the
+    // growing model reply stays pinned into view.
+    void stickScrollToBottom();
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     let sentSessionId: string | null = null;
@@ -1411,7 +1417,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, stickScrollToBottom, opts.chatInputRef]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1807,106 +1813,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  // ChatWindow swaps the scroll container in/out around the empty state, so scroll
-  // effects key off this boolean instead of messages.length: it flips once instead
-  // of on every appended message.
-  const hasMessages = messages.length > 0;
-
-  const isNearBottom = useCallback((container: HTMLElement, threshold = NEAR_BOTTOM_PX) => {
-    return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
-  }, []);
-
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    const container = scrollContainerRef.current;
-    if (!container) {
-      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-      messagesEndRef.current?.scrollIntoView({ behavior });
-      return;
-    }
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    const top = Math.max(0, container.scrollHeight - container.clientHeight);
-    if (behavior === "instant") {
-      container.scrollTop = top;
-    } else {
-      container.scrollTo({ top, behavior });
-    }
-  }, []);
-
   const resumeStickToBottom = useCallback(() => {
-    stickToBottomRef.current = true;
-    setStickToBottom(true);
-    scrollToBottom("smooth");
-  }, [scrollToBottom]);
-
-  // Pin the viewport to the tail, coalesced into one layout read/write per frame.
-  // Called from the growth ResizeObserver and from stream ticks: doing the work in
-  // rAF keeps the observer callback free of forced synchronous layout, and the
-  // no-op short circuit avoids a scroll event (and the minimap work behind it)
-  // when we are already at the bottom.
-  const pinFrameRef = useRef<number | null>(null);
-  const schedulePinToBottom = useCallback(() => {
-    if (!stickToBottomRef.current) return;
-    if (pinFrameRef.current !== null) return;
-    pinFrameRef.current = window.requestAnimationFrame(() => {
-      pinFrameRef.current = null;
-      if (!stickToBottomRef.current) return;
-      const container = scrollContainerRef.current;
-      if (!container) return;
-      const target = Math.max(0, container.scrollHeight - container.clientHeight);
-      // Keep suppressing position-based detach for the whole pin sequence, even
-      // on frames where the scroll position is already correct.
-      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-      if (Math.abs(target - container.scrollTop) < 2) return;
-      container.scrollTop = target;
-    });
-  }, []);
-
-  const cancelScheduledPin = useCallback(() => {
-    if (pinFrameRef.current === null) return;
-    window.cancelAnimationFrame(pinFrameRef.current);
-    pinFrameRef.current = null;
-  }, []);
-
-  const scrollUserMsgToTop = useCallback(() => {
-    const container = scrollContainerRef.current;
-    const el = lastUserMsgRef.current;
-    if (!container || !el) return;
-    const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    // Pin the latest user message near the top so the model reply grows into view.
-    // Keep stick-to-bottom on so subsequent stream growth follows the reply.
-    stickToBottomRef.current = true;
-    setStickToBottom(true);
-    container.scrollTo({ top: Math.max(0, elAbsTop - 16), behavior: "smooth" });
-  }, []);
-
-  const detachStickToBottom = useCallback(() => {
-    if (!stickToBottomRef.current) return;
-    stickToBottomRef.current = false;
-    setStickToBottom(false);
-  }, []);
-
-  const markUserScrollIntent = useCallback((event: Event) => {
-    if (event instanceof KeyboardEvent) {
-      if (!SCROLL_KEYS.has(event.key)) return;
-      if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable='true']")) return;
-    }
-    // Any intentional scroll (wheel/keys/touch) detaches. Only the FAB reattaches.
-    detachStickToBottom();
-  }, [detachStickToBottom]);
-
-  const handleScrollPositionChange = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
-
-    // Never auto-reattach when the user reaches the bottom. Follow mode is only
-    // restored via resumeStickToBottom (the jump-to-latest button).
-    if (!isNearBottom(container) && stickToBottomRef.current) {
-      stickToBottomRef.current = false;
-      setStickToBottom(false);
-    }
-  }, [isNearBottom]);
+    void stickScrollToBottom();
+  }, [stickScrollToBottom]);
 
   // Load session on mount
   useEffect(() => {
@@ -1971,92 +1880,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     onBranchDataChange(data?.tree ?? [], activeLeafId, handleLeafChange);
   }, [data?.tree, activeLeafId, handleLeafChange, onBranchDataChange]);
 
-  useEffect(() => {
-    window.addEventListener("keydown", markUserScrollIntent);
-    return () => {
-      window.removeEventListener("keydown", markUserScrollIntent);
-    };
-  }, [markUserScrollIntent]);
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const onWheel = (event: WheelEvent) => {
-      // Any intentional wheel movement detaches follow mode.
-      if (event.deltaY !== 0 || event.deltaX !== 0) detachStickToBottom();
-    };
-    const onTouchMove = () => {
-      detachStickToBottom();
-    };
-
-    container.addEventListener("wheel", onWheel, { passive: true });
-    container.addEventListener("touchmove", onTouchMove, { passive: true });
-    container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
-    return () => {
-      container.removeEventListener("wheel", onWheel);
-      container.removeEventListener("touchmove", onTouchMove);
-      container.removeEventListener("scroll", handleScrollPositionChange);
-    };
-    // Same "container may have just mounted" trigger as the pin effect: only the
-    // empty/non-empty transition can swap the scroll container in or out, so the
-    // listeners no longer get torn down and re-added for every new message.
-  }, [hasMessages, loading, handleScrollPositionChange, detachStickToBottom]);
-
-  // Initial / send-time scroll placement.
-  useEffect(() => {
-    if (messages.length === 0) return;
-    if (pendingScrollToUserRef.current) {
-      pendingScrollToUserRef.current = false;
-      initialScrollDoneRef.current = true;
-      scrollUserMsgToTop();
-      return;
-    }
-    if (!initialScrollDoneRef.current) {
-      initialScrollDoneRef.current = true;
-      stickToBottomRef.current = true;
-      setStickToBottom(true);
-      scrollToBottom("instant");
-    }
-  }, [messages.length, scrollToBottom, scrollUserMsgToTop]);
-
-  // While stick-to-bottom is active, keep the viewport pinned as content grows
-  // (streaming text, tool results, phase labels). The ResizeObserver on the
-  // message column is the single trigger: it fires for every height change, so
-  // this effect only needs to be rebuilt when the container itself (re)mounts —
-  // not on every new message.
-  useEffect(() => {
-    if (!stickToBottom) return;
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    schedulePinToBottom();
-    const ro = typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(schedulePinToBottom)
-      : null;
-    ro?.observe(container);
-    // Observe the message column (first child) which is what grows during stream.
-    const content = container.firstElementChild;
-    if (content) ro?.observe(content);
-
-    return () => {
-      ro?.disconnect();
-      cancelScheduledPin();
-    };
-    // hasMessages / loading / running flags stand in for "the scroll container
-    // may have just mounted" (ChatWindow renders a loading or empty-state view
-    // instead of it); a ref assignment alone cannot re-trigger this effect.
-  }, [stickToBottom, hasMessages, loading, agentRunning, bashRunning, schedulePinToBottom, cancelScheduledPin]);
-
-  // Streaming token updates can land without a measurable size change in some
-  // browsers, so re-request a pin on every stream tick. schedulePinToBottom
-  // dedupes against the ResizeObserver's request for the same frame, so this
-  // costs nothing when the observer already handled the growth.
-  useEffect(() => {
-    if (!streamState.isStreaming && !agentRunning) return;
-    schedulePinToBottom();
-  }, [streamState.streamingMessage, streamState.isStreaming, agentRunning, schedulePinToBottom]);
-
   // Load model list
   useEffect(() => {
     const controller = new AbortController();
@@ -2107,10 +1930,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentPhase,
     isNew,
     // Refs
-    sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
-    lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
-    // Scroll follow
-    stickToBottom, resumeStickToBottom,
+    sessionIdRef, eventSourceRef, scrollContainerRef,
+    // Scroll follow (use-stick-to-bottom)
+    stickToBottom, resumeStickToBottom, bindScrollContainer, chatContentRef,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,

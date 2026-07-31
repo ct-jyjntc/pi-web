@@ -415,9 +415,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isAutoModelSelection,
     agentPhase,
     isNew,
-    sessionIdRef, messagesEndRef, scrollContainerRef,
-    lastUserMsgRef,
-    stickToBottom, resumeStickToBottom,
+    sessionIdRef, scrollContainerRef,
+    stickToBottom, resumeStickToBottom, bindScrollContainer, chatContentRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
@@ -675,9 +674,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     // not messages and not turns — but applied before elements exist.
     const { startIndex, hasMore } = getVisibleRenderWindow(plan.length, visibleCount);
 
-    const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
+    const attachVisibleRef = (refIndex: number) => (el: HTMLDivElement | null) => {
       messageRefs.current[refIndex] = el;
-      if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
     };
 
     const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
@@ -724,7 +722,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       );
       if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
       return (
-        <div key={`${keyPrefix}-${idx}`} className="chat-message-item" ref={attachVisibleRef(idx, currentRefIdx)}>
+        <div key={`${keyPrefix}-${idx}`} className="chat-message-item" ref={attachVisibleRef(currentRefIdx)}>
           {view}
         </div>
       );
@@ -794,7 +792,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     streamState.isStreaming,
     visibleCount,
     messageRefs,
-    lastUserMsgRef,
   ]);
 
   const onDrop = useCallback((files: File[]) => {
@@ -1081,7 +1078,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         {/* Outer clips native scrollbar; inner scrolls under the floating composer. */}
         <div className="chat-scroll-clip h-full min-w-0 overflow-hidden" style={{ position: "relative", zIndex: 0 }}>
         <div
-          ref={scrollContainerRef}
+          ref={bindScrollContainer}
           className="chat-scroll-area h-full overflow-y-auto pt-4"
           style={{
             // Push native scrollbar into the clipped gutter (WebKit/Electron fallback)
@@ -1093,7 +1090,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             zIndex: 0,
           } as CSSProperties}
         >
-          <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px`, paddingBottom: composerDockH + 12 }}>
+          <div ref={chatContentRef} style={{ padding: `0 ${CHAT_COLUMN_PADDING}px`, paddingBottom: composerDockH + 12 }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
@@ -1127,9 +1124,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 sessionId={session?.id ?? sessionIdRef.current ?? undefined}
               />
             )}
-
-            {/* Anchor for stick-to-bottom; real clearance comes from paddingBottom. */}
-            <div ref={messagesEndRef} style={{ height: 1 }} />
             </div>
           </div>
         </div>
