@@ -47,9 +47,6 @@ export function applyAppearanceToDocument(prefs: AppearanceSnapshot = snapshot):
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   root.style.setProperty("--ui-font-size", `${prefs.uiFontSize}px`);
-  root.style.setProperty("--code-font-size", `${prefs.codeFontSize}px`);
-  root.dataset.codeLineNumbers = prefs.showCodeLineNumbers ? "1" : "0";
-  root.dataset.codeWrap = prefs.wrapCodeLines ? "1" : "0";
 }
 
 function subscribe(cb: () => void): () => void {

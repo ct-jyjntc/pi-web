@@ -392,6 +392,11 @@ const CodeBlock = memo(function CodeBlock({
     isDark,
   );
 
+  // Highlight budget (mirrors hermes desktop): past a hard size cap refractor
+  // tokenization costs more than the colors are worth — render as plain text,
+  // which keeps the identical <pre>/<code> tree (same trick as `plain`).
+  const overBudget = code.length > 150_000 || code.split("\n").length > 3000;
+
   const copy = () => {
     copyText(code).then(() => {
       setCopied(true);
@@ -418,7 +423,7 @@ const CodeBlock = memo(function CodeBlock({
         // skips the refractor pass but keeps the exact same <pre>/<code>/line
         // number tree and styles, so closing the fence only paints token colors
         // in — no font, padding, gutter or line-height shift.
-        language={plain ? "text" : (lang || "text")}
+        language={plain || overBudget ? "text" : (lang || "text")}
         style={themeStyle}
         showLineNumbers={appearance.showCodeLineNumbers}
         wrapLongLines={appearance.wrapCodeLines}

@@ -69,14 +69,10 @@ const TerminalPanel = dynamic(() => import("./TerminalPanel").then((m) => m.Term
 
 const SettingsPage = dynamic(() => import("./SettingsPage").then((m) => m.SettingsPage), {
   ssr: false,
-  // Settings is a fixed full-screen overlay; match its box so the shell below
-  // never reflows while the chunk loads.
-  loading: () => (
-    <div
-      style={{ position: "fixed", inset: 0, zIndex: 1200, background: "var(--bg)" }}
-      aria-hidden
-    />
-  ),
+  // Blank fallback: AppShell warm-mounts SettingsPage hidden on idle, so a
+  // visible white/blank overlay while the chunk loads would be wrong — with a
+  // cold chunk the page simply appears a beat late instead of flashing.
+  loading: () => null,
 });
 
 /**
@@ -110,6 +106,9 @@ export function AppShell() {
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Once true, SettingsPage stays mounted (hidden when closed) so reopening is
+  // instant and its state survives. Flipped on first open, hover, or idle.
+  const [settingsWarm, setSettingsWarm] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const appUpdate = useSyncExternalStore(subscribeAppUpdate, getAppUpdateInfo, () => null);
 
@@ -129,6 +128,18 @@ export function AppShell() {
   }, []);
   useEffect(() => {
     hydrateAppearanceFromServer();
+  }, []);
+  // Warm-mount the lazily-loaded SettingsPage (hidden) once the shell is idle:
+  // the chunk loads AND the component mounts + fetches its data in the
+  // background, so the first visible open is instant — no blank flash while
+  // the chunk compiles/loads.
+  useEffect(() => {
+    if (typeof requestIdleCallback === "function") {
+      const idleId = requestIdleCallback(() => setSettingsWarm(true), { timeout: 5000 });
+      return () => cancelIdleCallback(idleId);
+    }
+    const timer = window.setTimeout(() => setSettingsWarm(true), 3000);
+    return () => window.clearTimeout(timer);
   }, []);
   // Electron immersive chrome: mark html so CSS can pad under traffic lights / enable drag.
   useEffect(() => {
@@ -1132,7 +1143,11 @@ export function AppShell() {
             <button
               type="button"
               className="chrome-btn is-icon"
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => {
+                setSettingsWarm(true);
+                setSettingsOpen(true);
+              }}
+              onPointerEnter={() => setSettingsWarm(true)}
               title={t("shell.settings")}
               aria-label={t("shell.settings")}
             >
@@ -1749,8 +1764,9 @@ export function AppShell() {
         </div>
       </div>
     </div>
-    {settingsOpen && (
+    {settingsWarm && (
       <SettingsPage
+        visible={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd}
         skillsDisabled={!activeCwd && !selectedSession?.cwd && !newSessionCwd}

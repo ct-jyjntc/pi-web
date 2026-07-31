@@ -1,4 +1,10 @@
-import type { AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent } from "./types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent } from "./types";
+import { MEMORY_CONTEXT_CUSTOM_TYPE } from "./types";
+
+/** Hidden per-prompt memory recall messages never render in the transcript. */
+export function isMemoryContextMessage(message: AgentMessage): boolean {
+  return message.role === "custom" && message.customType === MEMORY_CONTEXT_CUSTOM_TYPE;
+}
 
 interface DisplayOptions {
   isStreaming?: boolean;

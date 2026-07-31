@@ -59,6 +59,7 @@ app/api/
   models/route.ts                 GET { models, modelList, defaultModel }
   models-config/route.ts          GET/PUT — read/write ~/.pi/agent/models.json
   models-config/test/route.ts     POST test a configured model/provider
+  memory-review/route.ts          POST { cwd, sessionId } — background memory review
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
   skills/search/route.ts          GET/POST skills.sh search
@@ -70,6 +71,7 @@ lib/
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
   markdown.ts          shared markdown helpers
+  memory-review.ts     every-10th-turn utility-model transcript review → retainMemoryFact
   npx.ts               npx runner used by skill install
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
@@ -129,7 +131,9 @@ hooks/
 Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `useAgentSession.handleAgentEvent()` (streaming).
 
 ### Chat scroll follow
-Scroll follow is owned by the `use-stick-to-bottom` package (same as Hermes desktop) — `useAgentSession` creates it with `{ initial: "instant", resize: "instant" }` and exposes `stickToBottom` (= `isAtBottom`), `resumeStickToBottom`, `bindScrollContainer`, `chatContentRef`. The library handles at-bottom detection (70px threshold), escape on upward scroll/wheel only, and automatic re-attach when scrolling back down — do not write `scrollTop` from app code except the pagination restore and the minimap, which are treated as user scrolls by design.
+Scroll follow is owned by the `use-stick-to-bottom` package (same as Hermes desktop) — `useAgentSession` creates it with `{ initial: "instant", resize: "instant" }` and exposes `stickToBottom` (= `isAtBottom`), `resumeStickToBottom`, `bindScrollContainer`, `chatContentRef`, `stopScroll`, `stickScrollToBottom`. The library handles at-bottom detection (70px threshold), escape on upward scroll/wheel only, and automatic re-attach when scrolling back down — do not write `scrollTop` from app code except the settle loop, the pagination restore, and the minimap, which are treated as user scrolls by design.
+
+Cold-load performance (ChatWindow): first paint mounts `FIRST_PAINT_RENDER_ITEMS` (20) render items, then backfills to `VISIBLE_PAGE_SIZE` on the next rAF inside `startTransition`; a settle loop (`stopScroll()` + glue `scrollTop = scrollHeight` every rAF until height is stable 2 frames, 15-frame cap, then `scrollToBottom("instant")`) parks the transcript at the true bottom on the empty→non-empty flip, aborting if the user scrolls up mid-settle. `.chat-message-item` rows use `content-visibility: auto`, but the last `LIVE_TAIL_RENDER_ITEMS` (6) render items get `is-live` and are never virtualized — a still-growing row would be remembered at a stale height and drift the scroll lock.
 
 ### New session tools
 Every session uses the full built-in tool set (`getFullToolNames()` → `toolNames[]` on `POST /api/agent/new` and `set_tools` on mount). When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
@@ -143,7 +147,8 @@ Every session uses the full built-in tool set (`getFullToolNames()` → `toolNam
 - **Edit (hashline-first)**: `createPiWebEditToolDefinition` prefers omp-style `{ input: "[path#TAG]\nSWAP…" }` (`lib/hashline-edit.ts`); classic `{ path, edits }` still works (strict then SDK fuzzy). Failures get kind/excerpt recovery (`lib/edit-failure.ts`).
 - **LSP health**: catalog + PATH discovery in `lib/lsp-health.ts`; `GET /api/lsp?cwd=`; Settings → Tools; agent tools `lsp` / `lsp_servers` include install hints. TS/JS keeps built-in service fallback.
 - **GitHub thin layer**: `lib/github.ts` + agent tool `github` (gh CLI, read-only). Virtual paths `pr://N`, `pr://N/diff`, `issue://N` work via `read` and `github({ action:"read" })`. API: `GET/POST /api/github`.
-- **Project memory**: facts in `~/.pi/agent/project-memory/<key>/facts.jsonl`; tools `memory_retain` / `memory_recall` / `memory_reflect` (heuristic + optional utility-model synthesis); auto-inject via `appendSystemPromptOverride` in `startRpcSession`. API: `POST /api/project-memory` with `{ action: "reflect" }`.
+- **Project memory**: dual-scope fact stores — project facts in `~/.pi/agent/project-memory/<key>/facts.jsonl`, user facts (who the user is) in `~/.pi/agent/user-memory/facts.jsonl`. Each scope has a hard char budget (`projectBudgetChars` 4000 / `userBudgetChars` 2000; usage = Σ text.length + 20/fact); overflow rejects with current entries + a consolidate instruction. `memory_retain` takes `target` + an atomic `operations[]` batch (add/replace/remove by unique substring, all-or-nothing); `memory_recall` searches both scopes; `memory_reflect` (project-only) is heuristic + optional utility-model synthesis. Both scopes auto-inject via `appendSystemPromptOverride` in `startRpcSession`. Per-prompt, `send("prompt")` also recalls facts relevant to the outgoing message (`buildQueryMemoryContext` in `lib/memory-context.ts`, ≤800 chars, deduped per wrapper) and delivers them as a hidden `memory-context` custom message (`sendCustomMessage(..., { deliverAs: "nextTurn" })`) — the model sees them via `convertToLlm`; `isMemoryContextMessage` (`lib/message-display.ts`) keeps them out of the transcript (ChatWindow plan, MessageView). API: `POST /api/project-memory` with `{ action: "reflect" }`.
+- **Background memory review** (`lib/memory-review.ts` + `POST /api/memory-review`): ChatWindow fires it fire-and-forget after every agent-end; a per-session counter (`globalThis.__piMemoryReviewTurnCounts`, resets on restart) runs the actual review only every 10th user turn. One utility-model JSON completion (smol → plan → default role chain) over the last ~10 transcript snippets (~6KB); validated facts are written via `retainMemoryFact` (secret guard / dedupe / budget are the safety net). Saved facts surface as a subtle info notice.
 
 ### SSE reconnect on page refresh mid-stream
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.

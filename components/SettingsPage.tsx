@@ -113,12 +113,17 @@ export function SettingsPage({
   skillsDisabled = false,
   initialSection = "general",
   onModelsChanged,
+  visible = true,
 }: {
   onClose: () => void;
   cwd?: string | null;
   skillsDisabled?: boolean;
   initialSection?: SettingsSection;
   onModelsChanged?: () => void;
+  /** AppShell keeps the page warm-mounted after first use / idle warmup and
+   * toggles this instead of unmounting, so reopening is instant and state
+   * (section, models, prefs) survives. */
+  visible?: boolean;
 }) {
   const { t, locale, setLocale } = useLocale();
   const { isDark, setThemeMode, themeMode } = useTheme();
@@ -134,12 +139,17 @@ export function SettingsPage({
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+  // Body scroll is locked only while the overlay is actually visible — the page
+  // may be warm-mounted hidden so a reopen is instant.
+  useEffect(() => {
+    if (!visible) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, []);
+  }, [visible]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [titleModelRef, setTitleModelRef] = useState("");
   const [commitModelRef, setCommitModelRef] = useState("");
@@ -198,6 +208,7 @@ export function SettingsPage({
   const isDesktop = typeof window !== "undefined" && Boolean(window.piDesktop?.isDesktop);
 
   useEffect(() => {
+    if (!visible) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -206,7 +217,7 @@ export function SettingsPage({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, visible]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1088,7 +1099,12 @@ export function SettingsPage({
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ cwd, id: f.id }),
                       })
-                        .then(() => setMemoryFacts((prev) => prev.filter((x) => x.id !== f.id)))
+                        .then(async (res) => {
+                          const data = await res.json() as { error?: string };
+                          if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                          setMemoryFacts((prev) => prev.filter((x) => x.id !== f.id));
+                        })
+                        .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
                         .finally(() => setMemoryBusy(false));
                     }}
                     style={{ flexShrink: 0 }}
@@ -1314,6 +1330,9 @@ export function SettingsPage({
                 <option key={ref} value={ref}>{m.name} · {m.provider}</option>
               );
             })}
+            {advisorModelRef && !models.some((m) => modelValue(m.provider, m.modelId) === advisorModelRef) && (
+              <option value={advisorModelRef}>{advisorModelRef} ({t("settings.modelUnavailable")})</option>
+            )}
           </select>
         }
       />
@@ -1336,28 +1355,30 @@ export function SettingsPage({
               />
             }
           />
-          <SettingsRow
-            title={t("settings.autoCheckUpdates")}
-            description={t("settings.autoCheckUpdatesDesc")}
-            action={
-              <SettingsToggle
-                enabled={prefs.autoCheckUpdates}
-                onChange={(next) => void patchPref({ autoCheckUpdates: next })}
-              />
-            }
-          />
-          <SettingsRow
-            title={t("settings.autoDownloadUpdates")}
-            description={t("settings.autoDownloadUpdatesDesc")}
-            action={
-              <SettingsToggle
-                enabled={prefs.autoDownloadUpdates}
-                onChange={(next) => void patchPref({ autoDownloadUpdates: next })}
-              />
-            }
-          />
         </>
       )}
+
+      {sectionTitle(t("settings.updatesSection"))}
+      <SettingsRow
+        title={t("settings.autoCheckUpdates")}
+        description={t("settings.autoCheckUpdatesDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.autoCheckUpdates}
+            onChange={(next) => void patchPref({ autoCheckUpdates: next })}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.autoDownloadUpdates")}
+        description={t("settings.autoDownloadUpdatesDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.autoDownloadUpdates}
+            onChange={(next) => void patchPref({ autoDownloadUpdates: next })}
+          />
+        }
+      />
 
       {restartHint && (
         <div
@@ -1695,7 +1716,9 @@ export function SettingsPage({
     position: "fixed",
     inset: 0,
     zIndex: 1200,
-    display: "flex",
+    // Warm-mounted hidden after first use / idle warmup: stays in the React
+    // tree (state + fetched data survive) but paints nothing.
+    display: visible ? "flex" : "none",
     flexDirection: "column",
     background: "var(--bg)",
     color: "var(--text)",

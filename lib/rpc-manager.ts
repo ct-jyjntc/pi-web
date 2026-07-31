@@ -13,6 +13,7 @@ import {
 } from "./agent-extra-tools";
 import { createProjectMemoryTools } from "./agent-memory-tools";
 import { buildMemoryInjectBlock } from "./project-memory";
+import { buildQueryMemoryContext } from "./memory-context";
 import { createConfiguredModelRuntime } from "./model-runtime";
 import { readWebSettings } from "./web-settings";
 import { resolveContextUsageForUi } from "./context-usage";
@@ -27,7 +28,7 @@ import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike } from "./pi-types";
-import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
+import { MEMORY_CONTEXT_CUSTOM_TYPE, type ExtensionUiRequest, type ExtensionUiResponse, type ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
 import { ensureBuiltinPackages } from "./ensure-builtin-packages";
@@ -177,6 +178,8 @@ export class AgentSessionWrapper {
     placement: "aboveEditor" | "belowEditor";
   }>();
   private promptRunning = false;
+  /** Last per-prompt memory recall block queued for this session (dedupe guard). */
+  private lastMemoryContextBlock: string | null = null;
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
@@ -418,6 +421,25 @@ export class AgentSessionWrapper {
         // Fire and forget — events come via subscribe
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+        // Hermes-style query-aware recall: facts relevant to THIS message go to
+        // the model as a hidden nextTurn custom message — the LLM sees them via
+        // convertToLlm, but they never render in the transcript. Skipped when
+        // tools (and thus memory) are fully disabled for the session.
+        if (!this.forceEmptySystemPrompt && typeof command.message === "string") {
+          try {
+            const memoryContext = buildQueryMemoryContext(this.cwd, command.message);
+            if (memoryContext && memoryContext !== this.lastMemoryContextBlock) {
+              this.lastMemoryContextBlock = memoryContext;
+              await this.inner.sendCustomMessage(
+                { customType: MEMORY_CONTEXT_CUSTOM_TYPE, content: memoryContext, display: false },
+                { deliverAs: "nextTurn" },
+              );
+            }
+          } catch (error) {
+            // Memory recall must never block a prompt.
+            console.error("[pi-web] memory context injection failed:", error instanceof Error ? error.message : error);
+          }
+        }
         this.promptRunning = true;
         notifyRunningChange();
         this.inner.prompt(command.message as string, {

@@ -132,7 +132,6 @@ html, body {
 
 :root {
   --ui-font-size: 14px;
-  --code-font-size: 12.5px;
 }
 
 /* Electron immersive titlebar
@@ -356,7 +355,10 @@ body {
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
 }
-.chat-message-item.is-streaming {
+/* Never virtualize rows that can still grow (streaming bubble, live tail):
+   a stale remembered height would drift the stick-to-bottom scroll lock. */
+.chat-message-item.is-streaming,
+.chat-message-item.is-live {
   content-visibility: visible;
   contain-intrinsic-size: auto;
 }
@@ -1035,6 +1037,25 @@ span.linenumber {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* Tool run group: live ticker slide-in + pulsing active verb */
+@keyframes tool-run-tick {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tool-run-tick {
+  display: inline-block;
+  animation: tool-run-tick 0.18s ease-out;
+}
+.tool-run-live {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-run-tick,
+  .tool-run-live {
+    animation: none;
+  }
 }
 
 @keyframes notice-shelf-in {

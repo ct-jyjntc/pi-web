@@ -50,6 +50,10 @@ export type ProjectMemorySettings = {
   autoInjectTopK: number;
   maxFactChars: number;
   maxInjectChars: number;
+  /** Hard char budget for the project-scope store (see memoryStoreUsage). */
+  projectBudgetChars: number;
+  /** Hard char budget for the user-scope store. */
+  userBudgetChars: number;
 };
 
 export const DEFAULT_PROJECT_MEMORY: ProjectMemorySettings = {
@@ -57,6 +61,8 @@ export const DEFAULT_PROJECT_MEMORY: ProjectMemorySettings = {
   autoInjectTopK: 12,
   maxFactChars: 400,
   maxInjectChars: 3000,
+  projectBudgetChars: 4000,
+  userBudgetChars: 2000,
 };
 
 export function parseProjectMemorySettings(value: unknown): ProjectMemorySettings {
@@ -74,6 +80,8 @@ export function parseProjectMemorySettings(value: unknown): ProjectMemorySetting
     autoInjectTopK: clamp(rec.autoInjectTopK, DEFAULT_PROJECT_MEMORY.autoInjectTopK, 0, 50),
     maxFactChars: clamp(rec.maxFactChars, DEFAULT_PROJECT_MEMORY.maxFactChars, 80, 2000),
     maxInjectChars: clamp(rec.maxInjectChars, DEFAULT_PROJECT_MEMORY.maxInjectChars, 200, 12000),
+    projectBudgetChars: clamp(rec.projectBudgetChars, DEFAULT_PROJECT_MEMORY.projectBudgetChars, 500, 20000),
+    userBudgetChars: clamp(rec.userBudgetChars, DEFAULT_PROJECT_MEMORY.userBudgetChars, 500, 20000),
   };
 }
 
@@ -86,8 +94,39 @@ export function projectMemoryDir(cwd: string): string {
   return join(getAgentDir(), "project-memory", projectMemoryKey(cwd));
 }
 
-function factsPath(cwd: string): string {
-  return join(projectMemoryDir(cwd), "facts.jsonl");
+/** Memory store scope: per-project facts vs. cross-project facts about the user. */
+export type MemoryScope = "project" | "user";
+
+export function userMemoryDir(): string {
+  return join(getAgentDir(), "user-memory");
+}
+
+function factsPath(cwd: string, scope: MemoryScope = "project"): string {
+  return scope === "user"
+    ? join(userMemoryDir(), "facts.jsonl")
+    : join(projectMemoryDir(cwd), "facts.jsonl");
+}
+
+/**
+ * Per-fact overhead charged against the scope budget — approximates the JSONL
+ * envelope (id, timestamps, tags) that accompanies each fact's text.
+ */
+const FACT_OVERHEAD_CHARS = 20;
+
+/** Hard cap on fact count per scope; the char budget is the primary guard. */
+const MAX_FACTS_PER_SCOPE = 200;
+
+/**
+ * Store budget usage = Σ (fact.text.length + FACT_OVERHEAD_CHARS) over all
+ * facts in the scope. A write is rejected when the FINAL state would exceed
+ * the scope's budgetChars.
+ */
+export function memoryStoreUsage(facts: MemoryFact[]): number {
+  return facts.reduce((sum, f) => sum + f.text.length + FACT_OVERHEAD_CHARS, 0);
+}
+
+export function memoryBudgetChars(settings: ProjectMemorySettings, scope: MemoryScope): number {
+  return scope === "user" ? settings.userBudgetChars : settings.projectBudgetChars;
 }
 
 function newId(): string {
@@ -112,8 +151,8 @@ function parseFactLine(line: string): MemoryFact | null {
   }
 }
 
-export function listMemoryFacts(cwd: string): MemoryFact[] {
-  const path = factsPath(cwd);
+export function listMemoryFacts(cwd: string, scope: MemoryScope = "project"): MemoryFact[] {
+  const path = factsPath(cwd, scope);
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
   const facts: MemoryFact[] = [];
@@ -128,8 +167,8 @@ export function listMemoryFacts(cwd: string): MemoryFact[] {
   });
 }
 
-function writeAllFacts(cwd: string, facts: MemoryFact[]): void {
-  const path = factsPath(cwd);
+function writeAllFacts(cwd: string, facts: MemoryFact[], scope: MemoryScope = "project"): void {
+  const path = factsPath(cwd, scope);
   mkdirSync(dirname(path), { recursive: true });
   const body = facts.map((f) => JSON.stringify(f)).join("\n") + (facts.length ? "\n" : "");
   const tmp = `${path}.${process.pid}.tmp`;
@@ -137,22 +176,76 @@ function writeAllFacts(cwd: string, facts: MemoryFact[]): void {
   renameSync(tmp, path);
 }
 
+function cleanFactText(text: string, maxFactChars: number): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, maxFactChars);
+}
+
+// Soft secret guard
+function assertNoSecrets(text: string): void {
+  if (/(api[_-]?key|secret|password|token)\s*[:=]/i.test(text) || /sk-[a-zA-Z0-9]{10,}/.test(text)) {
+    throw new Error("Refusing to store possible secrets in project memory");
+  }
+}
+
+/**
+ * Hermes-style consolidation instruction, quoted in every budget-overflow
+ * error so the model can self-correct in the same turn.
+ */
+const CONSOLIDATE_INSTRUCTION =
+  "Consolidate now: use 'replace' to merge overlapping entries or 'remove' to drop stale ones, " +
+  "then retry this add — all in this turn. Prefer a single memory_retain call with an " +
+  "operations array so removals and the new add land together.";
+
+/** Entries echo for error messages (id + text; truncated when the store is huge). */
+function formatEntriesForError(facts: MemoryFact[]): string {
+  const MAX_ENTRIES = 30;
+  const MAX_TEXT = 200;
+  const lines = facts
+    .slice(0, MAX_ENTRIES)
+    .map((f) => `- [${f.id}] ${f.text.length > MAX_TEXT ? `${f.text.slice(0, MAX_TEXT)}…` : f.text}`);
+  if (facts.length > MAX_ENTRIES) {
+    lines.push(`… and ${facts.length - MAX_ENTRIES} more`);
+  }
+  return lines.join("\n");
+}
+
+function budgetOverflowError(
+  scope: MemoryScope,
+  facts: MemoryFact[],
+  budget: number,
+  context: { addingChars?: number; opsCount?: number; wouldBeChars?: number },
+): Error {
+  const usage = memoryStoreUsage(facts);
+  const header = context.opsCount != null
+    ? `After applying all ${context.opsCount} operations, ${scope} memory would be at ` +
+      `${context.wouldBeChars}/${budget} chars — over the limit. Remove or shorten more ` +
+      "entries in the same batch, then retry."
+    : `${scope} memory at ${usage}/${budget} chars. Adding this entry ` +
+      `(${context.addingChars} chars) would exceed the limit.`;
+  return new Error(
+    `${header}\nCurrent entries:\n${formatEntriesForError(facts)}\n${CONSOLIDATE_INSTRUCTION}`,
+  );
+}
+
 export function retainMemoryFact(
   cwd: string,
   text: string,
-  options?: { tags?: string[]; importance?: number; source?: "tool" | "user"; settings?: ProjectMemorySettings },
+  options?: {
+    tags?: string[];
+    importance?: number;
+    source?: "tool" | "user";
+    settings?: ProjectMemorySettings;
+    scope?: MemoryScope;
+  },
 ): MemoryFact {
   const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
-  const cleaned = text.replace(/\s+/g, " ").trim().slice(0, settings.maxFactChars);
+  const scope = options?.scope ?? "project";
+  const cleaned = cleanFactText(text, settings.maxFactChars);
   if (!cleaned) throw new Error("Memory fact text is empty");
-
-  // Soft secret guard
-  if (/(api[_-]?key|secret|password|token)\s*[:=]/i.test(cleaned) || /sk-[a-zA-Z0-9]{10,}/.test(cleaned)) {
-    throw new Error("Refusing to store possible secrets in project memory");
-  }
+  assertNoSecrets(cleaned);
 
   const now = new Date().toISOString();
-  const facts = listMemoryFacts(cwd);
+  const facts = listMemoryFacts(cwd, scope);
   // Dedupe by exact text
   const existing = facts.find((f) => f.text === cleaned);
   if (existing) {
@@ -161,7 +254,7 @@ export function retainMemoryFact(
     if (options?.tags?.length) {
       existing.tags = Array.from(new Set([...existing.tags, ...options.tags]));
     }
-    writeAllFacts(cwd, facts);
+    writeAllFacts(cwd, facts, scope);
     return existing;
   }
 
@@ -174,17 +267,175 @@ export function retainMemoryFact(
     importance: options?.importance ?? 0.5,
     source: options?.source ?? "tool",
   };
+  const budget = memoryBudgetChars(settings, scope);
+  if (memoryStoreUsage([fact, ...facts]) > budget) {
+    throw budgetOverflowError(scope, facts, budget, {
+      addingChars: cleaned.length + FACT_OVERHEAD_CHARS,
+    });
+  }
   facts.unshift(fact);
-  // Cap store size
-  writeAllFacts(cwd, facts.slice(0, 200));
+  // Secondary count cap; the char budget above is the primary guard.
+  writeAllFacts(cwd, facts.slice(0, MAX_FACTS_PER_SCOPE), scope);
   return fact;
 }
 
-export function deleteMemoryFact(cwd: string, id: string): boolean {
-  const facts = listMemoryFacts(cwd);
+/**
+ * Find the unique fact whose text CONTAINS `oldText` (case-insensitive).
+ * Zero matches → error; multiple → error listing candidate ids + snippets.
+ */
+function findUniqueFact(facts: MemoryFact[], oldText: string, posPrefix?: string): MemoryFact {
+  const needle = oldText.toLowerCase();
+  const matches = facts.filter((f) => f.text.toLowerCase().includes(needle));
+  const pos = posPrefix ? `${posPrefix}: ` : "";
+  if (matches.length === 0) {
+    throw new Error(`${pos}no memory entry matches "${oldText}".`);
+  }
+  if (matches.length > 1) {
+    const candidates = matches
+      .map((f) => `- [${f.id}] ${f.text.length > 120 ? `${f.text.slice(0, 120)}…` : f.text}`)
+      .join("\n");
+    throw new Error(
+      `${pos}"${oldText}" matches ${matches.length} memory entries — be more specific. Candidates:\n${candidates}`,
+    );
+  }
+  return matches[0];
+}
+
+export function replaceMemoryFact(
+  cwd: string,
+  oldText: string,
+  newText: string,
+  options?: { scope?: MemoryScope; settings?: ProjectMemorySettings },
+): MemoryFact {
+  const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
+  const scope = options?.scope ?? "project";
+  const needle = oldText.trim();
+  if (!needle) throw new Error("oldText is required");
+  const cleaned = cleanFactText(newText, settings.maxFactChars);
+  if (!cleaned) throw new Error("Memory fact text is empty");
+  assertNoSecrets(cleaned);
+
+  const facts = listMemoryFacts(cwd, scope);
+  const target = findUniqueFact(facts, needle);
+  const replaced: MemoryFact = { ...target, text: cleaned, updatedAt: new Date().toISOString() };
+  const next = facts.map((f) => (f.id === target.id ? replaced : f));
+  const budget = memoryBudgetChars(settings, scope);
+  if (memoryStoreUsage(next) > budget) {
+    throw budgetOverflowError(scope, facts, budget, {
+      addingChars: cleaned.length - target.text.length,
+    });
+  }
+  writeAllFacts(cwd, next, scope);
+  return replaced;
+}
+
+export function removeMemoryFactByText(
+  cwd: string,
+  oldText: string,
+  options?: { scope?: MemoryScope },
+): MemoryFact {
+  const scope = options?.scope ?? "project";
+  const needle = oldText.trim();
+  if (!needle) throw new Error("oldText is required");
+  const facts = listMemoryFacts(cwd, scope);
+  const target = findUniqueFact(facts, needle);
+  writeAllFacts(cwd, facts.filter((f) => f.id !== target.id), scope);
+  return target;
+}
+
+export type MemoryOperation = {
+  action: "add" | "replace" | "remove";
+  /** Fact text for add/replace. */
+  text?: string;
+  /** Unique substring of the entry to replace/remove. */
+  oldText?: string;
+};
+
+/**
+ * Apply a batch of add/replace/remove ops atomically (Hermes-style):
+ * validate every op first, apply against an in-memory copy, check the budget
+ * on the FINAL state only. On any failure NOTHING is written.
+ */
+export function applyMemoryOperations(
+  cwd: string,
+  ops: MemoryOperation[],
+  options?: { scope?: MemoryScope; settings?: ProjectMemorySettings },
+): { facts: MemoryFact[]; changed: number } {
+  if (!Array.isArray(ops) || ops.length === 0) {
+    throw new Error("operations list is empty.");
+  }
+  const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
+  const scope = options?.scope ?? "project";
+
+  // Validate all ops before touching disk.
+  ops.forEach((op, i) => {
+    const pos = `Operation ${i + 1} (${op?.action ?? "unknown"})`;
+    if (!op || (op.action !== "add" && op.action !== "replace" && op.action !== "remove")) {
+      throw new Error(`${pos}: unknown action. Use add, replace, or remove.`);
+    }
+    if (op.action === "add" && !(op.text ?? "").trim()) {
+      throw new Error(`${pos}: text is required.`);
+    }
+    if (op.action === "replace" && !(op.text ?? "").trim()) {
+      throw new Error(`${pos}: text is required (use action='remove' to delete).`);
+    }
+    if ((op.action === "replace" || op.action === "remove") && !(op.oldText ?? "").trim()) {
+      throw new Error(`${pos}: oldText is required.`);
+    }
+  });
+
+  // Work on a copy; commit only if the whole batch applies and fits the budget.
+  const current = listMemoryFacts(cwd, scope);
+  const working = current.map((f) => ({ ...f, tags: [...f.tags] }));
+  let changed = 0;
+
+  ops.forEach((op, i) => {
+    const pos = `Operation ${i + 1} (${op.action})`;
+    if (op.action === "add") {
+      const cleaned = cleanFactText(op.text ?? "", settings.maxFactChars);
+      assertNoSecrets(cleaned);
+      if (working.some((f) => f.text === cleaned)) return; // idempotent skip
+      const now = new Date().toISOString();
+      working.unshift({
+        id: newId(),
+        text: cleaned,
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+        importance: 0.5,
+        source: "tool",
+      });
+      changed++;
+    } else if (op.action === "replace") {
+      const cleaned = cleanFactText(op.text ?? "", settings.maxFactChars);
+      assertNoSecrets(cleaned);
+      const target = findUniqueFact(working, (op.oldText ?? "").trim(), pos);
+      target.text = cleaned;
+      target.updatedAt = new Date().toISOString();
+      changed++;
+    } else {
+      const target = findUniqueFact(working, (op.oldText ?? "").trim(), pos);
+      working.splice(working.indexOf(target), 1);
+      changed++;
+    }
+  });
+
+  // Budget check against the FINAL state only.
+  const budget = memoryBudgetChars(settings, scope);
+  const usage = memoryStoreUsage(working);
+  if (usage > budget) {
+    throw budgetOverflowError(scope, current, budget, { opsCount: ops.length, wouldBeChars: usage });
+  }
+  const committed = working.slice(0, MAX_FACTS_PER_SCOPE);
+  writeAllFacts(cwd, committed, scope);
+  return { facts: committed, changed };
+}
+
+export function deleteMemoryFact(cwd: string, id: string, scope: MemoryScope = "project"): boolean {
+  const facts = listMemoryFacts(cwd, scope);
   const next = facts.filter((f) => f.id !== id);
   if (next.length === facts.length) return false;
-  writeAllFacts(cwd, next);
+  writeAllFacts(cwd, next, scope);
   return true;
 }
 
@@ -195,8 +446,13 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length >= 2);
 }
 
-export function recallMemoryFacts(cwd: string, query: string, limit = 8): MemoryFact[] {
-  const facts = listMemoryFacts(cwd);
+export function recallMemoryFacts(
+  cwd: string,
+  query: string,
+  limit = 8,
+  scope: MemoryScope = "project",
+): MemoryFact[] {
+  const facts = listMemoryFacts(cwd, scope);
   if (!query.trim()) return facts.slice(0, limit);
   const qTokens = new Set(tokenize(query));
   if (qTokens.size === 0) return facts.slice(0, limit);
@@ -225,24 +481,43 @@ export function buildMemoryInjectBlock(
 ): string | null {
   const mem = parseProjectMemorySettings(settings ?? readWebSettings().projectMemory);
   if (!mem.enabled || mem.autoInjectTopK <= 0) return null;
-  const facts = listMemoryFacts(cwd).slice(0, mem.autoInjectTopK);
-  if (facts.length === 0) return null;
 
-  const lines = [
+  const renderScope = (scope: MemoryScope, title: string, blurb: string, charCap: number): string[] | null => {
+    if (charCap <= 0) return null;
+    const facts = listMemoryFacts(cwd, scope).slice(0, mem.autoInjectTopK);
+    if (facts.length === 0) return null;
+    const lines = [title, blurb, ""];
+    let used = lines.join("\n").length;
+    for (const fact of facts) {
+      const line = `- ${fact.text}`;
+      if (used + line.length + 1 > charCap) break;
+      lines.push(line);
+      used += line.length + 1;
+    }
+    return lines.length > 3 ? lines : null;
+  };
+
+  // User scope gets up to half of maxInjectChars; project scope takes the rest.
+  const userBlock = renderScope(
+    "user",
+    "## User memory (auto-loaded)",
+    "Facts about the user: preferences, role, style. Respect them unless overridden in this session.",
+    Math.floor(mem.maxInjectChars / 2),
+  );
+  const userUsed = userBlock ? userBlock.join("\n").length + 1 : 0;
+  const projectBlock = renderScope(
+    "project",
     "## Project memory (auto-loaded)",
     "Durable facts about this project. Prefer these over re-discovering the same conventions.",
-    "Use memory_retain for new durable facts (no secrets). Use memory_recall to search. Use memory_reflect for a synthesized mental model.",
-    "",
-  ];
-  let used = lines.join("\n").length;
-  for (const fact of facts) {
-    const line = `- ${fact.text}`;
-    if (used + line.length + 1 > mem.maxInjectChars) break;
-    lines.push(line);
-    used += line.length + 1;
-  }
-  if (lines.length <= 4) return null;
-  return lines.join("\n");
+    mem.maxInjectChars - userUsed,
+  );
+  if (!userBlock && !projectBlock) return null;
+
+  const guidance =
+    "Use memory_retain to save durable facts (target='user': who the user is; " +
+    "target='project': environment, conventions, lessons — never secrets). " +
+    "Use memory_recall to search both stores. Use memory_reflect for a synthesized mental model.";
+  return [...(userBlock ?? []), ...(projectBlock ?? []), "", guidance].join("\n");
 }
 
 export type MemoryReflection = {

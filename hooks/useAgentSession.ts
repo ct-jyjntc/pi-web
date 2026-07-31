@@ -476,6 +476,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     contentRef: chatContentRef,
     isAtBottom: stickToBottom,
     scrollToBottom: stickScrollToBottom,
+    stopScroll,
   } = useStickToBottom({ initial: "instant", resize: "instant" });
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const bindScrollContainer = useCallback(
@@ -1932,14 +1933,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Refs
     sessionIdRef, eventSourceRef, scrollContainerRef,
     // Scroll follow (use-stick-to-bottom)
-    stickToBottom, resumeStickToBottom, bindScrollContainer, chatContentRef,
+    stickToBottom, resumeStickToBottom, bindScrollContainer, chatContentRef, stopScroll, stickScrollToBottom,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
-    dispatch, setAgentRunning, setForkingEntryId,
+    dispatch, setAgentRunning, setForkingEntryId, addNotice,
     bashRunning, pendingBash,
     // Subscriptions
     handleAgentEventRef,

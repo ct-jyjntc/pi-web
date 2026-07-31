@@ -2,16 +2,17 @@
 
 import { useLocale } from "@/hooks/useLocale";
 
-import { memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
+import { memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type ReactNode } from "react";
 import { MarkdownBody } from "./MarkdownBody";
 import { PreviewableImage } from "./PreviewableImage";
 import { ReviewSummaryCard } from "./ReviewSummaryCard";
 import { copyText } from "@/lib/clipboard";
+import type { MessageKey, TranslateParams } from "@/lib/i18n/messages";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
+import { getAssistantErrorMessage, isEmptyThinkingBlock, isMemoryContextMessage } from "@/lib/message-display";
 import { MAX_DIFF_ROWS, parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { parseReviewReport } from "@/lib/review-report";
-import { ensureWebSettings } from "@/lib/web-settings-store";
+import { useWebSettings } from "@/lib/web-settings-store";
 import type {
   AgentMessage,
   UserMessage,
@@ -115,6 +116,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     return null;
   }
   if (message.role === "custom") {
+    // Hidden per-prompt memory recall never renders (model-only context).
+    if (isMemoryContextMessage(message)) return null;
     if ((message as CustomMessage).customType === "compaction") {
       return <CompactionMessageView message={message as CustomMessage} />;
     }
@@ -495,6 +498,9 @@ function AssistantMessageView({
       .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })),
     [message.content, isStreaming],
   );
+  // Fold consecutive "run" tool calls (read/grep/bash/…) into collapsible groups.
+  // Cards (edits, writes, questions) and text/thinking blocks break groups.
+  const displayItems = useMemo(() => groupRunBlocks(blockItems), [blockItems]);
   const blocks = useMemo(() => blockItems.map(({ block }) => block), [blockItems]);
   const providerError = getAssistantErrorMessage(message, { isStreaming });
   const [copied, setCopied] = useState(false);
@@ -700,9 +706,21 @@ function AssistantMessageView({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
-        ))}
+        {displayItems.map((item) =>
+          item.kind === "run" ? (
+            <ToolRunGroup
+              // Keyed by the first call's id, never by position: live streaming and
+              // rehydrated history must agree on which calls belong to the group.
+              key={`${entryId ?? "stream"}-run-${(item.items[0]!.block as ToolCallContent).toolCallId}`}
+              items={item.items}
+              toolResults={toolResults}
+              toolCallDurations={toolCallDurations}
+              isStreaming={isStreaming}
+            />
+          ) : (
+            <BlockView key={`${entryId ?? "stream"}-${item.item.originalIndex}`} block={item.item.block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(item.item.originalIndex) ?? (item.item.block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={item.item.originalIndex} />
+          ),
+        )}
         {reviewReport && <ReviewSummaryCard report={reviewReport} />}
       </div>
 
@@ -746,6 +764,195 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
   return null;
 }
 
+type TFn = (key: MessageKey, params?: TranslateParams) => string;
+
+interface BlockItem {
+  block: AssistantContentBlock;
+  originalIndex: number;
+}
+
+type DisplayItem =
+  | { kind: "block"; item: BlockItem }
+  | { kind: "run"; items: BlockItem[] };
+
+/**
+ * Card tools always render in full: file edits/writes carry the diffs the user
+ * reviews, and question-style tools need an answer. Everything else (read,
+ * grep, find, ls, bash, extension tools, unknown names) is ephemeral "run"
+ * activity that a group can summarize.
+ */
+function isCardToolName(toolName: string): boolean {
+  const n = toolName.toLowerCase();
+  if (isEditToolName(toolName)) return true;
+  if (n === "write" || n.startsWith("write_") || n.endsWith("_write") || n.endsWith(".write") || n.includes("write_file")) return true;
+  if (n.includes("ask") || n.includes("question") || n.includes("clarif") || n.includes("user")) return true;
+  return false;
+}
+
+/**
+ * Split a message's blocks into singleton blocks and groups of consecutive
+ * run-tool calls. Order is preserved — a read→edit→read turn shows a group,
+ * the diff card, then a second group. Runs of fewer than two calls stay
+ * singletons: a lone call is already its own one-line summary.
+ */
+function groupRunBlocks(blockItems: BlockItem[]): DisplayItem[] {
+  const out: DisplayItem[] = [];
+  let run: BlockItem[] = [];
+  const flush = () => {
+    if (run.length >= 2) out.push({ kind: "run", items: run });
+    else for (const item of run) out.push({ kind: "block", item });
+    run = [];
+  };
+  for (const item of blockItems) {
+    if (item.block.type === "toolCall" && !isCardToolName((item.block as ToolCallContent).toolName)) {
+      run.push(item);
+    } else {
+      flush();
+      out.push({ kind: "block", item });
+    }
+  }
+  flush();
+  return out;
+}
+
+type RunCategory = "command" | "explore" | "other";
+
+function runCategory(toolName: string): RunCategory {
+  const n = toolName.toLowerCase();
+  if (n.startsWith("bash") || n.includes("shell") || n.includes("terminal") || n.includes("exec")) return "command";
+  if (n === "read" || n === "grep" || n === "find" || n === "ls" || n.includes("search") || n.includes("list") || n.includes("glob")) return "explore";
+  return "other";
+}
+
+/** Settled group line — "Ran 5 commands · Read 3 files". Clause order is fixed. */
+function settledRunLine(runs: ToolCallContent[], t: TFn): string {
+  const counts: Record<RunCategory, number> = { command: 0, explore: 0, other: 0 };
+  for (const tc of runs) counts[runCategory(tc.toolName)]++;
+  const clauses: string[] = [];
+  if (counts.command > 0) clauses.push(t(counts.command === 1 ? "toolRun.ranCommand" : "toolRun.ranCommands", { n: counts.command }));
+  if (counts.explore > 0) clauses.push(t(counts.explore === 1 ? "toolRun.readFile" : "toolRun.readFiles", { n: counts.explore }));
+  if (counts.other > 0) clauses.push(t(counts.other === 1 ? "toolRun.usedTool" : "toolRun.usedTools", { n: counts.other }));
+  return clauses.join(" · ");
+}
+
+/** Live group line for the narrating call — "Reading src/foo.ts". */
+function liveRunLine(tc: ToolCallContent, t: TFn): string {
+  const target = getToolPreview(tc) || tc.toolName;
+  const category = runCategory(tc.toolName);
+  const key = category === "command" ? "toolRun.liveRunning" : category === "explore" ? "toolRun.liveReading" : "toolRun.liveUsing";
+  return t(key, { target });
+}
+
+/**
+ * One collapsed line standing in for a group of consecutive run-tool calls.
+ *
+ * Live (message streaming with unfinished calls): a one-line ticker narrating
+ * the most recent action, plus a done/total counter. Settled: a past-tense
+ * summary line. Clicking unfolds the full ToolCallBlock rows.
+ *
+ * A group containing a failed call auto-unfurls (until the user folds it back)
+ * so an error row is never swallowed into the summary.
+ */
+const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, toolCallDurations, isStreaming }: {
+  items: BlockItem[];
+  toolResults?: Map<string, ToolResultMessage>;
+  toolCallDurations?: Map<string, number>;
+  isStreaming?: boolean;
+}) {
+  const { t } = useLocale();
+  const [open, setOpen] = useState<boolean | null>(null);
+  const runs = useMemo(() => items.map((it) => it.block as ToolCallContent), [items]);
+
+  let doneCount = 0;
+  let errorCount = 0;
+  let narrating: ToolCallContent | null = null;
+  for (const tc of runs) {
+    const result = toolResults?.get(tc.toolCallId);
+    if (result) {
+      doneCount++;
+      if (result.isError) errorCount++;
+    } else if (!narrating) {
+      narrating = tc;
+    }
+  }
+  const live = Boolean(isStreaming) && doneCount < runs.length;
+  const expanded = open ?? errorCount > 0;
+
+  let totalDuration = 0;
+  for (const tc of runs) totalDuration += toolCallDurations?.get(tc.toolCallId) ?? 0;
+
+  const line = live
+    ? liveRunLine(narrating ?? runs[runs.length - 1]!, t)
+    : settledRunLine(runs, t);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen(!expanded)}
+        aria-expanded={expanded}
+        title={expanded ? t("toolRun.hideDetails") : t("toolRun.showDetails")}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          width: "100%",
+          padding: "5px 8px",
+          background: "none",
+          border: "none",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          textAlign: "left",
+          minWidth: 0,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {live ? (
+            // Remount per narrated action so the tick animation replays.
+            <span key={narrating?.toolCallId ?? "done"} className="tool-run-tick">
+              <span className="tool-run-live">{line}</span>
+            </span>
+          ) : (
+            line
+          )}
+        </span>
+        {live && (
+          <span style={{ flexShrink: 0, fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
+            {t("toolRun.progress", { done: doneCount, total: runs.length })}
+          </span>
+        )}
+        {errorCount > 0 && (
+          <span style={{ flexShrink: 0, fontSize: 11, color: "var(--destructive)", fontVariantNumeric: "tabular-nums" }}>
+            {t(errorCount === 1 ? "toolRun.error" : "toolRun.errors", { n: errorCount })}
+          </span>
+        )}
+        {!live && totalDuration > 0 && (
+          <span style={{ flexShrink: 0, fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{totalDuration}s</span>
+        )}
+      </button>
+      {expanded && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+          {runs.map((tc) => (
+            <ToolCallBlock
+              key={tc.toolCallId}
+              block={tc}
+              result={toolResults?.get(tc.toolCallId)}
+              duration={toolCallDurations?.get(tc.toolCallId)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
 function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void }) {
   return <MarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</MarkdownBody>;
 }
@@ -764,48 +971,15 @@ function ThinkingBlock({
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const autoOpenTried = useRef(false);
+  const webSettings = useWebSettings();
+  // Once the user expands/collapses this block by hand, the setting stops
+  // driving it (first explicit toggle wins).
+  const userToggledRef = useRef(false);
 
-  // Honor settings.showThinking: expand thinking by default when enabled.
-  // Reads the shared settings cache — one block per assistant message would
-  // otherwise mean one /api/web-settings request per rendered block.
-  useEffect(() => {
-    if (autoOpenTried.current) return;
-    autoOpenTried.current = true;
-    let cancelled = false;
-    void ensureWebSettings()
-      .then(async (settings) => {
-        // A failed read leaves settings null; stay collapsed, as before.
-        if (cancelled || !settings || settings.showThinking === false) return;
-        // Expand (and load deferred content if needed).
-        setExpanded(true);
-        if (!block.deferred) return;
-        if (!sessionId || !entryId) return;
-        setLoading(true);
-        try {
-          const text = await loadThinkingContent(sessionId, entryId, blockIndex);
-          if (!cancelled) setContent(text);
-        } catch (err) {
-          if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-        } finally {
-          if (!cancelled) setLoading(false);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [block.deferred, blockIndex, entryId, sessionId]);
-
-  const toggle = async () => {
-    const nextExpanded = !expanded;
-    setExpanded(nextExpanded);
-    if (!nextExpanded || !block.deferred || content !== null) return;
-    if (!sessionId || !entryId) {
-      setError(t("msg.thinkingUnavailable"));
-      return;
-    }
-
+  const expandAndLoad = useCallback(async () => {
+    setExpanded(true);
+    if (!block.deferred || content !== null) return;
+    if (!sessionId || !entryId) return;
     setLoading(true);
     setError(null);
     try {
@@ -815,6 +989,29 @@ function ThinkingBlock({
     } finally {
       setLoading(false);
     }
+  }, [block.deferred, blockIndex, content, entryId, sessionId]);
+
+  // Honor settings.showThinking live: expand/collapse thinking blocks as the
+  // toggle flips (shared settings cache — one subscription per block is cheap,
+  // and a burst of blocks still costs at most one /api/web-settings request).
+  useEffect(() => {
+    if (userToggledRef.current || webSettings === null) return;
+    if (webSettings.showThinking === true && !expanded) void expandAndLoad();
+    if (webSettings.showThinking === false && expanded) setExpanded(false);
+  }, [webSettings, expanded, expandAndLoad]);
+
+  const toggle = async () => {
+    userToggledRef.current = true;
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    if (block.deferred && content === null && (!sessionId || !entryId)) {
+      setExpanded(true);
+      setError(t("msg.thinkingUnavailable"));
+      return;
+    }
+    await expandAndLoad();
   };
 
   return (

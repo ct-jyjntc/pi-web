@@ -1,5 +1,8 @@
 // Types mirrored from pi-mono coding-agent session-manager
 
+/** customType of the hidden per-prompt memory recall message (see lib/memory-context.ts). */
+export const MEMORY_CONTEXT_CUSTOM_TYPE = "memory-context";
+
 export interface SessionHeader {
   type: "session";
   version?: number;

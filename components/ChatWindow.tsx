@@ -1,10 +1,10 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMemoryContextMessage, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -25,6 +25,7 @@ import { SpecializedExtensionWidget } from "./extension/ExtensionWidgetViews";
 import { classifyWidgetKey } from "@/lib/extension-widgets";
 import { clearSessionMetrics, setContextUsageMetric, setExtensionStatusesMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { setCompactHandlers } from "@/lib/compact-action-store";
+import { useWebSettings } from "@/lib/web-settings-store";
 
 interface Props {
   session: SessionInfo | null;
@@ -58,8 +59,17 @@ function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Record<stri
 const CHAT_RAIL_BTN_WIDTH = 36;
 const CHAT_RAIL_WIDTH = CHAT_RAIL_BTN_WIDTH + 1; // + left divider
 const CHAT_COLUMN_PADDING = 16;
-/** Floor between two /api/web-settings reads (tab focus flapping is cheap now). */
-const SETTINGS_REFRESH_MIN_MS = 30_000;
+/** Cold open mounts only this many trailing render items synchronously; the
+ * rest of the first page backfills on the next frame inside a transition. */
+const FIRST_PAINT_RENDER_ITEMS = 20;
+/** Settle loop: hand scroll back once scrollHeight holds steady this many rAFs. */
+const SCROLL_SETTLE_STABLE_FRAMES = 2;
+/** Settle loop hard cap (~250ms at 60fps) so late async loads can't pin it. */
+const SCROLL_SETTLE_MAX_FRAMES = 15;
+/** Newest render items exempt from content-visibility — they can still grow
+ * (streaming, pending media, KaTeX/mermaid late loads) and a stale remembered
+ * height would drift the scroll lock. */
+const LIVE_TAIL_RENDER_ITEMS = 6;
 
 function hasFinalAssistantAnswer(message: AgentMessage): boolean {
   if (message.role !== "assistant") return false;
@@ -141,7 +151,7 @@ function hasDisplayableProcessMessage(message: AgentMessage): boolean {
   if (message.role === "assistant") {
     return getCachedDisplayableBlocks(message as AssistantMessage).length > 0;
   }
-  return message.role === "custom";
+  return message.role === "custom" && !isMemoryContextMessage(message);
 }
 
 function withAssistantBlocks(
@@ -266,56 +276,26 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   playDoneSoundRef.current = playDoneSound;
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
+  // Live web-settings subscription: toggles apply to the open chat immediately.
+  // (The old mount/visibilitychange fetch left showTodos stale until a tab switch.)
+  const webSettings = useWebSettings();
   const notifyPrefsRef = useRef({ desktop: true, notifSound: true });
-  const [showTodos, setShowTodos] = useState(true);
+  notifyPrefsRef.current = {
+    desktop: webSettings?.desktopNotifications !== false,
+    notifSound: webSettings?.notificationSound !== false,
+  };
+  const showTodos = webSettings?.showTodos !== false;
   const [advisorNote, setAdvisorNote] = useState<{
     level: "info" | "concern" | "blocker";
     text: string;
     model: string;
   } | null>(null);
   const advisorEnabledRef = useRef(false);
+  advisorEnabledRef.current = webSettings?.advisorEnabled === true;
+  // Session id readable from callbacks declared before useAgentSession below
+  // (synced right after the hook destructure, like messagesForAdvisorRef).
+  const sessionIdForReviewRef = useRef<string | null>(null);
   const messagesForAdvisorRef = useRef<AgentMessage[]>([]);
-  const settingsLoadedAtRef = useRef(0);
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      // The transcript only needs a handful of booleans, so skip the utility
-      // model catalog and throttle: `visibilitychange` fires on every tab
-      // switch and the settings file barely ever changes.
-      const now = Date.now();
-      if (now - settingsLoadedAtRef.current < SETTINGS_REFRESH_MIN_MS) return;
-      settingsLoadedAtRef.current = now;
-      fetch("/api/web-settings?utilityModels=0")
-        .then(async (res) => {
-          const data = await res.json() as {
-            settings?: {
-              desktopNotifications?: boolean;
-              notificationSound?: boolean;
-              showTodos?: boolean;
-              advisorEnabled?: boolean;
-            };
-          };
-          if (cancelled || !data.settings) return;
-          notifyPrefsRef.current = {
-            desktop: data.settings.desktopNotifications !== false,
-            notifSound: data.settings.notificationSound !== false,
-          };
-          setShowTodos(data.settings.showTodos !== false);
-          advisorEnabledRef.current = data.settings.advisorEnabled === true;
-        })
-        .catch(() => {});
-    };
-    load();
-    // Re-read when tab becomes visible so settings toggles apply without remount.
-    const onVis = () => {
-      if (document.visibilityState === "visible") load();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, []);
   const wrappedOnAgentEnd = useCallback(() => {
     // In-app completion tone (composer sound toggle).
     if (soundEnabledRef.current) {
@@ -397,8 +377,29 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       }
     }
 
+    // Background memory review — fire-and-forget; the server-side cadence
+    // counter decides whether this turn actually triggers a review.
+    const memoryCwd = session?.cwd ?? newSessionCwd;
+    const memorySessionId = session?.id ?? sessionIdForReviewRef.current;
+    if (memoryCwd && memorySessionId) {
+      void fetch("/api/memory-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: memoryCwd, sessionId: memorySessionId }),
+      })
+        .then(async (res) => {
+          if (!res.ok) return;
+          const data = await res.json() as { saved?: Array<{ scope: string; text: string }> };
+          const count = data.saved?.length ?? 0;
+          if (count > 0) {
+            addNoticeRef.current({ type: "info", message: t("memory.savedNotice", { count }) });
+          }
+        })
+        .catch(() => {});
+    }
+
     onAgentEnd?.();
-  }, [newSessionCwd, onAgentEnd, session?.cwd, t]);
+  }, [newSessionCwd, onAgentEnd, session?.cwd, session?.id, t]);
 
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
   const handleEditContent = useCallback((content: string) => {
@@ -412,11 +413,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    addNotice,
     isAutoModelSelection,
     agentPhase,
     isNew,
     sessionIdRef, scrollContainerRef,
-    stickToBottom, resumeStickToBottom, bindScrollContainer, chatContentRef,
+    stickToBottom, resumeStickToBottom, bindScrollContainer, chatContentRef, stopScroll, stickScrollToBottom,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
@@ -427,6 +429,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  // Stable handle for fire-and-forget callbacks created before the hook
+  // destructure above (wrappedOnAgentEnd) — they read this at call time.
+  const addNoticeRef = useRef(addNotice);
+  addNoticeRef.current = addNotice;
+  sessionIdForReviewRef.current = session?.id ?? sessionIdRef.current ?? null;
   useEffect(() => {
     messagesForAdvisorRef.current = messages;
   }, [messages]);
@@ -439,9 +446,72 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // --- Lazy-load historical messages ---
   // Only render the last N messages initially. When the user scrolls to the
   // top, load another page while keeping the scroll position stable.
-  const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
+  // First paint mounts a small window (FIRST_PAINT_RENDER_ITEMS — roughly a
+  // viewport's worth after scroll-to-bottom); the backfill below bumps it to
+  // the full first page on the next frame as a transition, so the heavy
+  // markdown/highlight render of older items is interruptible instead of one
+  // long synchronous commit right after a session switch.
+  const [visibleCount, setVisibleCount] = useState(FIRST_PAINT_RENDER_ITEMS);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
+  const hasMessages = messages.length > 0;
+
+  // Backfill from the first-paint window to the normal initial page once
+  // messages arrive (mount is empty; the transcript lands async). Functional
+  // max: a user-initiated sentinel page can land first and must not be shrunk.
+  useEffect(() => {
+    if (!hasMessages || visibleCount >= VISIBLE_PAGE_SIZE) return;
+    const rafId = requestAnimationFrame(() => {
+      startTransition(() => {
+        setVisibleCount((count) => Math.max(count, VISIBLE_PAGE_SIZE));
+      });
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [hasMessages, visibleCount]);
+
+  // --- Scroll settle loop (cold-load glue) ---
+  // Messages arrive hundreds of ms after mount, and late async work (KaTeX,
+  // mermaid, image sizing) keeps changing scrollHeight after first paint.
+  // Letting use-stick-to-bottom follow a moving target re-pins every frame
+  // (visible as repeated scroll jumps), so instead: quiet the library, glue
+  // scrollTop to the true bottom each rAF until the height holds steady for
+  // SCROLL_SETTLE_STABLE_FRAMES consecutive frames (capped), then hand back
+  // with an instant scrollToBottom so follow re-locks. Re-arms on the
+  // empty→non-empty flip, which is exactly the cold-load moment; session
+  // switches are full remounts.
+  useLayoutEffect(() => {
+    if (!hasMessages) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    stopScroll();
+    el.scrollTop = el.scrollHeight;
+    let frame = 0;
+    let stableFrames = 0;
+    let lastHeight = el.scrollHeight;
+    let lastGluedBottom = lastHeight;
+    let rafId = 0;
+    const settle = () => {
+      const node = scrollContainerRef.current;
+      if (!node) return;
+      // Abort if the user scrolled up during the settle window: transcript
+      // content only grows at the bottom, so an untouched scrollTop can never
+      // sit above where the last glue left it — if it does, it is user intent
+      // and the library has already escaped the lock on its own.
+      if (node.scrollTop < lastGluedBottom - node.clientHeight - 1) return;
+      const height = node.scrollHeight;
+      stableFrames = height === lastHeight ? stableFrames + 1 : 0;
+      lastHeight = height;
+      node.scrollTop = height;
+      lastGluedBottom = height;
+      if (stableFrames >= SCROLL_SETTLE_STABLE_FRAMES || ++frame > SCROLL_SETTLE_MAX_FRAMES) {
+        void stickScrollToBottom("instant");
+        return;
+      }
+      rafId = requestAnimationFrame(settle);
+    };
+    rafId = requestAnimationFrame(settle);
+    return () => cancelAnimationFrame(rafId);
+  }, [hasMessages, stopScroll, stickScrollToBottom, scrollContainerRef]);
 
   // IntersectionObserver on the sentinel div at the top of the message list.
   // When it becomes visible, load the next page of older messages.
@@ -618,6 +688,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     const plan: RenderPlanItem[] = [];
     for (let idx = 0; idx < messages.length;) {
       const msg = messages[idx];
+      // Hidden per-prompt memory recall messages never get a render item.
+      if (isMemoryContextMessage(msg)) {
+        idx += 1;
+        continue;
+      }
       if (msg.role !== "user") {
         plan.push({ kind: "message", idx });
         idx += 1;
@@ -634,6 +709,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastUserIdx;
       if (finalAssistantIdx === -1 || isLiveTail) {
         for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
+          if (renderIdx !== userIdx && isMemoryContextMessage(messages[renderIdx])) continue;
           plan.push({ kind: "message", idx: renderIdx });
         }
         idx = endIdx;
@@ -665,6 +741,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         plan.push({ kind: "answer", idx: finalAssistantIdx, message: finalAnswerMessage });
       }
       for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
+        if (isMemoryContextMessage(messages[renderIdx])) continue;
         plan.push({ kind: "message", idx: renderIdx });
       }
       idx = endIdx;
@@ -678,7 +755,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       messageRefs.current[refIndex] = el;
     };
 
-    const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
+    const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; liveTail?: boolean } = {}): ReactNode => {
       const msg = options.messageOverride ?? messages[idx];
       const prevAssistantEntryId =
         msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -722,13 +799,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       );
       if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
       return (
-        <div key={`${keyPrefix}-${idx}`} className="chat-message-item" ref={attachVisibleRef(currentRefIdx)}>
+        <div key={`${keyPrefix}-${idx}`} className={options.liveTail ? "chat-message-item is-live" : "chat-message-item"} ref={attachVisibleRef(currentRefIdx)}>
           {view}
         </div>
       );
     };
 
-    const renderProcessGroup = (item: Extract<RenderPlanItem, { kind: "process" }>): ReactNode => {
+    const renderProcessGroup = (item: Extract<RenderPlanItem, { kind: "process" }>, liveTail = false): ReactNode => {
       const finalAssistant = messages[item.finalAssistantIdx] as AssistantMessage;
       const finalSplit = getFinalAssistantParts(finalAssistant);
       const processRefIdx = item.processIndices
@@ -747,7 +824,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       return (
         <div
           key={`process-group-${item.userIdx}-${item.finalAssistantIdx}`}
-          className="chat-message-item"
+          className={liveTail ? "chat-message-item is-live" : "chat-message-item"}
           ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
         >
           {processGroup}
@@ -755,13 +832,19 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       );
     };
 
-    // Pass 2 — build elements for the visible window only.
+    // Pass 2 — build elements for the visible window only. The newest few
+    // render items (the live tail) stay fully laid out: content-visibility
+    // only remembers a row's size AFTER it renders, so virtualizing a row
+    // that can still grow snaps it to a stale height when skipped and drifts
+    // the scroll lock. Older rows keep the .chat-message-item virtualization.
+    const liveTailStartIndex = Math.max(startIndex, plan.length - LIVE_TAIL_RENDER_ITEMS);
     const rendered: ReactNode[] = [];
     for (let planIdx = startIndex; planIdx < plan.length; planIdx++) {
       const item = plan[planIdx];
-      if (item.kind === "message") rendered.push(renderMessage(item.idx));
-      else if (item.kind === "answer") rendered.push(renderMessage(item.idx, { messageOverride: item.message }));
-      else rendered.push(renderProcessGroup(item));
+      const liveTail = planIdx >= liveTailStartIndex;
+      if (item.kind === "message") rendered.push(renderMessage(item.idx, { liveTail }));
+      else if (item.kind === "answer") rendered.push(renderMessage(item.idx, { messageOverride: item.message, liveTail }));
+      else rendered.push(renderProcessGroup(item, liveTail));
     }
 
     return (
