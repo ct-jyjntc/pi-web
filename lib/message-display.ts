@@ -51,3 +51,15 @@ export function splitFinalAssistantBlocks(
 export function countToolCallBlocks(blocks: AssistantContentBlock[]): number {
   return blocks.filter((block): block is ToolCallContent => block.type === "toolCall").length;
 }
+
+/** Format a measured duration the way Hermes labels thinking ("12s", "1:05"). */
+export function formatThoughtDuration(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  if (whole < 60) return `${whole}s`;
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/** True when a block is process scaffolding (thinking / tools), not final prose. */
+export function isProcessScaffoldBlock(block: AssistantContentBlock): boolean {
+  return block.type === "thinking" || block.type === "toolCall";
+}

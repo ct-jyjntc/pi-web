@@ -9,7 +9,12 @@ import { ReviewSummaryCard } from "./ReviewSummaryCard";
 import { copyText } from "@/lib/clipboard";
 import type { MessageKey, TranslateParams } from "@/lib/i18n/messages";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getAssistantErrorMessage, isEmptyThinkingBlock, isMemoryContextMessage } from "@/lib/message-display";
+import {
+  formatThoughtDuration,
+  getAssistantErrorMessage,
+  isEmptyThinkingBlock,
+  isMemoryContextMessage,
+} from "@/lib/message-display";
 import { MAX_DIFF_ROWS, parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { parseReviewReport } from "@/lib/review-report";
 import { useWebSettings } from "@/lib/web-settings-store";
@@ -75,6 +80,11 @@ interface Props {
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
+  /**
+   * `process` = intermediate turn chrome (thinking/tools/narration). Quieter
+   * scaffold styling, no model/usage chrome. Default is full answer surface.
+   */
+  variant?: "answer" | "process";
 }
 
 function formatTime(ts?: number): string | null {
@@ -104,12 +114,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, variant }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} variant={variant} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -142,7 +152,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
-    && prev.sessionId === next.sessionId;
+    && prev.sessionId === next.sessionId
+    && prev.variant === next.variant;
 });
 
 const USER_MSG_COLLAPSE_CHARS = 420;
@@ -478,6 +489,7 @@ function AssistantMessageView({
   prevTimestamp,
   sessionId,
   entryId,
+  variant = "answer",
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -489,8 +501,10 @@ function AssistantMessageView({
   prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
+  variant?: "answer" | "process";
 }) {
   const { t } = useLocale();
+  const isProcess = variant === "process";
   const time = showTimestamp ? formatTime(message.timestamp) : null;
   const blockItems = useMemo(
     () => (message.content ?? [])
@@ -498,6 +512,21 @@ function AssistantMessageView({
       .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })),
     [message.content, isStreaming],
   );
+  // Live stream + process variant: once thinking/tools have appeared, treat
+  // everything up through the last non-text/image block as process scaffolding
+  // so intermediate narration never flash-renders as full-strength final markdown.
+  const processOriginalIndexes = useMemo(() => {
+    if (isProcess) return new Set(blockItems.map((item) => item.originalIndex));
+    let lastProcessPos = -1;
+    for (let i = 0; i < blockItems.length; i++) {
+      const type = blockItems[i]!.block.type;
+      if (type !== "text" && type !== "image") lastProcessPos = i;
+    }
+    if (lastProcessPos === -1) return new Set<number>();
+    const processSet = new Set<number>();
+    for (let i = 0; i <= lastProcessPos; i++) processSet.add(blockItems[i]!.originalIndex);
+    return processSet;
+  }, [blockItems, isProcess]);
   // Fold consecutive "run" tool calls (read/grep/bash/…) into collapsible groups.
   // Cards (edits, writes, questions) and text/thinking blocks break groups.
   const displayItems = useMemo(() => groupRunBlocks(blockItems), [blockItems]);
@@ -544,6 +573,16 @@ function AssistantMessageView({
     [blocks],
   );
 
+  // Answer-track text (for copy) excludes process-track narration.
+  const answerTextContent = useMemo(
+    () => blockItems
+      .filter(({ block, originalIndex }) => block.type === "text" && !processOriginalIndexes.has(originalIndex))
+      .map(({ block }) => (block as TextContent).text)
+      .join("\n"),
+    [blockItems, processOriginalIndexes],
+  );
+  const copyableText = isProcess ? textContent : (answerTextContent || textContent);
+
   // Streamed character estimate — computed once per render and reused by the
   // tps interval, so no tick re-scans the blocks.
   const estChars = useMemo(() => (isStreaming ? estimateStreamChars(blocks) : 0), [isStreaming, blocks]);
@@ -552,16 +591,9 @@ function AssistantMessageView({
   const estTokens = Math.round(estChars / 4);
 
   const reviewReport = useMemo(
-    () => (!isStreaming ? parseReviewReport(textContent) : null),
-    [isStreaming, textContent],
+    () => (!isStreaming && !isProcess ? parseReviewReport(textContent) : null),
+    [isStreaming, isProcess, textContent],
   );
-
-  const copyContent = () => {
-    copyText(textContent).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
 
   useEffect(() => {
     if (!isStreaming) {
@@ -625,8 +657,9 @@ function AssistantMessageView({
 
   return (
     <MessageHoverShell
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: isProcess ? 8 : 16 }}
       renderActions={(active) => (
+        isProcess ? null : (
         <div style={{
           display: "flex", alignItems: "center", gap: 8, marginTop: 4,
         }}>
@@ -635,9 +668,14 @@ function AssistantMessageView({
               {formatUsage(message.usage)}
             </div>
           )}
-          {textContent && !isStreaming && (
+          {copyableText && !isStreaming && (
             <button
-              onClick={copyContent}
+              onClick={() => {
+                copyText(copyableText).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                });
+              }}
               title={t("msg.copyMessage")}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
@@ -672,40 +710,49 @@ function AssistantMessageView({
             <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
           )}
         </div>
+        )
       )}
     >
-      {/* Model label */}
+      {/* Model label — answer surface only (process rail stays quiet). */}
+      {!isProcess && (
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--text-dim)",
+            marginBottom: 4,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          {message.provider && (
+            <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
+          )}
+          {isStreaming && estTokens > 0 && (
+            <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("msg.estTokens")}>
+              <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
+                </svg>
+                {estTokens}
+              </span>
+              {tps !== null && (
+                <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: "var(--radius-pill)", background: "var(--bg-selected)", color: "var(--text-muted)", fontSize: 11, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>
+                  {tps.toFixed(1)} t/s
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+
       <div
         style={{
-          fontSize: 11,
-          color: "var(--text-dim)",
-          marginBottom: 4,
           display: "flex",
-          alignItems: "center",
-          gap: 6,
+          flexDirection: "column",
+          gap: isProcess ? 6 : 8,
         }}
       >
-        {message.provider && (
-          <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
-        )}
-        {isStreaming && estTokens > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("msg.estTokens")}>
-            <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-              </svg>
-              {estTokens}
-            </span>
-            {tps !== null && (
-              <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: "var(--radius-pill)", background: "var(--bg-selected)", color: "var(--text-muted)", fontSize: 11, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>
-                {tps.toFixed(1)} t/s
-              </span>
-            )}
-          </span>
-        )}
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {displayItems.map((item) =>
           item.kind === "run" ? (
             <ToolRunGroup
@@ -718,13 +765,26 @@ function AssistantMessageView({
               isStreaming={isStreaming}
             />
           ) : (
-            <BlockView key={`${entryId ?? "stream"}-${item.item.originalIndex}`} block={item.item.block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(item.item.originalIndex) ?? (item.item.block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={item.item.originalIndex} />
+            <BlockView
+              key={`${entryId ?? "stream"}-${item.item.originalIndex}`}
+              block={item.item.block}
+              toolResults={toolResults}
+              isStreaming={isStreaming}
+              streamingDuration={streamingDurations.get(item.item.originalIndex) ?? (item.item.block.type === "thinking" ? thinkingDurationFromFile : undefined)}
+              toolCallDurations={toolCallDurations}
+              cwd={cwd}
+              onOpenFile={onOpenFile}
+              sessionId={sessionId}
+              entryId={entryId}
+              blockIndex={item.item.originalIndex}
+              processStyle={processOriginalIndexes.has(item.item.originalIndex) || isProcess}
+            />
           ),
         )}
-        {reviewReport && <ReviewSummaryCard report={reviewReport} />}
+        {reviewReport && !isProcess && <ReviewSummaryCard report={reviewReport} />}
       </div>
 
-      {providerError && (
+      {providerError && !isProcess && (
         <div
           role="alert"
           style={{
@@ -748,18 +808,25 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex, processStyle }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number; processStyle?: boolean }) {
   if (block.type === "text") {
-    return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} processStyle={processStyle} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} isStreaming={isStreaming} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} />;
+    return (
+      <ToolCallBlock
+        block={tc}
+        result={result}
+        duration={duration}
+        isStreaming={isStreaming && !result}
+      />
+    );
   }
   return null;
 }
@@ -792,15 +859,17 @@ function isCardToolName(toolName: string): boolean {
 /**
  * Split a message's blocks into singleton blocks and groups of consecutive
  * run-tool calls. Order is preserved — a read→edit→read turn shows a group,
- * the diff card, then a second group. Runs of fewer than two calls stay
- * singletons: a lone call is already its own one-line summary.
+ * the diff card, then a second group.
+ *
+ * Hermes folds even a lone activity call into a one-line scaffold row, so any
+ * non-empty run (≥1) goes through ToolRunGroup / ScaffoldToolRow rather than
+ * the heavy card chrome reserved for edit/write/ask.
  */
 function groupRunBlocks(blockItems: BlockItem[]): DisplayItem[] {
   const out: DisplayItem[] = [];
   let run: BlockItem[] = [];
   const flush = () => {
-    if (run.length >= 2) out.push({ kind: "run", items: run });
-    else for (const item of run) out.push({ kind: "block", item });
+    if (run.length >= 1) out.push({ kind: "run", items: run });
     run = [];
   };
   for (const item of blockItems) {
@@ -826,6 +895,8 @@ function runCategory(toolName: string): RunCategory {
 
 /** Settled group line — "Ran 5 commands · Read 3 files". Clause order is fixed. */
 function settledRunLine(runs: ToolCallContent[], t: TFn): string {
+  // Single call: name the target like Hermes ("Read foo.ts"), not "Read 1 file".
+  if (runs.length === 1) return scaffoldToolTitle(runs[0]!, false, t);
   const counts: Record<RunCategory, number> = { command: 0, explore: 0, other: 0 };
   for (const tc of runs) counts[runCategory(tc.toolName)]++;
   const clauses: string[] = [];
@@ -837,9 +908,18 @@ function settledRunLine(runs: ToolCallContent[], t: TFn): string {
 
 /** Live group line for the narrating call — "Reading src/foo.ts". */
 function liveRunLine(tc: ToolCallContent, t: TFn): string {
+  return scaffoldToolTitle(tc, true, t);
+}
+
+/** One-line scaffold title for a single tool call (Hermes-style). */
+function scaffoldToolTitle(tc: ToolCallContent, live: boolean, t: TFn): string {
   const target = getToolPreview(tc) || tc.toolName;
   const category = runCategory(tc.toolName);
-  const key = category === "command" ? "toolRun.liveRunning" : category === "explore" ? "toolRun.liveReading" : "toolRun.liveUsing";
+  if (live) {
+    const key = category === "command" ? "toolRun.liveRunning" : category === "explore" ? "toolRun.liveReading" : "toolRun.liveUsing";
+    return t(key, { target });
+  }
+  const key = category === "command" ? "toolRun.settledRunning" : category === "explore" ? "toolRun.settledReading" : "toolRun.settledUsing";
   return t(key, { target });
 }
 
@@ -863,6 +943,19 @@ const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, toolCallDu
   const [open, setOpen] = useState<boolean | null>(null);
   const runs = useMemo(() => items.map((it) => it.block as ToolCallContent), [items]);
 
+  // Hermes: a lone activity call is its own scaffold row — no summary wrapper.
+  if (runs.length === 1) {
+    const tc = runs[0]!;
+    return (
+      <ToolCallBlock
+        block={tc}
+        result={toolResults?.get(tc.toolCallId)}
+        duration={toolCallDurations?.get(tc.toolCallId)}
+        isStreaming={isStreaming && !toolResults?.get(tc.toolCallId)}
+      />
+    );
+  }
+
   let doneCount = 0;
   let errorCount = 0;
   let narrating: ToolCallContent | null = null;
@@ -876,7 +969,9 @@ const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, toolCallDu
     }
   }
   const live = Boolean(isStreaming) && doneCount < runs.length;
-  const expanded = open ?? errorCount > 0;
+  // Live runs stay expanded (Hermes: cannot collapse while a tool is running).
+  // Errors auto-unfurl until the user folds them.
+  const expanded = open ?? (live || errorCount > 0);
 
   let totalDuration = 0;
   for (const tc of runs) totalDuration += toolCallDurations?.get(tc.toolCallId) ?? 0;
@@ -886,34 +981,77 @@ const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, toolCallDu
     : settledRunLine(runs, t);
 
   return (
-    <div>
+    <div
+      data-slot="tool-run-group"
+      style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.45, opacity: 0.82 }}
+    >
       <button
         type="button"
-        onClick={() => setOpen(!expanded)}
+        onClick={() => {
+          // Don't allow collapsing while tools are still running.
+          if (live) return;
+          setOpen(!expanded);
+        }}
         aria-expanded={expanded}
-        title={expanded ? t("toolRun.hideDetails") : t("toolRun.showDetails")}
+        title={live ? undefined : (expanded ? t("toolRun.hideDetails") : t("toolRun.showDetails"))}
         style={{
           display: "flex",
           alignItems: "center",
           gap: 7,
           width: "100%",
-          padding: "5px 8px",
+          minHeight: 22,
+          padding: "2px 0",
           background: "none",
           border: "none",
-          borderRadius: "var(--radius-sm)",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
+          color: "inherit",
+          cursor: live ? "default" : "pointer",
           textAlign: "left",
           minWidth: 0,
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="2 3.5 5 6.5 8 3.5" />
-        </svg>
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {!live && (
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{
+              flexShrink: 0,
+              opacity: 0.55,
+              transform: expanded ? "rotate(90deg)" : "none",
+              transition: "transform 0.15s ease",
+            }}
+          >
+            <polyline points="3.5 2 6.5 5 3.5 8" />
+          </svg>
+        )}
+        {live && (
+          <span
+            aria-hidden
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 2,
+              background: "var(--text-dim)",
+              flexShrink: 0,
+              opacity: 0.7,
+            }}
+            className="tool-run-live"
+          />
+        )}
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {live ? (
             // Remount per narrated action so the tick animation replays.
             <span key={narrating?.toolCallId ?? "done"} className="tool-run-tick">
@@ -934,17 +1072,21 @@ const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, toolCallDu
           </span>
         )}
         {!live && totalDuration > 0 && (
-          <span style={{ flexShrink: 0, fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{totalDuration}s</span>
+          <span style={{ flexShrink: 0, fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
+            {formatThoughtDuration(totalDuration)}
+          </span>
         )}
       </button>
       {expanded && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
           {runs.map((tc) => (
             <ToolCallBlock
               key={tc.toolCallId}
               block={tc}
               result={toolResults?.get(tc.toolCallId)}
               duration={toolCallDurations?.get(tc.toolCallId)}
+              isStreaming={isStreaming && !toolResults?.get(tc.toolCallId)}
+              nested
             />
           ))}
         </div>
@@ -953,33 +1095,67 @@ const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, toolCallDu
   );
 });
 
-function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void }) {
-  return <MarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</MarkdownBody>;
+function TextBlock({ block, isStreaming, cwd, onOpenFile, processStyle }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void; processStyle?: boolean }) {
+  const body = (
+    <MarkdownBody
+      isStreaming={isStreaming}
+      cwd={cwd}
+      onOpenFile={onOpenFile}
+    >
+      {block.text}
+    </MarkdownBody>
+  );
+  if (!processStyle) return body;
+  // Inline styles so process prose stays muted even if globals.css HMR lags.
+  return (
+    <div
+      style={{
+        color: "var(--text-muted)",
+        fontSize: 12,
+        lineHeight: 1.5,
+        opacity: 0.9,
+      }}
+    >
+      {body}
+    </div>
+  );
 }
 
+/**
+ * Hermes-style thinking disclosure: auto-open while streaming, auto-collapse
+ * when settled, with "Thought for Ns" labels. First explicit user toggle wins.
+ */
 function ThinkingBlock({
-  block, duration, sessionId, entryId, blockIndex,
+  block, duration, isStreaming, sessionId, entryId, blockIndex,
 }: {
   block: ThinkingContent;
   duration?: number;
+  isStreaming?: boolean;
   sessionId?: string;
   entryId?: string;
   blockIndex: number;
 }) {
   const { t } = useLocale();
-  const [expanded, setExpanded] = useState(false);
+  // null = no explicit user toggle yet → defer to streaming/settings default.
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const webSettings = useWebSettings();
-  // Once the user expands/collapses this block by hand, the setting stops
-  // driving it (first explicit toggle wins).
-  const userToggledRef = useRef(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const pending = Boolean(isStreaming);
 
-  const expandAndLoad = useCallback(async () => {
-    setExpanded(true);
+  const defaultOpen = pending || webSettings?.showThinking === true;
+  const open = userOpen ?? defaultOpen;
+  const isPreview = pending && userOpen === null;
+
+  const loadDeferred = useCallback(async () => {
     if (!block.deferred || content !== null) return;
-    if (!sessionId || !entryId) return;
+    if (!sessionId || !entryId) {
+      setError(t("msg.thinkingUnavailable"));
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -989,74 +1165,137 @@ function ThinkingBlock({
     } finally {
       setLoading(false);
     }
-  }, [block.deferred, blockIndex, content, entryId, sessionId]);
+  }, [block.deferred, blockIndex, content, entryId, sessionId, t]);
 
-  // Honor settings.showThinking live: expand/collapse thinking blocks as the
-  // toggle flips (shared settings cache — one subscription per block is cheap,
-  // and a burst of blocks still costs at most one /api/web-settings request).
+  // Load deferred body when the disclosure opens.
   useEffect(() => {
-    if (userToggledRef.current || webSettings === null) return;
-    if (webSettings.showThinking === true && !expanded) void expandAndLoad();
-    if (webSettings.showThinking === false && expanded) setExpanded(false);
-  }, [webSettings, expanded, expandAndLoad]);
+    if (open && block.deferred && content === null && !loading && !error) {
+      void loadDeferred();
+    }
+  }, [open, block.deferred, content, loading, error, loadDeferred]);
 
-  const toggle = async () => {
-    userToggledRef.current = true;
-    if (expanded) {
-      setExpanded(false);
-      return;
-    }
-    if (block.deferred && content === null && (!sessionId || !entryId)) {
-      setExpanded(true);
-      setError(t("msg.thinkingUnavailable"));
-      return;
-    }
-    await expandAndLoad();
+  // While the live preview is open, pin the scroll container to the bottom on
+  // content growth so the latest tokens stay visible (Hermes ThinkingDisclosure).
+  useEffect(() => {
+    if (!isPreview || !open) return;
+    const el = scrollRef.current;
+    const body = contentRef.current;
+    if (!el || !body) return;
+    let lastHeight = -1;
+    const pin = (entries: readonly ResizeObserverEntry[]) => {
+      const height = entries[entries.length - 1]?.borderBoxSize?.[0]?.blockSize ?? -1;
+      const grew = height < 0 || height > lastHeight;
+      lastHeight = height;
+      if (grew) el.scrollTop = el.scrollHeight;
+    };
+    const observer = new ResizeObserver(pin);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [isPreview, open]);
+
+  const toggle = () => {
+    const next = !open;
+    setUserOpen(next);
+    if (next) void loadDeferred();
   };
+
+  let label = t("msg.thinkingLive");
+  if (!pending) {
+    if (duration == null) label = t("msg.thought");
+    else if (duration < 1) label = t("msg.thoughtBriefly");
+    else label = t("msg.thoughtFor", { duration: formatThoughtDuration(duration) });
+  }
+
+  const bodyText = loading
+    ? t("msg.loadingThinking")
+    : error ?? (block.deferred ? content : block.thinking);
+
+  // Empty non-streaming thinking with no deferred payload is pure noise.
+  if (!pending && !block.deferred && !(block.thinking?.trim()) && duration == null) {
+    return null;
+  }
 
   return (
     <div
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-sm)",
-        overflow: "hidden",
-        fontSize: 13,
-      }}
+      data-slot="thinking-disclosure"
+      style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.45, opacity: 0.82 }}
     >
       <button
-        onClick={() => void toggle()}
+        type="button"
+        aria-expanded={open}
+        onClick={toggle}
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 6,
-          width: "100%",
-          padding: "6px 10px",
-          background: "var(--bg-panel)",
+          gap: 7,
+          width: "auto",
+          maxWidth: "100%",
+          minHeight: 22,
+          padding: "1px 0",
           border: "none",
-          color: "var(--text-muted)",
+          background: "transparent",
+          color: "inherit",
           cursor: "pointer",
-          fontSize: 12,
           textAlign: "left",
         }}
       >
-        <span>{t("msg.thinking")}</span>
-        {duration !== undefined && (
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
-        )}
-      </button>
-      {expanded && (
-        <div
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
           style={{
-            padding: "8px 10px",
-            color: error ? "var(--destructive)" : "var(--text-muted)",
-            fontSize: 12,
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            background: "var(--bg-panel)",
-            borderTop: "1px solid var(--border)",
+            flexShrink: 0,
+            opacity: 0.55,
+            transform: open ? "rotate(90deg)" : "none",
+            transition: "transform 0.15s ease",
           }}
         >
-          {loading ? t("msg.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
+          <polyline points="3.5 2 6.5 5 3.5 8" />
+        </svg>
+        <span
+          className={pending ? "tool-run-live" : undefined}
+          style={{
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
+        {pending && duration != null && duration > 0 && (
+          <span style={{ flexShrink: 0, fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
+            {formatThoughtDuration(duration)}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div
+          ref={scrollRef}
+          style={{
+            marginTop: 4,
+            maxHeight: isPreview ? "10rem" : undefined,
+            overflow: isPreview ? "auto" : undefined,
+            overscrollBehavior: isPreview ? "contain" : undefined,
+          }}
+        >
+          <div
+            ref={contentRef}
+            style={{
+              color: error ? "var(--destructive)" : "var(--text-muted)",
+              fontSize: 12,
+              lineHeight: 1.55,
+              whiteSpace: "pre-wrap",
+              opacity: 0.9,
+            }}
+          >
+            {bodyText}
+          </div>
         </div>
       )}
     </div>
@@ -1112,32 +1351,195 @@ function parseEditFailureKind(text: string | null | undefined): string | null {
   return m?.[1] ?? null;
 }
 
-const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
-  const [expanded, setExpanded] = useState(false);
+const ToolCallBlock = memo(function ToolCallBlock({
+  block,
+  result,
+  duration,
+  isStreaming,
+  nested,
+}: {
+  block: ToolCallContent;
+  result?: ToolResultMessage;
+  duration?: number;
+  isStreaming?: boolean;
+  /** Rendered under a ToolRunGroup summary — slightly tighter indent chrome. */
+  nested?: boolean;
+}) {
+  const { t } = useLocale();
   const isEditTool = isEditToolName(block.toolName);
-  // Serializing the input can mean 100KB+ of file content — only pay for it
-  // when the args pane is actually on screen.
-  const showInputArgs = expanded && !isEditTool;
-  const inputStr = useMemo(
-    () => (showInputArgs ? JSON.stringify(block.input, null, 2) : ""),
-    [showInputArgs, block.input],
-  );
-  const resultDiff = result && !result.isError ? getResultDiff(result) : null;
-  const editMeta = result && !result.isError && isEditTool ? getEditResultMeta(result) : null;
-
-  // Result display
+  const isCard = isCardToolName(block.toolName);
   const resultText = result
     ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "" || resultText.trim() === "（无输出）");
   const isError = result?.isError ?? false;
+  const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+  const pending = Boolean(isStreaming) && !result;
+
+  // Hooks must run unconditionally (scaffold + card paths share them).
+  // Scaffold: null = no user toggle yet → open on error, closed otherwise.
+  const [scaffoldUserOpen, setScaffoldUserOpen] = useState<boolean | null>(null);
+  const [cardExpanded, setCardExpanded] = useState(false);
+  const scaffoldExpanded = scaffoldUserOpen ?? isError;
+  const showScaffoldArgs = !isCard && scaffoldExpanded;
+  const showCardArgs = isCard && cardExpanded && !isEditTool;
+  const showInputArgs = showScaffoldArgs || showCardArgs;
+  const inputStr = useMemo(
+    () => (showInputArgs ? JSON.stringify(block.input, null, 2) : ""),
+    [showInputArgs, block.input],
+  );
+  const editMeta = result && !result.isError && isEditTool ? getEditResultMeta(result) : null;
   const editFailureKind = isEditTool && isError ? parseEditFailureKind(resultText) : null;
   const meta = toolDisplayMeta(block.toolName);
-  // Compact tool-display style: collapse long results by default; expand on click.
-  // Edit failures stay expanded so recovery guidance is visible without an extra click.
   const longResult = (resultText?.length ?? 0) > 1200;
   const forceExpandError = isError && isEditTool;
-  const showResultCollapsed = !expanded && !forceExpandError && result && longResult && !resultDiff;
+  const showResultCollapsed = isCard && !cardExpanded && !forceExpandError && result && longResult && !resultDiff;
+
+  // ── Hermes scaffold row for activity tools (read/bash/grep/…) ──────────
+  // Default collapsed one-liner; expand for args/result. Cards (edit/write/ask)
+  // keep the heavier bordered chrome below.
+  if (!isCard) {
+    const title = scaffoldToolTitle(block, pending, t);
+    const hasBody = Boolean(result) || Object.keys(block.input ?? {}).length > 0;
+    const expanded = scaffoldExpanded;
+
+    return (
+      <div
+        data-slot="tool-row"
+        data-tool-open={expanded ? "" : undefined}
+        style={{
+          color: isError ? "var(--destructive)" : "var(--text-muted)",
+          fontSize: 12,
+          lineHeight: 1.45,
+          opacity: pending ? 0.9 : 0.82,
+          paddingLeft: nested ? 14 : 0,
+        }}
+      >
+        <button
+          type="button"
+          aria-expanded={hasBody ? expanded : undefined}
+          onClick={() => {
+            if (!hasBody) return;
+            setScaffoldUserOpen(!expanded);
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            width: "100%",
+            minHeight: 22,
+            padding: "1px 0",
+            background: "none",
+            border: "none",
+            color: "inherit",
+            cursor: hasBody ? "pointer" : "default",
+            textAlign: "left",
+            minWidth: 0,
+          }}
+        >
+          {hasBody ? (
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                flexShrink: 0,
+                opacity: 0.55,
+                transform: expanded ? "rotate(90deg)" : "none",
+                transition: "transform 0.15s ease",
+              }}
+            >
+              <polyline points="3.5 2 6.5 5 3.5 8" />
+            </svg>
+          ) : (
+            <span
+              aria-hidden
+              className={pending ? "tool-run-live" : undefined}
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 2,
+                background: "var(--text-dim)",
+                flexShrink: 0,
+                opacity: 0.65,
+              }}
+            />
+          )}
+          <span
+            className={pending ? "tool-run-live" : undefined}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {title}
+          </span>
+          {duration !== undefined && duration > 0 && !pending && (
+            <span style={{ flexShrink: 0, fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
+              {formatThoughtDuration(duration)}
+            </span>
+          )}
+        </button>
+        {expanded && (
+          <div style={{ marginTop: 4, marginLeft: 17, display: "flex", flexDirection: "column", gap: 6 }}>
+            {showScaffoldArgs && inputStr && inputStr !== "{}" && (
+              <pre
+                style={{
+                  margin: 0,
+                  padding: "6px 8px",
+                  color: "var(--text-muted)",
+                  fontSize: 11.5,
+                  lineHeight: 1.45,
+                  overflow: "auto",
+                  maxHeight: 160,
+                  background: "var(--bg-subtle)",
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--border)",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                }}
+              >
+                {inputStr}
+              </pre>
+            )}
+            {result && (
+              resultDiff ? (
+                <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+                  <PairedDiffResult diff={resultDiff} />
+                </div>
+              ) : (
+                <div
+                  style={{
+                    border: isError ? "1px solid var(--destructive-border)" : "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm)",
+                    overflow: "hidden",
+                    background: isError ? "var(--destructive-bg)" : "var(--bg-subtle)",
+                  }}
+                >
+                  <PairedResult
+                    text={resultText ?? ""}
+                    isEmpty={resultIsEmpty}
+                    isError={isError}
+                  />
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Card tools (edit / write / ask) — keep full chrome + diffs ─────────
+  const expanded = cardExpanded;
 
   return (
     <div
@@ -1149,9 +1551,8 @@ const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration }: {
         background: isError ? "var(--destructive-bg)" : meta.bg,
       }}
     >
-      {/* ── Tool call header ── */}
       <button
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setCardExpanded((v) => !v)}
         style={{
           display: "flex",
           alignItems: "center",
@@ -1232,14 +1633,13 @@ const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration }: {
           <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
         )}
         {showResultCollapsed && (
-          <span style={{ fontSize: 10, color: "var(--text-dim)", flexShrink: 0 }}>{/* truncated badge filled below via parent t if needed */}…</span>
+          <span style={{ fontSize: 10, color: "var(--text-dim)", flexShrink: 0 }}>…</span>
         )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
         </svg>
       </button>
 
-      {/* ── Expanded: input args ── */}
       {showInputArgs && (
         <pre
           style={{
@@ -1259,12 +1659,9 @@ const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration }: {
         </pre>
       )}
 
-      {/* Short results always visible; long results only when expanded (tool-display style). */}
       {result && (expanded || forceExpandError || !longResult || resultDiff) && (
         resultDiff ? (
-          <PairedDiffResult
-            diff={resultDiff}
-          />
+          <PairedDiffResult diff={resultDiff} />
         ) : (
           <PairedResult
             text={resultText ?? ""}

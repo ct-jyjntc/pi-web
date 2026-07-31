@@ -1058,6 +1058,111 @@ span.linenumber {
   }
 }
 
+/*
+ * Conversation scaffold (Hermes-style process rail): thinking headers, tool-run
+ * summaries, and the turn-level process disclosure. Resting opacity is quiet;
+ * hover/focus lifts it so the user can inspect without permanent noise.
+ */
+.conversation-scaffold {
+  color: var(--text-muted);
+  opacity: 0.72;
+  transition: opacity 0.12s ease;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.conversation-scaffold:hover,
+.conversation-scaffold:focus-within {
+  opacity: 1;
+}
+.conversation-scaffold-label {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-scaffold-label.is-live {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.conversation-scaffold-meta {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.conversation-scaffold-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: auto;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 1px 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.conversation-scaffold-row:hover .conversation-scaffold-label {
+  color: var(--text);
+}
+.conversation-scaffold-caret {
+  flex-shrink: 0;
+  opacity: 0.45;
+  transition: transform 0.15s ease, opacity 0.12s ease;
+}
+.conversation-scaffold-row:hover .conversation-scaffold-caret,
+.conversation-scaffold-row[aria-expanded="true"] .conversation-scaffold-caret {
+  opacity: 0.85;
+}
+.conversation-scaffold-body {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.conversation-scaffold-body.is-preview {
+  max-height: 10rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* Process-track prose: intermediate narration, not the final answer body. */
+.markdown-body.is-process {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+.markdown-body.is-process p { margin: 0 0 6px; }
+.markdown-body.is-process h1,
+.markdown-body.is-process h2,
+.markdown-body.is-process h3,
+.markdown-body.is-process h4,
+.markdown-body.is-process h5,
+.markdown-body.is-process h6 {
+  font-size: 1em;
+  color: var(--text-muted);
+  margin: 0 0 6px;
+}
+.assistant-process-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.assistant-answer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversation-scaffold-label.is-live {
+    animation: none;
+  }
+}
+
 @keyframes notice-shelf-in {
   from {
     opacity: 0;
@@ -3730,3 +3835,4 @@ textarea.input-base:focus-visible {
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
 }
+

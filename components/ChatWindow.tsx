@@ -4,7 +4,7 @@ import { Fragment, startTransition, useCallback, useEffect, useLayoutEffect, use
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMemoryContextMessage, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, formatThoughtDuration, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMemoryContextMessage, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -214,43 +214,101 @@ type RenderPlanItem =
     hasAnswer: boolean;
   };
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
+/**
+ * Turn-level process rail (Hermes-style). Settled turns start collapsed with a
+ * "Thought for Ns" label; expanding reveals thinking / tools / interim prose.
+ * Live turns stay flat upstream, so this mounts only after the answer settles.
+ */
+function ProcessDetailsGroup({
+  durationSeconds,
+  toolCallCount,
+  children,
+}: {
+  durationSeconds?: number;
+  toolCallCount: number;
+  children: ReactNode;
+}) {
   const { t } = useLocale();
-  const [expanded, setExpanded] = useState(false);
-  const parts = [t("window.processDetails"), t("window.messagesCount", { n: messageCount })];
-  if (toolCallCount > 0) parts.push(t("window.toolCallsCount", { n: toolCallCount }));
+  // null = no explicit user toggle yet → default collapsed when settled.
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? false;
+
+  let label = t("window.thought");
+  if (durationSeconds != null && Number.isFinite(durationSeconds)) {
+    if (durationSeconds < 1) label = t("window.thoughtBriefly");
+    else label = t("window.thoughtFor", { duration: formatThoughtDuration(durationSeconds) });
+  }
 
   return (
-    <div style={{ marginBottom: 14 }}>
+    <div
+      data-slot="process-details"
+      style={{
+        marginBottom: 12,
+        color: "var(--text-muted)",
+        fontSize: 12,
+        lineHeight: 1.45,
+        opacity: 0.78,
+      }}
+    >
       <button
         type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={open}
+        onClick={() => setUserOpen(!open)}
+        title={open ? t("window.collapseProcess") : t("window.expandProcess")}
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: 7,
           width: "auto",
-          minHeight: 24,
-          padding: "2px 0",
+          maxWidth: "100%",
+          minHeight: 22,
+          padding: "1px 0",
           border: "none",
           background: "transparent",
-          color: "var(--text-muted)",
+          color: "inherit",
           cursor: "pointer",
-          fontSize: 12,
           textAlign: "left",
         }}
-        title={expanded ? t("window.collapseProcess") : t("window.expandProcess")}
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="4 2.5 7.5 6 4 9.5" />
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{
+            flexShrink: 0,
+            opacity: 0.55,
+            transform: open ? "rotate(90deg)" : "none",
+            transition: "transform 0.15s ease",
+          }}
+        >
+          <polyline points="3.5 2 6.5 5 3.5 8" />
         </svg>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {parts.join(" · ")}
+        <span
+          style={{
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+          {toolCallCount > 0 ? ` · ${t("window.toolCallsCount", { n: toolCallCount })}` : ""}
         </span>
       </button>
-      {expanded && (
-        <div style={{ marginTop: 8 }}>
+      {open && (
+        <div
+          style={{
+            marginTop: 6,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
           {children}
         </div>
       )}
@@ -755,7 +813,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       messageRefs.current[refIndex] = el;
     };
 
-    const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; liveTail?: boolean } = {}): ReactNode => {
+    const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; liveTail?: boolean; variant?: "answer" | "process" } = {}): ReactNode => {
       const msg = options.messageOverride ?? messages[idx];
       const prevAssistantEntryId =
         msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -778,6 +836,26 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         }
       }
       if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+      // Live multi-step turns stay flat, but intermediate assistants (already
+      // finished, more of the turn still coming) should read as process rail —
+      // not full answer chrome — so they don't flash as the final reply.
+      let variant = options.variant;
+      if (
+        variant === undefined
+        && msg.role === "assistant"
+        && (sessionBusy || streamState.isStreaming)
+        && idx > lastUserIdx
+        && idx < messages.length - 1
+      ) {
+        const parts = getFinalAssistantParts(msg as AssistantMessage);
+        if (parts.processBlocks.length > 0 && parts.answerBlocks.length === 0) {
+          variant = "process";
+        } else if (parts.processBlocks.length > 0) {
+          // Has tools/thinking plus trailing text, but isn't the turn's final
+          // answer yet — keep the whole bubble in process style until settle.
+          variant = "process";
+        }
+      }
       const view = (
         <MessageView
           key={`${keyPrefix}-view-${idx}`}
@@ -795,6 +873,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           showTimestamp={showTimestamp}
           prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
           sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+          variant={variant}
         />
       );
       if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
@@ -812,13 +891,19 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
         .find((value): value is number => typeof value === "number")
         ?? (item.hasAnswer ? undefined : visibleRefIndexByMessage.get(item.finalAssistantIdx));
+      const userTs = (messages[item.userIdx] as AgentMessage & { timestamp?: number }).timestamp;
+      const finalTs = finalAssistant.timestamp;
+      const durationSeconds =
+        userTs && finalTs && finalTs >= userTs
+          ? Math.round((finalTs - userTs) / 1000)
+          : undefined;
       const processGroup = (
         <ProcessDetailsGroup
-          messageCount={item.processCount}
+          durationSeconds={durationSeconds}
           toolCallCount={getTurnToolCallCount(messages, item.processIndices, finalAssistant, finalSplit.processBlocks)}
         >
-          {item.processIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
-          {finalSplit.processMessage && renderMessage(item.finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalSplit.processMessage, showTimestamp: false })}
+          {item.processIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process", variant: "process" }))}
+          {finalSplit.processMessage && renderMessage(item.finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalSplit.processMessage, showTimestamp: false, variant: "process" })}
         </ProcessDetailsGroup>
       );
       return (
