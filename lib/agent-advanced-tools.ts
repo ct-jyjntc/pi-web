@@ -11,7 +11,7 @@ import { join } from "path";
 import { promisify } from "util";
 import { Type } from "typebox";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinitionLike } from "./agent-tool-types";
+import { errorResult, type ToolDefinitionLike } from "./agent-tool-types";
 
 const execFileAsync = promisify(execFile);
 
@@ -212,10 +212,7 @@ export function createAdvancedTools(options: {
           details: share,
         };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };

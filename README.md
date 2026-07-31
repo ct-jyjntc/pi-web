@@ -52,7 +52,7 @@ Open a project, chat with the agent, review Git changes, browse files, and open 
 ## Highlights
 
 - **Agent chat** — streaming replies, tool calls / results, thinking, context & cost, compaction
-- **Session hub** — project-grouped history, rename / delete / export HTML, auto title, fork & in-session branches
+- **Session hub** — project-grouped history, rename / delete, auto title, fork & in-session branches
 - **Git review** — status, stage / unstage, discard, commit, commit & push, pull, branch create, **AI commit messages**
 - **Worktrees** — switch / create / remove Git worktrees from the sidebar ([guide](./docs/worktrees.md))
 - **Terminals** — multi-tab PTY shells (xterm + node-pty) rooted at the project cwd

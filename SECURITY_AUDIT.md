@@ -90,7 +90,7 @@ After C4 (home/`/` added), upload to `~/.bashrc`/`~/.zshrc`/`~/.env`/`~/.ssh/aut
 `app/api/sessions/[id]/route.ts:215-226`. `readFileSync`→`writeFileSync` whole file with no lock; a concurrently-appending live `AgentSession` loses entries; crash mid-write corrupts the file. Propagates an unvalidated `parentSession` path into sibling headers (cross-file data write). **Fix:** Rewrite only the header line in place (or temp+rename); `flock`; skip live children; validate `parentSessionPath` is within the agent dir.
 
 ### H7 — Exported HTML served with no CSP (stored XSS if SDK under-escapes)
-`app/api/sessions/[id]/export/route.ts:264-270`. Session content (tool results, bash output, pasted HTML) embedded by the SDK with no route-side escaping and no CSP. The `?inline=1` variant renders in-browser; a single under-escaped field → JS in the localhost origin → full agent takeover (C1). **Fix:** `Content-Security-Policy: default-src 'none'` + `X-Content-Type-Options: nosniff` on the export response.
+`app/api/sessions/[id]/export/route.ts` **[REMOVED — unused dead route]** (was L264-270). Session content (tool results, bash output, pasted HTML) embedded by the SDK with no route-side escaping and no CSP. The `?inline=1` variant renders in-browser; a single under-escaped field → JS in the localhost origin → full agent takeover (C1). **Fix:** `Content-Security-Policy: default-src 'none'` + `X-Content-Type-Options: nosniff` on the export response.
 
 ### H8 — No CSP / security headers on the app pages
 `next.config.ts` sets only `Cache-Control` on `/`. App is frameable (clickjacking the agent "Confirm/Allow" prompts) and has no CSP. The DOCX preview route sets a strict CSP but the main app does not. **Fix:** global `Content-Security-Policy`, `X-Frame-Options: DENY` / `frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Permissions-Policy`.
@@ -132,9 +132,9 @@ After C4 (home/`/` added), upload to `~/.bashrc`/`~/.zshrc`/`~/.env`/`~/.ssh/aut
 ### M12 — `/api/skills` PATCH writes to an arbitrary existing file path
 `app/api/skills/route.ts:32-58`. `filePath` never validated against allowed roots or a `SKILL.md` name. Turns a transient XSS into a persistent backdoor (corrupt `~/.zshrc`, `models.json`, SSH config). Validate with `isFilePathAllowed` + require `SKILL.md` under a skills path.
 ### M13 — `patchExportHtml` unvalidated string replacement on attacker-influenced HTML
-`app/api/sessions/[id]/export/route.ts:108-206`. Hardcoded anchors; a session message identical to an anchor → 500 (DoS) or wrong-location replace. Patch structurally or fix upstream.
+`app/api/sessions/[id]/export/route.ts` **[REMOVED — unused dead route]** (was L108-206). Hardcoded anchors; a session message identical to an anchor → 500 (DoS) or wrong-location replace. Patch structurally or fix upstream.
 ### M14 — `export` route leaks full `process.env` (incl. model keys) into spawned `pi --export`
-`app/api/sessions/[id]/export/route.ts:112`. Pass a minimal env; set `cwd` to the session dir; bound concurrency.
+`app/api/sessions/[id]/export/route.ts` **[REMOVED — unused dead route]** (was L112). Pass a minimal env; set `cwd` to the session dir; bound concurrency.
 
 ---
 

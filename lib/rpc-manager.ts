@@ -96,29 +96,6 @@ type ExtensionBindingOptions = {
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
-/**
- * Per-chunk streaming events. pi emits these hundreds to thousands of times per
- * reply, and none of them can change `AgentSessionWrapper.isRunning()`, which is
- * `_alive && (promptRunning || inner.isStreaming || inner.isCompacting || inner.isBashRunning)`:
- *
- * - `promptRunning` only flips in `send("prompt")`, which notifies explicitly.
- * - `inner.isStreaming` (`_isAgentRunActive`) is set before `agent_start` and
- *   cleared right before `agent_settled`.
- * - `inner.isCompacting` tracks the compaction/branch-summary abort controllers,
- *   whose windows are bracketed by `compaction_start` / `compaction_end` (and by
- *   `send("compact")` / `send("navigate_tree")` notifying on completion).
- * - `inner.isBashRunning` is only ever set by `AgentSession.executeBash()`, whose
- *   single caller is `send("bash")` — it notifies before and after.
- *
- * This is deliberately a deny-list rather than an allow-list: any event type a
- * future SDK version adds still triggers a notification, so a new running-state
- * transition can never leave the sidebar badge stuck.
- */
-const STREAMING_ONLY_EVENT_TYPES = new Set([
-  "message_update", // one per text/thinking/toolcall delta
-  "tool_execution_update", // one per streamed partial tool result
-  "bash_execution_update", // one per shell output chunk
-]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
 class PlainTextTheme extends Theme {
@@ -218,13 +195,8 @@ export class AgentSessionWrapper {
         invalidateSessionListCache();
       }
       this.emit(event);
-      // Compaction / run-lifecycle / tool events can change the running status;
-      // re-broadcast the snapshot so the sidebar updates live. Per-chunk
-      // streaming events cannot, so they skip the registry scan entirely.
-      if (!STREAMING_ONLY_EVENT_TYPES.has(event.type)) notifyRunningChange();
     });
     this.resetIdleTimer();
-    notifyRunningChange();
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -318,14 +290,6 @@ export class AgentSessionWrapper {
 
   private shouldWaitForExtensions(type: string): boolean {
     return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands";
-  }
-
-  private async withFinalRunningNotification<T>(operation: () => Promise<T>): Promise<T> {
-    try {
-      return await operation();
-    } finally {
-      notifyRunningChange();
-    }
   }
 
   private applyForcedEmptySystemPrompt(): void {
@@ -481,7 +445,6 @@ export class AgentSessionWrapper {
           }
         }
         this.promptRunning = true;
-        notifyRunningChange();
         this.inner.prompt(command.message as string, {
           ...(promptImages?.length ? { images: promptImages } : {}),
           ...(streamingBehavior ? { streamingBehavior } : {}),
@@ -490,7 +453,6 @@ export class AgentSessionWrapper {
           this.promptRunning = false;
           if (!this._alive) return;
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
-          notifyRunningChange();
         }).catch((error) => {
           this.promptRunning = false;
           if (!this._alive) return;
@@ -500,13 +462,12 @@ export class AgentSessionWrapper {
             errorMessage: error instanceof Error ? error.message : String(error),
           });
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
-          notifyRunningChange();
         });
         return null;
       }
 
       case "abort":
-        await this.withFinalRunningNotification(() => this.inner.abort());
+        await this.inner.abort();
         return null;
 
       case "get_state": {
@@ -595,11 +556,7 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot navigate while a shell command is running");
         }
-        // Branch summarization keeps isCompacting() true for the whole call and
-        // emits no event on completion — notify so the badge clears.
-        const result = await this.withFinalRunningNotification(() =>
-          this.inner.navigateTree(command.targetId as string, {})
-        );
+        const result = await this.inner.navigateTree(command.targetId as string, {});
         return { cancelled: result.cancelled };
       }
 
@@ -618,9 +575,7 @@ export class AgentSessionWrapper {
 
       case "compact": {
         try {
-          const result = await this.withFinalRunningNotification(() =>
-            this.inner.compact(command.customInstructions as string | undefined)
-          );
+          const result = await this.inner.compact(command.customInstructions as string | undefined);
           // Attach post-compaction UI usage so clients don't wait for the next reply.
           if (result && typeof result === "object") {
             return {
@@ -757,14 +712,12 @@ export class AgentSessionWrapper {
           undefined,
           { excludeFromContext: command.excludeFromContext as boolean | undefined },
         );
-        notifyRunningChange();
         try {
           const result = await execution;
           this.persistBashOnlySession();
           return result;
         } finally {
           invalidateSessionListCache();
-          notifyRunningChange();
         }
       }
 
@@ -811,7 +764,6 @@ export class AgentSessionWrapper {
     this.extensionWidgets.clear();
     this.extensionStatuses.clear();
     this.onDestroyCallback?.();
-    notifyRunningChange();
   }
 
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
@@ -1253,8 +1205,6 @@ declare global {
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
-  var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
-  var __piLastRunningSnapshot: string | undefined;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -1313,45 +1263,6 @@ export function getRunningRpcSessionIds(): string[] {
     if (session.isRunning()) ids.add(session.sessionId || sessionId);
   }
   return [...ids];
-}
-
-// ----------------------------------------------------------------------------
-// Running-status broadcaster
-//
-// Pushes the current set of running session ids to subscribers whenever any
-// session's running state may have changed. This lets the sidebar receive live
-// updates over SSE instead of polling. Listeners live on globalThis so they
-// survive Next.js hot-reload.
-// ----------------------------------------------------------------------------
-
-function getRunningListeners(): Set<(ids: string[]) => void> {
-  if (!globalThis.__piRunningListeners) globalThis.__piRunningListeners = new Set();
-  return globalThis.__piRunningListeners;
-}
-
-/** Subscribe to running-session-id changes. Returns an unsubscribe function. */
-export function subscribeRunningSessions(listener: (ids: string[]) => void): () => void {
-  const listeners = getRunningListeners();
-  listeners.add(listener);
-  return () => { listeners.delete(listener); };
-}
-
-/**
- * Recompute the running-session-id set and, if it changed since the last
- * notification, broadcast it to subscribers. Cheap to call often.
- *
- * The dedupe snapshot lives on globalThis next to the listener set: a module-level
- * variable would drift out of sync with the listeners across HMR reloads or when
- * several bundles (route handlers vs. server components) load this module.
- */
-export function notifyRunningChange(): void {
-  const ids = getRunningRpcSessionIds();
-  const snapshot = JSON.stringify([...ids].sort());
-  if (snapshot === globalThis.__piLastRunningSnapshot) return;
-  globalThis.__piLastRunningSnapshot = snapshot;
-  for (const listener of getRunningListeners()) {
-    try { listener(ids); } catch { /* ignore listener errors */ }
-  }
 }
 
 /**

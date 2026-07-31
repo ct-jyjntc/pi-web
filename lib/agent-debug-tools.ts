@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import type { ToolDefinitionLike } from "./agent-tool-types";
+import { errorResult, type ToolDefinitionLike } from "./agent-tool-types";
 import {
   debugBreakpoint,
   debugContinue,
@@ -114,10 +114,7 @@ export function createDebugTools(cwd: string): ToolDefinitionLike[] {
         }
         return { content: [{ type: "text", text: `Unknown action: ${action}` }], isError: true };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };

@@ -42,7 +42,6 @@ app/api/
   sessions/route.ts               GET  list all sessions
   sessions/[id]/route.ts          GET/PATCH/DELETE session
   sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
-  sessions/[id]/export/route.ts   GET exported HTML for a session
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
@@ -154,10 +153,10 @@ Every session uses the full built-in tool set (`getFullToolNames()` → `toolNam
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.
 
 ### Compaction SSE events
-Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
+Pi emits `compaction_start` / `compaction_end`. Manual compact is a blocking POST — the button stays disabled until the response returns.
 
 ### Running state polling + reconciliation
-- The sidebar polls `GET /api/agent/running` while the tab is visible (avoids one long-lived SSE per multi-window tab). Server state still uses `subscribeRunningSessions()` in `lib/rpc-manager.ts`.
+- The sidebar polls `GET /api/agent/running` while the tab is visible (avoids one long-lived SSE per multi-window tab). Running ids come from `getRunningRpcSessionIds()` (no in-process pub/sub).
 - `useAgentSession` treats per-session SSE as primary for chat events, but while a run is active it also reconciles via `GET /api/agent/[id]` on a slow interval and on `visibilitychange`/`online` (skipped while prompt settlement is already polling). This fixes missed `agent_end` events from background tabs or half-open connections.
 - Prompt runs use a monotonic run id; late SSE or slow reconciliation responses from an old run must be ignored so they cannot resurrect stale streaming bubbles.
 
@@ -189,8 +188,6 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
 - Browser autoplay policy means sound must be unlocked from a user gesture; `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.
 
-### Exported session HTML
-- `/api/sessions/[id]/export` delegates to pi's export helper, then patches recursive tree helpers in the generated HTML to iterative versions so very deep linear sessions do not overflow the browser call stack.
 
 ## Pi Session File Format
 
@@ -219,7 +216,7 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --success --destructive --ring
 --success-bg --success-border --destructive-bg --destructive-border   (status tints)
 --diff-add-bg --diff-del-bg --diff-hunk-bg                           (single diff recipe)
---overlay-bg --shadow-sm --shadow-md --shadow-lg                     (per-theme values)
+--overlay-bg --shadow-sm --shadow-md                                   (per-theme values)
 --radius-xs(4) --radius-sm(6) --radius-md(8) --radius-lg(10) --radius-pill(999)
 --font-mono
 ```

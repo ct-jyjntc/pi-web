@@ -2,8 +2,8 @@
  * Agent tool: github — thin gh-backed PR/issue reader + virtual pr:// / issue:// refs.
  */
 import { Type } from "typebox";
-import { githubAction, parseGithubRef } from "./github";
-import type { ToolDefinitionLike } from "./agent-tool-types";
+import { githubAction } from "./github";
+import { errorResult, type ToolDefinitionLike } from "./agent-tool-types";
 
 export function createGithubTools(cwd: string): ToolDefinitionLike[] {
   const github: ToolDefinitionLike = {
@@ -50,10 +50,7 @@ export function createGithubTools(cwd: string): ToolDefinitionLike[] {
           isError: !result.ok,
         };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };
@@ -61,7 +58,3 @@ export function createGithubTools(cwd: string): ToolDefinitionLike[] {
   return [github];
 }
 
-/** True if path looks like a github virtual ref. */
-export function isGithubVirtualPath(path: string): boolean {
-  return Boolean(parseGithubRef(path));
-}

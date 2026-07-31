@@ -17,7 +17,7 @@ import {
   type ProjectMemorySettings,
 } from "./project-memory";
 import { runMemoryReflect } from "./memory-reflect";
-import type { ToolDefinitionLike } from "./agent-tool-types";
+import { errorResult, type ToolDefinitionLike } from "./agent-tool-types";
 
 function memorySettings() {
   return getProjectMemorySettings();
@@ -26,13 +26,6 @@ function memorySettings() {
 function disabledResult() {
   return {
     content: [{ type: "text" as const, text: "Project memory is disabled in Settings." }],
-    isError: true,
-  };
-}
-
-function errorResult(error: unknown) {
-  return {
-    content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }],
     isError: true,
   };
 }

@@ -322,10 +322,6 @@ export function getLspHealth(cwd?: string | null): LspHealth {
   return health;
 }
 
-/** Drop memoized discovery results (e.g. after installing a server). */
-export function invalidateLspHealthCache(): void {
-  getLspHealthCache().clear();
-}
 
 /** Specs ready to launch (for lsp-client). */
 export function getAvailableLspSpecs(cwd?: string | null): Array<{

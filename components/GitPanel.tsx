@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -10,7 +10,6 @@ import { DiffView } from "./DiffView";
 interface Props {
   cwd: string | null;
   refreshKey?: number;
-  onOpenFile?: (filePath: string, fileName: string) => void;
   onStatusChange?: (status: GitStatusResponse | null) => void;
   /** Start a Git Review chat session (prompt already sent server-side). */
   onReviewSessionStarted?: (session: {
@@ -20,19 +19,7 @@ interface Props {
   }) => void;
   /** Focus/expand this path when provided (e.g. opened from file tree). */
   focusPath?: string | null;
-  /** Embed as collapsible strip (legacy). Default is full-page review. */
-  embedded?: boolean;
-  defaultExpanded?: boolean;
 }
-
-const STATUS_KEYS: Record<GitFileStatusKind, MessageKey> = {
-  modified: "files.modified",
-  added: "files.added",
-  deleted: "files.deleted",
-  renamed: "files.renamed",
-  untracked: "files.untracked",
-  conflict: "files.conflict",
-};
 
 const STATUS_COLORS: Record<GitFileStatusKind, string> = {
   modified: "var(--text)",
@@ -79,12 +66,9 @@ function relPath(filePath: string, root: string | null): string {
 export function GitPanel({
   cwd,
   refreshKey = 0,
-  onOpenFile,
   onStatusChange,
   onReviewSessionStarted,
   focusPath = null,
-  embedded = false,
-  defaultExpanded = true,
 }: Props) {
   const { t } = useLocale();
   const [status, setStatus] = useState<GitStatusResponse | null>(null);
@@ -97,7 +81,6 @@ export function GitPanel({
   const [branchOpen, setBranchOpen] = useState(false);
   const [branches, setBranches] = useState<string[]>([]);
   const [newBranch, setNewBranch] = useState("");
-  const [expanded, setExpanded] = useState(defaultExpanded);
   const [commitOpen, setCommitOpen] = useState(false);
   const [includeUnstaged, setIncludeUnstaged] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -230,7 +213,6 @@ export function GitPanel({
     if (!status?.isGitRepository || diffsInitialized) return;
     setOpenDiffs(new Set(status.files.map((f) => f.filePath)));
     setDiffsInitialized(true);
-    setExpanded(true);
   }, [status, diffsInitialized]);
 
   useEffect(() => {
@@ -241,7 +223,6 @@ export function GitPanel({
   // Focus path from file tree → expand that row
   useEffect(() => {
     if (!focusPath) return;
-    setExpanded(true);
     setOpenDiffs((prev) => new Set(prev).add(focusPath));
   }, [focusPath]);
 
@@ -642,18 +623,11 @@ export function GitPanel({
     await mutate("/api/git/branches", { cwd, action: "create", branch: name });
   }, [cwd, mutate, newBranch]);
 
-  if (embedded) {
-    if (!cwd) return null;
-    if (!loading && status && !status.isGitRepository) return null;
-  } else {
-    if (!cwd) return <div style={emptyStyle}>{t("git.noCwd")}</div>;
-    if (loading && !status) return <div style={emptyStyle}>{t("git.loading")}</div>;
-    if (status && !status.isGitRepository) return <div style={emptyStyle}>{t("git.notRepo")}</div>;
-  }
+  if (!cwd) return <div style={emptyStyle}>{t("git.noCwd")}</div>;
+  if (loading && !status) return <div style={emptyStyle}>{t("git.loading")}</div>;
+  if (status && !status.isGitRepository) return <div style={emptyStyle}>{t("git.notRepo")}</div>;
 
   const changeCount = (status?.stagedCount ?? 0) + (status?.unstagedCount ?? 0) + (status?.conflictCount ?? 0);
-  // Full review page always shows the list; only legacy embedded strip can collapse.
-  const showBody = !embedded || expanded;
   const insertions = status?.insertions ?? 0;
   const deletions = status?.deletions ?? 0;
 
@@ -724,7 +698,6 @@ export function GitPanel({
             if (openDiffs.size > 0) {
               setOpenDiffs(new Set());
             } else {
-              setExpanded(true);
               setOpenDiffs(new Set((status?.files ?? []).map((f) => f.filePath)));
             }
           }}
@@ -917,7 +890,7 @@ export function GitPanel({
       </div>
 
       {/* Subheader: branch → upstream (collapses when narrow) */}
-      {showBody && (
+      {(
         <div className="git-panel-subheader">
           <div className="git-panel-branch" ref={branchRef} style={{ position: "relative" }}>
             <button
@@ -1054,7 +1027,7 @@ export function GitPanel({
         </div>
       )}
 
-      {showBody && prDiffOpen && linkedPr && (
+      {prDiffOpen && linkedPr && (
         <div
           style={{
             borderBottom: "1px solid var(--border)",
@@ -1123,13 +1096,13 @@ export function GitPanel({
         </div>
       )}
 
-      {showBody && (error || notice) && (
+      {(error || notice) && (
         <div className={`git-panel-notice ${error ? "is-error" : "is-ok"}`}>
           {error ? `${t("git.error")}: ${error}` : notice}
         </div>
       )}
 
-      {showBody && conflicts.length > 0 && (
+      {conflicts.length > 0 && (
         <div
           style={{
             padding: "8px 12px",
@@ -1146,7 +1119,7 @@ export function GitPanel({
         </div>
       )}
 
-      {showBody && merging && conflicts.length === 0 && (
+      {merging && conflicts.length === 0 && (
         <div
           style={{
             padding: "8px 12px",
@@ -1171,7 +1144,7 @@ export function GitPanel({
         </div>
       )}
 
-      {showBody && splitOpen && (
+      {splitOpen && (
         <div
           style={{
             borderBottom: "1px solid var(--border)",
@@ -1248,7 +1221,7 @@ export function GitPanel({
         </div>
       )}
 
-      {showBody && (
+      {(
         <div className="git-panel-body" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
           {allFiles.length === 0 ? (
             <div style={{ ...emptyStyle, height: 80 }}>{t("git.clean")}</div>

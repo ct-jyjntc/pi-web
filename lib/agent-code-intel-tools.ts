@@ -9,6 +9,7 @@ import { formatLspHealthReport, getLspHealth } from "./lsp-health";
 import { applyRenameEdits, findReferences, formatLocations, planRename } from "./ts-lsp";
 import { readFileSync, writeFileSync } from "fs";
 import {
+  errorResult,
   type ToolDefinitionLike,
   type ToolResult,
 } from "./agent-tool-types";
@@ -110,10 +111,7 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };
@@ -156,10 +154,7 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
         }).join("\n");
         return { content: [{ type: "text", text }], details: { locations: locs } };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };
@@ -203,10 +198,7 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
         ].join("\n");
         return { content: [{ type: "text", text }], details: result };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };
@@ -302,10 +294,7 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
           details: plan,
         };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };
@@ -347,10 +336,7 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
         }
         throw new Error("kind must be rename_identifier or replace_text_in_node");
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };

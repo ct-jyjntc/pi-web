@@ -20,11 +20,6 @@ export interface GitFileStatus {
   deletions: number;
 }
 
-export interface GitBranchInfo {
-  name: string;
-  current: boolean;
-  upstream: string | null;
-}
 
 export interface GitStatusResponse {
   isGitRepository: boolean;
@@ -47,13 +42,3 @@ export interface GitFileDiffResponse {
   patch?: string;
 }
 
-export interface GitMutationResponse {
-  ok: true;
-  status: GitStatusResponse;
-}
-
-export interface GitCommitResponse {
-  ok: true;
-  commit: string | null;
-  status: GitStatusResponse;
-}

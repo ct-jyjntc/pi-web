@@ -57,14 +57,6 @@ export function getAppUpdateInfo(): AppUpdateInfo | null {
   return updateInfo;
 }
 
-export function getAppUpdateChecking(): boolean {
-  return checking;
-}
-
-export function getAppUpdateError(): string | null {
-  return lastError;
-}
-
 export function subscribeAppUpdate(listener: Listener): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };

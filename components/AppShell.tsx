@@ -1465,10 +1465,6 @@ export function AppShell() {
                 cwd={activeCwd}
                 refreshKey={explorerRefreshKey}
                 focusPath={gitFocusPath}
-                defaultExpanded
-                onOpenFile={(filePath, fileName) => {
-                  handleOpenFile(filePath, fileName);
-                }}
                 onReviewSessionStarted={(session) => {
                   setNewSessionCwd(null);
                   setSelectedSession({

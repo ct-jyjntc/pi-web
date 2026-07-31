@@ -12,7 +12,6 @@ export type ModelRole = "default" | "smol" | "plan";
 export type { ModelRoles };
 export { emptyModelRoles, parseModelRoles };
 
-export const MODEL_ROLES: readonly ModelRole[] = ["default", "smol", "plan"] as const;
 
 export function formatModelRoles(roles: ModelRoles | null | undefined): Record<ModelRole, string> {
   const r = roles ?? emptyModelRoles();

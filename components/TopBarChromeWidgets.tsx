@@ -12,6 +12,7 @@ import {
 } from "@/lib/extension-widgets";
 import { useChromeWidgetsMetric } from "@/lib/session-metrics-store";
 import type { ExtensionWidgetItem } from "@/lib/types";
+import { TodoItemRow } from "./extension/TodoAtoms";
 
 const POPOVER_WIDTH = 300;
 
@@ -41,22 +42,6 @@ const CAPSULE_STYLE: CSSProperties = {
   boxSizing: "border-box",
 };
 
-function TodoDot({ status }: { status: TodoItem["status"] }) {
-  const color =
-    status === "completed" ? "var(--success)"
-      : status === "in_progress" ? "var(--accent)"
-        : "var(--text-dim)";
-  const symbol =
-    status === "completed" ? "✓"
-      : status === "in_progress" ? "●"
-        : "○";
-  return (
-    <span style={{ color, width: 12, flexShrink: 0, fontSize: 11, lineHeight: "16px", textAlign: "center" }}>
-      {symbol}
-    </span>
-  );
-}
-
 function TodoPanelBody({ parsed }: { parsed: ParsedTodoWidget }) {
   const { t } = useLocale();
   if (parsed.collapsedHint) {
@@ -76,34 +61,7 @@ function TodoPanelBody({ parsed }: { parsed: ParsedTodoWidget }) {
   return (
     <div style={{ padding: "6px 8px 8px" }}>
       {parsed.items.map((item, i) => (
-        <div
-          key={`${item.id ?? i}-${item.text.slice(0, 24)}`}
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 6,
-            padding: "3px 6px",
-          }}
-        >
-          <TodoDot status={item.status} />
-          <div
-            style={{
-              minWidth: 0,
-              flex: 1,
-              fontSize: 12,
-              lineHeight: 1.35,
-              color: item.status === "completed" ? "var(--text-dim)" : "var(--text)",
-              textDecoration: item.status === "completed" ? "line-through" : "none",
-            }}
-          >
-            {item.id ? (
-              <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 10, marginRight: 4 }}>
-                #{item.id}
-              </span>
-            ) : null}
-            {item.text}
-          </div>
-        </div>
+        <TodoItemRow key={`${item.id ?? i}-${item.text.slice(0, 24)}`} item={item} index={i} />
       ))}
     </div>
   );

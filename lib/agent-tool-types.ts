@@ -20,12 +20,6 @@ export type ToolDefinitionLike = {
   ) => Promise<ToolResult>;
 };
 
-export function textResult(text: string, details?: unknown): ToolResult {
-  return details === undefined
-    ? { content: [{ type: "text", text }] }
-    : { content: [{ type: "text", text }], details };
-}
-
 export function errorResult(error: unknown): ToolResult {
   return {
     content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],

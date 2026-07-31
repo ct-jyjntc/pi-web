@@ -92,8 +92,8 @@ function checkVersionsAndDefaults() {
       const version = JSON.parse(
         readFileSync(path.join(root, "node_modules", name, "package.json"), "utf8"),
       ).version;
-      if (version === "0.82.1") pass(`${name}@${version}`);
-      else fail(`${name}`, `expected 0.82.1 got ${version}`);
+      if (version === "0.83.0") pass(`${name}@${version}`);
+      else fail(`${name}`, `expected 0.83.0 got ${version}`);
     }
 
     const { parseLaunchOptions } = require(path.join(root, "bin/pi-web-options.js"));

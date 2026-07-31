@@ -59,7 +59,3 @@ export function formatThoughtDuration(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-/** True when a block is process scaffolding (thinking / tools), not final prose. */
-export function isProcessScaffoldBlock(block: AssistantContentBlock): boolean {
-  return block.type === "thinking" || block.type === "toolCall";
-}

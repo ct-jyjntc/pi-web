@@ -10,7 +10,7 @@ import {
   type CheckpointStore,
 } from "./session-checkpoint";
 import { webFetch, webSearch } from "./web-tools";
-import type { ToolDefinitionLike } from "./agent-tool-types";
+import { errorResult, type ToolDefinitionLike } from "./agent-tool-types";
 
 export function createDiagnosticsTool(cwd: string): ToolDefinitionLike {
   return {
@@ -31,10 +31,7 @@ export function createDiagnosticsTool(cwd: string): ToolDefinitionLike {
           details: result,
         };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };
@@ -61,10 +58,7 @@ export function createWebTools(): ToolDefinitionLike[] {
           details: { url: result.url, contentType: result.contentType, status: result.status },
         };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };
@@ -90,10 +84,7 @@ export function createWebTools(): ToolDefinitionLike[] {
           .join("\n\n");
         return { content: [{ type: "text", text }], details: { results } };
       } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
+        return errorResult(error);
       }
     },
   };
