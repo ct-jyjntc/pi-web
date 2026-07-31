@@ -47,22 +47,27 @@ export type MemoryFact = {
 
 export type ProjectMemorySettings = {
   enabled: boolean;
+  /**
+   * When true, pi-web may auto-inject stored facts into the system prompt and
+   * per-turn memory-context. Default false: prompts stay under pi-web control
+   * only (no agent-written memory leaking into system prompt).
+   */
+  autoInject: boolean;
   autoInjectTopK: number;
   maxFactChars: number;
   maxInjectChars: number;
   /** Hard char budget for the project-scope store (see memoryStoreUsage). */
   projectBudgetChars: number;
-  /** Hard char budget for the user-scope store. */
-  userBudgetChars: number;
 };
 
 export const DEFAULT_PROJECT_MEMORY: ProjectMemorySettings = {
-  enabled: true,
+  // Tools + store available only when enabled; never auto-inject by default.
+  enabled: false,
+  autoInject: false,
   autoInjectTopK: 12,
   maxFactChars: 400,
   maxInjectChars: 3000,
   projectBudgetChars: 4000,
-  userBudgetChars: 2000,
 };
 
 export function parseProjectMemorySettings(value: unknown): ProjectMemorySettings {
@@ -77,12 +82,21 @@ export function parseProjectMemorySettings(value: unknown): ProjectMemorySetting
   };
   return {
     enabled: typeof rec.enabled === "boolean" ? rec.enabled : DEFAULT_PROJECT_MEMORY.enabled,
+    // Missing key → false (prompt ownership). Only explicit true enables inject.
+    autoInject: rec.autoInject === true,
     autoInjectTopK: clamp(rec.autoInjectTopK, DEFAULT_PROJECT_MEMORY.autoInjectTopK, 0, 50),
     maxFactChars: clamp(rec.maxFactChars, DEFAULT_PROJECT_MEMORY.maxFactChars, 80, 2000),
     maxInjectChars: clamp(rec.maxInjectChars, DEFAULT_PROJECT_MEMORY.maxInjectChars, 200, 12000),
     projectBudgetChars: clamp(rec.projectBudgetChars, DEFAULT_PROJECT_MEMORY.projectBudgetChars, 500, 20000),
-    userBudgetChars: clamp(rec.userBudgetChars, DEFAULT_PROJECT_MEMORY.userBudgetChars, 500, 20000),
   };
+}
+
+/** True when pi-web is allowed to push memory into model-visible prompts. */
+export function memoryAutoInjectEnabled(
+  settings?: ProjectMemorySettings | WebSettings["projectMemory"] | null,
+): boolean {
+  const mem = parseProjectMemorySettings(settings ?? readWebSettings().projectMemory);
+  return mem.enabled && mem.autoInject && mem.autoInjectTopK > 0;
 }
 
 export function projectMemoryKey(cwd: string): string {
@@ -94,17 +108,16 @@ export function projectMemoryDir(cwd: string): string {
   return join(getAgentDir(), "project-memory", projectMemoryKey(cwd));
 }
 
-/** Memory store scope: per-project facts vs. cross-project facts about the user. */
-export type MemoryScope = "project" | "user";
+/** Memory store is project-scoped only (no global/user memory). */
+export type MemoryScope = "project";
 
-export function userMemoryDir(): string {
-  return join(getAgentDir(), "user-memory");
+function normalizeScope(_scope?: MemoryScope | string | null): MemoryScope {
+  // Ignore any legacy "user" callers — always project.
+  return "project";
 }
 
-function factsPath(cwd: string, scope: MemoryScope = "project"): string {
-  return scope === "user"
-    ? join(userMemoryDir(), "facts.jsonl")
-    : join(projectMemoryDir(cwd), "facts.jsonl");
+function factsPath(cwd: string, _scope: MemoryScope = "project"): string {
+  return join(projectMemoryDir(cwd), "facts.jsonl");
 }
 
 /**
@@ -125,8 +138,8 @@ export function memoryStoreUsage(facts: MemoryFact[]): number {
   return facts.reduce((sum, f) => sum + f.text.length + FACT_OVERHEAD_CHARS, 0);
 }
 
-export function memoryBudgetChars(settings: ProjectMemorySettings, scope: MemoryScope): number {
-  return scope === "user" ? settings.userBudgetChars : settings.projectBudgetChars;
+export function memoryBudgetChars(settings: ProjectMemorySettings, _scope: MemoryScope = "project"): number {
+  return settings.projectBudgetChars;
 }
 
 function newId(): string {
@@ -151,8 +164,9 @@ function parseFactLine(line: string): MemoryFact | null {
   }
 }
 
-export function listMemoryFacts(cwd: string, scope: MemoryScope = "project"): MemoryFact[] {
-  const path = factsPath(cwd, scope);
+export function listMemoryFacts(cwd: string, scope: MemoryScope | string = "project"): MemoryFact[] {
+  const resolved = normalizeScope(scope);
+  const path = factsPath(cwd, resolved);
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
   const facts: MemoryFact[] = [];
@@ -235,11 +249,11 @@ export function retainMemoryFact(
     importance?: number;
     source?: "tool" | "user";
     settings?: ProjectMemorySettings;
-    scope?: MemoryScope;
+    scope?: MemoryScope | string;
   },
 ): MemoryFact {
   const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
-  const scope = options?.scope ?? "project";
+  const scope = normalizeScope(options?.scope);
   const cleaned = cleanFactText(text, settings.maxFactChars);
   if (!cleaned) throw new Error("Memory fact text is empty");
   assertNoSecrets(cleaned);
@@ -305,10 +319,10 @@ export function replaceMemoryFact(
   cwd: string,
   oldText: string,
   newText: string,
-  options?: { scope?: MemoryScope; settings?: ProjectMemorySettings },
+  options?: { scope?: MemoryScope | string; settings?: ProjectMemorySettings },
 ): MemoryFact {
   const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
-  const scope = options?.scope ?? "project";
+  const scope = normalizeScope(options?.scope);
   const needle = oldText.trim();
   if (!needle) throw new Error("oldText is required");
   const cleaned = cleanFactText(newText, settings.maxFactChars);
@@ -332,9 +346,9 @@ export function replaceMemoryFact(
 export function removeMemoryFactByText(
   cwd: string,
   oldText: string,
-  options?: { scope?: MemoryScope },
+  options?: { scope?: MemoryScope | string },
 ): MemoryFact {
-  const scope = options?.scope ?? "project";
+  const scope = normalizeScope(options?.scope);
   const needle = oldText.trim();
   if (!needle) throw new Error("oldText is required");
   const facts = listMemoryFacts(cwd, scope);
@@ -359,13 +373,13 @@ export type MemoryOperation = {
 export function applyMemoryOperations(
   cwd: string,
   ops: MemoryOperation[],
-  options?: { scope?: MemoryScope; settings?: ProjectMemorySettings },
+  options?: { scope?: MemoryScope | string; settings?: ProjectMemorySettings },
 ): { facts: MemoryFact[]; changed: number } {
   if (!Array.isArray(ops) || ops.length === 0) {
     throw new Error("operations list is empty.");
   }
   const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
-  const scope = options?.scope ?? "project";
+  const scope = normalizeScope(options?.scope);
 
   // Validate all ops before touching disk.
   ops.forEach((op, i) => {
@@ -480,44 +494,29 @@ export function buildMemoryInjectBlock(
   settings?: ProjectMemorySettings | WebSettings["projectMemory"],
 ): string | null {
   const mem = parseProjectMemorySettings(settings ?? readWebSettings().projectMemory);
-  if (!mem.enabled || mem.autoInjectTopK <= 0) return null;
+  // Prompt ownership: never inject unless pi-web settings explicitly allow it.
+  if (!mem.enabled || !mem.autoInject || mem.autoInjectTopK <= 0) return null;
 
-  const renderScope = (scope: MemoryScope, title: string, blurb: string, charCap: number): string[] | null => {
-    if (charCap <= 0) return null;
-    const facts = listMemoryFacts(cwd, scope).slice(0, mem.autoInjectTopK);
-    if (facts.length === 0) return null;
-    const lines = [title, blurb, ""];
-    let used = lines.join("\n").length;
-    for (const fact of facts) {
-      const line = `- ${fact.text}`;
-      if (used + line.length + 1 > charCap) break;
-      lines.push(line);
-      used += line.length + 1;
-    }
-    return lines.length > 3 ? lines : null;
-  };
-
-  // User scope gets up to half of maxInjectChars; project scope takes the rest.
-  const userBlock = renderScope(
-    "user",
-    "## User memory (auto-loaded)",
-    "Facts about the user: preferences, role, style. Respect them unless overridden in this session.",
-    Math.floor(mem.maxInjectChars / 2),
-  );
-  const userUsed = userBlock ? userBlock.join("\n").length + 1 : 0;
-  const projectBlock = renderScope(
-    "project",
+  const facts = listMemoryFacts(cwd, "project").slice(0, mem.autoInjectTopK);
+  if (facts.length === 0) return null;
+  const lines = [
     "## Project memory (auto-loaded)",
     "Durable facts about this project. Prefer these over re-discovering the same conventions.",
-    mem.maxInjectChars - userUsed,
-  );
-  if (!userBlock && !projectBlock) return null;
+    "",
+  ];
+  let used = lines.join("\n").length;
+  for (const fact of facts) {
+    const line = `- ${fact.text}`;
+    if (used + line.length + 1 > mem.maxInjectChars) break;
+    lines.push(line);
+    used += line.length + 1;
+  }
+  if (lines.length <= 3) return null;
 
   const guidance =
-    "Use memory_retain to save durable facts (target='user': who the user is; " +
-    "target='project': environment, conventions, lessons — never secrets). " +
-    "Use memory_recall to search both stores. Use memory_reflect for a synthesized mental model.";
-  return [...(userBlock ?? []), ...(projectBlock ?? []), "", guidance].join("\n");
+    "Use memory_retain to save durable project facts (environment, conventions, lessons — never secrets). " +
+    "Use memory_recall to search project memory. Use memory_reflect for a synthesized mental model.";
+  return [...lines, "", guidance].join("\n");
 }
 
 export type MemoryReflection = {

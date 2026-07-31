@@ -21,6 +21,7 @@ import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@e
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { pathToFileURL } from "url";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateUtilityModelRuntimes } from "./utility-model";
@@ -175,7 +176,7 @@ export class AgentSessionWrapper {
   private widgetFactories = new Map<string, {
     component: CustomUiComponent;
     tui: ReturnType<typeof createHeadlessCustomUiTui>;
-    placement: "aboveEditor" | "belowEditor";
+    placement: "aboveEditor" | "belowEditor" | "topBar";
   }>();
   private promptRunning = false;
   /** Last per-prompt memory recall block queued for this session (dedupe guard). */
@@ -284,6 +285,11 @@ export class AgentSessionWrapper {
       }
       this.extensionsBound = true;
       this.applyForcedEmptySystemPrompt();
+      // rpiv-todo keeps a process-global "active render session". In Pi Web many
+      // AgentSessions share one process, so reclaim the foreground for THIS
+      // session whenever we (re)bind extensions — otherwise the overlay reads
+      // another session's (empty) slot and never emits a widget.
+      void this.reclaimTodoForeground();
     })().catch((err) => {
       // Clear the cached promise so the next command retries the binding
       // instead of rethrowing this failure forever. Concurrent callers still
@@ -325,6 +331,35 @@ export class AgentSessionWrapper {
   private applyForcedEmptySystemPrompt(): void {
     if (this.forceEmptySystemPrompt && this.inner.agent.state) {
       this.inner.agent.state.systemPrompt = "";
+    }
+  }
+
+  /**
+   * Point @juicesharp/rpiv-todo's process-global render pointer at this session
+   * so getRenderState() / the overlay factory see the right task list.
+   * Best-effort: path resolution varies with install layout.
+   */
+  private async reclaimTodoForeground(): Promise<void> {
+    const sessionId = this.inner.sessionId;
+    if (!sessionId) return;
+    const home = process.env.HOME ?? "";
+    const candidates = [
+      // Common install under ~/.pi/agent/npm (TS source loaded by jiti/tsx loaders)
+      resolve(home, ".pi/agent/npm/node_modules/@juicesharp/rpiv-todo/state/store.ts"),
+      resolve(home, ".pi/agent/npm/node_modules/@juicesharp/rpiv-todo/state/store.js"),
+    ];
+    for (const candidate of candidates) {
+      try {
+        // file:// URL for ESM dynamic import of absolute paths
+        const href = pathToFileURL(candidate).href;
+        const mod = await import(href);
+        if (typeof mod.setActiveRenderSession === "function") {
+          mod.setActiveRenderSession(sessionId);
+          return;
+        }
+      } catch {
+        // try next path
+      }
     }
   }
 
@@ -400,6 +435,11 @@ export class AgentSessionWrapper {
     if (this.shouldWaitForExtensions(type)) {
       await this.waitForExtensionsBound();
       if (!this._alive) throw new Error("Session destroyed");
+      // Reclaim rpiv-todo foreground before each user turn so multi-session
+      // hosts don't leave the overlay bound to a different chat.
+      if (type === "prompt" || type === "steer" || type === "follow_up") {
+        void this.reclaimTodoForeground();
+      }
     }
 
     if (type === "prompt" || type === "steer" || type === "follow_up") {
@@ -798,6 +838,21 @@ export class AgentSessionWrapper {
     } catch (error) {
       lines = [`Widget render failed: ${error instanceof Error ? error.message : String(error)}`];
     }
+    // Empty render = nothing to show (todo auto-hide, agents idle). Clear the
+    // client widget so the top-bar capsule disappears instead of showing "0".
+    const hasContent = Array.isArray(lines) && lines.some((l) => String(l).trim().length > 0);
+    if (!hasContent) {
+      this.extensionWidgets.delete(key);
+      this.emit({
+        type: "extension_ui_request",
+        id: randomUUID(),
+        method: "setWidget",
+        widgetKey: key,
+        widgetLines: undefined,
+        widgetPlacement: entry.placement,
+      } as ExtensionUiRequest as AgentEvent);
+      return;
+    }
     // Strip ANSI for structured parsing; keep raw for ANSI widgets.
     this.extensionWidgets.set(key, {
       key,
@@ -1047,12 +1102,17 @@ export class AgentSessionWrapper {
       setWorkingIndicator: () => {},
       setHiddenThinkingLabel: () => {},
       setWidget: (key, content, options) => {
-        // In the web UI, chrome widgets (todo / agents) must sit next to the
-        // composer — not above the message list where users never see them.
+        // In the web UI, todo + subagent chrome live in the session top bar
+        // (always visible). Side-chat (btw) stays above the composer.
         const k = key.toLowerCase();
-        const forceBelow =
-          k.includes("todo") || k === "rpiv-todos" || k === "agents" || k.includes("subagent") || k === "btw";
-        const placement = forceBelow ? "belowEditor" : (options?.placement ?? "aboveEditor");
+        const forceTopBar =
+          k.includes("todo") || k === "rpiv-todos" || k === "agents" || k.includes("subagent");
+        const forceBelow = k === "btw" || k.includes("btw");
+        const placement = forceTopBar
+          ? "topBar"
+          : forceBelow
+            ? "belowEditor"
+            : (options?.placement ?? "aboveEditor");
 
         // Clear existing factory widget for this key.
         const existing = this.widgetFactories.get(key);

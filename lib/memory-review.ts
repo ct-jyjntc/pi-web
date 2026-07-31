@@ -135,9 +135,9 @@ async function resolveReviewModel(cwd: string, prefs: WebSettings): Promise<Reso
 const REVIEW_SYSTEM_PROMPT = [
   "You are a silent memory curator reviewing an excerpt from a coding-agent conversation.",
   "Decide whether the excerpt revealed facts worth persisting for future sessions:",
-  '- target "user": who the user is — persona, preferences, expectations, working style.',
+  '- target "project" only — environment, conventions, tool quirks, lessons for this repo.',
   '- target "project": durable project conventions, environment facts, or hard-won lessons.',
-  'Reply with ONLY JSON: {"memories":[{"target":"user"|"project","text":"...","tags":["..."],"importance":0.5}]}',
+  'Reply with ONLY JSON: {"memories":[{"target":"project","text":"...","tags":["..."],"importance":0.5}]}',
   "Rules:",
   '- Most excerpts contain nothing worth saving; reply {"memories":[]} in that case.',
   "One idea per memory, text ≤ 200 characters, at most 5 memories, 1-3 short tags each.",
@@ -169,7 +169,8 @@ function parseReviewResponse(raw: string): ReviewCandidate[] {
   for (const item of memories) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const rec = item as Record<string, unknown>;
-    const target: MemoryScope | null = rec.target === "user" ? "user" : rec.target === "project" ? "project" : null;
+    // Project-scope only — ignore any legacy "user" targets from the model.
+    const target: MemoryScope | null = rec.target === "project" || rec.target === "user" ? "project" : null;
     const factText = typeof rec.text === "string" ? rec.text.trim() : "";
     if (!target || !factText) continue;
     const tags = Array.isArray(rec.tags)
@@ -194,6 +195,9 @@ export async function runMemoryReview(opts: { cwd: string; sessionId: string }):
   const prefs = readWebSettings();
   const memSettings = parseProjectMemorySettings(prefs.projectMemory);
   if (!memSettings.enabled) return { saved: [], skipped: true, reason: "disabled" };
+  // Auto-review writes agent-invented facts into the store; only allow when
+  // pi-web has explicitly enabled auto-inject (prompt ownership policy).
+  if (!memSettings.autoInject) return { saved: [], skipped: true, reason: "auto-inject-off" };
 
   // Cadence: count user turns per session; only every Nth runs the review.
   const counts = getTurnCounts();

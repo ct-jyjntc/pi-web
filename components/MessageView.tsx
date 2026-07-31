@@ -817,6 +817,9 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
+    // Todo UI lives in the session top bar (extension widget) — don't also
+    // render a bulky tool card in the transcript (Hermes does the same).
+    if (tc.toolName.toLowerCase() === "todo") return null;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
     return (
@@ -873,6 +876,11 @@ function groupRunBlocks(blockItems: BlockItem[]): DisplayItem[] {
     run = [];
   };
   for (const item of blockItems) {
+    // Todo is hoisted to the session top bar — skip entirely from run groups.
+    if (item.block.type === "toolCall" && (item.block as ToolCallContent).toolName.toLowerCase() === "todo") {
+      flush();
+      continue;
+    }
     if (item.block.type === "toolCall" && !isCardToolName((item.block as ToolCallContent).toolName)) {
       run.push(item);
     } else {

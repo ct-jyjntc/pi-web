@@ -1,23 +1,19 @@
 /**
- * Project + user memory tools for Pi Web sessions.
- * Storage lives under ~/.pi/agent/project-memory/ and ~/.pi/agent/user-memory/
- * (not in the user repo).
+ * Project memory tools for Pi Web sessions.
+ * Storage lives under ~/.pi/agent/project-memory/ (not in the user repo).
+ * Global/user-scope memory is intentionally not exposed.
  */
 import { Type } from "typebox";
 import {
   applyMemoryOperations,
-  buildMemoryInjectBlock,
-  deleteMemoryFact,
   listMemoryFacts,
   memoryBudgetChars,
   memoryStoreUsage,
   parseProjectMemorySettings,
   recallMemoryFacts,
-  reflectMemoryHeuristic,
   retainMemoryFact,
   type MemoryFact,
   type MemoryOperation,
-  type MemoryScope,
   type ProjectMemorySettings,
 } from "./project-memory";
 import { runMemoryReflect } from "./memory-reflect";
@@ -59,20 +55,15 @@ function errorResult(error: unknown) {
   };
 }
 
-function pickScope(raw: unknown): MemoryScope {
-  return raw === "user" ? "user" : "project";
-}
-
 /** Terminal success message — confirms the write landed and tells the model to stop. */
 function writeSavedMessage(
-  scope: MemoryScope,
   facts: MemoryFact[],
   settings: ProjectMemorySettings,
 ): string {
   const used = memoryStoreUsage(facts);
-  const budget = memoryBudgetChars(settings, scope);
+  const budget = memoryBudgetChars(settings, "project");
   return (
-    `Write saved (${scope} memory, ${facts.length} facts, ${used}/${budget} chars). ` +
+    `Write saved (project memory, ${facts.length} facts, ${used}/${budget} chars). ` +
     "This update is complete — do not repeat it."
   );
 }
@@ -82,30 +73,23 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
     name: "memory_retain",
     label: "memory_retain",
     description:
-      "Save durable memory for future sessions. Routing: target='user' for who the user is " +
-      "(name, role, preferences, style); target='project' (default) for environment, " +
-      "conventions, tool quirks, lessons. WHEN: the user states a preference, correction, or " +
-      "personal detail, or you learn a stable fact about their setup. Priority: user " +
-      "preferences & corrections > environment facts > procedures. SKIP: trivial or easily " +
-      "re-discovered info, task progress, temporary TODOs, raw dumps, secrets. " +
+      "Save durable project memory for future sessions in this repo (environment, conventions, " +
+      "tool quirks, lessons). WHEN: you learn a stable fact about the project setup. " +
+      "SKIP: trivial or easily re-discovered info, task progress, temporary TODOs, raw dumps, secrets, " +
+      "and personal user preferences (not stored). " +
       "Pass operations[] for an atomic add/replace/remove batch (entries addressed by unique " +
       "substring via oldText); the char budget is checked on the final state only. " +
       "IF FULL: the write is rejected with all current entries — reissue ONE call with " +
       "operations[] that removes/shortens stale entries AND adds the new one together.",
-    promptSnippet: "Save a durable user or project memory (success is terminal — do not repeat)",
+    promptSnippet: "Save a durable project memory (success is terminal — do not repeat)",
     promptGuidelines: [
-      "WHEN to save: user states a preference/correction/personal detail, or you learn a stable environment/convention fact. Priority: user preferences & corrections > environment facts > procedures.",
-      "Routing: target='user' = who the user is; target='project' = environment, conventions, lessons.",
+      "WHEN to save: stable environment/convention/project facts only.",
+      "Project-scope only — do not store personal user preferences here.",
       "SKIP: trivial or re-discoverable info, task progress, temporary TODO state, secrets.",
       "IF FULL: an add is rejected with the current entries — consolidate with one operations[] batch (remove/replace + add) in the same turn.",
       "A success message means the write is complete — do not repeat it.",
     ],
     parameters: Type.Object({
-      target: Type.Optional(
-        Type.Union([Type.Literal("project"), Type.Literal("user")], {
-          description: "Store target: 'project' (default) or 'user'.",
-        }),
-      ),
       text: Type.Optional(
         Type.String({ description: "Short durable fact (one idea). Required unless operations is set." }),
       ),
@@ -131,7 +115,6 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
     async execute(_id, args) {
       const settings = memorySettings();
       if (!settings.enabled) return disabledResult();
-      const scope = pickScope(args.target);
       try {
         if (Array.isArray(args.operations)) {
           const ops: MemoryOperation[] = args.operations.map((raw) => {
@@ -142,9 +125,9 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
               oldText: typeof rec.oldText === "string" ? rec.oldText : undefined,
             };
           });
-          const result = applyMemoryOperations(cwd, ops, { scope, settings });
+          const result = applyMemoryOperations(cwd, ops, { scope: "project", settings });
           return {
-            content: [{ type: "text", text: writeSavedMessage(scope, result.facts, settings) }],
+            content: [{ type: "text", text: writeSavedMessage(result.facts, settings) }],
             details: result,
           };
         }
@@ -160,16 +143,13 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
           importance: typeof args.importance === "number" ? args.importance : 0.5,
           source: "tool",
           settings,
-          scope,
+          scope: "project",
         });
         return {
-          content: [{ type: "text", text: writeSavedMessage(scope, listMemoryFacts(cwd, scope), settings) }],
+          content: [{ type: "text", text: writeSavedMessage(listMemoryFacts(cwd, "project"), settings) }],
           details: fact,
         };
       } catch (error) {
-        // Budget-overflow / ambiguity errors carry the full guidance text
-        // (entries + consolidation instruction) so the model can self-correct
-        // in the same turn.
         return errorResult(error);
       }
     },
@@ -179,38 +159,25 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
     name: "memory_recall",
     label: "memory_recall",
     description:
-      "Search durable memory facts by keyword. target: 'user' (who the user is), " +
-      "'project' (environment/conventions/lessons), or 'both' (default). Results are labeled by scope.",
-    promptSnippet: "Search user and project memory for relevant facts",
+      "Search durable project memory facts by keyword (environment, conventions, lessons).",
+    promptSnippet: "Search project memory for relevant facts",
     parameters: Type.Object({
       query: Type.String({ description: "Keyword query" }),
-      limit: Type.Optional(Type.Number({ description: "Max results per store (default 8)" })),
-      target: Type.Optional(
-        Type.Union([Type.Literal("project"), Type.Literal("user"), Type.Literal("both")], {
-          description: "Which store(s) to search (default 'both').",
-        }),
-      ),
+      limit: Type.Optional(Type.Number({ description: "Max results (default 8)" })),
     }),
     async execute(_id, args) {
       const settings = memorySettings();
       if (!settings.enabled) return disabledResult();
       const limit = typeof args.limit === "number" ? Math.min(20, Math.max(1, args.limit)) : 8;
       const query = String(args.query ?? "");
-      const target = args.target === "user" || args.target === "project" ? args.target : "both";
-      const scopes: MemoryScope[] = target === "both" ? ["user", "project"] : [target];
-      const hits: Array<{ scope: MemoryScope; fact: MemoryFact }> = [];
-      for (const scope of scopes) {
-        for (const fact of recallMemoryFacts(cwd, query, limit, scope)) {
-          hits.push({ scope, fact });
-        }
-      }
+      const hits = recallMemoryFacts(cwd, query, limit, "project");
       if (hits.length === 0) {
-        return { content: [{ type: "text", text: "No matching memory facts." }] };
+        return { content: [{ type: "text", text: "No matching project memory facts." }] };
       }
-      const lines = hits.map((h, i) => `${i + 1}. [${h.scope}] [${h.fact.id}] ${h.fact.text}`);
+      const lines = hits.map((fact, i) => `${i + 1}. [${fact.id}] ${fact.text}`);
       return {
         content: [{ type: "text", text: lines.join("\n") }],
-        details: { facts: hits.map((h) => ({ scope: h.scope, ...h.fact })) },
+        details: { facts: hits },
       };
     },
   };
@@ -220,8 +187,7 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
     label: "memory_reflect",
     description:
       "Synthesize project memory into a mental-model summary (themes, pillars, conventions). " +
-      "Uses a utility model when available; otherwise offline clustering. Optional focus query. " +
-      "Project-scope only; user memory is not included.",
+      "Uses a utility model when available; otherwise offline clustering. Optional focus query.",
     promptSnippet: "Reflect on stored project memory",
     promptGuidelines: [
       "Use memory_reflect when you need a high-level project mental model, not a single keyword hit.",
@@ -239,36 +205,25 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
       const settings = memorySettings();
       if (!settings.enabled) return disabledResult();
       try {
-        const focus = typeof args.focus === "string" ? args.focus : undefined;
-        const limit = typeof args.limit === "number" ? args.limit : undefined;
-        const heuristicOnly = args.heuristicOnly === true || args.useModel === false;
-        const retain = args.retain === true;
-
-        const reflection = heuristicOnly
-          ? reflectMemoryHeuristic(cwd, { focus, limit })
-          : await runMemoryReflect(cwd, { focus, limit, useModel: true, retain });
-
+        const result = await runMemoryReflect(cwd, {
+          focus: typeof args.focus === "string" ? args.focus : undefined,
+          limit: typeof args.limit === "number" ? args.limit : undefined,
+          useModel: args.heuristicOnly === true
+            ? false
+            : typeof args.useModel === "boolean"
+              ? args.useModel
+              : true,
+          retain: args.retain === true,
+        });
         return {
-          content: [{ type: "text", text: reflection.summary }],
-          details: {
-            mode: reflection.mode,
-            factCount: reflection.factCount,
-            themes: reflection.themes,
-            tagGroups: reflection.tagGroups,
-            pillars: reflection.pillars,
-            sourceFactIds: reflection.sourceFactIds,
-            model: reflection.model,
-          },
+          content: [{ type: "text", text: result.summary }],
+          details: result,
         };
       } catch (error) {
         return errorResult(error);
       }
     },
   };
-
-  // Keep list tool internal-ish via recall with empty query path; no extra tool needed.
-  void deleteMemoryFact;
-  void buildMemoryInjectBlock;
 
   return [retain, recall, reflect];
 }

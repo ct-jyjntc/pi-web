@@ -40,6 +40,8 @@ export interface ParsedAgentsWidget {
   kind: "agents";
   heading: string;
   lines: string[];
+  /** Distinct agent rows (not raw line count — running agents take 2 lines). */
+  agentCount: number;
 }
 
 export interface ParsedGenericWidget {
@@ -148,10 +150,12 @@ export function parseWidget(key: string, lines: string[]): ParsedWidget {
   }
 
   if (kind === "agents") {
+    const heading = clean[0]?.trim() || "Agents";
     return {
       kind: "agents",
-      heading: clean[0]?.trim() || "Agents",
+      heading,
       lines: clean,
+      agentCount: countAgentsFromWidgetLines(clean),
     };
   }
 
@@ -181,4 +185,90 @@ export function widgetTitle(key: string): string {
     case "rtk": return "Tokens";
     default: return key;
   }
+}
+
+/**
+ * Count distinct agents in a pi-subagents widget body.
+ *
+ * Running agents render as a pair (header + activity continuation); finished
+ * agents are one tree line. Counting raw body lines therefore doubles running
+ * agents (2 agents → "4"). We count tree headers only.
+ */
+export function countAgentsFromWidgetLines(lines: string[]): number {
+  if (lines.length === 0) return 0;
+  const body = lines.slice(1).map((l) => stripAnsi(l));
+  // Prefer explicit "N running" / "N agents" in the heading or a status line.
+  const joined = [stripAnsi(lines[0] ?? ""), ...body].join("\n");
+  const runningMatch = joined.match(/(\d+)\s+running/i);
+  const queuedMatch = joined.match(/(\d+)\s+queued/i);
+  if (runningMatch || queuedMatch) {
+    return (runningMatch ? Number(runningMatch[1]) : 0) + (queuedMatch ? Number(queuedMatch[1]) : 0);
+  }
+
+  let count = 0;
+  for (const raw of body) {
+    const line = raw.replace(/\s+$/, "");
+    const trimmed = line.trimStart();
+    if (!trimmed) continue;
+    // Activity continuation under a running agent:
+    //   "│  ⎿ …"  or  "   ⎿ …"  (sub-line glyph U+23BF, not a tree node)
+    if (/^[│|]/.test(trimmed)) continue;
+    if (/^⎿/.test(trimmed) || /^\s+⎿/.test(line)) continue;
+    // Overflow summary: "+2 more (…)"
+    if (/^\+\d+\s+more\b/i.test(trimmed.replace(/^[├└─\s]+/, ""))) continue;
+    // Queued aggregate is one row for many agents — count the number if present.
+    const queuedRow = trimmed.match(/(\d+)\s+queued\b/i);
+    if (queuedRow && /[├└]/.test(trimmed)) {
+      count += Number(queuedRow[1]);
+      continue;
+    }
+    // Tree header for one agent: "├─ …" / "└─ …" (box-drawing branch)
+    if (/^[├└]/.test(trimmed)) {
+      count += 1;
+      continue;
+    }
+  }
+  return count;
+}
+
+/** True when a todo widget payload has something worth showing in the top bar. */
+export function todoWidgetHasContent(lines: string[]): boolean {
+  const parsed = parseWidget("rpiv-todos", lines);
+  if (parsed.kind !== "todo") return false;
+  if (parsed.collapsedHint) return true;
+  if (parsed.total > 0 || parsed.items.length > 0) return true;
+  // Heading alone with (n/m) still counts.
+  return /\(\d+\s*\/\s*\d+\)/.test(parsed.heading);
+}
+
+/** One-line top-bar summary for a chrome widget (todo / agents). */
+export function chromeWidgetSummary(key: string, lines: string[]): string {
+  const parsed = parseWidget(key, lines);
+  if (parsed.kind === "todo") {
+    if (parsed.collapsedHint) return parsed.collapsedHint;
+    const active = parsed.items.find((i) => i.status === "in_progress");
+    if (active) return `${parsed.completed}/${parsed.total} · ${active.text}`;
+    if (parsed.total > 0) return `${parsed.completed}/${parsed.total}`;
+    return "";
+  }
+  if (parsed.kind === "agents") {
+    const n = parsed.agentCount;
+    if (n <= 0) return parsed.heading;
+    // Prefer first non-activity body line as a short label.
+    for (const raw of parsed.lines.slice(1)) {
+      const line = stripAnsi(raw).trim();
+      if (!line) continue;
+      if (/^[│|]\s/.test(line)) continue;
+      if (/^\+\d+\s+more\b/i.test(line)) continue;
+      const cleaned = line.replace(/^[├└─\s]+/, "").replace(/\s+/g, " ").trim();
+      if (cleaned) return n > 1 ? `${n} · ${cleaned}` : cleaned;
+    }
+    return `${n} agent${n === 1 ? "" : "s"}`;
+  }
+  return parsed.lines.join(" ").replace(/\s+/g, " ").trim();
+}
+
+export function isChromeTopBarWidgetKey(key: string): boolean {
+  const kind = classifyWidgetKey(key);
+  return kind === "todo" || kind === "agents";
 }

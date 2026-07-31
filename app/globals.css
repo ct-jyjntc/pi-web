@@ -1612,6 +1612,11 @@ textarea.input-base:focus-visible {
   background: var(--bg-hover);
   color: var(--text);
 }
+.sidebar-menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
 .sidebar-menu-item-active {
   color: var(--text);
   background: var(--bg-selected);
@@ -1776,6 +1781,57 @@ textarea.input-base:focus-visible {
 .app-topbar .chrome-btn.is-icon {
   width: 36px;
   min-width: 36px;
+}
+
+/* Top-bar status capsules (todo / subagents) — quiet chips, not chrome-btn */
+.topbar-status-capsules {
+  min-width: 0;
+}
+.topbar-status-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.topbar-status-capsule:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--border) 70%, var(--text-dim));
+}
+.topbar-status-capsule.is-open {
+  background: var(--bg-selected);
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--capsule-accent, var(--accent)) 35%, var(--border));
+}
+.topbar-status-capsule-icon {
+  display: inline-flex;
+  color: var(--capsule-accent, var(--text-dim));
+  opacity: 0.9;
+}
+.topbar-status-capsule-count {
+  letter-spacing: 0.01em;
+}
+.topbar-status-capsule.is-live .topbar-status-capsule-icon {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.topbar-status-popover {
+  box-shadow: var(--shadow-md);
+}
+@media (prefers-reduced-motion: reduce) {
+  .topbar-status-capsule.is-live .topbar-status-capsule-icon {
+    animation: none;
+  }
 }
 .chrome-cluster {
   display: flex;
@@ -3836,3 +3892,5 @@ textarea.input-base:focus-visible {
   min-height: var(--titlebar-height);
 }
 
+
+/* topbar-status-capsule layout is inline in TopBarChromeWidgets */

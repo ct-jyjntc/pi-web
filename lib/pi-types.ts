@@ -79,7 +79,7 @@ type DialogOptionsLike = {
 };
 
 type WidgetOptionsLike = {
-  placement?: "aboveEditor" | "belowEditor";
+  placement?: "aboveEditor" | "belowEditor" | "topBar";
 };
 
 export interface ExtensionUiContextLike {

@@ -185,7 +185,8 @@ export function SettingsPage({
     disableHardwareAcceleration: false,
     autoCheckUpdates: true,
     autoDownloadUpdates: false,
-    projectMemoryEnabled: true,
+    projectMemoryEnabled: false,
+    projectMemoryAutoInject: false,
     projectMemoryTopK: 12,
     advisorEnabled: false,
   });
@@ -256,6 +257,10 @@ export function SettingsPage({
             && typeof (s.projectMemory as { enabled?: unknown }).enabled === "boolean"
               ? (s.projectMemory as { enabled: boolean }).enabled
               : prev.projectMemoryEnabled,
+          projectMemoryAutoInject:
+            s.projectMemory && typeof s.projectMemory === "object" && !Array.isArray(s.projectMemory)
+              ? (s.projectMemory as { autoInject?: unknown }).autoInject === true
+              : prev.projectMemoryAutoInject,
           projectMemoryTopK:
             s.projectMemory && typeof s.projectMemory === "object" && !Array.isArray(s.projectMemory)
             && typeof (s.projectMemory as { autoInjectTopK?: unknown }).autoInjectTopK === "number"
@@ -1042,8 +1047,31 @@ export function SettingsPage({
           <SettingsToggle
             enabled={prefs.projectMemoryEnabled}
             onChange={(next) => {
-              setPrefs((p) => ({ ...p, projectMemoryEnabled: next }));
-              void patchPref({ projectMemory: { enabled: next } });
+              setPrefs((p) => ({
+                ...p,
+                projectMemoryEnabled: next,
+                // Turning tools off also turns inject off.
+                projectMemoryAutoInject: next ? p.projectMemoryAutoInject : false,
+              }));
+              void patchPref({
+                projectMemory: next
+                  ? { enabled: true }
+                  : { enabled: false, autoInject: false },
+              });
+            }}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.projectMemoryAutoInject")}
+        description={t("settings.projectMemoryAutoInjectDesc")}
+        action={
+          <SettingsToggle
+            enabled={prefs.projectMemoryAutoInject}
+            disabled={!prefs.projectMemoryEnabled}
+            onChange={(next) => {
+              setPrefs((p) => ({ ...p, projectMemoryAutoInject: next }));
+              void patchPref({ projectMemory: { autoInject: next } });
             }}
           />
         }
@@ -1059,7 +1087,7 @@ export function SettingsPage({
             min={0}
             max={50}
             value={prefs.projectMemoryTopK}
-            disabled={!prefs.projectMemoryEnabled}
+            disabled={!prefs.projectMemoryEnabled || !prefs.projectMemoryAutoInject}
             onChange={(e) => setPrefs((p) => ({
               ...p,
               projectMemoryTopK: Number(e.target.value) || 0,

@@ -169,7 +169,7 @@ export type ExtensionUiRequest =
       method: "setWidget";
       widgetKey: string;
       widgetLines?: string[];
-      widgetPlacement?: "aboveEditor" | "belowEditor";
+      widgetPlacement?: "aboveEditor" | "belowEditor" | "topBar";
     }
   | {
       type: "extension_ui_request";
@@ -201,10 +201,12 @@ export interface ExtensionStatusItem {
   text: string;
 }
 
+export type ExtensionWidgetPlacement = "aboveEditor" | "belowEditor" | "topBar";
+
 export interface ExtensionWidgetItem {
   key: string;
   lines: string[];
-  placement: "aboveEditor" | "belowEditor";
+  placement: ExtensionWidgetPlacement;
 }
 
 export interface SessionMessageEntry extends SessionEntryBase {

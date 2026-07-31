@@ -37,6 +37,8 @@ interface Props {
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
+  /** Fired after a successful rename or auto-title (id + new name). */
+  onSessionRenamed?: (sessionId: string, name: string) => void;
   selectedCwd?: string | null;
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
   onOpenFile?: (filePath: string, fileName: string) => void;
@@ -330,7 +332,7 @@ function sessionTimeBucketLabel(
   }
 }
 
-export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
+export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, onSessionRenamed, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
   const { t } = useLocale();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -858,9 +860,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   // is picked up on the next session refresh without any timer.
   const sessionGroups = useMemo(() => groupSessionTreeByTime(sessionTree), [sessionTree]);
 
-  const handleSessionRenamed = useCallback(() => {
+  const handleSessionRenamed = useCallback((sessionId?: string, name?: string) => {
     void loadSessions();
-  }, [loadSessions]);
+    if (sessionId && name) onSessionRenamed?.(sessionId, name);
+  }, [loadSessions, onSessionRenamed]);
 
   const handleSessionDeletedFromList = useCallback((id: string) => {
     onSessionDeleted?.(id);
@@ -1471,7 +1474,7 @@ const SessionTreeItem = memo(function SessionTreeItem({
   runningSessionIds: Set<string>;
   unreadSessionIds: Set<string>;
   onSelectSession: (s: SessionInfo) => void;
-  onRenamed?: () => void;
+  onRenamed?: (sessionId?: string, name?: string) => void;
   onSessionDeleted?: (id: string) => void;
   depth: number;
 }) {
@@ -1615,7 +1618,7 @@ const SessionItem = memo(function SessionItem({
   isRunning?: boolean;
   isUnread?: boolean;
   onClick: () => void;
-  onRenamed?: () => void;
+  onRenamed?: (sessionId?: string, name?: string) => void;
   onDeleted?: (id: string) => void;
   depth?: number;
   hasChildren?: boolean;
@@ -1626,14 +1629,19 @@ const SessionItem = memo(function SessionItem({
   const [hovered, setHovered] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+  const canGenerateTitle = session.messageCount > 0;
 
-  const startRename = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
+  const startRename = useCallback(() => {
+    setMenuOpen(false);
     setRenameValue(session.name ?? "");
     setRenaming(true);
     setTimeout(() => inputRef.current?.select(), 0);
@@ -1649,13 +1657,14 @@ const SessionItem = memo(function SessionItem({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      onRenamed?.();
+      onRenamed?.(session.id, name);
     } catch {
       // ignore
     }
   }, [renameValue, session.id, session.name, onRenamed]);
 
   const performDelete = useCallback(async () => {
+    setMenuOpen(false);
     setDeleting(true);
     try {
       await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
@@ -1665,26 +1674,69 @@ const SessionItem = memo(function SessionItem({
     }
   }, [session.id, onDeleted]);
 
-  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
+  const handleGenerateTitle = useCallback(async () => {
+    if (!canGenerateTitle || naming) return;
+    setNaming(true);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/auto-name`, {
+        method: "POST",
+      });
+      const body = (await response.json().catch(() => ({}))) as { title?: string; error?: string };
+      if (!response.ok || !body.title) {
+        throw new Error(body.error || `HTTP ${response.status}`);
+      }
+      const name = body.title.trim();
+      setMenuOpen(false);
+      onRenamed?.(session.id, name);
+    } catch {
+      // Keep menu open so the user can retry; no toast infrastructure here.
+    } finally {
+      setNaming(false);
+    }
+  }, [canGenerateTitle, naming, session.id, onRenamed]);
+
+  const openMenu = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    // Shift+click skips confirmation (upstream 0.8.2).
-    if (e.shiftKey) {
-      void performDelete();
+    const btn = menuBtnRef.current;
+    if (!btn) {
+      setMenuOpen((v) => !v);
       return;
     }
-    setConfirmDelete(true);
-  }, [performDelete]);
-
-  const handleDeleteConfirm = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmDelete(false);
-    await performDelete();
-  }, [performDelete]);
-
-  const handleDeleteCancel = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmDelete(false);
+    const rect = btn.getBoundingClientRect();
+    // Open to the right of the ⋯ button (more natural for a trailing control).
+    const width = 168;
+    const height = 120;
+    let left = rect.right + 4;
+    if (left + width > window.innerWidth - 8) {
+      // Not enough room on the right — flip to the left of the button.
+      left = Math.max(8, rect.left - width - 4);
+    }
+    let top = rect.top;
+    if (top + height > window.innerHeight - 8) {
+      top = Math.max(8, window.innerHeight - height - 8);
+    }
+    setMenuPos({ top, left });
+    setMenuOpen((v) => !v);
   }, []);
+
+  // Close the ⋯ menu on outside click / Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (menuRef.current?.contains(target) || menuBtnRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   // Fixed-height single-line row — content swaps in place so the list never reflows
   const ITEM_HEIGHT = 32;
@@ -1694,7 +1746,7 @@ const SessionItem = memo(function SessionItem({
   return (
     <div
       className={`sidebar-session-item${isSelected ? " is-active" : ""}${hovered ? " is-hover" : ""}`}
-      onClick={confirmDelete || renaming ? undefined : onClick}
+      onClick={renaming ? undefined : onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
@@ -1703,38 +1755,15 @@ const SessionItem = memo(function SessionItem({
         alignItems: "center",
         paddingLeft: padLeft,
         paddingRight: 6,
-        cursor: confirmDelete || renaming ? "default" : "pointer",
-        background: confirmDelete
-          ? "var(--destructive-bg)"
-          : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
+        cursor: renaming ? "default" : "pointer",
+        background: isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
         transition: "background 0.1s, color 0.1s",
         opacity: deleting ? 0.5 : 1,
         gap: 6,
         overflow: "hidden",
       }}
     >
-      {confirmDelete ? (
-        /* ── Delete confirmation: same height, two flat buttons ── */
-        <>
-          <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {t("sidebar.deleteConfirm", { title: `${title.slice(0, 22)}${title.length > 22 ? "…" : ""}` })}
-          </div>
-          <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
-            <button className="btn-danger btn-compact" onClick={handleDeleteConfirm}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                <path d="M10 11v6M14 11v6" />
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-              </svg>
-              {t("common.delete")}
-            </button>
-            <button className="btn-ghost btn-compact" onClick={handleDeleteCancel}>
-              {t("common.cancel")}
-            </button>
-          </div>
-        </>
-      ) : renaming ? (
+      {renaming ? (
         /* ── Rename: input fills the same row ── */
         <input
           ref={inputRef}
@@ -1833,44 +1862,102 @@ const SessionItem = memo(function SessionItem({
             </button>
           )}
 
-          {/* Action buttons — strip icons on hover, same as top bar */}
-          {hovered && (
-            <div style={{ display: "flex", alignItems: "stretch", height: 28, flexShrink: 0 }}>
+          {/* ⋮ icon-only menu — rename / generate title / delete */}
+          {(hovered || menuOpen) && (
+            <div style={{ display: "flex", alignItems: "center", flexShrink: 0, position: "relative" }}>
               <button
+                ref={menuBtnRef}
                 type="button"
-                className="sidebar-strip-btn sidebar-strip-icon"
-                onClick={startRename}
-                title={t("common.rename")}
-                aria-label={t("common.rename")}
-                style={{ width: 28, flex: "0 0 28px", borderLeft: "1px solid var(--border)", height: "100%" }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className="sidebar-strip-btn sidebar-strip-icon"
-                onClick={handleDeleteClick}
-                title={`${t("common.delete")} (Shift: skip confirm)`}
-                aria-label={t("common.delete")}
-                style={{ width: 28, flex: "0 0 28px", borderLeft: "1px solid var(--border)", height: "100%" }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "color-mix(in oklab, var(--destructive) 10%, transparent)";
-                  e.currentTarget.style.color = "var(--destructive)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "";
-                  e.currentTarget.style.color = "";
+                className="icon-btn"
+                onClick={openMenu}
+                title={t("sidebar.moreActions")}
+                aria-label={t("sidebar.moreActions")}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                style={{
+                  ["--icon-btn-size" as string]: "22px",
+                  color: menuOpen ? "var(--text)" : "var(--text-dim)",
+                  background: menuOpen ? "var(--bg-hover)" : "transparent",
+                  border: "none",
+                  boxShadow: "none",
                 }}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                  <path d="M10 11v6M14 11v6" />
-                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                {/* Vertical ellipsis */}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <circle cx="12" cy="5" r="1.7" />
+                  <circle cx="12" cy="12" r="1.7" />
+                  <circle cx="12" cy="19" r="1.7" />
                 </svg>
               </button>
+              {menuOpen && menuPos && (
+                <div
+                  ref={menuRef}
+                  className="menu-card"
+                  role="menu"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: "fixed",
+                    top: menuPos.top,
+                    left: menuPos.left,
+                    width: 168,
+                    zIndex: 80,
+                    padding: 4,
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sidebar-menu-item"
+                    onClick={startRename}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                    </svg>
+                    {t("common.rename")}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sidebar-menu-item"
+                    disabled={!canGenerateTitle || naming}
+                    onClick={() => void handleGenerateTitle()}
+                    title={
+                      !canGenerateTitle
+                        ? t("shell.titleNeedMessage")
+                        : t("shell.titleGenerate")
+                    }
+                  >
+                    {naming ? (
+                      <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden style={{ flexShrink: 0 }}>
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    ) : (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <path d="m15 4 5 5L7 22l-5-5Z" />
+                        <path d="m14 5 5 5" />
+                        <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
+                      </svg>
+                    )}
+                    {naming ? t("shell.generating") : t("shell.generateTitle")}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sidebar-menu-item"
+                    onClick={() => void performDelete()}
+                    style={{ color: "var(--destructive)" }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                    </svg>
+                    {t("common.delete")}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </>

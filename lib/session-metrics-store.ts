@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import type { ExtensionStatusItem } from "@/lib/types";
+import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
 
 export type ContextUsageInfo = {
   percent: number | null;
@@ -17,6 +17,8 @@ type MetricsSnapshot = {
   contextUsage: ContextUsageInfo | null;
   sessionStats: SessionStatsInfo | null;
   extensionStatuses: ExtensionStatusItem[];
+  /** Todo + subagent chrome widgets for the app top bar. */
+  chromeWidgets: ExtensionWidgetItem[];
 };
 
 type Listener = () => void;
@@ -26,6 +28,7 @@ let snapshot: MetricsSnapshot = {
   contextUsage: null,
   sessionStats: null,
   extensionStatuses: [],
+  chromeWidgets: [],
 };
 
 function emit() {
@@ -87,15 +90,39 @@ export function setExtensionStatusesMetric(statuses: ExtensionStatusItem[]): voi
   emit();
 }
 
+function sameChromeWidgets(a: ExtensionWidgetItem[], b: ExtensionWidgetItem[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (left.key !== right.key || left.placement !== right.placement) return false;
+    if (left.lines.length !== right.lines.length) return false;
+    for (let j = 0; j < left.lines.length; j++) {
+      if (left.lines[j] !== right.lines[j]) return false;
+    }
+  }
+  return true;
+}
+
+/** Publish todo/subagent widgets for the app top bar (left of Generate Title). */
+export function setChromeWidgetsMetric(widgets: ExtensionWidgetItem[]): void {
+  const next = Array.isArray(widgets) ? widgets : [];
+  if (sameChromeWidgets(snapshot.chromeWidgets, next)) return;
+  snapshot = { ...snapshot, chromeWidgets: next };
+  emit();
+}
+
 export function clearSessionMetrics(): void {
   if (
     snapshot.contextUsage === null
     && snapshot.sessionStats === null
     && snapshot.extensionStatuses.length === 0
+    && snapshot.chromeWidgets.length === 0
   ) {
     return;
   }
-  snapshot = { contextUsage: null, sessionStats: null, extensionStatuses: [] };
+  snapshot = { contextUsage: null, sessionStats: null, extensionStatuses: [], chromeWidgets: [] };
   emit();
 }
 
@@ -108,6 +135,14 @@ export function useContextUsageMetric(): ContextUsageInfo | null {
     subscribe,
     () => getSnapshot().contextUsage,
     () => null,
+  );
+}
+
+export function useChromeWidgetsMetric(): ExtensionWidgetItem[] {
+  return useSyncExternalStore(
+    subscribe,
+    () => getSnapshot().chromeWidgets,
+    () => [],
   );
 }
 

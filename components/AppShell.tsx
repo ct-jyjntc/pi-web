@@ -20,6 +20,7 @@ import { ContextTabBadge } from "./ContextTabBadge";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
+import { TopBarChromeWidgets } from "./TopBarChromeWidgets";
 import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@/lib/app-update-store";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 
@@ -82,12 +83,6 @@ const SettingsPage = dynamic(() => import("./SettingsPage").then((m) => m.Settin
  */
 const SESSION_REFRESH_DEBOUNCE_MS = 1500;
 const EXPLORER_REFRESH_DEBOUNCE_MS = 300;
-
-type AutoNameStatus =
-  | { kind: "idle" }
-  | { kind: "naming" }
-  | { kind: "success" }
-  | { kind: "error"; message: string };
 
 export function AppShell() {
   const router = useRouter();
@@ -186,8 +181,6 @@ export function AppShell() {
   }, []);
 
   // Session metrics live in session-metrics-store (ContextPanel/ContextTabBadge subscribe).
-  const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
-  const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Trailing-edge debounce timers for the post-turn refreshes (see handleAgentEnd).
   const agentEndTimersRef = useRef<{
     sessions: ReturnType<typeof setTimeout> | null;
@@ -200,17 +193,17 @@ export function AppShell() {
     // Stable ref object; only its timer fields are reassigned.
     const timers = agentEndTimersRef.current;
     return () => {
-      if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
       if (timers.sessions) clearTimeout(timers.sessions);
       if (timers.explorer) clearTimeout(timers.explorer);
     };
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | null>(null);
+  type TopPanel = "branches" | "system";
+  const [activeTopPanel, setActiveTopPanel] = useState<TopPanel | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const toggleTopPanel = useCallback((panel: "branches" | "system") => {
+  const toggleTopPanel = useCallback((panel: TopPanel) => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, [isMobile]);
@@ -582,45 +575,13 @@ export function AppShell() {
     }, EXPLORER_REFRESH_DEBOUNCE_MS);
   }, []);
 
-  const handleAutoName = useCallback(async () => {
-    const sessionId = selectedSession?.id;
-    if (!sessionId || autoNameStatus.kind === "naming") return;
-    if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
-    setActiveTopPanel(null);
-    setAutoNameStatus({ kind: "naming" });
-
-    try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/auto-name`, {
-        method: "POST",
-      });
-      const body = (await response.json().catch(() => ({}))) as { title?: string; error?: string };
-      if (!response.ok || !body.title) {
-        throw new Error(body.error || `HTTP ${response.status}`);
-      }
-
-      const title = body.title.trim();
-      setRefreshKey((key) => key + 1);
-      if (activeSessionIdRef.current !== sessionId) return;
-      setSelectedSession((current) => current?.id === sessionId ? { ...current, name: title } : current);
-      // Patch metrics store name so Context panel stays in sync.
-      const currentStats = getSessionStatsMetric();
-      if (currentStats?.sessionId === sessionId) {
-        setSessionStatsMetric({ ...currentStats, sessionName: title });
-      }
-      setAutoNameStatus({ kind: "success" });
-      autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 1800);
-    } catch (error) {
-      if (activeSessionIdRef.current !== sessionId) return;
-      const message = error instanceof Error ? error.message : String(error);
-      setAutoNameStatus({ kind: "error", message });
-      autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 5000);
+  const handleSessionRenamed = useCallback((sessionId: string, name: string) => {
+    setSelectedSession((current) => (current?.id === sessionId ? { ...current, name } : current));
+    const currentStats = getSessionStatsMetric();
+    if (currentStats?.sessionId === sessionId) {
+      setSessionStatsMetric({ ...currentStats, sessionName: name });
     }
-  }, [autoNameStatus.kind, selectedSession?.id]);
-
-  useEffect(() => {
-    if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
-    setAutoNameStatus({ kind: "idle" });
-  }, [selectedSession?.id]);
+  }, []);
 
   const handleExplorerRefresh = useCallback(() => {
     setExplorerRefreshKey((k) => k + 1);
@@ -984,6 +945,7 @@ export function AppShell() {
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
+        onSessionRenamed={handleSessionRenamed}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
@@ -1177,58 +1139,8 @@ export function AppShell() {
           <div className="titlebar-drag" style={{ flex: 1, minWidth: 8, height: "100%" }} aria-hidden />
           {showChat && (
             <div className="chrome-cluster titlebar-no-drag app-topbar-actions">
-              {(() => {
-                const hasMessages = Boolean(
-                  selectedSession
-                  && ((getSessionStatsMetric()?.userMessages ?? selectedSession.messageCount) > 0),
-                );
-                const disabled = !selectedSession || !hasMessages || autoNameStatus.kind === "naming";
-                const isSuccess = autoNameStatus.kind === "success";
-                const isError = autoNameStatus.kind === "error";
-                const label = autoNameStatus.kind === "naming"
-                  ? t("shell.generating")
-                  : isSuccess
-                    ? t("shell.titleUpdated")
-                    : isError
-                      ? t("shell.generationFailed")
-                      : t("shell.generateTitle");
-                const title = !selectedSession
-                  ? t("shell.titleAfterSave")
-                  : !hasMessages
-                    ? t("shell.titleNeedMessage")
-                    : isError
-                      ? autoNameStatus.message
-                      : t("shell.titleGenerate");
-
-                return (
-                  <button
-                    type="button"
-                    className={`chrome-btn${isError ? " is-danger" : isSuccess ? " is-success" : ""}`}
-                    onClick={() => void handleAutoName()}
-                    disabled={disabled}
-                    title={title}
-                    aria-label={label}
-                  >
-                    {autoNameStatus.kind === "naming" ? (
-                      <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                      </svg>
-                    ) : isSuccess ? (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    ) : (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="m15 4 5 5L7 22l-5-5Z" />
-                        <path d="m14 5 5 5" />
-                        <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
-                      </svg>
-                    )}
-                    {!isMobile && <span>{label}</span>}
-                  </button>
-                );
-              })()}
+              {/* Todo + subagents — quiet status capsules (own popovers) */}
+              <TopBarChromeWidgets />
               <BranchNavigator
                 tree={branchTree}
                 activeLeafId={branchActiveLeafId}

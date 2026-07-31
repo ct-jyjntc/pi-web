@@ -271,6 +271,12 @@ export async function PUT(req: NextRequest) {
         }
         next.enabled = raw.enabled;
       }
+      if ("autoInject" in raw) {
+        if (typeof raw.autoInject !== "boolean") {
+          return NextResponse.json({ error: "Invalid projectMemory.autoInject" }, { status: 400 });
+        }
+        next.autoInject = raw.autoInject;
+      }
       if ("autoInjectTopK" in raw) {
         const n = Number(raw.autoInjectTopK);
         if (!Number.isFinite(n)) {

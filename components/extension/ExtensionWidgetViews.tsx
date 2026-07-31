@@ -96,8 +96,8 @@ function CompactShell({
     <div
       style={{
         border: "1px solid var(--border)",
-        borderRadius: "var(--radius-md)",
-        background: "var(--bg-panel)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg)",
         overflow: "hidden",
       }}
     >
@@ -107,10 +107,10 @@ function CompactShell({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: 7,
           width: "100%",
-          minHeight: 30,
-          padding: "4px 10px",
+          minHeight: 28,
+          padding: "3px 8px",
           border: "none",
           background: "transparent",
           cursor: "pointer",
@@ -119,7 +119,7 @@ function CompactShell({
         }}
       >
         <span style={{ width: 6, height: 6, borderRadius: "var(--radius-pill)", background: accent, flexShrink: 0 }} />
-        <span style={{ fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{title}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, flexShrink: 0, letterSpacing: "0.02em" }}>{title}</span>
         <span
           style={{
             flex: 1,
@@ -139,8 +139,9 @@ function CompactShell({
         <div
           style={{
             borderTop: "1px solid var(--border)",
-            maxHeight: 140,
+            maxHeight: 180,
             overflowY: "auto",
+            background: "var(--bg-panel)",
           }}
         >
           {children}

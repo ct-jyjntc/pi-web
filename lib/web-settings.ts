@@ -64,9 +64,11 @@ export type WebSettings = {
    * null per role = inherit (default → settings.json; smol/plan → fallback chain).
    */
   modelRoles: ModelRoles;
-  /** Project-scoped durable memory (auto-inject + tools). */
+  /** Project-scoped durable memory (tools + optional auto-inject). */
   projectMemory: {
     enabled: boolean;
+    /** When false (default), facts never enter system/prompt context. */
+    autoInject: boolean;
     autoInjectTopK: number;
     maxFactChars: number;
     maxInjectChars: number;
@@ -126,7 +128,8 @@ const DEFAULT_SETTINGS: WebSettings = {
   commitModel: null,
   modelRoles: emptyModelRoles(),
   projectMemory: {
-    enabled: true,
+    enabled: false,
+    autoInject: false,
     autoInjectTopK: 12,
     maxFactChars: 400,
     maxInjectChars: 3000,
@@ -249,6 +252,8 @@ function normalizeWebSettings(raw: unknown): WebSettings {
       const pm = raw.projectMemory;
       return {
         enabled: asBool(pm.enabled, d.enabled),
+        // Explicit true only — missing/legacy files never auto-inject.
+        autoInject: pm.autoInject === true,
         autoInjectTopK: asNumber(pm.autoInjectTopK, d.autoInjectTopK, 0, 50),
         maxFactChars: asNumber(pm.maxFactChars, d.maxFactChars, 80, 2000),
         maxInjectChars: asNumber(pm.maxInjectChars, d.maxInjectChars, 200, 12000),

@@ -22,8 +22,9 @@ import {
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
 import { SpecializedExtensionWidget } from "./extension/ExtensionWidgetViews";
-import { classifyWidgetKey } from "@/lib/extension-widgets";
-import { clearSessionMetrics, setContextUsageMetric, setExtensionStatusesMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
+import { classifyWidgetKey, isChromeTopBarWidgetKey, todoWidgetHasContent } from "@/lib/extension-widgets";
+import { clearSessionMetrics, setChromeWidgetsMetric, setContextUsageMetric, setExtensionStatusesMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
+import { deriveTodoWidgetLines } from "@/lib/todo-from-transcript";
 import { setCompactHandlers } from "@/lib/compact-action-store";
 import { useWebSettings } from "@/lib/web-settings-store";
 
@@ -1026,27 +1027,79 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     </div>
   ) : null;
 
-  // The todo extension's store is session-long, but the card should only
-  // reflect the latest turn: derive "todo used after the last user message"
-  // from the transcript (works for reload, streaming, and history alike).
+  // Todo visibility: the extension store is session-long, so we only surface the
+  // top-bar capsule when (a) settings allow it AND (b) either the live widget
+  // payload has content OR the latest turn actually called the todo tool.
+  // Also inspect the in-flight streaming bubble — toolCalls often live only
+  // there until message_end, which previously hid the capsule mid-turn.
   const todoUsedInLatestTurn = useMemo(() => {
+    const hasTodoCall = (msg: AgentMessage | null | undefined): boolean => {
+      if (!msg || msg.role !== "assistant") return false;
+      const content = (msg as AssistantMessage).content;
+      if (!Array.isArray(content)) return false;
+      return content.some((c) => c.type === "toolCall" && String(c.toolName).toLowerCase() === "todo");
+    };
+    if (hasTodoCall(streamState.streamingMessage as AgentMessage | null)) return true;
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.role === "user") return false;
-      if (m.role === "assistant"
-        && m.content.some((c) => c.type === "toolCall" && c.toolName === "todo")) {
-        return true;
-      }
+      if (hasTodoCall(m)) return true;
     }
     return false;
-  }, [messages]);
+  }, [messages, streamState.streamingMessage]);
 
   const visibleWidgets = extensionWidgets.filter((widget) => {
     if (classifyWidgetKey(widget.key) !== "todo") return true;
-    return showTodos && todoUsedInLatestTurn;
+    if (!showTodos) return false;
+    // Live overlay content is authoritative — don't require a toolCall scan.
+    if (todoWidgetHasContent(widget.lines)) return true;
+    return todoUsedInLatestTurn;
   });
-  const aboveEditorWidgets = visibleWidgets.filter((widget) => widget.placement !== "belowEditor");
-  const belowEditorWidgets = visibleWidgets.filter((widget) => widget.placement === "belowEditor");
+  // Todo + subagents publish to the app top bar.
+  // Other chrome stays by placement (composer / above editor).
+  //
+  // Fallback: rpiv-todo keeps a process-global "foreground session" pointer.
+  // In Pi Web (many AgentSessions in one process) the extension overlay often
+  // never rebinds, so we synthesize a todo widget from toolResult text.
+  const derivedTodoLines = useMemo(
+    () => (showTodos
+      ? deriveTodoWidgetLines(messages, streamState.streamingMessage as AgentMessage | null)
+      : null),
+    [messages, showTodos, streamState.streamingMessage],
+  );
+
+  const topBarWidgets = useMemo(() => {
+    const list = visibleWidgets.filter((widget) => (
+      widget.placement === "topBar" || isChromeTopBarWidgetKey(widget.key)
+    ));
+    const hasTodo = list.some((w) => classifyWidgetKey(w.key) === "todo" && todoWidgetHasContent(w.lines));
+    if (!hasTodo && derivedTodoLines && derivedTodoLines.length > 0) {
+      list.push({
+        key: "rpiv-todos",
+        lines: derivedTodoLines,
+        placement: "topBar",
+      });
+    }
+    return list;
+  }, [visibleWidgets, derivedTodoLines]);
+  const aboveEditorWidgets = visibleWidgets.filter((widget) => (
+    !isChromeTopBarWidgetKey(widget.key)
+    && widget.placement !== "belowEditor"
+    && widget.placement !== "topBar"
+  ));
+  const belowEditorWidgets = visibleWidgets.filter((widget) => (
+    !isChromeTopBarWidgetKey(widget.key) && widget.placement === "belowEditor"
+  ));
+
+  const chromeWidgetKey = useMemo(
+    () => topBarWidgets.map((w) => `${w.key}\0${w.lines.join("\n")}`).join("\n---\n"),
+    [topBarWidgets],
+  );
+  const topBarWidgetsRef = useRef(topBarWidgets);
+  topBarWidgetsRef.current = topBarWidgets;
+  useLayoutEffect(() => {
+    setChromeWidgetsMetric(topBarWidgetsRef.current);
+  }, [chromeWidgetKey]);
 
   const chatInputElement = (
     <>
@@ -1377,12 +1430,30 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   );
 }
 
-function ExtensionWidgets({ widgets }: { widgets: Array<{ key: string; lines: string[] }> }) {
+function ExtensionWidgets({
+  widgets,
+  layout = "stack",
+}: {
+  widgets: Array<{ key: string; lines: string[] }>;
+  /** `row` = compact session top-bar chips side by side. */
+  layout?: "stack" | "row";
+}) {
   if (widgets.length === 0) return null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 6 }}>
+    <div
+      style={
+        layout === "row"
+          ? { display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "flex-start" }
+          : { display: "flex", flexDirection: "column", gap: 4, marginBottom: 6 }
+      }
+    >
       {widgets.map((widget) => (
-        <SpecializedExtensionWidget key={widget.key} widgetKey={widget.key} lines={widget.lines} />
+        <div
+          key={widget.key}
+          style={layout === "row" ? { flex: "1 1 220px", minWidth: 0, maxWidth: "100%" } : undefined}
+        >
+          <SpecializedExtensionWidget widgetKey={widget.key} lines={widget.lines} />
+        </div>
       ))}
     </div>
   );
