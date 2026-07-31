@@ -17,24 +17,7 @@ import {
   type ProjectMemorySettings,
 } from "./project-memory";
 import { runMemoryReflect } from "./memory-reflect";
-
-type ToolDefinitionLike = {
-  name: string;
-  label: string;
-  description: string;
-  promptSnippet?: string;
-  promptGuidelines?: string[];
-  parameters: unknown;
-  execute: (
-    toolCallId: string,
-    args: Record<string, unknown>,
-    signal?: AbortSignal,
-  ) => Promise<{
-    content: Array<{ type: "text"; text: string }>;
-    details?: unknown;
-    isError?: boolean;
-  }>;
-};
+import type { ToolDefinitionLike } from "./agent-tool-types";
 
 function memorySettings() {
   return getProjectMemorySettings();

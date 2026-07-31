@@ -1,9 +1,8 @@
 /**
  * Lightweight advisor: review the latest agent turn with a secondary model.
  */
-import type { AssistantMessage, Context, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { assistantText as getText } from "./message-text";
-import { pickUtilityCompleteReasoning, resolveUtilityModel } from "./utility-model";
+import { completeWithUtilityModel } from "./utility-model";
 import { getRoleModelRef } from "./model-roles";
 import { readWebSettings } from "./web-settings";
 
@@ -13,19 +12,6 @@ export type AdvisorNote = {
   model: string;
 };
 
-type CompleteSimpleFn = (
-  model: Model<string>,
-  context: Context,
-  options?: {
-    maxTokens?: number;
-    temperature?: number;
-    timeoutMs?: number;
-    maxRetries?: number;
-    cacheRetention?: "none" | "short" | "long";
-    reasoning?: ThinkingLevel;
-  },
-) => Promise<AssistantMessage>;
-
 export async function runAdvisorReview(
   cwd: string,
   input: { userText: string; assistantText: string; toolSummary?: string },
@@ -34,13 +20,7 @@ export async function runAdvisorReview(
   if (!prefs.advisorEnabled) return null;
 
   const preferred = prefs.advisorModel ?? getRoleModelRef("plan", prefs) ?? getRoleModelRef("default", prefs);
-  const resolved = await resolveUtilityModel(cwd, preferred);
-  const completeSimple = resolved.modelRuntime.completeSimple.bind(
-    resolved.modelRuntime,
-  ) as CompleteSimpleFn;
-  const reasoning = pickUtilityCompleteReasoning(resolved.model);
-
-  const response = await completeSimple(resolved.model, {
+  const { response, resolved } = await completeWithUtilityModel(cwd, preferred, {
     systemPrompt: [
       "You are a silent advisor reviewing another coding agent turn.",
       "Reply with ONLY JSON: {\"level\":\"info\"|\"concern\"|\"blocker\",\"text\":\"...\"}",
@@ -67,7 +47,6 @@ export async function runAdvisorReview(
     timeoutMs: 45_000,
     maxRetries: 0,
     cacheRetention: "none",
-    ...(reasoning ? { reasoning } : {}),
   });
 
   if (response.stopReason === "error" || response.stopReason === "aborted") {
@@ -91,8 +70,6 @@ export async function runAdvisorReview(
       model: `${resolved.ref.provider}/${resolved.ref.modelId}`,
     };
   } catch {
-    const text = getText(response).slice(0, 400);
-    if (!text) return null;
-    return { level: "info", text, model: `${resolved.ref.provider}/${resolved.ref.modelId}` };
+    return null;
   }
 }

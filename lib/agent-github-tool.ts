@@ -3,26 +3,7 @@
  */
 import { Type } from "typebox";
 import { githubAction, parseGithubRef } from "./github";
-
-type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
-  details?: unknown;
-  isError?: boolean;
-};
-
-type ToolDefinitionLike = {
-  name: string;
-  label: string;
-  description: string;
-  promptSnippet?: string;
-  promptGuidelines?: string[];
-  parameters: unknown;
-  execute: (
-    toolCallId: string,
-    args: Record<string, unknown>,
-    signal?: AbortSignal,
-  ) => Promise<ToolResult>;
-};
+import type { ToolDefinitionLike } from "./agent-tool-types";
 
 export function createGithubTools(cwd: string): ToolDefinitionLike[] {
   const github: ToolDefinitionLike = {

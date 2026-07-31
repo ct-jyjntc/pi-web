@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import type { ToolDefinitionLike } from "./agent-tool-types";
 import {
   debugBreakpoint,
   debugContinue,
@@ -11,25 +12,6 @@ import {
   debugStack,
   debugStop,
 } from "./node-inspector";
-
-type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
-  details?: unknown;
-  isError?: boolean;
-};
-
-type ToolDefinitionLike = {
-  name: string;
-  label: string;
-  description: string;
-  promptSnippet?: string;
-  parameters: unknown;
-  execute: (
-    toolCallId: string,
-    args: Record<string, unknown>,
-    signal?: AbortSignal,
-  ) => Promise<ToolResult>;
-};
 
 export function createDebugTools(cwd: string): ToolDefinitionLike[] {
   const debug: ToolDefinitionLike = {

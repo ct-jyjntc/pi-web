@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "./type-guards";
 
 export type McpServerEntry = {
   command?: string;
@@ -36,10 +37,6 @@ export type McpServerListItem = {
 export type McpConfigFile = {
   mcpServers: Record<string, McpServerEntry>;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export function getAgentMcpPath(): string {
   return join(getAgentDir(), "mcp.json");

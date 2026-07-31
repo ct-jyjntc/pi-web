@@ -4,24 +4,15 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
+import { isRecord } from "@/lib/type-guards";
+import { assistantText } from "@/lib/message-text";
 
 export const dynamic = "force-dynamic";
 
 const TEST_TIMEOUT_MS = 20_000;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function getAssistantText(message: AssistantMessage): string {
-  return message.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("");
 }
 
 export async function POST(req: Request) {
@@ -97,7 +88,7 @@ export async function POST(req: Request) {
         ok: true,
         latencyMs,
         status,
-        responseText: getAssistantText(message).slice(0, 300),
+        responseText: assistantText(message).slice(0, 300),
       });
     } finally {
       clearTimeout(timeout);

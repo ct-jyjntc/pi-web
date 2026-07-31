@@ -1,6 +1,6 @@
-import type { AssistantMessage, Context, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { draftCommitMessage, getCommitDiffContext } from "./git-changes";
-import { pickUtilityCompleteReasoning, resolveUtilityModel } from "./utility-model";
+import { assistantText } from "./message-text";
+import { completeWithUtilityModel } from "./utility-model";
 import { readWebSettings } from "./web-settings";
 
 const AI_TIMEOUT_MS = 25_000;
@@ -10,29 +10,6 @@ export type CommitMessageDraft = {
   message: string;
   source: "ai" | "heuristic";
 };
-
-type CompleteSimpleFn = (
-  model: Model<string>,
-  context: Context,
-  options?: {
-    maxTokens?: number;
-    temperature?: number;
-    timeoutMs?: number;
-    maxRetries?: number;
-    cacheRetention?: "none" | "short" | "long";
-    signal?: AbortSignal;
-    /** Lowest supported effort; omit when off/none is preferred. */
-    reasoning?: ThinkingLevel;
-  },
-) => Promise<AssistantMessage>;
-
-function getAssistantText(message: AssistantMessage): string {
-  return message.content
-    .filter((block): block is { type: "text"; text: string } => block.type === "text")
-    .map((block) => block.text)
-    .join("")
-    .trim();
-}
 
 function sanitizeCommitMessage(raw: string): string {
   let text = raw.trim();
@@ -82,19 +59,12 @@ export async function draftCommitMessageWithAi(
   const prefs = readWebSettings();
   // Prefer explicit commit model, then smol role, then default utility resolution.
   const preferred = prefs.commitModel ?? prefs.modelRoles.smol ?? null;
-  const resolved = await resolveUtilityModel(cwd, preferred);
-  // Keep method receiver so ModelRuntime.completeSimple → this.streamSimple works.
-  const completeSimple = resolved.modelRuntime.completeSimple.bind(
-    resolved.modelRuntime,
-  ) as CompleteSimpleFn;
-  // Prefer none/off when the model supports it; otherwise the lowest supported level.
-  const reasoning = pickUtilityCompleteReasoning(resolved.model);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
 
   try {
-    const response = await completeSimple(resolved.model, {
+    const { response } = await completeWithUtilityModel(cwd, preferred, {
       systemPrompt: [
         "You write concise git commit messages.",
         "Rules:",
@@ -121,7 +91,6 @@ export async function draftCommitMessageWithAi(
       maxRetries: 0,
       cacheRetention: "none",
       signal: controller.signal,
-      ...(reasoning ? { reasoning } : {}),
     });
 
     if (response.stopReason === "error" || response.stopReason === "aborted") {
@@ -131,7 +100,7 @@ export async function draftCommitMessageWithAi(
       );
     }
 
-    const message = sanitizeCommitMessage(getAssistantText(response));
+    const message = sanitizeCommitMessage(assistantText(response));
     if (!message) {
       throw new Error("AI returned an empty commit message");
     }

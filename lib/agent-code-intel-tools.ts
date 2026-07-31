@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import { applyAstEdit } from "./ast-edit";
-import { applyHashlineEdits, hashBlock } from "./hashline-edit";
 import {
   getLspClientForFile,
   listAvailableLspServers,
@@ -9,26 +8,10 @@ import {
 import { formatLspHealthReport, getLspHealth } from "./lsp-health";
 import { applyRenameEdits, findReferences, formatLocations, planRename } from "./ts-lsp";
 import { readFileSync, writeFileSync } from "fs";
-
-type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
-  details?: unknown;
-  isError?: boolean;
-};
-
-type ToolDefinitionLike = {
-  name: string;
-  label: string;
-  description: string;
-  promptSnippet?: string;
-  promptGuidelines?: string[];
-  parameters: unknown;
-  execute: (
-    toolCallId: string,
-    args: Record<string, unknown>,
-    signal?: AbortSignal,
-  ) => Promise<ToolResult>;
-};
+import {
+  type ToolDefinitionLike,
+  type ToolResult,
+} from "./agent-tool-types";
 
 function num(v: unknown, name: string): number {
   const n = typeof v === "number" ? v : Number(v);
@@ -65,7 +48,8 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
     promptGuidelines: [
       "Prefer lsp({ action, path, line, character }) for code navigation.",
       "Call action=servers first if unsure which languages are supported on this machine.",
-      "line is 1-based; character is 1-based column (same as other lsp_* tools).",
+      "line is 1-based; character is 1-based column.",
+      "For rename: prefer apply=false first to preview edit count, then apply=true.",
     ],
     parameters: Type.Object({
       action: Type.String({ description: "servers | hover | definition | references | rename" }),
@@ -326,45 +310,6 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
     },
   };
 
-  const hashline: ToolDefinitionLike = {
-    name: "hashline_edit",
-    label: "hashline_edit",
-    description:
-      "Legacy block-hash edit ({ path, hunks }). Prefer the main edit tool with hashline patch language { input: \"[path#TAG]\\nSWAP…\" } instead.",
-    promptSnippet: "Legacy hash-anchored hunk edit (prefer edit input)",
-    parameters: Type.Object({
-      path: Type.String(),
-      hunks: Type.Array(Type.Object({
-        hash: Type.Optional(Type.String()),
-        oldText: Type.String(),
-        newText: Type.String(),
-      })),
-    }),
-    async execute(_id, args) {
-      try {
-        const hunks = Array.isArray(args.hunks) ? args.hunks as Array<{ hash?: string; oldText: string; newText: string }> : [];
-        // Auto-fill hashes for model convenience when omitted
-        const normalized = hunks.map((h) => ({
-          ...h,
-          hash: h.hash || hashBlock(h.oldText),
-        }));
-        const result = applyHashlineEdits(cwd, String(args.path ?? ""), normalized);
-        return {
-          content: [{
-            type: "text",
-            text: `Applied ${result.applied} hashline hunk(s) to ${result.path}\nhashes: ${result.hashes.join(", ")}`,
-          }],
-          details: result,
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
-      }
-    },
-  };
-
   const ast: ToolDefinitionLike = {
     name: "ast_edit",
     label: "ast_edit",
@@ -424,5 +369,7 @@ export function createCodeIntelTools(cwd: string): ToolDefinitionLike[] {
     };
   };
 
-  return [lsp, servers, hover, definition, refs, rename, hashline, ast];
+  // Single public LSP surface + AST edit. hover/definition/refs/rename remain
+  // private implementations dispatched by lsp({ action }).
+  return [lsp, ast];
 }

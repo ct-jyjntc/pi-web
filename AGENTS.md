@@ -19,7 +19,7 @@ Browser                Next.js Server              AgentSession (in-process)
   │                        │                               │
   ├─ GET /api/sessions ────▶ reads ~/.pi/agent/sessions/   │
   ├─ GET /api/sessions/[id] reads .jsonl file directly     │
-  ├─ GET /api/agent/running/events ───▶ running id SSE     │
+  ├─ GET /api/agent/running ──────────▶ running id poll    │
   │                        │                               │
   ├─ send message ─────────▶ POST /api/agent/[id]          │
   │                        │   startRpcSession() ─────────▶│ createAgentSession()
@@ -46,7 +46,7 @@ app/api/
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
-  agent/running/events/route.ts   GET SSE stream of currently-running session ids
+  agent/running/route.ts          GET snapshot of currently-running session ids
   auth/all-providers/route.ts     GET API-key provider list
   auth/api-key/[provider]/route.ts GET/POST/DELETE provider API key status/storage
   auth/login/[provider]/route.ts  GET OAuth/device-code SSE | POST manual code
@@ -145,9 +145,9 @@ Every session uses the full built-in tool set (`getFullToolNames()` → `toolNam
 - **Roles** (`default` / `smol` / `plan`) live in `~/.pi/agent/pi-web.json` via `lib/web-settings.ts` + Settings UI. Changing roles rewrites managed agent frontmatter (`Explore`/`Plan`/`Reviewer`) through `syncAgentModelsFromRoles()`.
 - **Git Review**: `POST /api/git/review` builds a prompt; GitPanel starts a new session with the plan-role model and the managed `Reviewer` subagent. Assistant JSON is rendered by `ReviewSummaryCard`.
 - **Edit (hashline-first)**: `createPiWebEditToolDefinition` prefers omp-style `{ input: "[path#TAG]\nSWAP…" }` (`lib/hashline-edit.ts`); classic `{ path, edits }` still works (strict then SDK fuzzy). Failures get kind/excerpt recovery (`lib/edit-failure.ts`).
-- **LSP health**: catalog + PATH discovery in `lib/lsp-health.ts`; `GET /api/lsp?cwd=`; Settings → Tools; agent tools `lsp` / `lsp_servers` include install hints. TS/JS keeps built-in service fallback.
+- **LSP health**: catalog + PATH discovery in `lib/lsp-health.ts`; `GET /api/lsp?cwd=`; Settings → Tools; agent tool `lsp({ action })` (servers|hover|definition|references|rename) includes install hints. TS/JS keeps built-in service fallback.
 - **GitHub thin layer**: `lib/github.ts` + agent tool `github` (gh CLI, read-only). Virtual paths `pr://N`, `pr://N/diff`, `issue://N` work via `read` and `github({ action:"read" })`. API: `GET/POST /api/github`.
-- **Project memory**: dual-scope fact stores — project facts in `~/.pi/agent/project-memory/<key>/facts.jsonl`, user facts (who the user is) in `~/.pi/agent/user-memory/facts.jsonl`. Each scope has a hard char budget (`projectBudgetChars` 4000 / `userBudgetChars` 2000; usage = Σ text.length + 20/fact); overflow rejects with current entries + a consolidate instruction. `memory_retain` takes `target` + an atomic `operations[]` batch (add/replace/remove by unique substring, all-or-nothing); `memory_recall` searches both scopes; `memory_reflect` (project-only) is heuristic + optional utility-model synthesis. Both scopes auto-inject via `appendSystemPromptOverride` in `startRpcSession`. Per-prompt, `send("prompt")` also recalls facts relevant to the outgoing message (`buildQueryMemoryContext` in `lib/memory-context.ts`, ≤800 chars, deduped per wrapper) and delivers them as a hidden `memory-context` custom message (`sendCustomMessage(..., { deliverAs: "nextTurn" })`) — the model sees them via `convertToLlm`; `isMemoryContextMessage` (`lib/message-display.ts`) keeps them out of the transcript (ChatWindow plan, MessageView). API: `POST /api/project-memory` with `{ action: "reflect" }`.
+- **Project memory**: project-only store under `~/.pi/agent/project-memory/<key>/facts.jsonl` with a hard char budget (`projectBudgetChars` default 4000; usage = Σ text.length + 20/fact). Overflow rejects with current entries + a consolidate instruction. `memory_retain` supports an atomic `operations[]` batch (add/replace/remove by unique substring, all-or-nothing); `memory_recall` searches project facts; `memory_reflect` is heuristic + optional utility-model synthesis. When auto-inject is on, top-K facts go into the system prompt via `appendSystemPromptOverride` in `startRpcSession`. Per-prompt, `send("prompt")` also recalls query-relevant facts (`buildQueryMemoryContext`, ≤800 chars, excluding facts already in the system top-K) as a hidden `memory-context` custom message (`sendCustomMessage(..., { deliverAs: "nextTurn" })`). `isMemoryContextMessage` keeps them out of the transcript. API: `POST /api/project-memory` with `{ action: "reflect" }`.
 - **Background memory review** (`lib/memory-review.ts` + `POST /api/memory-review`): ChatWindow fires it fire-and-forget after every agent-end; a per-session counter (`globalThis.__piMemoryReviewTurnCounts`, resets on restart) runs the actual review only every 10th user turn. One utility-model JSON completion (smol → plan → default role chain) over the last ~10 transcript snippets (~6KB); validated facts are written via `retainMemoryFact` (secret guard / dedupe / budget are the safety net). Saved facts surface as a subtle info notice.
 
 ### SSE reconnect on page refresh mid-stream
@@ -156,9 +156,9 @@ On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming ==
 ### Compaction SSE events
 Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
 
-### Running state SSE + reconciliation
-- The sidebar listens to `/api/agent/running/events`, backed by `subscribeRunningSessions()` in `lib/rpc-manager.ts`, so running badges update without polling.
-- `useAgentSession` still treats per-session SSE as primary for chat events, but while a run is active it periodically calls `GET /api/agent/[id]` and also reconciles on `visibilitychange`/`online`. This fixes missed `agent_end` events from background tabs or half-open connections.
+### Running state polling + reconciliation
+- The sidebar polls `GET /api/agent/running` while the tab is visible (avoids one long-lived SSE per multi-window tab). Server state still uses `subscribeRunningSessions()` in `lib/rpc-manager.ts`.
+- `useAgentSession` treats per-session SSE as primary for chat events, but while a run is active it also reconciles via `GET /api/agent/[id]` on a slow interval and on `visibilitychange`/`online` (skipped while prompt settlement is already polling). This fixes missed `agent_end` events from background tabs or half-open connections.
 - Prompt runs use a monotonic run id; late SSE or slow reconciliation responses from an old run must be ignored so they cannot resurrect stale streaming bubbles.
 
 ### Worktrees and project grouping

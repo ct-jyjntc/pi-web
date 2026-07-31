@@ -2,6 +2,8 @@ import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 import {
   getSupportedThinkingLevels,
+  type AssistantMessage,
+  type Context,
   type Model,
   type ModelThinkingLevel,
   type ThinkingLevel,
@@ -251,6 +253,47 @@ export async function resolveUtilityModel(
     ref: { provider: fallback.provider, modelId: fallback.id },
     modelRuntime,
   };
+}
+
+export type UtilityCompleteOptions = {
+  maxTokens?: number;
+  temperature?: number;
+  timeoutMs?: number;
+  maxRetries?: number;
+  cacheRetention?: "none" | "short" | "long";
+  signal?: AbortSignal;
+  reasoning?: ThinkingLevel;
+};
+
+type CompleteSimpleFn = (
+  model: Model<string>,
+  context: Context,
+  options?: UtilityCompleteOptions,
+) => Promise<AssistantMessage>;
+
+/** Bind completeSimple with the correct receiver (needed for ModelRuntime). */
+export function bindUtilityComplete(resolved: ResolvedUtilityModel): CompleteSimpleFn {
+  return resolved.modelRuntime.completeSimple.bind(resolved.modelRuntime) as CompleteSimpleFn;
+}
+
+/**
+ * Resolve a utility model and run one completeSimple call with lowest safe reasoning.
+ * Shared by advisor / memory / git AI helpers.
+ */
+export async function completeWithUtilityModel(
+  cwd: string,
+  preferred: ModelRef | null | undefined,
+  context: Context,
+  options?: Omit<UtilityCompleteOptions, "reasoning">,
+): Promise<{ response: AssistantMessage; resolved: ResolvedUtilityModel }> {
+  const resolved = await resolveUtilityModel(cwd, preferred);
+  const completeSimple = bindUtilityComplete(resolved);
+  const reasoning = pickUtilityCompleteReasoning(resolved.model);
+  const response = await completeSimple(resolved.model, context, {
+    ...options,
+    ...(reasoning ? { reasoning } : {}),
+  });
+  return { response, resolved };
 }
 
 /**

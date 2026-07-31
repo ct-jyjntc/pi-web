@@ -7,8 +7,8 @@
  * programmatically via retainMemoryFact — no tool loop. retainMemoryFact's
  * secret guard, exact-text dedupe, and per-scope char budget are the safety net.
  */
-import type { AssistantMessage, Context, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import {
+  bindUtilityComplete,
   pickUtilityCompleteReasoning,
   resolveUtilityModel,
   type ResolvedUtilityModel,
@@ -51,19 +51,6 @@ function getTurnCounts(): Map<string, number> {
   if (!globalThis.__piMemoryReviewTurnCounts) globalThis.__piMemoryReviewTurnCounts = new Map();
   return globalThis.__piMemoryReviewTurnCounts;
 }
-
-type CompleteSimpleFn = (
-  model: Model<string>,
-  context: Context,
-  options?: {
-    maxTokens?: number;
-    temperature?: number;
-    timeoutMs?: number;
-    maxRetries?: number;
-    cacheRetention?: "none" | "short" | "long";
-    reasoning?: ThinkingLevel;
-  },
-) => Promise<AssistantMessage>;
 
 /** Last ~10 user/assistant text snippets on the active branch, ~6KB total. */
 async function readRecentTranscript(sessionId: string): Promise<string> {
@@ -194,9 +181,7 @@ export async function runMemoryReview(opts: { cwd: string; sessionId: string }):
   if (!transcript) return { saved: [], skipped: true, reason: "no-transcript" };
 
   const resolved = await resolveReviewModel(cwd, prefs);
-  const completeSimple = resolved.modelRuntime.completeSimple.bind(
-    resolved.modelRuntime,
-  ) as CompleteSimpleFn;
+  const completeSimple = bindUtilityComplete(resolved);
   const reasoning = pickUtilityCompleteReasoning(resolved.model);
 
   const response = await completeSimple(resolved.model, {

@@ -11,27 +11,9 @@ import { join } from "path";
 import { promisify } from "util";
 import { Type } from "typebox";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinitionLike } from "./agent-tool-types";
 
 const execFileAsync = promisify(execFile);
-
-type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
-  details?: unknown;
-  isError?: boolean;
-};
-
-type ToolDefinitionLike = {
-  name: string;
-  label: string;
-  description: string;
-  promptSnippet?: string;
-  parameters: unknown;
-  execute: (
-    toolCallId: string,
-    args: Record<string, unknown>,
-    signal?: AbortSignal,
-  ) => Promise<ToolResult>;
-};
 
 export type TtsrRule = {
   id: string;

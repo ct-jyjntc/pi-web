@@ -10,26 +10,7 @@ import {
   type CheckpointStore,
 } from "./session-checkpoint";
 import { webFetch, webSearch } from "./web-tools";
-
-type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
-  details?: unknown;
-  isError?: boolean;
-};
-
-type ToolDefinitionLike = {
-  name: string;
-  label: string;
-  description: string;
-  promptSnippet?: string;
-  promptGuidelines?: string[];
-  parameters: unknown;
-  execute: (
-    toolCallId: string,
-    args: Record<string, unknown>,
-    signal?: AbortSignal,
-  ) => Promise<ToolResult>;
-};
+import type { ToolDefinitionLike } from "./agent-tool-types";
 
 export function createDiagnosticsTool(cwd: string): ToolDefinitionLike {
   return {

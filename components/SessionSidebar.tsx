@@ -425,8 +425,8 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   }, [unreadSessionIds]);
 
   useEffect(() => {
-    // Visible-tab polling instead of a long-lived SSE: multi-window setups used
-    // to open one /api/agent/running/events connection per tab and keep it idle.
+    // Visible-tab polling instead of a long-lived running SSE: multi-window setups
+    // used to hold one idle EventSource per tab.
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let controller: AbortController | null = null;

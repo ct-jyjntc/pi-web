@@ -1,5 +1,4 @@
 import path from "path";
-import type { AssistantMessage, Context, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import {
   commitGitChanges,
   getCommitDiffContext,
@@ -8,7 +7,8 @@ import {
   unstageGitFiles,
 } from "./git-changes";
 import type { GitStatusResponse } from "./git-types";
-import { pickUtilityCompleteReasoning, resolveUtilityModel } from "./utility-model";
+import { assistantText } from "./message-text";
+import { completeWithUtilityModel } from "./utility-model";
 import { readWebSettings } from "./web-settings";
 
 export type CommitSplitGroup = {
@@ -29,28 +29,6 @@ export type CommitSplitResult = {
   commits: Array<{ commit: string | null; message: string; paths: string[] }>;
   status: GitStatusResponse;
 };
-
-type CompleteSimpleFn = (
-  model: Model<string>,
-  context: Context,
-  options?: {
-    maxTokens?: number;
-    temperature?: number;
-    timeoutMs?: number;
-    maxRetries?: number;
-    cacheRetention?: "none" | "short" | "long";
-    signal?: AbortSignal;
-    reasoning?: ThinkingLevel;
-  },
-) => Promise<AssistantMessage>;
-
-function getAssistantText(message: AssistantMessage): string {
-  return message.content
-    .filter((block): block is { type: "text"; text: string } => block.type === "text")
-    .map((block) => block.text)
-    .join("")
-    .trim();
-}
 
 function sanitizeSubject(raw: string): string {
   let text = raw.trim().replace(/^```(?:\w+)?\s*/i, "").replace(/\s*```$/i, "").trim();
@@ -205,14 +183,8 @@ export async function planAtomicCommits(
     });
     const prefs = readWebSettings();
     const preferred = prefs.commitModel ?? prefs.modelRoles.smol ?? prefs.modelRoles.default;
-    const resolved = await resolveUtilityModel(cwd, preferred);
-    const completeSimple = resolved.modelRuntime.completeSimple.bind(
-      resolved.modelRuntime,
-    ) as CompleteSimpleFn;
-    const reasoning = pickUtilityCompleteReasoning(resolved.model);
-
     const pathList = paths.join("\n");
-    const response = await completeSimple(resolved.model, {
+    const { response } = await completeWithUtilityModel(cwd, preferred, {
       systemPrompt: [
         "You split a dirty git working tree into atomic commits.",
         "Return ONLY JSON:",
@@ -242,7 +214,6 @@ export async function planAtomicCommits(
       timeoutMs: 45_000,
       maxRetries: 0,
       cacheRetention: "none",
-      ...(reasoning ? { reasoning } : {}),
     });
 
     if (response.stopReason === "error" || response.stopReason === "aborted") {
@@ -250,7 +221,7 @@ export async function planAtomicCommits(
     }
 
     const allowed = new Set(paths);
-    const groups = parseAiGroups(getAssistantText(response), allowed);
+    const groups = parseAiGroups(assistantText(response), allowed);
     if (groups.length === 0) throw new Error("AI returned no valid groups");
     const assigned = new Set(groups.flatMap((g) => g.paths));
     const unassigned = paths.filter((p) => !assigned.has(p));

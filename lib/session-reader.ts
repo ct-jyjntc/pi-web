@@ -13,6 +13,7 @@ import type { SessionEntry as PiSessionEntry } from "@earendil-works/pi-coding-a
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
+import { isRecord } from "./type-guards";
 
 // ============================================================================
 // Session archive index.
@@ -629,10 +630,6 @@ export function buildSessionContext(
 function parseEntryTimestamp(timestamp: string): number | undefined {
   const parsed = Date.parse(timestamp);
   return Number.isNaN(parsed) ? undefined : parsed;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function base64ImageInfo(block: unknown): { bytes: number; mime?: string } | null {

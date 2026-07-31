@@ -2,11 +2,11 @@ import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
-import type { AssistantMessage, Context, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { getGitStatus } from "./git-changes";
 import type { GitStatusResponse } from "./git-types";
 import { gitProcessEnv, resolveGitBinary } from "./resolve-git";
-import { pickUtilityCompleteReasoning, resolveUtilityModel } from "./utility-model";
+import { assistantText } from "./message-text";
+import { completeWithUtilityModel } from "./utility-model";
 import { readWebSettings } from "./web-settings";
 
 const execFileAsync = promisify(execFile);
@@ -212,28 +212,6 @@ export async function resolveConflictContent(
   return getGitStatus(cwd);
 }
 
-type CompleteSimpleFn = (
-  model: Model<string>,
-  context: Context,
-  options?: {
-    maxTokens?: number;
-    temperature?: number;
-    timeoutMs?: number;
-    maxRetries?: number;
-    cacheRetention?: "none" | "short" | "long";
-    signal?: AbortSignal;
-    reasoning?: ThinkingLevel;
-  },
-) => Promise<AssistantMessage>;
-
-function getAssistantText(message: AssistantMessage): string {
-  return message.content
-    .filter((block): block is { type: "text"; text: string } => block.type === "text")
-    .map((block) => block.text)
-    .join("")
-    .trim();
-}
-
 function stripFence(raw: string): string {
   let text = raw.trim();
   text = text.replace(/^```(?:\w+)?\s*/i, "").replace(/\s*```$/i, "").trim();
@@ -259,13 +237,7 @@ export async function draftConflictResolutionWithAi(
 
   const prefs = readWebSettings();
   const preferred = prefs.modelRoles.plan ?? prefs.modelRoles.default ?? prefs.commitModel;
-  const resolved = await resolveUtilityModel(cwd, preferred);
-  const completeSimple = resolved.modelRuntime.completeSimple.bind(
-    resolved.modelRuntime,
-  ) as CompleteSimpleFn;
-  const reasoning = pickUtilityCompleteReasoning(resolved.model);
-
-  const response = await completeSimple(resolved.model, {
+  const { response, resolved } = await completeWithUtilityModel(cwd, preferred, {
     systemPrompt: [
       "You resolve git merge conflicts.",
       "Rules:",
@@ -292,14 +264,13 @@ export async function draftConflictResolutionWithAi(
     timeoutMs: 60_000,
     maxRetries: 0,
     cacheRetention: "none",
-    ...(reasoning ? { reasoning } : {}),
   });
 
   if (response.stopReason === "error" || response.stopReason === "aborted") {
     throw new Error(response.errorMessage ?? "AI conflict resolve failed");
   }
 
-  const content = stripFence(getAssistantText(response));
+  const content = stripFence(assistantText(response));
   if (!content) throw new Error("AI returned empty resolution");
   if (content.includes("<<<<<<<") || content.includes(">>>>>>>")) {
     throw new Error("AI resolution still contains conflict markers");

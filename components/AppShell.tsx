@@ -560,7 +560,7 @@ export function AppShell() {
   const handleAgentEnd = useCallback(() => {
     const timers = agentEndTimersRef.current;
     // The session list only carries messageCount / mtime here — running badges
-    // already stream over /api/agent/running/events — so it can lag a turn.
+    // only refresh running badges via visible-tab poll — so it can lag a turn.
     if (timers.sessions) clearTimeout(timers.sessions);
     timers.sessions = setTimeout(() => {
       timers.sessions = null;

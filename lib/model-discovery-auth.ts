@@ -2,14 +2,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
+import { isRecord } from "./type-guards";
 
 export interface ModelDiscoveryAuth {
   apiKey?: string;
   headers: Record<string, string>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function stringRecord(value: unknown): Record<string, string> {

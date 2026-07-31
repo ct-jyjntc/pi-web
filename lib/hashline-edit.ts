@@ -14,7 +14,7 @@
  *    TAG is a 4-hex fingerprint of the whole normalized file (must match on-disk).
  *
  * 2) **Hunk mode** — `{ path, hunks: [{ hash?, oldText, newText }] }` with optional
- *    per-block sha1[:12] guards (legacy `hashline_edit` tool).
+ *    per-block sha1[:12] guards (hunk mode on the main edit tool).
  */
 import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
@@ -711,22 +711,3 @@ export function isHashlineHunkArgs(args: Record<string, unknown>): boolean {
   return typeof args.path === "string" && Array.isArray(args.hunks) && args.hunks.length > 0;
 }
 
-/**
- * Format a read-style header + line dump for prompts/errors so the model can
- * copy TAG and line numbers into a patch.
- */
-export function formatHashlineReadout(cwd: string, pathValue: string, maxLines = 200): string {
-  const abs = resolvePath(cwd, pathValue);
-  const original = readFileSync(abs, "utf8");
-  const lf = normalize(original);
-  const tag = computeFileTag(lf);
-  const hadTrailingNl = lf.endsWith("\n");
-  const lines = lf.length === 0 ? [] : lf.split("\n");
-  const numbered = hadTrailingNl && lines.length > 0 && lines[lines.length - 1] === ""
-    ? lines.slice(0, -1)
-    : lines;
-  const slice = numbered.slice(0, maxLines);
-  const body = slice.map((l, i) => `${i + 1}:${l}`).join("\n");
-  const more = numbered.length > maxLines ? `\n… (${numbered.length - maxLines} more lines)` : "";
-  return `[${displayPath(cwd, abs)}#${tag}]\n${body}${more}`;
-}

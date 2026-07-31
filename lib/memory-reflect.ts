@@ -2,7 +2,6 @@
  * Optional model-backed project memory reflection (omp-style reflect, lite).
  * Falls back to heuristic clustering when no utility model is available.
  */
-import type { AssistantMessage, Context, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import {
   listMemoryFacts,
   recallMemoryFacts,
@@ -12,22 +11,9 @@ import {
   type MemoryReflection,
 } from "./project-memory";
 import { assistantText as getText } from "./message-text";
-import { pickUtilityCompleteReasoning, resolveUtilityModel } from "./utility-model";
+import { completeWithUtilityModel } from "./utility-model";
 import { getRoleModelRef } from "./model-roles";
 import { readWebSettings } from "./web-settings";
-
-type CompleteSimpleFn = (
-  model: Model<string>,
-  context: Context,
-  options?: {
-    maxTokens?: number;
-    temperature?: number;
-    timeoutMs?: number;
-    maxRetries?: number;
-    cacheRetention?: "none" | "short" | "long";
-    reasoning?: ThinkingLevel;
-  },
-) => Promise<AssistantMessage>;
 
 export type ReflectOptions = {
   focus?: string;
@@ -64,12 +50,6 @@ export async function runMemoryReflect(
       getRoleModelRef("smol", prefs) ??
       prefs.titleModel ??
       getRoleModelRef("default", prefs);
-    const resolved = await resolveUtilityModel(cwd, preferred ?? undefined);
-    const completeSimple = resolved.modelRuntime.completeSimple.bind(
-      resolved.modelRuntime,
-    ) as CompleteSimpleFn;
-    const reasoning = pickUtilityCompleteReasoning(resolved.model);
-
     const facts: MemoryFact[] = focus
       ? recallMemoryFacts(cwd, focus, limit)
       : listMemoryFacts(cwd).slice(0, limit);
@@ -78,7 +58,7 @@ export async function runMemoryReflect(
       .map((f, i) => `${i + 1}. [${f.id}] (imp=${f.importance.toFixed(2)}; tags=${f.tags.join(",") || "-"}) ${f.text}`)
       .join("\n");
 
-    const response = await completeSimple(resolved.model, {
+    const { response, resolved } = await completeWithUtilityModel(cwd, preferred ?? undefined, {
       systemPrompt: [
         "You synthesize a durable mental model of a software project from stored memory facts.",
         "Write concise Markdown with these sections exactly:",
@@ -106,7 +86,6 @@ export async function runMemoryReflect(
       timeoutMs: 60_000,
       maxRetries: 0,
       cacheRetention: "none",
-      ...(reasoning ? { reasoning } : {}),
     });
 
     if (response.stopReason === "error" || response.stopReason === "aborted") {

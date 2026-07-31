@@ -18,6 +18,7 @@ import {
 import { MAX_DIFF_ROWS, parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { parseReviewReport } from "@/lib/review-report";
 import { useWebSettings } from "@/lib/web-settings-store";
+import { isRecord } from "@/lib/type-guards";
 import type {
   AgentMessage,
   UserMessage,
@@ -2013,10 +2014,6 @@ function isEditToolName(toolName: string): boolean {
     name.endsWith("_edit") ||
     name.includes("str_replace") ||
     name.includes("replace_editor");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function PairedResult({ text, isEmpty, isError }: {

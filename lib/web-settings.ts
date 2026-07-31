@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "./type-guards";
 
 export type ModelRef = {
   provider: string;
@@ -176,10 +177,6 @@ const THINKING_LEVELS = new Set<ThinkingLevelPref>([
 
 export function getWebSettingsPath(): string {
   return join(getAgentDir(), "pi-web.json");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function asString(value: unknown, fallback = ""): string {
