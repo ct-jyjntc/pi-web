@@ -5,6 +5,7 @@ import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
 import { isExistingPathWithinRoots, isPathWithinRoots, resolveRealRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
+export { isWindowsAbsolutePath, isAbsolutePath } from "./path-utils";
 
 // Short-TTL cache for the allowed-roots set. Without this, every file list/read
 // request re-scans every pi session on disk just to check access. 5s is short
@@ -21,11 +22,6 @@ declare global {
 }
 
 const ALLOWED_ROOTS_TTL_MS = 5_000;
-const WINDOWS_ABSOLUTE_RE = /^[a-zA-Z]:[\\/]/;
-
-export function isWindowsAbsolutePath(filePath: string): boolean {
-  return WINDOWS_ABSOLUTE_RE.test(filePath) || filePath.startsWith("\\\\") || filePath.startsWith("//");
-}
 
 export async function getAllowedFileRoots(): Promise<Set<string>> {
   const now = Date.now();

@@ -522,7 +522,6 @@ export class AgentSessionWrapper {
           autoCompactionEnabled: this.inner.autoCompactionEnabled,
           autoRetryEnabled: this.inner.autoRetryEnabled,
           model: model ? { id: model.id, provider: model.provider } : undefined,
-          messageCount: 0,
           pendingMessageCount: this.inner.pendingMessageCount,
           queuedMessages: {
             steering: [...this.inner.getSteeringMessages()],

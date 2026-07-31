@@ -5,9 +5,9 @@ declare global {
   var __piAdditionalAllowedRoots: Set<string> | undefined;
 }
 
-export function normalizeSlashes(filePath: string): string {
-  return filePath.replace(/\\/g, "/");
-}
+import { normalizeSlashes } from "./path-utils";
+
+export { normalizeSlashes };
 
 export function getAdditionalAllowedRoots(): Set<string> {
   if (!globalThis.__piAdditionalAllowedRoots) {

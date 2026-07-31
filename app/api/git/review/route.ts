@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolve } from "path";
-import { isWindowsAbsolutePath } from "@/lib/file-access";
+import { jsonError } from "@/lib/api-response";
+import { isAbsolutePath } from "@/lib/path-utils";
 import { buildGitReviewContext } from "@/lib/git-review";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 function pickCwd(raw: unknown): string | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
   const cwd = raw.trim();
-  if (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd)) return null;
+  if (!isAbsolutePath(cwd)) return null;
   return resolve(cwd);
 }
 
@@ -41,9 +42,6 @@ export async function POST(req: NextRequest) {
       suggestedModel: context.suggestedModel,
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+    return jsonError(error);
   }
 }

@@ -1,6 +1,7 @@
 import {
+  emptyModelRoles,
   formatModelRef,
-  parseModelRef,
+  parseModelRoles,
   type ModelRef,
   type ModelRoles,
   type WebSettings,
@@ -9,23 +10,9 @@ import {
 export type ModelRole = "default" | "smol" | "plan";
 
 export type { ModelRoles };
+export { emptyModelRoles, parseModelRoles };
 
 export const MODEL_ROLES: readonly ModelRole[] = ["default", "smol", "plan"] as const;
-
-export function emptyModelRoles(): ModelRoles {
-  return { default: null, smol: null, plan: null };
-}
-
-export function parseModelRoles(value: unknown): ModelRoles {
-  const base = emptyModelRoles();
-  if (!value || typeof value !== "object" || Array.isArray(value)) return base;
-  const rec = value as Record<string, unknown>;
-  return {
-    default: parseModelRef(rec.default),
-    smol: parseModelRef(rec.smol),
-    plan: parseModelRef(rec.plan),
-  };
-}
 
 export function formatModelRoles(roles: ModelRoles | null | undefined): Record<ModelRole, string> {
   const r = roles ?? emptyModelRoles();

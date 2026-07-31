@@ -1,18 +1,9 @@
-import fs from "fs";
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getAllowedFileRoots,
-  isExistingFilePathAllowed,
-  isFilePathAllowed,
-  isWindowsAbsolutePath,
-} from "@/lib/file-access";
+import { assertAllowedCwd, assertAllowedPaths, isCwdDenied } from "@/lib/api-cwd";
+import { jsonError } from "@/lib/api-response";
 import { executeAtomicCommits, planAtomicCommits } from "@/lib/git-commit-split";
 
 export const dynamic = "force-dynamic";
-
-function isAbs(p: string): boolean {
-  return p.startsWith("/") || isWindowsAbsolutePath(p);
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,28 +14,17 @@ export async function POST(request: NextRequest) {
       preferAi?: boolean;
       groups?: Array<{ message?: string; paths?: string[] }>;
     };
-    const cwd = body.cwd?.trim() ?? "";
     const mode = body.mode?.trim() || "plan";
 
-    if (!cwd || !isAbs(cwd)) {
-      return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
-    }
     if (mode !== "plan" && mode !== "execute") {
       return NextResponse.json({ error: "mode must be plan|execute" }, { status: 400 });
     }
 
-    const allowedRoots = await getAllowedFileRoots();
-    if (!isFilePathAllowed(cwd, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
-    try {
-      fs.statSync(cwd);
-    } catch {
-      return NextResponse.json({ error: "Directory not found" }, { status: 404 });
-    }
+    const allowed = await assertAllowedCwd(body.cwd);
+    if (isCwdDenied(allowed)) return allowed;
 
     if (mode === "plan") {
-      const plan = await planAtomicCommits(cwd, {
+      const plan = await planAtomicCommits(allowed.cwd, {
         includeUnstaged: body.includeUnstaged !== false,
         preferAi: body.preferAi !== false,
       });
@@ -52,21 +32,12 @@ export async function POST(request: NextRequest) {
     }
 
     const groups = Array.isArray(body.groups) ? body.groups : [];
-    for (const g of groups) {
-      for (const p of g.paths ?? []) {
-        if (!isAbs(String(p))) {
-          return NextResponse.json({ error: "group paths must be absolute" }, { status: 400 });
-        }
-        // Prefer realpath-aware check so macOS /var → /private/var roots still match.
-        const abs = String(p);
-        if (!isExistingFilePathAllowed(abs, allowedRoots) && !isFilePathAllowed(abs, allowedRoots)) {
-          return NextResponse.json({ error: "Access denied" }, { status: 403 });
-        }
-      }
-    }
+    const allPaths = groups.flatMap((g) => (g.paths ?? []).map((p) => String(p).trim()).filter(Boolean));
+    const deniedPaths = assertAllowedPaths(allPaths, allowed.roots);
+    if (deniedPaths) return deniedPaths;
 
     const result = await executeAtomicCommits(
-      cwd,
+      allowed.cwd,
       groups.map((g) => ({
         message: String(g.message ?? ""),
         paths: (g.paths ?? []).map(String),
@@ -74,9 +45,6 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+    return jsonError(error);
   }
 }

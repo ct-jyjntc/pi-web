@@ -106,6 +106,41 @@ function queuedMessagesEqual(a: QueuedMessages, b: QueuedMessages): boolean {
   return sameStringList(a.steering, b.steering) && sameStringList(a.followUp, b.followUp);
 }
 
+type LiveContextUsage = {
+  percent: number | null;
+  contextWindow: number;
+  tokens: number | null;
+} | null;
+
+/** Apply optional live-agent state fields without overwriting unset properties. */
+function applyLiveAgentStateFields(
+  liveState: AgentStateResponse | undefined | null,
+  setters: {
+    setContextUsage: (v: LiveContextUsage) => void;
+    setSystemPrompt: (v: string | null) => void;
+    setThinkingLevel?: (v: ThinkingLevelOption) => void;
+    setExtensionStatuses: (v: ExtensionStatusItem[]) => void;
+    setExtensionWidgets: (v: ExtensionWidgetItem[]) => void;
+    setQueuedMessages?: (v: QueuedMessages) => void;
+  },
+): void {
+  if (!liveState) return;
+  if (liveState.contextUsage !== undefined) setters.setContextUsage(liveState.contextUsage ?? null);
+  if (liveState.systemPrompt !== undefined) setters.setSystemPrompt(liveState.systemPrompt ?? null);
+  if (liveState.thinkingLevel !== undefined && setters.setThinkingLevel) {
+    setters.setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");
+  }
+  if (liveState.extensionStatuses !== undefined) {
+    setters.setExtensionStatuses(liveState.extensionStatuses ?? []);
+  }
+  if (liveState.extensionWidgets !== undefined) {
+    setters.setExtensionWidgets(liveState.extensionWidgets ?? []);
+  }
+  if (liveState.queuedMessages !== undefined && setters.setQueuedMessages) {
+    setters.setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
+  }
+}
+
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
 export type NoticeType = "info" | "success" | "warning" | "error";
@@ -576,12 +611,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         const liveState = agentState.state;
         if (liveState) {
-          if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
-          if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
-          if (liveState.thinkingLevel !== undefined) setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");
-          if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
-          if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
-          if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
+          applyLiveAgentStateFields(liveState, {
+            setContextUsage,
+            setSystemPrompt,
+            setThinkingLevel,
+            setExtensionStatuses,
+            setExtensionWidgets,
+            setQueuedMessages,
+          });
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
           // Keep file-based contextUsage when no live session is running.
@@ -1015,12 +1052,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy || !agentRunningRef.current) return;
-      if (state) {
-        if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
-        if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
-        if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
-        if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
-      }
+      applyLiveAgentStateFields(state, {
+        setContextUsage,
+        setSystemPrompt,
+        setExtensionStatuses,
+        setExtensionWidgets,
+      });
       await finishPromptWithoutStream(sid, runId);
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
@@ -1126,10 +1163,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               const r = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
               const d = await r.json() as { state?: AgentStateResponse };
               if (promptRunIdRef.current !== runId || sessionIdRef.current !== sid) return;
-              if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
-              if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
-              if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
-              if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
+              applyLiveAgentStateFields(d.state, {
+                setContextUsage,
+                setSystemPrompt,
+                setExtensionStatuses,
+                setExtensionWidgets,
+              });
               // Aborted turns can leave messages queued in pi (delivered with the
               // next turn); dead wrapper (no state) means the queue is gone.
               setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
@@ -1491,32 +1530,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, onSessionForked]);
 
-  const handleNavigate = useCallback(async (entryId: string) => {
-    if (bashRunningRef.current || agentRunningRef.current) return;
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    try {
-      const result = await sendAgentCommand<{ cancelled?: boolean }>(sid, {
-        type: "navigate_tree",
-        targetId: entryId,
-      });
-      if (result?.cancelled) {
-        addNotice({ type: "error", message: t("agent.commandFailed") });
-        return;
-      }
-    } catch (e) {
-      console.error("Navigate failed:", e);
-      addNotice({
-        type: "error",
-        message: e instanceof Error ? e.message : String(e),
-      });
-      return;
-    }
-    setActiveLeafId(entryId);
-    await loadContext(sid, entryId);
-  }, [addNotice, loadContext, t]);
-
-  const handleLeafChange = useCallback(async (leafId: string | null) => {
+  const navigateToLeaf = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current || agentRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -1531,7 +1545,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return;
         }
       } catch (e) {
-        console.error("Leaf change failed:", e);
+        console.error("Navigate failed:", e);
         addNotice({
           type: "error",
           message: e instanceof Error ? e.message : String(e),
@@ -1542,6 +1556,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setActiveLeafId(leafId);
     await loadContext(sid, leafId);
   }, [addNotice, loadContext, t]);
+
+  const handleNavigate = useCallback(async (entryId: string) => {
+    await navigateToLeaf(entryId);
+  }, [navigateToLeaf]);
+
+  const handleLeafChange = navigateToLeaf;
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     const key = `${provider}:${modelId}`;
@@ -1847,12 +1867,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         if (agentState?.state) {
           if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
-          if (agentState.state.contextUsage !== undefined) setContextUsage(agentState.state.contextUsage ?? null);
-          if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
-          if (agentState.state.thinkingLevel !== undefined) setThinkingLevel((agentState.state.thinkingLevel as ThinkingLevelOption) ?? "auto");
-          if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
-          if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
-          if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+          applyLiveAgentStateFields(agentState.state, {
+            setContextUsage,
+            setSystemPrompt,
+            setThinkingLevel,
+            setExtensionStatuses,
+            setExtensionWidgets,
+            setQueuedMessages,
+          });
         }
       });
     }

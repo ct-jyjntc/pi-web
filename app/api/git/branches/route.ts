@@ -1,35 +1,15 @@
-import fs from "fs";
 import { NextRequest, NextResponse } from "next/server";
-import { getAllowedFileRoots, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
+import { assertAllowedCwd, isCwdDenied } from "@/lib/api-cwd";
+import { jsonError } from "@/lib/api-response";
 import { checkoutGitBranch, createGitBranch, listGitBranches } from "@/lib/git-changes";
-
-async function assertCwd(cwd: string) {
-  if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {
-    return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
-  }
-  const allowedRoots = await getAllowedFileRoots();
-  if (!isFilePathAllowed(cwd, allowedRoots)) {
-    return NextResponse.json({ error: "Access denied" }, { status: 403 });
-  }
-  try {
-    const stat = fs.statSync(cwd);
-    if (!stat.isDirectory()) {
-      return NextResponse.json({ error: "Not a directory" }, { status: 400 });
-    }
-  } catch {
-    return NextResponse.json({ error: "Directory not found" }, { status: 404 });
-  }
-  return null;
-}
 
 export async function GET(request: NextRequest) {
   try {
-    const cwd = request.nextUrl.searchParams.get("cwd")?.trim() ?? "";
-    const denied = await assertCwd(cwd);
-    if (denied) return denied;
-    return NextResponse.json(await listGitBranches(cwd));
+    const allowed = await assertAllowedCwd(request.nextUrl.searchParams.get("cwd"));
+    if (isCwdDenied(allowed)) return allowed;
+    return NextResponse.json(await listGitBranches(allowed.cwd));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return jsonError(error);
   }
 }
 
@@ -40,9 +20,8 @@ export async function POST(request: NextRequest) {
       action?: "checkout" | "create";
       branch?: string;
     };
-    const cwd = body.cwd?.trim() ?? "";
-    const denied = await assertCwd(cwd);
-    if (denied) return denied;
+    const allowed = await assertAllowedCwd(body.cwd);
+    if (isCwdDenied(allowed)) return allowed;
 
     const branch = body.branch?.trim() ?? "";
     if (!branch) {
@@ -50,13 +29,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "create") {
-      const status = await createGitBranch(cwd, branch, true);
+      const status = await createGitBranch(allowed.cwd, branch, true);
       return NextResponse.json({ ok: true, status });
     }
 
-    const status = await checkoutGitBranch(cwd, branch);
+    const status = await checkoutGitBranch(allowed.cwd, branch);
     return NextResponse.json({ ok: true, status });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return jsonError(error);
   }
 }

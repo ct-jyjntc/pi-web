@@ -18,14 +18,14 @@ import {
   listMemoryFacts,
   parseProjectMemorySettings,
   retainMemoryFact,
-  type MemoryScope,
   type ProjectMemorySettings,
 } from "./project-memory";
+import { assistantText as getText, contentText as messageText } from "./message-text";
 import { buildSessionContext, getSessionEntries, resolveSessionPath } from "./session-reader";
 import { readWebSettings, type ModelRef, type WebSettings } from "./web-settings";
 
 export type MemoryReviewResult = {
-  saved: Array<{ scope: MemoryScope; text: string }>;
+  saved: Array<{ text: string }>;
   skipped: boolean;
   reason?: string;
 };
@@ -64,26 +64,6 @@ type CompleteSimpleFn = (
     reasoning?: ThinkingLevel;
   },
 ) => Promise<AssistantMessage>;
-
-function getText(message: AssistantMessage): string {
-  return message.content
-    .filter((b): b is { type: "text"; text: string } => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-}
-
-function messageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((b): b is { type: "text"; text: string } => (
-      typeof b === "object" && b !== null && (b as { type?: string }).type === "text"
-        && typeof (b as { text?: unknown }).text === "string"
-    ))
-    .map((b) => b.text)
-    .join("\n");
-}
 
 /** Last ~10 user/assistant text snippets on the active branch, ~6KB total. */
 async function readRecentTranscript(sessionId: string): Promise<string> {
@@ -148,7 +128,7 @@ const REVIEW_SYSTEM_PROMPT = [
   "Write memories in the user's language. No markdown fences, no commentary.",
 ].join("\n");
 
-type ReviewCandidate = { target: MemoryScope; text: string; tags: string[]; importance: number };
+type ReviewCandidate = { text: string; tags: string[]; importance: number };
 
 /** Defensive parse: strip fences, brace-slice, validate every field. */
 function parseReviewResponse(raw: string): ReviewCandidate[] {
@@ -169,17 +149,17 @@ function parseReviewResponse(raw: string): ReviewCandidate[] {
   for (const item of memories) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const rec = item as Record<string, unknown>;
-    // Project-scope only — ignore any legacy "user" targets from the model.
-    const target: MemoryScope | null = rec.target === "project" || rec.target === "user" ? "project" : null;
+    // Accept project or legacy "user" targets; store is project-only.
+    const targetOk = rec.target === "project" || rec.target === "user" || rec.target == null;
     const factText = typeof rec.text === "string" ? rec.text.trim() : "";
-    if (!target || !factText) continue;
+    if (!targetOk || !factText) continue;
     const tags = Array.isArray(rec.tags)
       ? rec.tags.filter((t): t is string => typeof t === "string").map((t) => t.trim()).filter(Boolean).slice(0, 6)
       : [];
     const importance = typeof rec.importance === "number" && Number.isFinite(rec.importance)
       ? Math.min(1, Math.max(0, rec.importance))
       : 0.5;
-    out.push({ target, text: factText.slice(0, MAX_FACT_TEXT_CHARS), tags, importance });
+    out.push({ text: factText.slice(0, MAX_FACT_TEXT_CHARS), tags, importance });
     if (out.length >= MAX_MEMORIES_PER_REVIEW) break;
   }
   return out;
@@ -240,26 +220,28 @@ export async function runMemoryReview(opts: { cwd: string; sessionId: string }):
   }
 
   const candidates = parseReviewResponse(getText(response));
-  const saved: Array<{ scope: MemoryScope; text: string }> = [];
+  const saved: Array<{ text: string }> = [];
+  const existing = listMemoryFacts(cwd);
+  const existingTexts = new Set(existing.map((f) => f.text));
   const seenTexts = new Set<string>();
   for (const candidate of candidates) {
     const cleaned = cleanFactText(candidate.text, memSettings);
     if (!cleaned) continue;
-    const dedupeKey = `${candidate.target}:${cleaned.toLowerCase()}`;
+    const dedupeKey = cleaned.toLowerCase();
     if (seenTexts.has(dedupeKey)) continue;
     seenTexts.add(dedupeKey);
     // Exact-text duplicates are already stored; skip quietly instead of
     // counting retainMemoryFact's dedupe-touch as a fresh save.
-    if (listMemoryFacts(cwd, candidate.target).some((f) => f.text === cleaned)) continue;
+    if (existingTexts.has(cleaned)) continue;
     try {
       const fact = retainMemoryFact(cwd, cleaned, {
         tags: candidate.tags,
         importance: candidate.importance,
         source: "tool",
-        scope: candidate.target,
         settings: memSettings,
       });
-      saved.push({ scope: candidate.target, text: fact.text });
+      existingTexts.add(fact.text);
+      saved.push({ text: fact.text });
     } catch {
       // Secret guard or budget overflow: drop this fact, keep the rest.
     }

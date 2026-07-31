@@ -1,10 +1,9 @@
 import {
+  getProjectMemorySettings,
   memoryAutoInjectEnabled,
-  parseProjectMemorySettings,
   recallMemoryFacts,
   type MemoryFact,
 } from "./project-memory";
-import { readWebSettings } from "./web-settings";
 
 const PER_SCOPE_LIMIT = 5;
 const MAX_BLOCK_CHARS = 800;
@@ -22,12 +21,12 @@ const FENCE_NOTE =
  */
 export function buildQueryMemoryContext(cwd: string, query: string): string | null {
   if (!query.trim()) return null;
-  const settings = parseProjectMemorySettings(readWebSettings().projectMemory);
+  const settings = getProjectMemorySettings();
   // Only inject when pi-web auto-inject is on (not just "memory tools enabled").
   if (!memoryAutoInjectEnabled(settings)) return null;
 
   const budget = MAX_BLOCK_CHARS - FENCE_NOTE.length - "<memory-context>\n\n</memory-context>".length;
-  const facts: MemoryFact[] = recallMemoryFacts(cwd, query, PER_SCOPE_LIMIT, "project");
+  const facts: MemoryFact[] = recallMemoryFacts(cwd, query, PER_SCOPE_LIMIT);
   const lines: string[] = [];
   let used = "Project memory:".length + 1;
   for (const fact of facts) {

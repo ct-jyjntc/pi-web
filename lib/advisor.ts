@@ -2,6 +2,7 @@
  * Lightweight advisor: review the latest agent turn with a secondary model.
  */
 import type { AssistantMessage, Context, Model, ThinkingLevel } from "@earendil-works/pi-ai";
+import { assistantText as getText } from "./message-text";
 import { pickUtilityCompleteReasoning, resolveUtilityModel } from "./utility-model";
 import { getRoleModelRef } from "./model-roles";
 import { readWebSettings } from "./web-settings";
@@ -24,14 +25,6 @@ type CompleteSimpleFn = (
     reasoning?: ThinkingLevel;
   },
 ) => Promise<AssistantMessage>;
-
-function getText(message: AssistantMessage): string {
-  return message.content
-    .filter((b): b is { type: "text"; text: string } => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-}
 
 export async function runAdvisorReview(
   cwd: string,

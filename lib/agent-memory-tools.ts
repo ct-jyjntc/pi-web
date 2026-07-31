@@ -6,10 +6,10 @@
 import { Type } from "typebox";
 import {
   applyMemoryOperations,
+  getProjectMemorySettings,
   listMemoryFacts,
   memoryBudgetChars,
   memoryStoreUsage,
-  parseProjectMemorySettings,
   recallMemoryFacts,
   retainMemoryFact,
   type MemoryFact,
@@ -17,7 +17,6 @@ import {
   type ProjectMemorySettings,
 } from "./project-memory";
 import { runMemoryReflect } from "./memory-reflect";
-import { readWebSettings } from "./web-settings";
 
 type ToolDefinitionLike = {
   name: string;
@@ -38,7 +37,7 @@ type ToolDefinitionLike = {
 };
 
 function memorySettings() {
-  return parseProjectMemorySettings(readWebSettings().projectMemory);
+  return getProjectMemorySettings();
 }
 
 function disabledResult() {
@@ -61,7 +60,7 @@ function writeSavedMessage(
   settings: ProjectMemorySettings,
 ): string {
   const used = memoryStoreUsage(facts);
-  const budget = memoryBudgetChars(settings, "project");
+  const budget = memoryBudgetChars(settings);
   return (
     `Write saved (project memory, ${facts.length} facts, ${used}/${budget} chars). ` +
     "This update is complete — do not repeat it."
@@ -125,7 +124,7 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
               oldText: typeof rec.oldText === "string" ? rec.oldText : undefined,
             };
           });
-          const result = applyMemoryOperations(cwd, ops, { scope: "project", settings });
+          const result = applyMemoryOperations(cwd, ops, { settings });
           return {
             content: [{ type: "text", text: writeSavedMessage(result.facts, settings) }],
             details: result,
@@ -143,10 +142,9 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
           importance: typeof args.importance === "number" ? args.importance : 0.5,
           source: "tool",
           settings,
-          scope: "project",
         });
         return {
-          content: [{ type: "text", text: writeSavedMessage(listMemoryFacts(cwd, "project"), settings) }],
+          content: [{ type: "text", text: writeSavedMessage(listMemoryFacts(cwd), settings) }],
           details: fact,
         };
       } catch (error) {
@@ -170,7 +168,7 @@ export function createProjectMemoryTools(cwd: string): ToolDefinitionLike[] {
       if (!settings.enabled) return disabledResult();
       const limit = typeof args.limit === "number" ? Math.min(20, Math.max(1, args.limit)) : 8;
       const query = String(args.query ?? "");
-      const hits = recallMemoryFacts(cwd, query, limit, "project");
+      const hits = recallMemoryFacts(cwd, query, limit);
       if (hits.length === 0) {
         return { content: [{ type: "text", text: "No matching project memory facts." }] };
       }

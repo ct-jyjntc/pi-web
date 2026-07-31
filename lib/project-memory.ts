@@ -92,11 +92,15 @@ export function parseProjectMemorySettings(value: unknown): ProjectMemorySetting
 }
 
 /** True when pi-web is allowed to push memory into model-visible prompts. */
-export function memoryAutoInjectEnabled(
-  settings?: ProjectMemorySettings | WebSettings["projectMemory"] | null,
-): boolean {
-  const mem = parseProjectMemorySettings(settings ?? readWebSettings().projectMemory);
-  return mem.enabled && mem.autoInject && mem.autoInjectTopK > 0;
+export function memoryAutoInjectEnabled(settings: ProjectMemorySettings): boolean {
+  return settings.enabled && settings.autoInject && settings.autoInjectTopK > 0;
+}
+
+/** Read + normalize project memory settings once (preferred call-site helper). */
+export function getProjectMemorySettings(
+  raw?: ProjectMemorySettings | WebSettings["projectMemory"] | null,
+): ProjectMemorySettings {
+  return parseProjectMemorySettings(raw ?? readWebSettings().projectMemory);
 }
 
 export function projectMemoryKey(cwd: string): string {
@@ -109,14 +113,7 @@ export function projectMemoryDir(cwd: string): string {
 }
 
 /** Memory store is project-scoped only (no global/user memory). */
-export type MemoryScope = "project";
-
-function normalizeScope(_scope?: MemoryScope | string | null): MemoryScope {
-  // Ignore any legacy "user" callers — always project.
-  return "project";
-}
-
-function factsPath(cwd: string, _scope: MemoryScope = "project"): string {
+function factsPath(cwd: string): string {
   return join(projectMemoryDir(cwd), "facts.jsonl");
 }
 
@@ -138,7 +135,7 @@ export function memoryStoreUsage(facts: MemoryFact[]): number {
   return facts.reduce((sum, f) => sum + f.text.length + FACT_OVERHEAD_CHARS, 0);
 }
 
-export function memoryBudgetChars(settings: ProjectMemorySettings, _scope: MemoryScope = "project"): number {
+export function memoryBudgetChars(settings: ProjectMemorySettings): number {
   return settings.projectBudgetChars;
 }
 
@@ -164,9 +161,8 @@ function parseFactLine(line: string): MemoryFact | null {
   }
 }
 
-export function listMemoryFacts(cwd: string, scope: MemoryScope | string = "project"): MemoryFact[] {
-  const resolved = normalizeScope(scope);
-  const path = factsPath(cwd, resolved);
+export function listMemoryFacts(cwd: string): MemoryFact[] {
+  const path = factsPath(cwd);
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
   const facts: MemoryFact[] = [];
@@ -181,8 +177,8 @@ export function listMemoryFacts(cwd: string, scope: MemoryScope | string = "proj
   });
 }
 
-function writeAllFacts(cwd: string, facts: MemoryFact[], scope: MemoryScope = "project"): void {
-  const path = factsPath(cwd, scope);
+function writeAllFacts(cwd: string, facts: MemoryFact[]): void {
+  const path = factsPath(cwd);
   mkdirSync(dirname(path), { recursive: true });
   const body = facts.map((f) => JSON.stringify(f)).join("\n") + (facts.length ? "\n" : "");
   const tmp = `${path}.${process.pid}.tmp`;
@@ -224,17 +220,16 @@ function formatEntriesForError(facts: MemoryFact[]): string {
 }
 
 function budgetOverflowError(
-  scope: MemoryScope,
   facts: MemoryFact[],
   budget: number,
   context: { addingChars?: number; opsCount?: number; wouldBeChars?: number },
 ): Error {
   const usage = memoryStoreUsage(facts);
   const header = context.opsCount != null
-    ? `After applying all ${context.opsCount} operations, ${scope} memory would be at ` +
+    ? `After applying all ${context.opsCount} operations, project memory would be at ` +
       `${context.wouldBeChars}/${budget} chars — over the limit. Remove or shorten more ` +
       "entries in the same batch, then retry."
-    : `${scope} memory at ${usage}/${budget} chars. Adding this entry ` +
+    : `project memory at ${usage}/${budget} chars. Adding this entry ` +
       `(${context.addingChars} chars) would exceed the limit.`;
   return new Error(
     `${header}\nCurrent entries:\n${formatEntriesForError(facts)}\n${CONSOLIDATE_INSTRUCTION}`,
@@ -249,17 +244,15 @@ export function retainMemoryFact(
     importance?: number;
     source?: "tool" | "user";
     settings?: ProjectMemorySettings;
-    scope?: MemoryScope | string;
   },
 ): MemoryFact {
-  const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
-  const scope = normalizeScope(options?.scope);
+  const settings = options?.settings ?? getProjectMemorySettings();
   const cleaned = cleanFactText(text, settings.maxFactChars);
   if (!cleaned) throw new Error("Memory fact text is empty");
   assertNoSecrets(cleaned);
 
   const now = new Date().toISOString();
-  const facts = listMemoryFacts(cwd, scope);
+  const facts = listMemoryFacts(cwd);
   // Dedupe by exact text
   const existing = facts.find((f) => f.text === cleaned);
   if (existing) {
@@ -268,7 +261,7 @@ export function retainMemoryFact(
     if (options?.tags?.length) {
       existing.tags = Array.from(new Set([...existing.tags, ...options.tags]));
     }
-    writeAllFacts(cwd, facts, scope);
+    writeAllFacts(cwd, facts);
     return existing;
   }
 
@@ -281,15 +274,15 @@ export function retainMemoryFact(
     importance: options?.importance ?? 0.5,
     source: options?.source ?? "tool",
   };
-  const budget = memoryBudgetChars(settings, scope);
+  const budget = memoryBudgetChars(settings);
   if (memoryStoreUsage([fact, ...facts]) > budget) {
-    throw budgetOverflowError(scope, facts, budget, {
+    throw budgetOverflowError(facts, budget, {
       addingChars: cleaned.length + FACT_OVERHEAD_CHARS,
     });
   }
   facts.unshift(fact);
   // Secondary count cap; the char budget above is the primary guard.
-  writeAllFacts(cwd, facts.slice(0, MAX_FACTS_PER_SCOPE), scope);
+  writeAllFacts(cwd, facts.slice(0, MAX_FACTS_PER_SCOPE));
   return fact;
 }
 
@@ -319,41 +312,38 @@ export function replaceMemoryFact(
   cwd: string,
   oldText: string,
   newText: string,
-  options?: { scope?: MemoryScope | string; settings?: ProjectMemorySettings },
+  options?: { settings?: ProjectMemorySettings },
 ): MemoryFact {
-  const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
-  const scope = normalizeScope(options?.scope);
+  const settings = options?.settings ?? getProjectMemorySettings();
   const needle = oldText.trim();
   if (!needle) throw new Error("oldText is required");
   const cleaned = cleanFactText(newText, settings.maxFactChars);
   if (!cleaned) throw new Error("Memory fact text is empty");
   assertNoSecrets(cleaned);
 
-  const facts = listMemoryFacts(cwd, scope);
+  const facts = listMemoryFacts(cwd);
   const target = findUniqueFact(facts, needle);
   const replaced: MemoryFact = { ...target, text: cleaned, updatedAt: new Date().toISOString() };
   const next = facts.map((f) => (f.id === target.id ? replaced : f));
-  const budget = memoryBudgetChars(settings, scope);
+  const budget = memoryBudgetChars(settings);
   if (memoryStoreUsage(next) > budget) {
-    throw budgetOverflowError(scope, facts, budget, {
+    throw budgetOverflowError(facts, budget, {
       addingChars: cleaned.length - target.text.length,
     });
   }
-  writeAllFacts(cwd, next, scope);
+  writeAllFacts(cwd, next);
   return replaced;
 }
 
 export function removeMemoryFactByText(
   cwd: string,
   oldText: string,
-  options?: { scope?: MemoryScope | string },
 ): MemoryFact {
-  const scope = normalizeScope(options?.scope);
   const needle = oldText.trim();
   if (!needle) throw new Error("oldText is required");
-  const facts = listMemoryFacts(cwd, scope);
+  const facts = listMemoryFacts(cwd);
   const target = findUniqueFact(facts, needle);
-  writeAllFacts(cwd, facts.filter((f) => f.id !== target.id), scope);
+  writeAllFacts(cwd, facts.filter((f) => f.id !== target.id));
   return target;
 }
 
@@ -373,13 +363,12 @@ export type MemoryOperation = {
 export function applyMemoryOperations(
   cwd: string,
   ops: MemoryOperation[],
-  options?: { scope?: MemoryScope | string; settings?: ProjectMemorySettings },
+  options?: { settings?: ProjectMemorySettings },
 ): { facts: MemoryFact[]; changed: number } {
   if (!Array.isArray(ops) || ops.length === 0) {
     throw new Error("operations list is empty.");
   }
-  const settings = options?.settings ?? parseProjectMemorySettings(readWebSettings().projectMemory);
-  const scope = normalizeScope(options?.scope);
+  const settings = options?.settings ?? getProjectMemorySettings();
 
   // Validate all ops before touching disk.
   ops.forEach((op, i) => {
@@ -399,7 +388,7 @@ export function applyMemoryOperations(
   });
 
   // Work on a copy; commit only if the whole batch applies and fits the budget.
-  const current = listMemoryFacts(cwd, scope);
+  const current = listMemoryFacts(cwd);
   const working = current.map((f) => ({ ...f, tags: [...f.tags] }));
   let changed = 0;
 
@@ -435,21 +424,21 @@ export function applyMemoryOperations(
   });
 
   // Budget check against the FINAL state only.
-  const budget = memoryBudgetChars(settings, scope);
+  const budget = memoryBudgetChars(settings);
   const usage = memoryStoreUsage(working);
   if (usage > budget) {
-    throw budgetOverflowError(scope, current, budget, { opsCount: ops.length, wouldBeChars: usage });
+    throw budgetOverflowError(current, budget, { opsCount: ops.length, wouldBeChars: usage });
   }
   const committed = working.slice(0, MAX_FACTS_PER_SCOPE);
-  writeAllFacts(cwd, committed, scope);
+  writeAllFacts(cwd, committed);
   return { facts: committed, changed };
 }
 
-export function deleteMemoryFact(cwd: string, id: string, scope: MemoryScope = "project"): boolean {
-  const facts = listMemoryFacts(cwd, scope);
+export function deleteMemoryFact(cwd: string, id: string): boolean {
+  const facts = listMemoryFacts(cwd);
   const next = facts.filter((f) => f.id !== id);
   if (next.length === facts.length) return false;
-  writeAllFacts(cwd, next, scope);
+  writeAllFacts(cwd, next);
   return true;
 }
 
@@ -464,26 +453,24 @@ export function recallMemoryFacts(
   cwd: string,
   query: string,
   limit = 8,
-  scope: MemoryScope = "project",
 ): MemoryFact[] {
-  const facts = listMemoryFacts(cwd, scope);
+  const facts = listMemoryFacts(cwd);
   if (!query.trim()) return facts.slice(0, limit);
   const qTokens = new Set(tokenize(query));
   if (qTokens.size === 0) return facts.slice(0, limit);
 
   const scored = facts.map((fact) => {
     const tokens = tokenize(`${fact.text} ${fact.tags.join(" ")}`);
-    let score = 0;
+    let hits = 0;
     for (const t of tokens) {
-      if (qTokens.has(t)) score += 1;
+      if (qTokens.has(t)) hits += 1;
     }
-    // Prefer higher importance on ties
-    score += fact.importance * 0.1;
-    return { fact, score };
+    // Prefer higher importance on ties after real token matches.
+    return { fact, hits, score: hits + fact.importance * 0.1 };
   });
 
   return scored
-    .filter((s) => s.score > 0)
+    .filter((s) => s.hits > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((s) => s.fact);
@@ -493,11 +480,11 @@ export function buildMemoryInjectBlock(
   cwd: string,
   settings?: ProjectMemorySettings | WebSettings["projectMemory"],
 ): string | null {
-  const mem = parseProjectMemorySettings(settings ?? readWebSettings().projectMemory);
+  const mem = getProjectMemorySettings(settings);
   // Prompt ownership: never inject unless pi-web settings explicitly allow it.
-  if (!mem.enabled || !mem.autoInject || mem.autoInjectTopK <= 0) return null;
+  if (!memoryAutoInjectEnabled(mem)) return null;
 
-  const facts = listMemoryFacts(cwd, "project").slice(0, mem.autoInjectTopK);
+  const facts = listMemoryFacts(cwd).slice(0, mem.autoInjectTopK);
   if (facts.length === 0) return null;
   const lines = [
     "## Project memory (auto-loaded)",

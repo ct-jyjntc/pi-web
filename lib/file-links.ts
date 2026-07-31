@@ -1,12 +1,5 @@
 import { normalizeFilePathSlashes } from "./file-paths";
-
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
+import { safeDecode } from "./path-utils";
 
 function stripLineSuffix(filePath: string): string {
   return filePath.replace(/:\d+(?::\d+)?$/, "");

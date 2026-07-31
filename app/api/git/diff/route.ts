@@ -1,25 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllowedFileRoots, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
+import { assertAllowedCwd, assertAllowedPaths, isCwdDenied } from "@/lib/api-cwd";
+import { jsonError } from "@/lib/api-response";
+import { isAbsolutePath } from "@/lib/path-utils";
 import { getGitFileDiff } from "@/lib/git-changes";
 
 export async function GET(request: NextRequest) {
   try {
-    const cwd = request.nextUrl.searchParams.get("cwd")?.trim() ?? "";
     const filePath = request.nextUrl.searchParams.get("path")?.trim() ?? "";
-    if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {
-      return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
-    }
-    if (!filePath || (!filePath.startsWith("/") && !isWindowsAbsolutePath(filePath))) {
+    if (!filePath || !isAbsolutePath(filePath)) {
       return NextResponse.json({ error: "path must be an absolute path" }, { status: 400 });
     }
 
-    const allowedRoots = await getAllowedFileRoots();
-    if (!isFilePathAllowed(cwd, allowedRoots) || !isFilePathAllowed(filePath, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
+    const allowed = await assertAllowedCwd(request.nextUrl.searchParams.get("cwd"));
+    if (isCwdDenied(allowed)) return allowed;
+    const deniedPaths = assertAllowedPaths([filePath], allowed.roots);
+    if (deniedPaths) return deniedPaths;
 
-    return NextResponse.json(await getGitFileDiff(cwd, filePath));
+    return NextResponse.json(await getGitFileDiff(allowed.cwd, filePath));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return jsonError(error);
   }
 }

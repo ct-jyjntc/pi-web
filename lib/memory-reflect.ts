@@ -11,6 +11,7 @@ import {
   type MemoryFact,
   type MemoryReflection,
 } from "./project-memory";
+import { assistantText as getText } from "./message-text";
 import { pickUtilityCompleteReasoning, resolveUtilityModel } from "./utility-model";
 import { getRoleModelRef } from "./model-roles";
 import { readWebSettings } from "./web-settings";
@@ -27,14 +28,6 @@ type CompleteSimpleFn = (
     reasoning?: ThinkingLevel;
   },
 ) => Promise<AssistantMessage>;
-
-function getText(message: AssistantMessage): string {
-  return message.content
-    .filter((b): b is { type: "text"; text: string } => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-}
 
 export type ReflectOptions = {
   focus?: string;

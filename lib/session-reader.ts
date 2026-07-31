@@ -738,3 +738,26 @@ function entryToUiMessage(
       return null;
   }
 }
+
+/**
+ * Undo the defer transforms for token estimation only.
+ *
+ * The client always asks for deferred thinking/media, but the usage number must
+ * reflect the full history. Rebuilding the context a second time without the
+ * defer flags re-walks every entry in the archive; instead, restore each context
+ * slot from its source entry: buildSessionContext renders a `message` entry as
+ * exactly `normalizeToolCalls(entry.message)` when nothing is deferred, and
+ * `entryIds[i]` is parallel to `messages[i]`. Non-message entries (compaction,
+ * branch summaries, custom messages) are never deferred, so they pass through.
+ */
+export function restoreDeferredMessages(
+  context: SessionContext,
+  entries: SessionEntry[],
+): AgentMessage[] {
+  const byId = new Map<string, SessionEntry>();
+  for (const entry of entries) byId.set(entry.id, entry);
+  return context.messages.map((message, index) => {
+    const entry = byId.get(context.entryIds[index]);
+    return entry?.type === "message" ? normalizeToolCalls(entry.message) : message;
+  });
+}

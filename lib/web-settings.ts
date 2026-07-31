@@ -14,11 +14,11 @@ export type ModelRoles = {
   plan: ModelRef | null;
 };
 
-function emptyModelRoles(): ModelRoles {
+export function emptyModelRoles(): ModelRoles {
   return { default: null, smol: null, plan: null };
 }
 
-function parseModelRoles(value: unknown): ModelRoles {
+export function parseModelRoles(value: unknown): ModelRoles {
   const base = emptyModelRoles();
   if (!value || typeof value !== "object" || Array.isArray(value)) return base;
   const rec = value as Record<string, unknown>;

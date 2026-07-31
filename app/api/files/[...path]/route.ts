@@ -34,14 +34,7 @@ import {
   parseUploadConflictStrategy,
   validateUploadFileNames,
 } from "@/lib/file-upload";
-
-const IGNORED_NAMES = new Set([
-  "node_modules", ".git", ".next", "dist", "build", "__pycache__",
-  ".turbo", ".cache", "coverage", ".pytest_cache", ".mypy_cache",
-  "target", "vendor", ".DS_Store", ".git",
-]);
-
-const IGNORED_SUFFIXES = [".pyc"];
+import { isIgnoredDirentName } from "@/lib/file-ignore";
 
 /** Reused across watch events — a new TextEncoder per SSE frame is pure garbage. */
 const textEncoder = new TextEncoder();
@@ -595,7 +588,7 @@ export async function GET(
     // filesystems without directory type information use the stat fallback.
     const dirents = await fsp.readdir(filePath, { withFileTypes: true });
     const entries = dirents
-      .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
+      .filter((d) => !isIgnoredDirentName(d.name))
       .flatMap((d) => {
         const isDir = resolveDirentIsDirectory(d, path.join(filePath, d.name));
         return isDir === null

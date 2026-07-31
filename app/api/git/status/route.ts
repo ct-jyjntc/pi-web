@@ -1,32 +1,15 @@
-import fs from "fs";
 import { NextRequest, NextResponse } from "next/server";
-import { getAllowedFileRoots, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
+import { assertAllowedCwd, isCwdDenied } from "@/lib/api-cwd";
+import { jsonError } from "@/lib/api-response";
 import { getGitStatus } from "@/lib/git-changes";
 
 export async function GET(request: NextRequest) {
   try {
-    const cwd = request.nextUrl.searchParams.get("cwd")?.trim() ?? "";
-    if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {
-      return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
-    }
+    const allowed = await assertAllowedCwd(request.nextUrl.searchParams.get("cwd"));
+    if (isCwdDenied(allowed)) return allowed;
 
-    const allowedRoots = await getAllowedFileRoots();
-    if (!isFilePathAllowed(cwd, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
-
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(cwd);
-    } catch {
-      return NextResponse.json({ error: "Directory not found" }, { status: 404 });
-    }
-    if (!stat.isDirectory()) {
-      return NextResponse.json({ error: "Not a directory" }, { status: 400 });
-    }
-
-    return NextResponse.json(await getGitStatus(cwd));
+    return NextResponse.json(await getGitStatus(allowed.cwd));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return jsonError(error);
   }
 }
