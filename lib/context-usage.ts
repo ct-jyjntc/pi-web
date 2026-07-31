@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { createAgentSessionServices, estimateTokens, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 
 export type ContextUsageSnapshot = {
   percent: number | null;
@@ -92,9 +93,11 @@ export async function resolveModelContextWindow(
   if (fromFile) return fromFile;
 
   try {
+    const modelRuntime = await createConfiguredModelRuntime();
     const services = await createAgentSessionServices({
       cwd,
       agentDir: getAgentDir(),
+      modelRuntime,
     });
     const direct = services.modelRuntime.getModel(model.provider, model.modelId);
     const directWindow = asPositiveInt(direct?.contextWindow);

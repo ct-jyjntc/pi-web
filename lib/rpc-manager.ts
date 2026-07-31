@@ -13,6 +13,7 @@ import {
 } from "./agent-extra-tools";
 import { createProjectMemoryTools } from "./agent-memory-tools";
 import { buildMemoryInjectBlock } from "./project-memory";
+import { createConfiguredModelRuntime } from "./model-runtime";
 import { readWebSettings } from "./web-settings";
 import { resolveContextUsageForUi } from "./context-usage";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
@@ -1333,9 +1334,11 @@ export async function startRpcSession(
     const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
     const toolsFullyDisabled = toolNames?.length === 0;
     const memoryBlock = !toolsFullyDisabled ? buildMemoryInjectBlock(cwd) : null;
+    const modelRuntime = await createConfiguredModelRuntime();
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
+      modelRuntime,
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
       ...(memoryBlock
         ? {

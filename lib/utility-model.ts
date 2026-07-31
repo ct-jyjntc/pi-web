@@ -1,4 +1,5 @@
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 import {
   getSupportedThinkingLevels,
   type Model,
@@ -154,7 +155,8 @@ export function invalidateUtilityModelRuntimes(): void {
 
 async function createModelRuntime(cwd: string): Promise<ModelRuntimeBundle> {
   const agentDir = getAgentDir();
-  const services = await createAgentSessionServices({ cwd, agentDir });
+  const modelRuntime = await createConfiguredModelRuntime();
+  const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime });
   return {
     modelRuntime: services.modelRuntime as unknown as ModelRuntimeLike,
     settings: services.settingsManager,

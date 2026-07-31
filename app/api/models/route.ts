@@ -5,6 +5,7 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { filterDisabledModels, getDisabledModelRefs } from "@/lib/disabled-models";
 import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
 import { readWebSettings } from "@/lib/web-settings";
+import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,8 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const imageSupport: Record<string, boolean> = {};
 
   const agentDir = getAgentDir();
-  const services = await createAgentSessionServices({ cwd, agentDir });
+  const modelRuntime = await createConfiguredModelRuntime();
+  const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime });
   const available = await services.modelRuntime.getAvailable();
   const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;

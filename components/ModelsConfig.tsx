@@ -11,6 +11,10 @@ import {
   type FreeProviderDefinition,
   type FreeProviderId,
 } from "@/lib/free-providers";
+import {
+  TOKENRHYTHM_ICON_URL,
+  TOKENRHYTHM_PROVIDER_ID,
+} from "@/lib/tokenrhythm-constants";
 import { SettingsToggle } from "./SettingsToggle";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
@@ -92,6 +96,11 @@ const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boolean }>
   "perplexity":             { Icon: PerplexityColorIcon,  hasColor: true },
   "together":               { Icon: TogetherColorIcon,    hasColor: true },
   "grok":                   { Icon: GrokIcon,             hasColor: false },
+};
+
+/** Local monochrome brand marks (not lobehub). */
+const PROVIDER_ICON_URLS: Record<string, string> = {
+  [TOKENRHYTHM_PROVIDER_ID]: TOKENRHYTHM_ICON_URL,
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -453,7 +462,7 @@ function ProviderDetail({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0, overflow: "auto" }}>
       <DetailStrip
         title={managed ? t("models.freeProvider") : t("models.provider")}
         actions={confirmDelete ? (
@@ -1018,7 +1027,7 @@ function ModelDetail({
     : catalogResultSummary;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0, overflow: "auto" }}>
       <DetailStrip
         title={t("models.model")}
         actions={(
@@ -1235,9 +1244,218 @@ function ModelDetail({
   );
 }
 
+// ── Built-in provider model list (API key / OAuth) ────────────────────────────
+
+type ProviderModelRow = {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  supportsImage: boolean;
+  disabled: boolean;
+};
+
+function ProviderModelsPanel({
+  providerId,
+  active,
+  onModelsChanged,
+}: {
+  providerId: string;
+  /** Only load when the provider is configured / logged in. */
+  active: boolean;
+  onModelsChanged?: () => void;
+}) {
+  const { t } = useLocale();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<ProviderModelRow[]>([]);
+  const [search, setSearch] = useState("");
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!active) {
+      setModels([]);
+      setError(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/models-config/provider-models?provider=${encodeURIComponent(providerId)}`);
+      const data = await res.json() as { models?: ProviderModelRow[]; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setModels(Array.isArray(data.models) ? data.models : []);
+    } catch (e) {
+      setModels([]);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [active, providerId]);
+
+  useEffect(() => {
+    setSearch("");
+    void load();
+  }, [load]);
+
+  const toggle = useCallback(async (model: ProviderModelRow, enabled: boolean) => {
+    setPendingId(model.id);
+    setError(null);
+    // Optimistic update
+    setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, disabled: !enabled } : m)));
+    try {
+      const res = await fetch("/api/models-config/provider-models", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: providerId, modelId: model.id, disabled: !enabled }),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      onModelsChanged?.();
+    } catch (e) {
+      // Revert
+      setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, disabled: model.disabled } : m)));
+      setError(e instanceof Error ? e.message : t("models.providerModelToggleError"));
+    } finally {
+      setPendingId(null);
+    }
+  }, [onModelsChanged, providerId, t]);
+
+  if (!active) return null;
+
+  const q = search.trim().toLowerCase();
+  const filtered = !q
+    ? models
+    : models.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
+  const enabledCount = models.filter((m) => !m.disabled).length;
+
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--border)",
+        paddingTop: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        flex: 1,
+        minHeight: 0,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexShrink: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{t("models.providerModels")}</div>
+        {!loading && models.length > 0 && (
+          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+            {models.length} {t("models.freeModelCount")}
+            {" · "}
+            {enabledCount} {t("models.enabledCount")}
+          </div>
+        )}
+      </div>
+
+      <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.45, flexShrink: 0 }}>
+        {t("models.providerModelsHint")}
+      </p>
+
+      {models.length > 8 && (
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("models.searchProviderModels")}
+          className="input-base"
+          style={{ fontSize: 12, flexShrink: 0 }}
+        />
+      )}
+
+      {loading && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", flexShrink: 0 }}>{t("models.loadingProviderModels")}</div>
+      )}
+
+      {error && (
+        <div style={{ fontSize: 12, color: "var(--destructive)", flexShrink: 0 }}>{error}</div>
+      )}
+
+      {!loading && !error && models.length === 0 && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", flexShrink: 0 }}>{t("models.noProviderModels")}</div>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 0,
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--bg)",
+          }}
+        >
+          {filtered.map((model) => (
+            <div
+              key={model.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 10px",
+                borderBottom: "1px solid var(--border)",
+                opacity: model.disabled ? 0.65 : 1,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {model.name}
+                </div>
+                <div
+                  className="input-mono"
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-dim)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    marginTop: 1,
+                  }}
+                >
+                  {model.id}
+                  {model.reasoning ? " · T" : ""}
+                  {model.supportsImage ? " · img" : ""}
+                </div>
+              </div>
+              <span style={{ fontSize: 10, color: model.disabled ? "var(--text-dim)" : "var(--text-muted)", flexShrink: 0 }}>
+                {model.disabled ? t("models.disabled") : t("models.enabled")}
+              </span>
+              <SettingsToggle
+                enabled={!model.disabled}
+                loading={pendingId === model.id}
+                title={model.disabled ? t("models.enableHint") : t("models.disableHint")}
+                onChange={(on) => void toggle(model, on)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && models.length > 0 && filtered.length === 0 && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("models.noProvidersMatch")}</div>
+      )}
+    </div>
+  );
+}
+
 // ── OAuth detail ──────────────────────────────────────────────────────────────
 
-function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
+function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuthProvider; onRefresh: () => void; onModelsChanged?: () => void }) {
   const { t } = useLocale();
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
   const [inputValue, setInputValue] = useState("");
@@ -1362,7 +1580,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     loginState.phase === "prompt" || loginState.phase === "select";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0, overflow: "hidden" }}>
       <DetailStrip
         title={t("models.subscription")}
         actions={(
@@ -1500,13 +1718,19 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </>
         )}
       </div>
+
+      <ProviderModelsPanel
+        providerId={provider.id}
+        active={provider.loggedIn}
+        onModelsChanged={onModelsChanged}
+      />
     </div>
   );
 }
 
 // ── API Key detail ────────────────────────────────────────────────────────────
 
-function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRefresh: () => void }) {
+function ApiKeyDetail({ provider, onRefresh, onModelsChanged }: { provider: ApiKeyProvider; onRefresh: () => void; onModelsChanged?: () => void }) {
   const { t } = useLocale();
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1564,7 +1788,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   }, [provider.id, onRefresh]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0, overflow: "hidden" }}>
       <DetailStrip
         title={t("models.apiKey")}
         actions={(
@@ -1633,13 +1857,44 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
           {removing ? t("modal.removing") : t("modal.disconnect")}
         </button>
       )}
+
+      <ProviderModelsPanel
+        providerId={provider.id}
+        active={provider.configured}
+        onModelsChanged={onModelsChanged}
+      />
     </div>
   );
 }
 
 // ── Provider icon ─────────────────────────────────────────────────────────────
 
-function ProviderIcon({ id, size }: { id: string; size: number }) {
+function ProviderIcon({ id, size, iconUrl }: { id: string; size: number; iconUrl?: string }) {
+  const resolvedIconUrl = iconUrl ?? PROVIDER_ICON_URLS[id];
+  if (resolvedIconUrl) {
+    // Monochrome brand marks: paint with theme text color via CSS mask.
+    return (
+      <span
+        aria-hidden="true"
+        style={{
+          width: size,
+          height: size,
+          flexShrink: 0,
+          display: "inline-block",
+          borderRadius: "var(--radius-xs)",
+          backgroundColor: "var(--text-muted)",
+          WebkitMaskImage: `url(${resolvedIconUrl})`,
+          maskImage: `url(${resolvedIconUrl})`,
+          WebkitMaskSize: "contain",
+          maskSize: "contain",
+          WebkitMaskRepeat: "no-repeat",
+          maskRepeat: "no-repeat",
+          WebkitMaskPosition: "center",
+          maskPosition: "center",
+        }}
+      />
+    );
+  }
   const pi = PROVIDER_ICONS[id];
   if (!pi) {
     const label = id
@@ -1706,7 +1961,13 @@ function AddProviderPicker({
   const existing = new Set(existingProviderKeys);
 
   const availableOAuth = oauthProviders.filter((p) => !p.loggedIn && (!q || p.name.toLowerCase().includes(q)));
-  const availableApiKey = apiKeyProviders.filter((p) => !p.configured && (!q || p.displayName.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)));
+  const oauthLoggedInIds = new Set(oauthProviders.filter((p) => p.loggedIn).map((p) => p.id));
+  // Hide dual-auth providers from the API Key picker while their OAuth session is active.
+  const availableApiKey = apiKeyProviders.filter((p) =>
+    !p.configured
+    && !oauthLoggedInIds.has(p.id)
+    && (!q || p.displayName.toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
+  );
   const availableFree = FREE_PROVIDERS.filter((p) => {
     if (existing.has(p.providerKey)) return false;
     if (!q) return true;
@@ -2190,7 +2451,10 @@ export function ModelsConfig({
 
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
-  const activeApiKey = apiKeyProviders.filter((p) => p.configured);
+  // Dual-auth providers (e.g. kimi-coding) can be OAuth-logged-in and also
+  // report as configured — keep a single sidebar row under Subscriptions.
+  const activeOAuthIds = new Set(activeOAuth.map((p) => p.id));
+  const activeApiKey = apiKeyProviders.filter((p) => p.configured && !activeOAuthIds.has(p.id));
 
   // Resolve current detail
   const detailContent = (() => {
@@ -2198,12 +2462,12 @@ export function ModelsConfig({
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={loadOAuthProviders} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={loadOAuthProviders} onModelsChanged={onModelsChanged} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={loadApiKeyProviders} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={loadApiKeyProviders} onModelsChanged={onModelsChanged} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];

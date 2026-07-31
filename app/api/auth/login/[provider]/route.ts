@@ -1,5 +1,5 @@
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
@@ -60,7 +60,7 @@ export async function GET(
 
   const stream = new ReadableStream({
     async start(controller) {
-      const modelRuntime = await ModelRuntime.create();
+      const modelRuntime = await createConfiguredModelRuntime();
       if (!modelRuntime.getProvider(provider)?.auth.oauth) {
         send(controller, { type: "error", message: `Unknown provider: ${provider}` });
         controller.close();
