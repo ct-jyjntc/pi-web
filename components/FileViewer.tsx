@@ -1,6 +1,7 @@
 "use client";
 
 import { useLocale } from "@/hooks/useLocale";
+import { useFileWatch } from "@/hooks/useFileWatch";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 import { useEffect, useState, useRef, useCallback, memo, type MouseEvent } from "react";
@@ -320,45 +321,15 @@ function formatSize(bytes: number): string {
 function ImageViewer({
   filePath, cwd, sourceSessionId }: Props) {
   const { t } = useLocale();
-  const [watching, setWatching] = useState(false);
-  const [bust, setBust] = useState(0);
-  const [size, setSize] = useState<number | null>(null);
+  const { watching, bust, size } = useFileWatch(filePath, sourceSessionId);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const esRef = useRef<EventSource | null>(null);
 
   const ext = getFileName(filePath).toLowerCase().split(".").pop() ?? "";
 
   useEffect(() => {
-    setBust(0);
-    setSize(null);
     setNaturalSize(null);
     setError(null);
-    setWatching(false);
-
-    if (esRef.current) {
-      esRef.current.close();
-      esRef.current = null;
-    }
-
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
-    esRef.current = es;
-
-    es.addEventListener("connected", () => setWatching(true));
-    es.addEventListener("change", (e) => {
-      try {
-        const d = JSON.parse((e as MessageEvent).data) as { size?: number };
-        if (typeof d.size === "number") setSize(d.size);
-      } catch { /* ignore */ }
-      setBust((b) => b + 1);
-    });
-    es.addEventListener("error", () => setWatching(false));
-    es.onerror = () => setWatching(false);
-
-    return () => {
-      es.close();
-      esRef.current = null;
-    };
   }, [filePath, sourceSessionId]);
 
   const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
@@ -455,48 +426,16 @@ function formatDuration(seconds: number): string {
 function AudioViewer({
   filePath, cwd, sourceSessionId }: Props) {
   const { t } = useLocale();
-  const [watching, setWatching] = useState(false);
-  const [bust, setBust] = useState(0);
-  const [size, setSize] = useState<number | null>(null);
+  const { watching, bust, size } = useFileWatch(filePath, sourceSessionId);
   const [duration, setDuration] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const esRef = useRef<EventSource | null>(null);
 
   const ext = getFileName(filePath).toLowerCase().split(".").pop() ?? "";
 
   useEffect(() => {
-    setBust(0);
-    setSize(null);
     setDuration(null);
     setError(null);
-    setWatching(false);
-
-    if (esRef.current) {
-      esRef.current.close();
-      esRef.current = null;
-    }
-
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
-    esRef.current = es;
-
-    es.addEventListener("connected", () => setWatching(true));
-    es.addEventListener("change", (e) => {
-      try {
-        const d = JSON.parse((e as MessageEvent).data) as { size?: number };
-        if (typeof d.size === "number") setSize(d.size);
-      } catch { /* ignore */ }
-      setDuration(null);
-      setError(null);
-      setBust((b) => b + 1);
-    });
-    es.addEventListener("error", () => setWatching(false));
-    es.onerror = () => setWatching(false);
-
-    return () => {
-      es.close();
-      esRef.current = null;
-    };
-  }, [filePath, sourceSessionId]);
+  }, [filePath, sourceSessionId, bust]);
 
   const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
 
@@ -573,11 +512,8 @@ function AudioViewer({
 function DocumentViewer({
   filePath, cwd, sourceSessionId }: Props) {
   const { t } = useLocale();
-  const [watching, setWatching] = useState(false);
-  const [bust, setBust] = useState(0);
-  const [size, setSize] = useState<number | null>(null);
+  const { watching, bust, size, setSize } = useFileWatch(filePath, sourceSessionId);
   const [error, setError] = useState<string | null>(null);
-  const esRef = useRef<EventSource | null>(null);
 
   const ext = getFileExt(filePath);
   const isPdf = ext === "pdf";
@@ -586,16 +522,7 @@ function DocumentViewer({
     : getFileApiUrl(filePath, "preview", sourceSessionId, bust ? { v: bust } : undefined);
 
   useEffect(() => {
-    setBust(0);
-    setSize(null);
     setError(null);
-    setWatching(false);
-
-    if (esRef.current) {
-      esRef.current.close();
-      esRef.current = null;
-    }
-
     fetch(getFileApiUrl(filePath, "meta", sourceSessionId))
       .then((r) => r.json())
       .then((d: { size?: number; error?: string }) => {
@@ -608,33 +535,15 @@ function DocumentViewer({
         }
       })
       .catch((e) => setError(String(e)));
+  }, [filePath, isPdf, sourceSessionId, setSize, t]);
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
-    esRef.current = es;
-
-    es.addEventListener("connected", () => setWatching(true));
-    es.addEventListener("change", (e) => {
-      try {
-        const d = JSON.parse((e as MessageEvent).data) as { size?: number };
-        if (typeof d.size === "number") {
-          setSize(d.size);
-          if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError(t("viewer.docxTooLarge"));
-            return;
-          }
-        }
-      } catch { /* ignore */ }
+  useEffect(() => {
+    if (size != null && !isPdf && size > DOCX_PREVIEW_MAX_BYTES) {
+      setError(t("viewer.docxTooLarge"));
+    } else if (bust > 0) {
       setError(null);
-      setBust((b) => b + 1);
-    });
-    es.addEventListener("error", () => setWatching(false));
-    es.onerror = () => setWatching(false);
-
-    return () => {
-      es.close();
-      esRef.current = null;
-    };
-  }, [filePath, isPdf, sourceSessionId]);
+    }
+  }, [bust, size, isPdf, t]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>

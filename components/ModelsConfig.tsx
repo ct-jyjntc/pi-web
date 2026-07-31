@@ -4,6 +4,7 @@ import { useLocale } from "@/hooks/useLocale";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { ConfigPanelBackdrop, ConfigPanelShell } from "./ConfigPanelShell";
 import {
   FREE_PROVIDERS,
   getFreeProvider,
@@ -2512,44 +2513,19 @@ export function ModelsConfig({
   })();
 
   const panel = (
-      <div
-        role={embedded ? undefined : "dialog"}
-        aria-modal={embedded ? undefined : true}
-        className={embedded ? "settings-embedded" : "modal-shell"}
-        style={embedded ? {
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          minHeight: 0,
-          width: "100%",
-          background: "var(--bg)",
-        } : {
+      <ConfigPanelShell
+        embedded={embedded}
+        title={t("modal.models")}
+        subtitle="~/.pi/agent/models.json"
+        onClose={requestClose}
+        closeAriaLabel={t("common.close")}
+        style={embedded ? undefined : {
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",
           height: isMobile ? "calc(100dvh - 16px)" : "78vh",
           maxHeight: "calc(100dvh - 16px)",
         }}
       >
-
-        {/* Header — strip chrome (page mode keeps a quiet subtitle bar) */}
-        <div className="modal-header" style={embedded ? { borderRadius: 0 } : undefined}>
-          <div className="modal-header-meta">
-            <span className="modal-title">{t("modal.models")}</span>
-            <code className="modal-subtitle">~/.pi/agent/models.json</code>
-          </div>
-          {!embedded && (
-            <button
-              type="button"
-              className="chrome-btn is-icon"
-              onClick={requestClose}
-              aria-label={t("common.close")}
-            >
-              ×
-            </button>
-          )}
-        </div>
-
-        {/* Body */}
         <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row", flex: 1, minHeight: 0 }}>
 
           {/* Left: tree */}
@@ -2718,18 +2694,15 @@ export function ModelsConfig({
             <span>{savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}</span>
           </button>
         </div>
-      </div>
+      </ConfigPanelShell>
   );
 
   return (
     <>
     {embedded ? panel : (
-      <div
-        className="modal-backdrop"
-        onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
-      >
+      <ConfigPanelBackdrop onClose={requestClose}>
         {panel}
-      </div>
+      </ConfigPanelBackdrop>
     )}
     {confirmDiscard && (
       <div

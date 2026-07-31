@@ -12,6 +12,7 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
+import { ComposerPalette } from "./ComposerPalette";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { PreviewableImage } from "./PreviewableImage";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -1383,35 +1384,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         {/* Main input */}
         <div style={{ position: "relative" }}>
           {historyMenuOpen && inputHistory.length > 0 && (
-            <div
-              ref={historyMenuRef}
-              className="menu-card"
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                bottom: "calc(100% + 8px)",
-                zIndex: 120,
-                maxHeight: "min(44vh, 360px)",
-                overflow: "hidden",
-              }}
+            <ComposerPalette
+              menuRef={historyMenuRef}
+              title={t("chat.inputHistory", { n: String(inputHistory.length) })}
+              hint={t("chat.enterToUse")}
+              maxHeight="min(44vh, 360px)"
             >
-              <div
-                style={{
-                  padding: "8px 10px",
-                  borderBottom: "1px solid var(--border)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                }}
-              >
-                <span>{t("chat.inputHistory", { n: String(inputHistory.length) })}</span>
-                <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.enterToUse")}</span>
-              </div>
-              <div style={{ maxHeight: "calc(min(44vh, 360px) - 34px)", overflowY: "auto", padding: 4 }}>
                 {inputHistory.map((item, index) => {
                   const active = index === historyActiveIndex;
                   return (
@@ -1451,37 +1429,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     </button>
                   );
                 })}
-              </div>
-            </div>
+            </ComposerPalette>
           )}
           {slashMenuOpen && slashQuery !== null && (
-            <div
-              className="menu-card"
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                bottom: "calc(100% + 8px)",
-                zIndex: 120,
-                maxHeight: "min(56vh, 460px)",
-              }}
+            <ComposerPalette
+              title={slashCommandsLoading ? t("chat.loadingCommands") : t("chat.slashCommands", { n: slashCommandCountLabel })}
+              hint={t("chat.tabEnter")}
+              maxHeight="min(56vh, 460px)"
+              bodyStyle={{ padding: 10 }}
             >
-              <div
-                style={{
-                  padding: "8px 10px",
-                  borderBottom: "1px solid var(--border)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                }}
-              >
-                <span>{slashCommandsLoading ? t("chat.loadingCommands") : t("chat.slashCommands", { n: slashCommandCountLabel })}</span>
-                <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
-              </div>
-              <div style={{ maxHeight: "calc(min(56vh, 460px) - 34px)", overflowY: "auto", padding: 10 }}>
                 {!slashCommandsLoading && filteredSlashCommands.length === 0 ? (
                   <div style={{ padding: "2px 2px 4px", fontSize: 12, color: "var(--text-dim)" }}>
                     {t("chat.noCommands")}
@@ -1578,8 +1534,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     </section>
                   ))
                 )}
-              </div>
-            </div>
+            </ComposerPalette>
           )}
           {atMenuOpen && atQuery !== null && (() => {
             const indexLoading = fileIndexLoading && (!fileIndex || fileIndex.cwd !== cwd);
@@ -1590,37 +1545,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               ? (atQuery.query ? " · searching all files…" : " · index truncated")
               : "";
             return (
-              <div
-                className="menu-card"
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  bottom: "calc(100% + 8px)",
-                  zIndex: 120,
-                  maxHeight: "min(48vh, 400px)",
-                }}
+              <ComposerPalette
+                title={
+                  indexLoading
+                    ? t("chat.loadingFiles")
+                    : `${t("chat.files", { n: matchCountLabel })}${truncatedHint}`
+                }
+                hint={t("chat.tabEnter")}
+                maxHeight="min(48vh, 400px)"
               >
-                <div
-                  style={{
-                    padding: "8px 10px",
-                    borderBottom: "1px solid var(--border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                    fontSize: 11,
-                    color: "var(--text-dim)",
-                  }}
-                >
-                  <span>
-                    {indexLoading
-                      ? t("chat.loadingFiles")
-                      : `${t("chat.files", { n: matchCountLabel })}${truncatedHint}`}
-                  </span>
-                  <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
-                </div>
-                <div style={{ maxHeight: "calc(min(48vh, 400px) - 34px)", overflowY: "auto", padding: 4 }}>
                   {!indexLoading && atMatches.length === 0 ? (
                     <div style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-dim)" }}>
                       {needsServerSearch && !serverResultInUse ? t("chat.searching") : t("chat.noMatchingFiles")}
@@ -1670,8 +1603,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       );
                     })
                   )}
-                </div>
-              </div>
+              </ComposerPalette>
             );
           })()}
           <div

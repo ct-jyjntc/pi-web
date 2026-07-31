@@ -4,6 +4,7 @@ import { useLocale } from "@/hooks/useLocale";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { ConfigPanelBackdrop, ConfigPanelShell } from "./ConfigPanelShell";
 import type {
   SkillInfo as Skill,
   SkillInstallScope,
@@ -816,43 +817,19 @@ export function SkillsConfig({
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null;
 
   const panel = (
-      <div
-        className={embedded ? "settings-embedded" : "modal-shell"}
-        role={embedded ? undefined : "dialog"}
-        aria-modal={embedded ? undefined : true}
-        style={embedded ? {
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          minHeight: 0,
-          width: "100%",
-          background: "var(--bg)",
-        } : {
+      <ConfigPanelShell
+        embedded={embedded}
+        title={t("modal.skills")}
+        subtitle={shortenPath(cwd)}
+        onClose={onClose}
+        closeAriaLabel={t("common.close")}
+        style={embedded ? undefined : {
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",
           height: isMobile ? "calc(100dvh - 16px)" : "78vh",
           maxHeight: "calc(100dvh - 16px)",
         }}
       >
-        {/* Header — strip chrome */}
-        <div className="modal-header" style={embedded ? { borderRadius: 0 } : undefined}>
-          <div className="modal-header-meta">
-            <span className="modal-title">{t("modal.skills")}</span>
-            <code className="modal-subtitle">{shortenPath(cwd)}</code>
-          </div>
-          {!embedded && (
-            <button
-              type="button"
-              className="chrome-btn is-icon"
-              onClick={onClose}
-              aria-label={t("common.close")}
-            >
-              ×
-            </button>
-          )}
-        </div>
-
-        {/* Body */}
         <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row", flex: 1, minHeight: 0 }}>
           {/* Left: skill list */}
           <div className="modal-sidebar" style={isMobile ? { width: "100%", maxHeight: "40vh" } : undefined}>
@@ -1106,18 +1083,13 @@ export function SkillsConfig({
             </button>
           )}
         </div>
-      </div>
+      </ConfigPanelShell>
   );
 
   if (embedded) return panel;
   return (
-    <div
-      className="modal-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <ConfigPanelBackdrop onClose={onClose}>
       {panel}
-    </div>
+    </ConfigPanelBackdrop>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
+import { ConfigPanelBackdrop, ConfigPanelShell } from "./ConfigPanelShell";
 import { SettingsToggle } from "./SettingsToggle";
 
 type McpServerItem = {
@@ -175,41 +176,24 @@ export function McpConfig({
   const adapterOk = adapter?.configured && adapter?.installed;
 
   const panel = (
-      <div
-        role={embedded ? undefined : "dialog"}
-        aria-modal={embedded ? undefined : true}
-        aria-labelledby="mcp-config-title"
-        className={embedded ? "settings-embedded" : "modal-shell"}
-        style={embedded ? {
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          minHeight: 0,
-          width: "100%",
-          background: "var(--bg)",
-        } : {
+      <ConfigPanelShell
+        embedded={embedded}
+        titleId="mcp-config-title"
+        title={t("mcp.title")}
+        subtitle={agentConfigPath ? (
+          <code className="modal-subtitle" title={agentConfigPath}>
+            {agentConfigPath.replace(/^\/Users\/[^/]+/, "~")}
+          </code>
+        ) : undefined}
+        onClose={onClose}
+        closeAriaLabel={t("common.close")}
+        style={embedded ? undefined : {
           width: "min(560px, 100%)",
           maxHeight: "min(720px, 92vh)",
           display: "flex",
           flexDirection: "column",
         }}
       >
-        <div className="modal-header" style={embedded ? { borderRadius: 0 } : undefined}>
-          <div className="modal-header-meta">
-            <div id="mcp-config-title" className="modal-title">{t("mcp.title")}</div>
-            {agentConfigPath && (
-              <code className="modal-subtitle" title={agentConfigPath}>
-                {agentConfigPath.replace(/^\/Users\/[^/]+/, "~")}
-              </code>
-            )}
-          </div>
-          {!embedded && (
-            <button type="button" className="chrome-btn is-icon" onClick={onClose} aria-label={t("common.close")}>
-              ×
-            </button>
-          )}
-        </div>
-
         <div
           className={embedded ? "settings-page-content" : "modal-main"}
           style={{
@@ -347,13 +331,13 @@ export function McpConfig({
             {t("mcp.reloadHint")}
           </div>
         </div>
-      </div>
+      </ConfigPanelShell>
   );
 
   if (embedded) return panel;
   return (
-    <div className="modal-backdrop" role="presentation" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <ConfigPanelBackdrop onClose={onClose}>
       {panel}
-    </div>
+    </ConfigPanelBackdrop>
   );
 }
