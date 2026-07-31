@@ -407,7 +407,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, streamState,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelThinkingLevels, modelThinkingLevelMaps, modelImageSupport, thinkingLevel,
+    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, modelImageSupport, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -900,6 +900,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelNames={modelNames}
       modelList={modelList}
       modelError={modelError}
+      modelScopeWarnings={modelScopeWarnings}
       onModelChange={handleModelChange}
       onOpenContext={onSessionStatsPanelOpen}
       onPermissionModeApplied={session || isNew ? handlePermissionModeApplied : undefined}

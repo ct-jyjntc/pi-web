@@ -1,5 +1,6 @@
-import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { createConfiguredModelRuntime } from "@/lib/model-runtime";
+import { removeStoredCredentialIfType } from "@/lib/provider-credential-store";
 import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,10 @@ export async function POST(
   if (!modelRuntime.getProvider(provider)?.auth.oauth) {
     return Response.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
   }
-  await modelRuntime.logout(provider);
+  const removal = await removeStoredCredentialIfType(provider, "oauth");
+  if (removal.status === "type_mismatch") {
+    return Response.json({ error: `${provider} is authenticated with an API key, not OAuth` }, { status: 409 });
+  }
   invalidateModelsCache();
   invalidateUtilityModelRuntimes();
   return Response.json({ ok: true });

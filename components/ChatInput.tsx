@@ -81,6 +81,7 @@ interface Props {
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string }[];
   modelError?: string | null;
+  modelScopeWarnings?: string[] | null;
   inputHistory?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
   /** Open right-panel Context workspace (context ring next to send). */
@@ -256,6 +257,29 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
   );
 }
 
+function ModelScopeWarningBanner({ warnings }: { warnings?: string[] | null }) {
+  if (!warnings || warnings.length === 0) return null;
+  return (
+    <div
+      role="status"
+      style={{
+        marginBottom: 8,
+        padding: "7px 10px",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg-subtle)",
+        color: "var(--text-muted)",
+        fontSize: 11,
+        lineHeight: 1.45,
+        fontFamily: "var(--font-mono)",
+        whiteSpace: "pre-wrap",
+      }}
+    >
+      {warnings.join("\n")}
+    </div>
+  );
+}
+
 function ModelErrorBanner({ error }: { error?: string | null }) {
   const { t } = useLocale();
   if (!error) return null;
@@ -305,7 +329,7 @@ function ModelErrorBanner({ error }: { error?: string | null }) {
 // Memoized: this is a 2000-line component that must not re-render on every
 // streaming token reaching ChatWindow.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
   onOpenContext,
   onPermissionModeApplied,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -1240,6 +1264,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
+        <ModelScopeWarningBanner warnings={modelScopeWarnings} />
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{

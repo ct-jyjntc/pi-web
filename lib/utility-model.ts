@@ -7,6 +7,7 @@ import {
   type ThinkingLevel,
 } from "@earendil-works/pi-ai";
 import { filterDisabledModels, getDisabledModelRefs } from "./disabled-models";
+import { resolveVisibleModels } from "./model-scope";
 import { formatModelRef, type ModelRef } from "./web-settings";
 
 /** Values commonly accepted by OpenAI-compatible reasoning_effort fields. */
@@ -75,27 +76,6 @@ export type UtilityModelOption = {
   modelId: string;
   name: string;
 };
-
-function stripThinkingSuffix(modelRef: string): string {
-  const trimmed = modelRef.trim();
-  const colonIndex = trimmed.lastIndexOf(":");
-  if (colonIndex === -1) return trimmed;
-  const suffix = trimmed.slice(colonIndex + 1);
-  if (["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(suffix)) {
-    return trimmed.slice(0, colonIndex);
-  }
-  return trimmed;
-}
-
-function filterEnabledModels<T extends { id: string; provider: string }>(
-  available: readonly T[],
-  enabledModels: string[] | undefined,
-): readonly T[] {
-  if (!enabledModels || enabledModels.length === 0) return available;
-  const refs = new Set(enabledModels.map(stripThinkingSuffix).filter(Boolean));
-  const visible = available.filter((m) => refs.has(`${m.provider}/${m.id}`) || refs.has(m.id));
-  return visible.length > 0 ? visible : available;
-}
 
 type ModelRuntimeLike = {
   getAvailable: (providerId?: string) => Promise<readonly Model<string>[]>;
@@ -199,20 +179,18 @@ function loadModelRuntime(cwd: string): Promise<ModelRuntimeBundle> {
   return loadPromise;
 }
 
-function applyModelVisibilityFilters<T extends { id: string; provider: string }>(
-  available: readonly T[],
+async function applyModelVisibilityFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  modelRuntime: any,
   enabledModels: string[] | undefined,
-): T[] {
-  return filterDisabledModels(
-    filterEnabledModels(available, enabledModels),
-    getDisabledModelRefs(),
-  );
+) {
+  const scope = await resolveVisibleModels(modelRuntime, enabledModels);
+  return filterDisabledModels(scope.visible, getDisabledModelRefs());
 }
 
 export async function listUtilityModels(cwd: string): Promise<UtilityModelOption[]> {
   const { modelRuntime, settings } = await loadModelRuntime(cwd);
-  const available = await modelRuntime.getAvailable();
-  const visible = applyModelVisibilityFilters(available, settings.getEnabledModels());
+  const visible = await applyModelVisibilityFilters(modelRuntime, settings.getEnabledModels());
   return visible
     .map((m) => ({
       provider: m.provider,
@@ -237,8 +215,7 @@ export async function resolveUtilityModel(
   preferred?: ModelRef | null,
 ): Promise<ResolvedUtilityModel> {
   const { modelRuntime, settings } = await loadModelRuntime(cwd);
-  const available = await modelRuntime.getAvailable();
-  const visible = applyModelVisibilityFilters(available, settings.getEnabledModels());
+  const visible = await applyModelVisibilityFilters(modelRuntime, settings.getEnabledModels());
   if (visible.length === 0) {
     throw new Error("No available model. Configure auth and a default model first.");
   }
@@ -291,8 +268,7 @@ export async function resolvePreferredSessionModel(
   preferred: ModelRef | null | undefined,
 ): Promise<Model<string> | null> {
   if (!preferred) return null;
-  const available = await modelRuntime.getAvailable();
-  const visible = applyModelVisibilityFilters(available, settings.getEnabledModels());
+  const visible = await applyModelVisibilityFilters(modelRuntime, settings.getEnabledModels());
   const match = visible.find((m) => m.provider === preferred.provider && m.id === preferred.modelId);
   if (!match) {
     throw new Error(

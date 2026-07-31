@@ -366,9 +366,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
-  // Once the SSE stream has delivered a frame it is the source of truth for
+  // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
-  const sseAuthoritativeRef = useRef(false);
+  const runningPollAuthoritativeRef = useRef(false);
+  const RUNNING_SESSIONS_POLL_MS = 2500;
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
@@ -380,9 +381,9 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
-      // Treat the fetched running set as an initial fallback only. Once SSE is
-      // live it owns this state, so a slow fetch can't revive a stale snapshot.
-      if (!sseAuthoritativeRef.current) {
+      // Treat the fetched running set as an initial fallback only. Once the
+      // lightweight poll is live, a slow session-list fetch cannot overwrite it.
+      if (!runningPollAuthoritativeRef.current) {
         setRunningSessionIds((prev) => {
           const next = new Set(data.runningSessionIds ?? []);
           return sameIdSet(prev, next) ? prev : next;
@@ -422,30 +423,68 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   }, [unreadSessionIds]);
 
   useEffect(() => {
-    // Live running status via SSE — no polling. The server pushes the current
-    // set of running session ids whenever any session starts/stops working.
-    const source = new EventSource("/api/agent/running/events");
+    // Visible-tab polling instead of a long-lived SSE: multi-window setups used
+    // to open one /api/agent/running/events connection per tab and keep it idle.
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
 
-    source.onmessage = (e) => {
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+
+    const schedule = () => {
+      clearTimer();
+      if (stopped || document.visibilityState !== "visible") return;
+      timer = setTimeout(() => void poll(), RUNNING_SESSIONS_POLL_MS);
+    };
+
+    const poll = async () => {
+      if (stopped || document.visibilityState !== "visible") return;
+      const current = new AbortController();
+      controller?.abort();
+      controller = current;
       try {
-        const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[] };
-        if (data.type === "running") {
-          sseAuthoritativeRef.current = true;
-          // Keep the previous Set identity when the frame carries the same ids:
-          // the server re-pushes on every start/stop, and a fresh Set would
-          // re-render every session row for nothing.
-          setRunningSessionIds((prev) => {
-            const next = new Set(data.runningSessionIds ?? []);
-            return sameIdSet(prev, next) ? prev : next;
-          });
-        }
+        const res = await fetch("/api/agent/running", {
+          cache: "no-store",
+          signal: current.signal,
+        });
+        if (!res.ok) return;
+        const data = await res.json() as { runningSessionIds?: string[] };
+        if (stopped || controller !== current) return;
+        runningPollAuthoritativeRef.current = true;
+        // Keep Set identity when ids are unchanged to avoid re-rendering every row.
+        setRunningSessionIds((prev) => {
+          const next = new Set(data.runningSessionIds ?? []);
+          return sameIdSet(prev, next) ? prev : next;
+        });
       } catch {
-        // ignore malformed frames
+        // Keep last known state; the next visible-tab poll retries.
+      } finally {
+        if (controller === current) controller = null;
+        schedule();
       }
     };
 
-    // On error EventSource auto-reconnects; keep the last known state meanwhile.
-    return () => source.close();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void poll();
+        return;
+      }
+      clearTimer();
+      controller?.abort();
+      controller = null;
+    };
+
+    void poll();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stopped = true;
+      clearTimer();
+      controller?.abort();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -456,7 +495,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     if (completedInBackground.length > 0 || newlyRunning.length > 0) {
       // Only allocate when the marker set really changes — otherwise a running
       // session would hand every row a new Set (and rewrite localStorage) on
-      // every SSE frame. The two id lists are disjoint by construction, so
+      // every poll tick. The two id lists are disjoint by construction, so
       // testing against `prev` stays correct while building `next`.
       setUnreadSessionIds((prev) => {
         let next: Set<string> | null = null;

@@ -354,6 +354,8 @@ type ModelsResponse = {
   defaultModel?: SelectedModel | null;
   thinkingLevels?: Record<string, string[]>;
   thinkingLevelMaps?: Record<string, Record<string, string | null>>;
+  thinkingLevelPins?: Record<string, string>;
+  modelScopeWarnings?: string[];
   imageSupport?: Record<string, boolean>;
   modelError?: string;
 };
@@ -402,6 +404,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
   const [modelList, setModelList] = useState<ModelEntry[]>([]);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
+  const thinkingLevelPinsRef = useRef<Record<string, string>>({});
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [modelImageSupport, setModelImageSupport] = useState<Record<string, boolean>>({});
@@ -691,15 +695,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [ensureNewSession]);
 
-  const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
+  const closeEvents = useCallback(() => {
     if (sseReconnectTimerRef.current) {
       clearTimeout(sseReconnectTimerRef.current);
       sseReconnectTimerRef.current = null;
     }
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+  }, []);
+
+  const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
+    closeEvents();
     const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
     eventSourceRef.current = es;
 
@@ -762,7 +768,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // connection must be ready before they continue.
       };
     });
-  }, []);
+  }, [closeEvents]);
 
   const ensureEventsConnected = useCallback(async (sid: string) => {
     const result = await connectEvents(sid);
@@ -874,16 +880,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (sid) await loadSession(sid);
     } finally {
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
-      optimisticUserMessageKeyRef.current = null;
-      if (!agentRunningRef.current) return;
+      const wasRunning = agentRunningRef.current;
       agentRunningRef.current = false;
+      // Drop the per-session SSE once the logical prompt is settled so idle
+      // multi-window tabs do not hold open EventSource connections.
+      closeEvents();
+      optimisticUserMessageKeyRef.current = null;
+      if (!wasRunning) return;
       setAgentRunning(false);
       setAgentPhase(null);
       setRetryInfo(null);
       dispatch({ type: "end" });
       onAgentEnd?.();
     }
-  }, [loadSession, onAgentEnd]);
+  }, [closeEvents, loadSession, onAgentEnd]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     // One settlement loop per run: a slash command starts one from handleSend and
@@ -1065,8 +1075,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // auto-reconnects — and the events route recreates the whole agent
         // session for an unknown id, restarting its 10-minute idle timer. That
         // resurrection loop never ends, so close the stream explicitly here.
-        eventSourceRef.current?.close();
-        eventSourceRef.current = null;
+        closeEvents();
         if (agentRunningRef.current) {
           void finishPromptWithoutStream(sessionIdRef.current, promptRunIdRef.current);
         }
@@ -1086,16 +1095,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       }
       case "agent_end": {
-        // A late agent_end can arrive over SSE after reconcileAgentState
-        // already finished this run — don't re-trigger completion.
+        // One logical prompt can emit multiple agent_end events before retrying,
+        // compacting, or continuing messages queued by extension handlers.
+        // Keep agentRunning true and SSE open until prompt_done + server-idle
+        // settlement (or reconcile) so a mid-run end cannot drop the rest.
         if (!agentRunningRef.current) break;
         const runId = promptRunIdRef.current;
-        // Only end if this still matches the generation that accepted stream events.
-        // If the user already started a newer run, ignore this late end.
+        // Only touch streaming UI if this still matches the generation that
+        // accepted stream events. Late ends from a prior run are ignored.
         if (runId !== streamAcceptRunIdRef.current) break;
-        agentRunningRef.current = false;
         clearPendingStreamUpdate();
-        setAgentRunning(false);
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
@@ -1120,7 +1129,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             }
           })();
         }
-        onAgentEnd?.();
+        // Do not call onAgentEnd here — wait for settlement so completion sound
+        // / notifications fire once when the logical prompt is truly idle.
+        // Kick settlement even if prompt_done is delayed/missing; the poll exits
+        // early while the server is still streaming / prompt-running.
+        if (sid) {
+          void waitForPromptSettlement(sid, runId);
+        }
         break;
       }
       case "prompt_done":
@@ -1131,6 +1146,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // time to start and settle against server state instead of ending the
         // UI immediately and dropping its subsequent streaming events.
         // Bind to the current run so a late prompt_done cannot finish a newer one.
+        // Also the normal path for finishing after agent_end (multi-end runs).
         if (sessionIdRef.current) {
           void waitForPromptSettlement(sessionIdRef.current, promptRunIdRef.current);
         }
@@ -1275,7 +1291,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, clearPendingStreamUpdate, handleExtensionUiRequest, loadSession, onAgentEnd, waitForPromptSettlement]);
+  }, [addNotice, clearPendingStreamUpdate, closeEvents, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, waitForPromptSettlement]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1321,9 +1337,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setStickToBottom(true);
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
+    let sentSessionId: string | null = null;
+    let promptRequestStarted = false;
 
     try {
-      let sentSessionId: string | null = null;
       if (isNew && newSessionCwd) {
         const selectedModel = newSessionModel;
         const existingSid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
@@ -1338,6 +1355,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             }
           }
           await ensureEventsConnected(sid);
+          promptRequestStarted = true;
           await sendAgentCommand(sid, {
             type: "prompt",
             message,
@@ -1348,23 +1366,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);
+        promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
       }
+      // Slash commands and normal prompts both settle via prompt_done / idle poll;
+      // slash starts early because some commands never stream agent_end reliably.
       if (isSlashCommandPrompt && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
     } catch (e) {
       console.error("Failed to send message:", e);
-      // Any failure here means the prompt never reached the agent (HTTP error,
-      // SSE connection failure, ...). Roll back the optimistic bubble so a
-      // failed send never looks delivered, and restore the user's text into
-      // the input instead of losing it (insertIfEmpty avoids clobbering
-      // anything typed since). Mirrors the shell-command recovery in
-      // executeBash.
+      // A failed prompt POST is ambiguous once SSE was opened: the server may
+      // have accepted the run before the response was lost. Keep the stream
+      // alive until idle settlement so a real run cannot continue unseen.
+      if (promptRequestStarted && sentSessionId) {
+        void waitForPromptSettlement(sentSessionId, promptRunId);
+        return;
+      }
+      // True pre-flight failure (never reached the agent): roll back optimistic UI.
       const optimisticKey = optimisticUserMessageKeyRef.current;
       if (optimisticKey) {
         setMessages((prev) => {
@@ -1383,11 +1406,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
       optimisticUserMessageKeyRef.current = null;
       agentRunningRef.current = false;
+      closeEvents();
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, opts.chatInputRef]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1576,6 +1600,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const d = await res.json() as ModelsResponse;
     setModelNames(d.models);
     setModelError(d.modelError ?? null);
+    setModelScopeWarnings(d.modelScopeWarnings ?? []);
+    thinkingLevelPinsRef.current = d.thinkingLevelPins ?? {};
     setModelThinkingLevels(d.thinkingLevels ?? {});
     setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
     setModelImageSupport(d.imageSupport ?? {});
@@ -1587,8 +1613,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         : undefined;
       const displayModel = match ?? nextModelList[0];
       setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
+      // Apply `:thinkingLevel` pin from enabledModels for the pre-selected model.
+      if (displayModel && thinkingLevel === "auto") {
+        const pin = thinkingLevelPinsRef.current[`${displayModel.provider}/${displayModel.id}`];
+        if (pin === "off" || pin === "minimal" || pin === "low" || pin === "medium" || pin === "high" || pin === "xhigh" || pin === "max") {
+          setThinkingLevel(pin);
+        }
+      }
     }
-  }, [isNew, newSessionCwd, session?.cwd]);
+  }, [isNew, newSessionCwd, session?.cwd, thinkingLevel]);
 
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
@@ -2065,7 +2098,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, modelError, modelThinkingLevels, modelThinkingLevelMaps, modelImageSupport, newSessionModel, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, modelImageSupport, newSessionModel, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,

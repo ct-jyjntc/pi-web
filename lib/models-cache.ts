@@ -4,6 +4,10 @@ export interface ModelsData {
   defaultModel: { provider: string; modelId: string } | null;
   thinkingLevels: Record<string, string[]>;
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
+  /** `provider/modelId` → thinking level pinned by enabledModels `:level` suffix. */
+  thinkingLevelPins?: Record<string, string>;
+  /** Diagnostics from enabledModels scope resolution (unmatched globs, etc.). */
+  modelScopeWarnings?: string[];
   /** `${provider}:${modelId}` → model accepts image input */
   imageSupport: Record<string, boolean>;
   modelError?: string;

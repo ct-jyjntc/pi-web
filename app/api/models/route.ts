@@ -4,6 +4,7 @@ import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { filterDisabledModels, getDisabledModelRefs } from "@/lib/disabled-models";
 import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
+import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { readWebSettings } from "@/lib/web-settings";
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 
@@ -20,27 +21,6 @@ function compareModelEntries(
     || modelNameCollator.compare(a.id, b.id);
 }
 
-const THINKING_SUFFIXES = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-
-function stripThinkingSuffix(modelRef: string): string {
-  const trimmed = modelRef.trim();
-  const colonIndex = trimmed.lastIndexOf(":");
-  if (colonIndex === -1) return trimmed;
-  const suffix = trimmed.substring(colonIndex + 1);
-  return THINKING_SUFFIXES.has(suffix) ? trimmed.substring(0, colonIndex) : trimmed;
-}
-
-function filterByExactEnabledModels<T extends { id: string; provider: string }>(
-  available: readonly T[],
-  enabledModels: string[] | undefined,
-): readonly T[] {
-  if (!enabledModels || enabledModels.length === 0) return available;
-
-  const refs = new Set(enabledModels.map(stripThinkingSuffix).filter(Boolean));
-  const visible = available.filter((m) => refs.has(`${m.provider}/${m.id}`) || refs.has(m.id));
-  return visible.length > 0 ? visible : available;
-}
-
 async function loadModels(cwd: string): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
   let modelList: { id: string; name: string; provider: string; supportsImage: boolean }[] = [];
@@ -52,14 +32,28 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const agentDir = getAgentDir();
   const modelRuntime = await createConfiguredModelRuntime();
   const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime });
-  const available = await services.modelRuntime.getAvailable();
   const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
-  const enabledModels = settings.getEnabledModels();
-  const enabledVisible = filterByExactEnabledModels(available, enabledModels);
-  // models.json `disabled: true` — keep config, hide from pickers
-  const visible = filterDisabledModels(enabledVisible, getDisabledModelRefs());
-  modelList = visible.map((m: { id: string; name: string; provider: string; input?: string[] }) => ({
+
+  // `enabledModels` supports globs and fuzzy patterns — same rules as pi's `--models`.
+  const scope = await resolveVisibleModels(
+    services.modelRuntime,
+    settings.getEnabledModels(),
+  );
+
+  // models.json `disabled: true` — keep config, hide from pickers (after scope).
+  const visible = filterDisabledModels(scope.visible, getDisabledModelRefs());
+  // Rebuild pins for models that remain visible after the disabled denylist.
+  const thinkingLevelPins: Record<string, string> = {};
+  for (const [ref, level] of Object.entries(scope.thinkingLevelPins)) {
+    const [provider, ...rest] = ref.split("/");
+    const id = rest.join("/");
+    if (visible.some((m) => m.provider === provider && m.id === id)) {
+      thinkingLevelPins[ref] = level;
+    }
+  }
+
+  modelList = visible.map((m) => ({
     id: m.id,
     name: m.name,
     provider: m.provider,
@@ -75,21 +69,48 @@ async function loadModels(cwd: string): Promise<ModelsData> {
 
   // Prefer Pi Web role default for new sessions; fall back to settings.json default.
   const roleDefault = readWebSettings().modelRoles.default;
-  if (
+  const settingsDefault = (() => {
+    const provider = settings.getDefaultProvider();
+    const modelId = settings.getDefaultModel();
+    return provider && modelId ? { provider, modelId } : undefined;
+  })();
+
+  // Scope-aware default selection (respects globs; falls back sensibly).
+  const scopedDefault = selectInitialModelScope(
+    { ...scope, visible, thinkingLevelPins },
+    {
+      ...(roleDefault
+        ? { defaultModel: { provider: roleDefault.provider, modelId: roleDefault.modelId } }
+        : settingsDefault
+          ? { defaultModel: settingsDefault }
+          : {}),
+    },
+  );
+  if (scopedDefault.model) {
+    defaultModel = { provider: scopedDefault.model.provider, modelId: scopedDefault.model.id };
+  } else if (
     roleDefault
     && visible.some((m) => m.provider === roleDefault.provider && m.id === roleDefault.modelId)
   ) {
     defaultModel = { provider: roleDefault.provider, modelId: roleDefault.modelId };
-  } else {
-    const provider = settings.getDefaultProvider();
-    const modelId = settings.getDefaultModel();
-    if (provider && modelId && visible.some((m) => m.provider === provider && m.id === modelId)) {
-      defaultModel = { provider, modelId };
-    }
+  } else if (
+    settingsDefault
+    && visible.some((m) => m.provider === settingsDefault.provider && m.id === settingsDefault.modelId)
+  ) {
+    defaultModel = settingsDefault;
   }
 
   return withModelRuntimeError(
-    { models: Object.fromEntries(nameMap), modelList, defaultModel, thinkingLevels, thinkingLevelMaps, imageSupport },
+    {
+      models: Object.fromEntries(nameMap),
+      modelList,
+      defaultModel,
+      thinkingLevels,
+      thinkingLevelMaps,
+      thinkingLevelPins,
+      imageSupport,
+      ...(scope.warnings.length > 0 ? { modelScopeWarnings: scope.warnings } : {}),
+    },
     modelError,
   );
 }
@@ -100,6 +121,7 @@ const EMPTY_MODELS: ModelsData = {
   defaultModel: null,
   thinkingLevels: {},
   thinkingLevelMaps: {},
+  thinkingLevelPins: {},
   imageSupport: {},
 };
 

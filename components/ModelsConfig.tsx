@@ -118,6 +118,8 @@ interface ApiKeyProvider {
   configured: boolean;
   source?: string;
   modelCount: number;
+  /** True when the same provider can also use OAuth (Anthropic, Copilot, …). */
+  supportsOAuth?: boolean;
 }
 
 type OAuthLoginState =
@@ -2260,6 +2262,13 @@ export function ModelsConfig({
       .catch(() => {});
   }, []);
 
+  // Dual-auth providers (e.g. Anthropic) appear in both lists; any auth change
+  // must refresh both so the API-key row and OAuth row stay consistent.
+  const refreshAuthProviders = useCallback(() => {
+    loadOAuthProviders();
+    loadApiKeyProviders();
+  }, [loadOAuthProviders, loadApiKeyProviders]);
+
   useEffect(() => {
     fetch("/api/models-config")
       .then(async (r) => {
@@ -2284,9 +2293,8 @@ export function ModelsConfig({
         savedConfigJsonRef.current = "";
       })
       .finally(() => setLoading(false));
-    loadOAuthProviders();
-    loadApiKeyProviders();
-  }, [loadOAuthProviders, loadApiKeyProviders]);
+    refreshAuthProviders();
+  }, [refreshAuthProviders]);
 
   const addCustomProvider = useCallback(() => {
     let finalName = "new-provider";
@@ -2462,12 +2470,12 @@ export function ModelsConfig({
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={loadOAuthProviders} onModelsChanged={onModelsChanged} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} onModelsChanged={onModelsChanged} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={loadApiKeyProviders} onModelsChanged={onModelsChanged} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} onModelsChanged={onModelsChanged} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];

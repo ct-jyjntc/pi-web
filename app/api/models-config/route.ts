@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "fs";
+import { readFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
@@ -28,10 +29,9 @@ function readModelsJson(): { ok: true; data: Record<string, unknown> } | { ok: f
 function writeModelsJson(data: Record<string, unknown>): void {
   const path = getModelsPath();
   const dir = dirname(path);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
-  renameSync(tmp, path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writePrivateFileAtomicSync(path, `${JSON.stringify(data, null, 2)}
+`);
 }
 
 export async function GET() {

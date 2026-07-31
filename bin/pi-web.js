@@ -38,6 +38,7 @@ try {
 
 const { port, hostname, openBrowser } = parseLaunchOptions();
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
@@ -45,9 +46,15 @@ if (!fs.existsSync(nextDir)) {
 }
 
 if (!loopbackHostnames.has(hostname)) {
-  console.warn(
-    `Warning: pi-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
-  );
+  if (passwordEnabled) {
+    console.warn(
+      `Warning: pi-web is listening on ${hostname} with Basic Auth over HTTP. Use HTTPS or a trusted VPN to protect the password in transit.`,
+    );
+  } else {
+    console.warn(
+      `Warning: pi-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
+    );
+  }
 }
 
 const nextArgs = ["start", "-p", port];
@@ -58,7 +65,11 @@ nextArgs.push("-H", hostname);
 const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env },
+  env: {
+    ...process.env,
+    // Helps request-security Host allow-list when binding non-loopback.
+    PI_WEB_HOSTNAME: process.env.PI_WEB_HOSTNAME || hostname,
+  },
 });
 
 let browserOpened = false;

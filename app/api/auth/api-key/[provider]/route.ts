@@ -1,6 +1,7 @@
-import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { createConfiguredModelRuntime } from "@/lib/model-runtime";
+import { removeStoredCredentialIfType } from "@/lib/provider-credential-store";
 import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +55,13 @@ export async function POST(req: Request, { params }: Params) {
 export async function DELETE(_req: Request, { params }: Params) {
   const { provider } = await params;
   try {
-    const modelRuntime = await createConfiguredModelRuntime();
-    await modelRuntime.logout(provider);
+    const removal = await removeStoredCredentialIfType(provider, "api_key");
+    if (removal.status === "type_mismatch") {
+      return NextResponse.json(
+        { error: `${provider} is authenticated with OAuth, not an API key` },
+        { status: 409 },
+      );
+    }
     invalidateModelsCache();
     invalidateUtilityModelRuntimes();
     return NextResponse.json({ success: true });
