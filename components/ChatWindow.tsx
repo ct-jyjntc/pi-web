@@ -215,30 +215,105 @@ type RenderPlanItem =
     hasAnswer: boolean;
   };
 
+/** Nearest vertically scrollable ancestor (chat transcript scroller). */
+function findVerticalScrollParent(start: HTMLElement | null): HTMLElement | null {
+  let el = start?.parentElement ?? null;
+  while (el) {
+    const style = window.getComputedStyle(el);
+    const oy = style.overflowY;
+    if (
+      (oy === "auto" || oy === "scroll" || oy === "overlay")
+      && el.scrollHeight > el.clientHeight + 1
+    ) {
+      return el;
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
 /**
  * Turn-level process rail (Hermes-style). Settled turns start collapsed with a
  * "Thought for Ns" label; expanding reveals thinking / tools / interim prose.
- * Live turns stay flat upstream, so this mounts only after the answer settles.
+ *
+ * Expand/collapse keeps the toggle button fixed in the viewport and grows or
+ * shrinks content *below* it. Without this, stick-to-bottom re-locks the
+ * transcript to the bottom on height change and the button flies upward —
+ * forcing the user to scroll up just to collapse again.
  */
 function ProcessDetailsGroup({
   durationSeconds,
   toolCallCount,
   children,
+  onEscapeStickToBottom,
 }: {
   durationSeconds?: number;
   toolCallCount: number;
   children: ReactNode;
+  /** Detach stick-to-bottom lock before height changes (required when user is at bottom). */
+  onEscapeStickToBottom?: () => void;
 }) {
   const { t } = useLocale();
   // null = no explicit user toggle yet → default collapsed when settled.
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? false;
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  /** Viewport Y of the toggle captured just before open flips — used to pin it. */
+  const pinTopRef = useRef<number | null>(null);
 
   let label = t("window.thought");
   if (durationSeconds != null && Number.isFinite(durationSeconds)) {
     if (durationSeconds < 1) label = t("window.thoughtBriefly");
     else label = t("window.thoughtFor", { duration: formatThoughtDuration(durationSeconds) });
   }
+
+  const toggle = useCallback(() => {
+    // Escape stick-to-bottom FIRST. Its ResizeObserver scrolls to bottom on
+    // positive height change while isAtBottom — that is exactly the "expands
+    // upward" bug at the page bottom. stopScroll sets isAtBottom=false
+    // synchronously so the resize handler's scrollToBottom bails out.
+    onEscapeStickToBottom?.();
+    const btn = buttonRef.current;
+    if (btn) pinTopRef.current = btn.getBoundingClientRect().top;
+    setUserOpen((prev) => !(prev ?? false));
+  }, [onEscapeStickToBottom]);
+
+  useLayoutEffect(() => {
+    const anchorTop = pinTopRef.current;
+    const btn = buttonRef.current;
+    if (anchorTop == null || !btn) return;
+    pinTopRef.current = null;
+
+    const pinButton = () => {
+      const node = buttonRef.current;
+      if (!node) return;
+      const delta = node.getBoundingClientRect().top - anchorTop;
+      if (Math.abs(delta) < 0.5) return;
+      const scroller = findVerticalScrollParent(node);
+      if (scroller) scroller.scrollTop += delta;
+    };
+
+    // First fix after React commits the expanded/collapsed DOM.
+    pinButton();
+    // ResizeObserver + rAF-based scrollToBottom can still race; re-pin a few
+    // frames so the toggle stays put even if something re-sticks late.
+    let raf2 = 0;
+    let raf3 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      pinButton();
+      raf2 = requestAnimationFrame(() => {
+        pinButton();
+        raf3 = requestAnimationFrame(pinButton);
+      });
+    });
+    const t = window.setTimeout(pinButton, 32);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      cancelAnimationFrame(raf3);
+      window.clearTimeout(t);
+    };
+  }, [open]);
 
   return (
     <div
@@ -252,9 +327,10 @@ function ProcessDetailsGroup({
       }}
     >
       <button
+        ref={buttonRef}
         type="button"
         aria-expanded={open}
-        onClick={() => setUserOpen(!open)}
+        onClick={toggle}
         title={open ? t("window.collapseProcess") : t("window.expandProcess")}
         style={{
           display: "flex",
@@ -283,6 +359,7 @@ function ProcessDetailsGroup({
           style={{
             flexShrink: 0,
             opacity: 0.55,
+            // Collapsed: ▶  Expanded: ▼  (content always mounts below the button)
             transform: open ? "rotate(90deg)" : "none",
             transition: "transform 0.15s ease",
           }}
@@ -902,6 +979,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         <ProcessDetailsGroup
           durationSeconds={durationSeconds}
           toolCallCount={getTurnToolCallCount(messages, item.processIndices, finalAssistant, finalSplit.processBlocks)}
+          onEscapeStickToBottom={stopScroll}
         >
           {item.processIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process", variant: "process" }))}
           {finalSplit.processMessage && renderMessage(item.finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalSplit.processMessage, showTimestamp: false, variant: "process" })}
@@ -961,6 +1039,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     streamState.isStreaming,
     visibleCount,
     messageRefs,
+    stopScroll,
   ]);
 
   const onDrop = useCallback((files: File[]) => {
