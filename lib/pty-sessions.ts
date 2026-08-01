@@ -59,11 +59,8 @@ interface PtySession {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __piPtySessions: Map<string, PtySession> | undefined;
-  // eslint-disable-next-line no-var
   var __piPtyModule: typeof import("node-pty") | null | undefined;
-  // eslint-disable-next-line no-var
   var __piPtyRegistryListeners: Set<RegistryListener> | undefined;
 }
 
@@ -86,7 +83,6 @@ function registryListeners(): Set<RegistryListener> {
 function ensureSpawnHelperExecutable(): void {
   if (process.platform === "win32") return;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const resolved = require.resolve("node-pty/package.json");
     const root = path.dirname(resolved);
     const candidates = [
@@ -232,7 +228,7 @@ function touch(session: PtySession): void {
   session.lastActiveAt = Date.now();
   if (session.idleTimer) clearTimeout(session.idleTimer);
   session.idleTimer = setTimeout(() => {
-    destroyPtySession(session.id, "idle timeout");
+    destroyPtySession(session.id);
   }, IDLE_MS);
   session.idleTimer.unref?.();
 }
@@ -263,7 +259,7 @@ function pruneIfNeeded(): void {
   const ordered = [...map.values()].sort((a, b) => a.lastActiveAt - b.lastActiveAt);
   while (map.size >= MAX_SESSIONS && ordered.length) {
     const oldest = ordered.shift();
-    if (oldest) destroyPtySession(oldest.id, "session limit");
+    if (oldest) destroyPtySession(oldest.id);
   }
 }
 
@@ -604,7 +600,7 @@ function killPtyProcessTree(session: PtySession): void {
   }
 }
 
-export function destroyPtySession(id: string, _reason?: string): void {
+export function destroyPtySession(id: string): void {
   const session = sessions().get(id);
   if (!session) return;
   sessions().delete(id);

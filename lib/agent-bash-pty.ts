@@ -82,7 +82,7 @@ function createAgentPtyBashOperations(options?: {
 
       const onAbort = () => {
         // User/agent abort still kills the process.
-        try { destroyPtySession(info.id, "aborted"); } catch { /* ignore */ }
+        try { destroyPtySession(info.id); } catch { /* ignore */ }
         if (settled) return;
         settled = true;
         if (timers.startup) clearTimeout(timers.startup);

@@ -115,15 +115,6 @@ async function fetchGitStatus(cwd: string): Promise<GitStatusResponse> {
   return res.json() as Promise<GitStatusResponse>;
 }
 
-const GIT_STATUS_LABELS: Record<GitFileStatusKind, string> = {
-  modified: "Modified",
-  added: "Added",
-  deleted: "Deleted",
-  renamed: "Renamed",
-  untracked: "Untracked",
-  conflict: "Conflict",
-};
-
 const GIT_STATUS_COLORS: Record<GitFileStatusKind, string> = {
   modified: "var(--text-muted)",
   added: "var(--success)",
@@ -546,7 +537,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     } finally {
       setUploadPhase("idle");
     }
-  }, [applyUploadResult, cwd]);
+  }, [applyUploadResult, cwd, t]);
 
   const prepareUpload = useCallback(async (files: File[]) => {
     if (files.length === 0 || uploadBusy) return;

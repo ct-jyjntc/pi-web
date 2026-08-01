@@ -206,7 +206,6 @@ type LiveSession = {
 };
 
 declare global {
-  // eslint-disable-next-line no-var
   var __piDebugSessions: Map<string, LiveSession> | undefined;
 }
 
@@ -416,5 +415,4 @@ export function debugLogs(id: string): string {
   if (!s) throw new Error("Debug session not found");
   return s.logs.join("");
 }
-
 

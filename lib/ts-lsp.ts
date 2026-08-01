@@ -3,7 +3,7 @@
  * Not a full LSP server — works for TS/JS projects with a local tsconfig.
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
-import { dirname, extname, join, relative, resolve } from "path";
+import { dirname, join, relative, resolve } from "path";
 import ts from "typescript";
 
 export type LspLocation = {

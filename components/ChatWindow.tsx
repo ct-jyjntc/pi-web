@@ -1,16 +1,17 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
+import Image from "next/image";
 import { Fragment, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, formatThoughtDuration, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMemoryContextMessage, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { ArrowDown, ChevronRight } from "lucide-react";
 import { MessageView } from "./MessageView";
-import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import { ChatInput } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { Icon } from "./Icon";
-import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentPhase, type NoticeItem, type UseAgentSessionOptions } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -30,19 +31,21 @@ import { deriveTodoWidgetLines } from "@/lib/todo-from-transcript";
 import { setCompactHandlers } from "@/lib/compact-action-store";
 import { useWebSettings } from "@/lib/web-settings-store";
 
-interface Props {
-  session: SessionInfo | null;
-  newSessionCwd: string | null;
-  onAgentEnd?: () => void;
-  onSessionCreated?: (session: SessionInfo) => void;
-  onSessionForked?: (newSessionId: string) => void;
-  modelsRefreshKey?: number;
-  chatInputRef?: React.RefObject<ChatInputHandle | null>;
-  onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
-  onSystemPromptChange?: (prompt: string | null) => void;
-  onSessionStatsPanelOpen?: () => void;
+type Props = Pick<
+  UseAgentSessionOptions,
+  | "session"
+  | "newSessionCwd"
+  | "onAgentEnd"
+  | "onSessionCreated"
+  | "onSessionForked"
+  | "modelsRefreshKey"
+  | "chatInputRef"
+  | "onBranchDataChange"
+  | "onSystemPromptChange"
+  | "onSessionStatsPanelOpen"
+> & {
   onOpenFile?: (filePath: string) => void;
-}
+};
 
 function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Record<string, string | number>) => string, locale: string): string {
   if (phase?.kind === "running_tools") {
@@ -1304,7 +1307,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1, lineHeight: 1, overflow: "hidden" }}>
-                <img src="/icon.png" alt="" width={22} height={22} style={{ display: "block", borderRadius: "var(--radius-xs)", flexShrink: 0 }} />
+                <Image src="/icon.png" alt="" width={22} height={22} style={{ display: "block", borderRadius: "var(--radius-xs)", flexShrink: 0 }} />
                 <span style={{ fontSize: 18, color: "var(--text)", fontWeight: 600, letterSpacing: "-0.01em", flexShrink: 0, whiteSpace: "nowrap", lineHeight: 1 }}>Pi Web</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", gap: 2, flexShrink: 0, lineHeight: 1.2 }}>

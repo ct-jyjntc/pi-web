@@ -4,17 +4,11 @@
  * re-render the whole shell (sidebar, git panel, file viewer, etc.).
  */
 import { useSyncExternalStore } from "react";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
 import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
 
-export type ContextUsageInfo = {
-  percent: number | null;
-  contextWindow: number;
-  tokens: number | null;
-};
-
 type MetricsSnapshot = {
-  contextUsage: ContextUsageInfo | null;
+  contextUsage: ContextUsage | null;
   sessionStats: SessionStatsInfo | null;
   extensionStatuses: ExtensionStatusItem[];
   /** Todo + subagent chrome widgets for the app top bar. */
@@ -47,8 +41,8 @@ function getSnapshot(): MetricsSnapshot {
 }
 
 function sameContextUsage(
-  a: ContextUsageInfo | null,
-  b: ContextUsageInfo | null,
+  a: ContextUsage | null,
+  b: ContextUsage | null,
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -71,7 +65,7 @@ function sameExtensionStatuses(
   return true;
 }
 
-export function setContextUsageMetric(usage: ContextUsageInfo | null): void {
+export function setContextUsageMetric(usage: ContextUsage | null): void {
   if (sameContextUsage(snapshot.contextUsage, usage)) return;
   snapshot = { ...snapshot, contextUsage: usage };
   emit();
@@ -130,7 +124,7 @@ export function useSessionMetrics(): MetricsSnapshot {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-export function useContextUsageMetric(): ContextUsageInfo | null {
+export function useContextUsageMetric(): ContextUsage | null {
   return useSyncExternalStore(
     subscribe,
     () => getSnapshot().contextUsage,

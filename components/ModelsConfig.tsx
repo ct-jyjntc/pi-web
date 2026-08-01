@@ -21,6 +21,7 @@ import { Icon } from "./Icon";
 import { Check as CheckIcon, Cpu, Eye, EyeOff, Plus, Search } from "lucide-react";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
+import { normalizeModelCost, type ModelCost } from "@/lib/model-cost";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -149,24 +150,6 @@ interface ModelEntry {
   maxTokens?: number;
   cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
   compat?: Record<string, unknown>;
-}
-
-/** Cost must always include all four numbers — blank/missing → 0 (never omit keys). */
-type ModelCost = { input: number; output: number; cacheRead: number; cacheWrite: number };
-
-function parseCostNumber(value: string | number | undefined | null): number {
-  if (value === undefined || value === null || value === "") return 0;
-  const n = typeof value === "number" ? value : parseFloat(String(value));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function normalizeModelCost(cost?: ModelEntry["cost"] | null): ModelCost {
-  return {
-    input: parseCostNumber(cost?.input),
-    output: parseCostNumber(cost?.output),
-    cacheRead: parseCostNumber(cost?.cacheRead),
-    cacheWrite: parseCostNumber(cost?.cacheWrite),
-  };
 }
 
 function normalizeModelEntry(model: ModelEntry): ModelEntry {
@@ -896,7 +879,7 @@ function ModelDetail({
   };
   const setCost = (k: keyof ModelCost, v: string) => {
     // Empty / invalid → 0; always keep full cost object with all four keys.
-    const next = normalizeModelCost({ ...(model.cost ?? {}), [k]: v.trim() === "" ? 0 : parseCostNumber(v) });
+    const next = normalizeModelCost({ ...(model.cost ?? {}), [k]: v.trim() === "" ? 0 : v });
     onChange({ ...model, cost: next });
   };
   const testSummary = (() => {
@@ -1524,7 +1507,7 @@ function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuth
       es.close();
       setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: t("models.connectionLost") });
     };
-  }, [provider.id, onRefresh]);
+  }, [provider.id, onRefresh, t]);
 
   const handleLogout = useCallback(async () => {
     await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
@@ -1551,7 +1534,7 @@ function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuth
     } catch (e) {
       setLoginState({ phase: "error", message: e instanceof Error ? e.message : t("models.networkError") });
     }
-  }, [provider.id]);
+  }, [provider.id, t]);
 
   const submitSelection = useCallback(async (token: string, value: string) => {
     setLoginState({ phase: "progress", message: t("models.continuing") });
@@ -1568,7 +1551,7 @@ function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuth
     } catch (e) {
       setLoginState({ phase: "error", message: e instanceof Error ? e.message : t("models.networkError") });
     }
-  }, [provider.id]);
+  }, [provider.id, t]);
 
   const isWorking = loginState.phase === "connecting" || loginState.phase === "progress" ||
     loginState.phase === "auth" || loginState.phase === "device_code" ||

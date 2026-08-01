@@ -14,10 +14,9 @@ import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import { getAppUpdateInfo, setAppUpdateInfo, subscribeAppUpdate } from "@/lib/app-update-store";
 import {
-  applyWebSettings,
   fetchWebSettingsWithModels,
-  invalidateWebSettings,
-  type WebSettingsData,
+  saveWebSettings,
+  type WebSettingsModelOption,
 } from "@/lib/web-settings-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 import { Icon } from "./Icon";
@@ -49,14 +48,52 @@ type LspServerRow = {
   platform?: string;
 };
 
-type ModelOption = {
-  provider: string;
-  modelId: string;
-  name: string;
-};
-
 function modelValue(provider: string, modelId: string): string {
   return `${provider}/${modelId}`;
+}
+
+function ModelSelect({
+  value,
+  models,
+  loading,
+  disabled = false,
+  placeholder,
+  ariaLabel,
+  unavailableLabel,
+  onChange,
+}: {
+  value: string;
+  models: WebSettingsModelOption[];
+  loading: boolean;
+  disabled?: boolean;
+  placeholder: string;
+  ariaLabel: string;
+  unavailableLabel: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <select
+      className="input-base input-mono"
+      value={value}
+      disabled={loading || disabled}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ width: "100%", maxWidth: "100%" }}
+      aria-label={ariaLabel}
+    >
+      <option value="">{placeholder}</option>
+      {models.map((model) => {
+        const ref = modelValue(model.provider, model.modelId);
+        return (
+          <option key={ref} value={ref}>
+            {model.name} · {model.provider}
+          </option>
+        );
+      })}
+      {value && !models.some((model) => modelValue(model.provider, model.modelId) === value) && (
+        <option value={value}>{value} ({unavailableLabel})</option>
+      )}
+    </select>
+  );
 }
 
 function SegmentedOption({
@@ -152,7 +189,7 @@ export function SettingsPage({
       document.body.style.overflow = prevOverflow;
     };
   }, [visible]);
-  const [models, setModels] = useState<ModelOption[]>([]);
+  const [models, setModels] = useState<WebSettingsModelOption[]>([]);
   const [titleModelRef, setTitleModelRef] = useState("");
   const [commitModelRef, setCommitModelRef] = useState("");
   const [roleDefaultRef, setRoleDefaultRef] = useState("");
@@ -334,21 +371,11 @@ export function SettingsPage({
     if (key === "titleModel") setTitleModelRef(value);
     else setCommitModelRef(value);
     try {
-      const res = await fetch("/api/web-settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [key]: value || null }),
-      });
-      const data = await res.json() as { error?: string; settings?: WebSettingsData };
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-      // PUT echoes the whole settings object — refresh the shared cache instead
-      // of leaving other consumers on a stale copy for up to a refresh window.
-      if (data.settings) applyWebSettings(data.settings);
-      setTitleModelRef(data.settings?.titleModelRef ?? (key === "titleModel" ? value : titleModelRef));
-      setCommitModelRef(data.settings?.commitModelRef ?? (key === "commitModel" ? value : commitModelRef));
+      const settings = await saveWebSettings({ [key]: value || null });
+      setTitleModelRef(settings?.titleModelRef ?? (key === "titleModel" ? value : titleModelRef));
+      setCommitModelRef(settings?.commitModelRef ?? (key === "commitModel" ? value : commitModelRef));
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
-      invalidateWebSettings();
     } finally {
       setSavingKey(null);
     }
@@ -365,20 +392,12 @@ export function SettingsPage({
     else if (role === "smol") setRoleSmolRef(value);
     else setRolePlanRef(value);
     try {
-      const res = await fetch("/api/web-settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modelRole: role, modelRoleRef: value || null }),
-      });
-      const data = await res.json() as { error?: string; settings?: WebSettingsData };
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-      if (data.settings) applyWebSettings(data.settings);
-      setRoleDefaultRef(data.settings?.modelRolesRefs?.default ?? (role === "default" ? value : roleDefaultRef));
-      setRoleSmolRef(data.settings?.modelRolesRefs?.smol ?? (role === "smol" ? value : roleSmolRef));
-      setRolePlanRef(data.settings?.modelRolesRefs?.plan ?? (role === "plan" ? value : rolePlanRef));
+      const settings = await saveWebSettings({ modelRole: role, modelRoleRef: value || null });
+      setRoleDefaultRef(settings?.modelRolesRefs?.default ?? (role === "default" ? value : roleDefaultRef));
+      setRoleSmolRef(settings?.modelRolesRefs?.smol ?? (role === "smol" ? value : roleSmolRef));
+      setRolePlanRef(settings?.modelRolesRefs?.plan ?? (role === "plan" ? value : rolePlanRef));
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
-      invalidateWebSettings();
     } finally {
       setSavingKey(null);
     }
@@ -388,16 +407,7 @@ export function SettingsPage({
     setSaveError(null);
     setPrefs((prev) => ({ ...prev, ...patch } as typeof prev));
     try {
-      const res = await fetch("/api/web-settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      const data = await res.json() as { error?: string; settings?: WebSettingsData };
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-      // Push the saved values into the shared cache so thinking blocks, the
-      // terminal font, sound and appearance consumers see them immediately.
-      if (data.settings) applyWebSettings(data.settings);
+      await saveWebSettings(patch);
       if (opts?.restart) setRestartHint(true);
       if (typeof patch.soundEnabled === "boolean") {
         try { localStorage.setItem("pi-sound-enabled", String(patch.soundEnabled)); } catch { /* ignore */ }
@@ -424,8 +434,6 @@ export function SettingsPage({
       }
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
-      // The optimistic setPrefs above may not match disk — force a refetch.
-      invalidateWebSettings();
     }
   }, [appearance]);
 
@@ -499,69 +507,6 @@ export function SettingsPage({
       setUpdateChecking(false);
     }
   }, []);
-
-  const modelSelect = (
-    value: string,
-    key: "titleModel" | "commitModel",
-    defaultLabel: string,
-  ) => (
-    <select
-      className="input-base input-mono"
-      value={value}
-      disabled={loadingModels || savingKey === key}
-      onChange={(e) => void saveModelPref(key, e.target.value)}
-      style={{ width: "100%", maxWidth: "100%" }}
-      aria-label={key === "titleModel" ? t("settings.titleModel") : t("settings.commitModel")}
-    >
-      <option value="">{defaultLabel}</option>
-      {models.map((m) => {
-        const ref = modelValue(m.provider, m.modelId);
-        return (
-          <option key={ref} value={ref}>
-            {m.name} · {m.provider}
-          </option>
-        );
-      })}
-      {value && !models.some((m) => modelValue(m.provider, m.modelId) === value) && (
-        <option value={value}>{value} ({t("settings.modelUnavailable")})</option>
-      )}
-    </select>
-  );
-
-  const roleModelSelect = (
-    value: string,
-    role: "default" | "smol" | "plan",
-    defaultLabel: string,
-    ariaLabel: string,
-  ) => {
-    const saving =
-      (role === "default" && savingKey === "roleDefault")
-      || (role === "smol" && savingKey === "roleSmol")
-      || (role === "plan" && savingKey === "rolePlan");
-    return (
-      <select
-        className="input-base input-mono"
-        value={value}
-        disabled={loadingModels || saving}
-        onChange={(e) => void saveRoleModel(role, e.target.value)}
-        style={{ width: "100%", maxWidth: "100%" }}
-        aria-label={ariaLabel}
-      >
-        <option value="">{defaultLabel}</option>
-        {models.map((m) => {
-          const ref = modelValue(m.provider, m.modelId);
-          return (
-            <option key={ref} value={ref}>
-              {m.name} · {m.provider}
-            </option>
-          );
-        })}
-        {value && !models.some((m) => modelValue(m.provider, m.modelId) === value) && (
-          <option value={value}>{value} ({t("settings.modelUnavailable")})</option>
-        )}
-      </select>
-    );
-  };
 
   type NavItem = {
     id: SettingsSection;
@@ -691,36 +636,54 @@ export function SettingsPage({
         stacked
         title={t("settings.roleDefault")}
         description={t("settings.roleDefaultDesc")}
-        action={roleModelSelect(
-          roleDefaultRef,
-          "default",
-          loadingModels ? t("common.loading") : t("settings.roleDefaultFallback"),
-          t("settings.roleDefault"),
-        )}
+        action={
+          <ModelSelect
+            value={roleDefaultRef}
+            models={models}
+            loading={loadingModels}
+            disabled={savingKey === "roleDefault"}
+            placeholder={loadingModels ? t("common.loading") : t("settings.roleDefaultFallback")}
+            ariaLabel={t("settings.roleDefault")}
+            unavailableLabel={t("settings.modelUnavailable")}
+            onChange={(value) => void saveRoleModel("default", value)}
+          />
+        }
       />
 
       <SettingsRow
         stacked
         title={t("settings.roleSmol")}
         description={t("settings.roleSmolDesc")}
-        action={roleModelSelect(
-          roleSmolRef,
-          "smol",
-          loadingModels ? t("common.loading") : t("settings.roleSmolFallback"),
-          t("settings.roleSmol"),
-        )}
+        action={
+          <ModelSelect
+            value={roleSmolRef}
+            models={models}
+            loading={loadingModels}
+            disabled={savingKey === "roleSmol"}
+            placeholder={loadingModels ? t("common.loading") : t("settings.roleSmolFallback")}
+            ariaLabel={t("settings.roleSmol")}
+            unavailableLabel={t("settings.modelUnavailable")}
+            onChange={(value) => void saveRoleModel("smol", value)}
+          />
+        }
       />
 
       <SettingsRow
         stacked
         title={t("settings.rolePlan")}
         description={t("settings.rolePlanDesc")}
-        action={roleModelSelect(
-          rolePlanRef,
-          "plan",
-          loadingModels ? t("common.loading") : t("settings.rolePlanFallback"),
-          t("settings.rolePlan"),
-        )}
+        action={
+          <ModelSelect
+            value={rolePlanRef}
+            models={models}
+            loading={loadingModels}
+            disabled={savingKey === "rolePlan"}
+            placeholder={loadingModels ? t("common.loading") : t("settings.rolePlanFallback")}
+            ariaLabel={t("settings.rolePlan")}
+            unavailableLabel={t("settings.modelUnavailable")}
+            onChange={(value) => void saveRoleModel("plan", value)}
+          />
+        }
       />
 
       <div style={{ margin: "4px 0 14px" }}>
@@ -739,22 +702,36 @@ export function SettingsPage({
         stacked
         title={t("settings.titleModel")}
         description={t("settings.titleModelDesc")}
-        action={modelSelect(
-          titleModelRef,
-          "titleModel",
-          loadingModels ? t("common.loading") : t("settings.titleModelDefault"),
-        )}
+        action={
+          <ModelSelect
+            value={titleModelRef}
+            models={models}
+            loading={loadingModels}
+            disabled={savingKey === "titleModel"}
+            placeholder={loadingModels ? t("common.loading") : t("settings.titleModelDefault")}
+            ariaLabel={t("settings.titleModel")}
+            unavailableLabel={t("settings.modelUnavailable")}
+            onChange={(value) => void saveModelPref("titleModel", value)}
+          />
+        }
       />
 
       <SettingsRow
         stacked
         title={t("settings.commitModel")}
         description={t("settings.commitModelDesc")}
-        action={modelSelect(
-          commitModelRef,
-          "commitModel",
-          loadingModels ? t("common.loading") : t("settings.commitModelDefault"),
-        )}
+        action={
+          <ModelSelect
+            value={commitModelRef}
+            models={models}
+            loading={loadingModels}
+            disabled={savingKey === "commitModel"}
+            placeholder={loadingModels ? t("common.loading") : t("settings.commitModelDefault")}
+            ariaLabel={t("settings.commitModel")}
+            unavailableLabel={t("settings.modelUnavailable")}
+            onChange={(value) => void saveModelPref("commitModel", value)}
+          />
+        }
       />
 
       {saveErrorBlock}
@@ -1342,28 +1319,19 @@ export function SettingsPage({
         title={t("settings.advisorModel")}
         description={t("settings.advisorModelDesc")}
         action={
-          <select
-            className="input-base input-mono"
+          <ModelSelect
             value={advisorModelRef}
-            disabled={loadingModels || !prefs.advisorEnabled}
-            onChange={(e) => {
-              const value = e.target.value;
+            models={models}
+            loading={loadingModels}
+            disabled={!prefs.advisorEnabled}
+            placeholder={loadingModels ? t("common.loading") : t("settings.advisorModelDefault")}
+            ariaLabel={t("settings.advisorModel")}
+            unavailableLabel={t("settings.modelUnavailable")}
+            onChange={(value) => {
               setAdvisorModelRef(value);
               void patchPref({ advisorModel: value || null });
             }}
-            style={{ width: "100%" }}
-          >
-            <option value="">{loadingModels ? t("common.loading") : t("settings.advisorModelDefault")}</option>
-            {models.map((m) => {
-              const ref = modelValue(m.provider, m.modelId);
-              return (
-                <option key={ref} value={ref}>{m.name} · {m.provider}</option>
-              );
-            })}
-            {advisorModelRef && !models.some((m) => modelValue(m.provider, m.modelId) === advisorModelRef) && (
-              <option value={advisorModelRef}>{advisorModelRef} ({t("settings.modelUnavailable")})</option>
-            )}
-          </select>
+          />
         }
       />
 

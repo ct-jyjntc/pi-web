@@ -34,6 +34,6 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  destroyPtySession(id, "client close");
+  destroyPtySession(id);
   return NextResponse.json({ ok: true });
 }

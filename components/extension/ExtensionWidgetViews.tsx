@@ -8,7 +8,6 @@ import {
   type ParsedTodoWidget,
   type ParsedAgentsWidget,
   type ParsedGenericWidget,
-  type TodoItem,
 } from "@/lib/extension-widgets";
 import { TodoItemRow } from "./TodoAtoms";
 

@@ -30,7 +30,7 @@ import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
-import type { ChatInputHandle } from "./ChatInput";
+import type { ChatInputHandle } from "@/lib/chat-input-types";
 import { ContextTabBadge } from "./ContextTabBadge";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
@@ -301,7 +301,6 @@ export function AppShell() {
   // Only mount a session once selected (correct xterm size); keep mounted after for keep-alive.
   const [mountedTerminalIds, setMountedTerminalIds] = useState<string[]>([]);
   const knownAgentPtyIdsRef = useRef(new Set<string>());
-  const [gitFocusPath, setGitFocusPath] = useState<string | null>(null);
 
   const renumberTerminalLabels = useCallback((tabs: TerminalSessionTab[]): TerminalSessionTab[] => {
     let userIndex = 0;
@@ -1460,7 +1459,6 @@ export function AppShell() {
               <GitPanel
                 cwd={activeCwd}
                 refreshKey={explorerRefreshKey}
-                focusPath={gitFocusPath}
                 onReviewSessionStarted={(session) => {
                   setNewSessionCwd(null);
                   setSelectedSession({

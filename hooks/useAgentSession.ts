@@ -7,6 +7,7 @@ import type {
   ExtensionStatusItem,
   ExtensionUiRequest,
   ExtensionWidgetItem,
+  SessionContext,
   SessionInfo,
   SessionTreeNode,
 } from "@/lib/types";
@@ -15,21 +16,17 @@ import { sendAgentCommand } from "@/lib/agent-client";
 import { useLocale } from "@/hooks/useLocale";
 import { getFullToolNames } from "@/lib/tool-presets";
 import { ensureWebSettings } from "@/lib/web-settings-store";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
+import type { AttachedImage, ChatInputHandle } from "@/lib/chat-input-types";
 
 export interface SessionData {
   sessionId: string;
   filePath: string;
   tree: SessionTreeNode[];
   leafId: string | null;
-  context: {
-    messages: AgentMessage[];
-    entryIds: string[];
-    thinkingLevel: string;
-    model: { provider: string; modelId: string } | null;
-  };
+  context: SessionContext;
   /** File-based estimate for cold open (no live AgentSession yet). */
-  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+  contextUsage?: ContextUsage | null;
 }
 
 interface StreamingState {
@@ -65,7 +62,7 @@ interface AgentEvent {
 interface CompactCommandResult {
   tokensBefore?: number;
   estimatedTokensAfter?: number;
-  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+  contextUsage?: ContextUsage | null;
 }
 
 interface LastAssistantTextResponse {
@@ -73,7 +70,7 @@ interface LastAssistantTextResponse {
 }
 
 type AgentStateResponse = {
-  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+  contextUsage?: ContextUsage | null;
   systemPrompt?: string;
   thinkingLevel?: string;
   isStreaming?: boolean;
@@ -106,11 +103,7 @@ function queuedMessagesEqual(a: QueuedMessages, b: QueuedMessages): boolean {
   return sameStringList(a.steering, b.steering) && sameStringList(a.followUp, b.followUp);
 }
 
-type LiveContextUsage = {
-  percent: number | null;
-  contextWindow: number;
-  tokens: number | null;
-} | null;
+type LiveContextUsage = ContextUsage | null;
 
 /** Apply optional live-agent state fields without overwriting unset properties. */
 function applyLiveAgentStateFields(
@@ -346,7 +339,7 @@ function readCompactResult(result: unknown, reason: string): CompactResultInfo |
 function readCompactContextUsage(
   result: unknown,
   fallbackWindow?: number | null,
-): { percent: number | null; contextWindow: number; tokens: number | null } | null {
+): ContextUsage | null {
   if (!result || typeof result !== "object") return null;
   const r = result as CompactCommandResult;
   if (r.contextUsage && typeof r.contextUsage.contextWindow === "number" && r.contextUsage.contextWindow > 0) {
@@ -364,19 +357,6 @@ function readCompactContextUsage(
     contextWindow,
     percent: (r.estimatedTokensAfter / contextWindow) * 100,
   };
-}
-
-export interface ChatInputHandle {
-  insertText: (text: string) => void;
-  insertIfEmpty: (content: string) => void;
-  prependText: (text: string) => void;
-  addImages: (files: File[]) => void;
-}
-
-export interface AttachedImage {
-  data: string;
-  mimeType: string;
-  previewUrl: string;
 }
 
 type SelectedModel = { provider: string; modelId: string };
@@ -464,7 +444,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
   }, [isNew]);
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
-  const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
@@ -647,7 +627,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as {
         context: { messages: AgentMessage[]; entryIds: string[] };
-        contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+        contextUsage?: ContextUsage | null;
       };
       // Drop stale responses from rapid branch switching.
       if (requestId !== contextRequestIdRef.current) return;
@@ -1317,7 +1297,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, clearPendingStreamUpdate, closeEvents, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, waitForPromptSettlement]);
+  }, [addNotice, clearPendingStreamUpdate, closeEvents, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, waitForPromptSettlement, t]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1435,7 +1415,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, stickScrollToBottom, opts.chatInputRef]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, stickScrollToBottom, opts.chatInputRef, t]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1710,7 +1690,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
+  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen, t]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -1798,7 +1778,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       console.error("Failed to recall queued messages:", e);
       addNotice({ type: "error", message: t("agent.recallQueueFailed") });
     }
-  }, [opts.chatInputRef, addNotice]);
+  }, [opts.chatInputRef, addNotice, t]);
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     setThinkingLevel(level);

@@ -4,7 +4,7 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { readFileSync } from "fs";
-import { dirname, extname, resolve } from "path";
+import { extname, resolve } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { getAvailableLspSpecs, whichCommand } from "./lsp-health";
 

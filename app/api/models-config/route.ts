@@ -4,6 +4,7 @@ import { join, dirname } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { normalizeModelCost } from "@/lib/model-cost";
 import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
 export const dynamic = "force-dynamic";
@@ -46,12 +47,6 @@ export async function GET() {
   return NextResponse.json(result.data);
 }
 
-function parseCostNumber(value: unknown): number {
-  if (value === undefined || value === null || value === "") return 0;
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
 /** Ensure every model.cost has input/output/cacheRead/cacheWrite as numbers (default 0). */
 function normalizeProvidersCost(data: Record<string, unknown>): Record<string, unknown> {
   const providers = data.providers;
@@ -71,12 +66,7 @@ function normalizeProvidersCost(data: Record<string, unknown>): Record<string, u
         const cost = (model.cost && typeof model.cost === "object" && !Array.isArray(model.cost))
           ? (model.cost as Record<string, unknown>)
           : {};
-        model.cost = {
-          input: parseCostNumber(cost.input),
-          output: parseCostNumber(cost.output),
-          cacheRead: parseCostNumber(cost.cacheRead),
-          cacheWrite: parseCostNumber(cost.cacheWrite),
-        };
+        model.cost = normalizeModelCost(cost);
         return model;
       });
     }

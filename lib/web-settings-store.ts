@@ -122,14 +122,30 @@ export function applyWebSettings(next: WebSettingsData): void {
   commit(next, true);
 }
 
-/**
- * Merge a locally-known change (optimistic write) without claiming freshness,
- * so the next read still revalidates on schedule. No-op before the first load:
- * the pending read carries the authoritative payload.
- */
-export function patchWebSettings(partial: WebSettingsData): void {
-  if (settings === null) return;
-  commit({ ...settings, ...partial }, false);
+/** Write a settings patch, optionally update the cache immediately, and adopt the server response. */
+export async function saveWebSettings(
+  patch: Record<string, unknown>,
+  options?: { optimistic?: WebSettingsData },
+): Promise<WebSettingsData | null> {
+  if (options?.optimistic && settings !== null) {
+    commit({ ...settings, ...options.optimistic }, false);
+  }
+  try {
+    const res = await fetch("/api/web-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json() as { error?: string; settings?: WebSettingsData };
+    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+    if (data.settings) applyWebSettings(data.settings);
+    return data.settings ?? null;
+  } catch (error) {
+    // The write may have reached disk before the response failed; re-read the
+    // server value so optimistic consumers converge instead of staying stale.
+    invalidateWebSettings();
+    throw error;
+  }
 }
 
 /**

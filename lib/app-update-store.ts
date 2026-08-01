@@ -16,7 +16,6 @@ type Listener = () => void;
 
 let updateInfo: AppUpdateInfo | null = null;
 let checking = false;
-let lastError: string | null = null;
 let autoCheckStarted = false;
 const listeners = new Set<Listener>();
 
@@ -65,7 +64,6 @@ export function subscribeAppUpdate(listener: Listener): () => void {
 /** Apply a known result (e.g. from Settings manual check). */
 export function setAppUpdateInfo(info: AppUpdateInfo | null): void {
   updateInfo = info;
-  lastError = null;
   writeCache(info);
   emit();
 }
@@ -85,7 +83,6 @@ export async function checkAppUpdate(options?: { force?: boolean }): Promise<App
   }
 
   checking = true;
-  lastError = null;
   emit();
   try {
     const res = await fetch("/api/app-update", { method: "POST" });
@@ -114,8 +111,7 @@ export async function checkAppUpdate(options?: { force?: boolean }): Promise<App
     updateInfo = null;
     writeCache(null);
     return null;
-  } catch (e) {
-    lastError = e instanceof Error ? e.message : String(e);
+  } catch {
     return updateInfo;
   } finally {
     checking = false;

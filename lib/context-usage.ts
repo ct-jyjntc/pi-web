@@ -2,12 +2,9 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { createAgentSessionServices, estimateTokens, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
+import type { ContextUsage } from "@/lib/pi-types";
 
-export type ContextUsageSnapshot = {
-  percent: number | null;
-  contextWindow: number;
-  tokens: number | null;
-};
+export type ContextUsageSnapshot = ContextUsage;
 
 function asPositiveInt(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;

@@ -37,6 +37,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useContextUsageMetric } from "@/lib/session-metrics-store";
+import type { AttachedImage, ChatInputHandle } from "@/lib/chat-input-types";
 
 /** Circular context-usage meter for the compact control. */
 function ContextUsageRing({ percent, size = 12 }: { percent: number | null; size?: number }) {
@@ -74,12 +75,6 @@ function ContextUsageRing({ percent, size = 12 }: { percent: number | null; size
       />
     </svg>
   );
-}
-
-export interface AttachedImage {
-  data: string;   // base64, no prefix
-  mimeType: string;
-  previewUrl: string; // object URL for display
 }
 
 interface ModelOption {
@@ -129,13 +124,6 @@ interface Props {
   /** Host measures the toolbar strip for the composer underlay — handed over by
    *  ref so the host's ResizeObserver never has to querySelector on each tick. */
   toolbarRef?: React.RefObject<HTMLDivElement | null>;
-}
-
-export interface ChatInputHandle {
-  insertText: (text: string) => void;
-  insertIfEmpty: (text: string) => void;
-  prependText: (text: string) => void;
-  addImages: (files: File[]) => void;
 }
 
 const PERMISSION_MODES = ["ask", "full"] as const;

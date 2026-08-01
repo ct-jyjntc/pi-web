@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { invalidateWebSettings, patchWebSettings, useWebSettings } from "@/lib/web-settings-store";
+import { saveWebSettings, useWebSettings } from "@/lib/web-settings-store";
 
 function playTone(ctx: AudioContext) {
   const now = ctx.currentTime;
@@ -69,16 +69,10 @@ export function useAudio() {
     enabledRef.current = next;
     localStorage.setItem("pi-sound-enabled", String(next));
     setEnabled(next);
-    // Keep the shared cache in sync so other consumers do not read a stale value.
-    patchWebSettings({ soundEnabled: next });
-    void fetch("/api/web-settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ soundEnabled: next }),
-    }).catch(() => {
-      // Write may have failed — force the next read to hit the server.
-      invalidateWebSettings();
-    });
+    void saveWebSettings(
+      { soundEnabled: next },
+      { optimistic: { soundEnabled: next } },
+    ).catch(() => {});
   }, [unlockAudio]);
 
   const setSoundEnabled = useCallback((next: boolean) => {

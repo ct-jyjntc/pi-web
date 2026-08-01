@@ -13,8 +13,6 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
  *    models.json without failing the SDK schema)
  */
 
-type DisabledModelRef = `${string}/${string}`;
-
 function modelsJsonPath(override?: string): string {
   return override ?? join(getAgentDir(), "models.json");
 }

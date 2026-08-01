@@ -33,8 +33,6 @@ interface Props {
     cwd: string;
     name?: string;
   }) => void;
-  /** Focus/expand this path when provided (e.g. opened from file tree). */
-  focusPath?: string | null;
 }
 
 const STATUS_COLORS: Record<GitFileStatusKind, string> = {
@@ -84,7 +82,6 @@ export function GitPanel({
   refreshKey = 0,
   onStatusChange,
   onReviewSessionStarted,
-  focusPath = null,
 }: Props) {
   const { t } = useLocale();
   const [status, setStatus] = useState<GitStatusResponse | null>(null);
@@ -235,12 +232,6 @@ export function GitPanel({
     setDiffsInitialized(false);
     setOpenDiffs(new Set());
   }, [cwd]);
-
-  // Focus path from file tree → expand that row
-  useEffect(() => {
-    if (!focusPath) return;
-    setOpenDiffs((prev) => new Set(prev).add(focusPath));
-  }, [focusPath]);
 
   useEffect(() => {
     if (!branchOpen && !commitOpen) return;

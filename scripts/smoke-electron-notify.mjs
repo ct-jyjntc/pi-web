@@ -5,7 +5,6 @@
  * Or:  electron scripts/smoke-electron-notify.mjs  (when used as electron entry)
  */
 import { createRequire } from "module";
-import { pathToFileURL } from "url";
 import { spawn } from "child_process";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";

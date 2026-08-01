@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 import { isRecord } from "@/lib/type-guards";
 import { assistantText } from "@/lib/message-text";
