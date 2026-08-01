@@ -71,6 +71,8 @@ interface ExtensionRunnerLike {
     sourceInfo: SlashCommandInfo["sourceInfo"];
   }>;
   setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  emit?(event: any): any;
 }
 
 type DialogOptionsLike = {
@@ -168,4 +170,6 @@ export interface AgentSessionLike {
   setActiveToolsByName(names: string[]): void;
   abortCompaction(): void;
   getContextUsage(): ContextUsage | undefined;
+  /** Release SDK resources; optional on older session shapes. */
+  dispose?(): void;
 }

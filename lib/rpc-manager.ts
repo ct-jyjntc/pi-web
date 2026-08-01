@@ -165,6 +165,7 @@ export class AgentSessionWrapper {
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
+  private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
 
   constructor(
@@ -189,11 +190,20 @@ export class AgentSessionWrapper {
   }
 
   start(): void {
+    // Only a subset of events should touch the idle timer. Streaming token
+    // updates are frequent; resetting the 10-minute idle window on every one
+    // was pure overhead (upstream 5179734).
+    const IDLE_RESET_EVENT_TYPES = new Set([
+      "agent_end",
+      "agent_settled",
+      "auto_compaction_end",
+      "compaction_end",
+    ]);
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
-      this.resetIdleTimer();
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
+      if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
     });
     this.resetIdleTimer();
@@ -347,7 +357,9 @@ export class AgentSessionWrapper {
         this.resetIdleTimer();
         return;
       }
-      this.destroy();
+      void this.shutdown().catch((error) => {
+        console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
+      });
     }, 10 * 60 * 1000);
   }
 
@@ -451,10 +463,12 @@ export class AgentSessionWrapper {
           source: "rpc",
         }).then(() => {
           this.promptRunning = false;
+          this.resetIdleTimer();
           if (!this._alive) return;
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
         }).catch((error) => {
           this.promptRunning = false;
+          this.resetIdleTimer();
           if (!this._alive) return;
           invalidateSessionListCache();
           this.emit({
@@ -548,7 +562,7 @@ export class AgentSessionWrapper {
         const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
         cacheSessionPath(newSessionId, newSessionFile);
         invalidateSessionListCache();
-        this.destroy();
+        await this.shutdown();
         return { cancelled: false, newSessionId };
       }
 
@@ -717,6 +731,7 @@ export class AgentSessionWrapper {
           this.persistBashOnlySession();
           return result;
         } finally {
+          this.resetIdleTimer();
           invalidateSessionListCache();
         }
       }
@@ -763,7 +778,51 @@ export class AgentSessionWrapper {
     this.widgetFactories.clear();
     this.extensionWidgets.clear();
     this.extensionStatuses.clear();
-    this.onDestroyCallback?.();
+    try {
+      // Release SDK resources (model runtime handles, etc.).
+      this.inner.dispose?.();
+    } catch {
+      // ignore dispose errors during teardown
+    } finally {
+      try {
+        this.onDestroyCallback?.();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  /**
+   * Graceful shutdown: wait for extension bind, emit session_shutdown, then destroy.
+   * Prefer this over destroy() for idle timeout / fork / trust teardown.
+   */
+  async shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    if (!this._alive) return;
+
+    this.shutdownPromise = (async () => {
+      try {
+        try {
+          await this.waitForExtensionsBound();
+        } catch (error) {
+          console.error(
+            "[pi-web] extension binding failed before session shutdown:",
+            error instanceof Error ? error.message : error,
+          );
+        }
+        try {
+          await this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" });
+        } catch (error) {
+          console.error(
+            "[pi-web] session_shutdown extension event failed:",
+            error instanceof Error ? error.message : error,
+          );
+        }
+      } finally {
+        this.destroy();
+      }
+    })();
+    return this.shutdownPromise;
   }
 
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
@@ -1248,12 +1307,12 @@ export function hasBusyRpcSessionForCwd(cwd: string): boolean {
   );
 }
 
-export function destroyRpcSessionsForCwd(cwd: string): number {
+export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   const targetCwd = normalizeRpcCwd(cwd);
   const sessions = Array.from(getRegistry().values()).filter(
     (session) => normalizeRpcCwd(session.cwd) === targetCwd,
   );
-  for (const session of sessions) session.destroy();
+  await Promise.all(sessions.map((session) => session.shutdown()));
   return sessions.length;
 }
 

@@ -202,6 +202,8 @@ export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" 
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 1_500;
 const PROMPT_SETTLE_MAX_MS = 20_000;
+/** Keep SSE open briefly after UI settlement so late extension events can arrive. */
+const EVENT_STREAM_IDLE_GRACE_MS = 30_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
@@ -479,6 +481,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const streamAcceptRunIdRef = useRef(0);
   const sseReconnectAttemptRef = useRef(0);
   const sseReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Idle-grace window after UI settlement — keep SSE for late extension events. */
+  const eventStreamGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventStreamGraceGenerationRef = useRef(0);
+  const eventStreamGraceActiveRef = useRef(false);
   const contextRequestIdRef = useRef(0);
   const mountedRef = useRef(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
@@ -722,17 +728,103 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [ensureNewSession]);
 
+  const cancelEventStreamGrace = useCallback(() => {
+    eventStreamGraceGenerationRef.current += 1;
+    eventStreamGraceActiveRef.current = false;
+    if (eventStreamGraceTimerRef.current) {
+      clearTimeout(eventStreamGraceTimerRef.current);
+      eventStreamGraceTimerRef.current = null;
+    }
+  }, []);
+
   const closeEvents = useCallback(() => {
+    cancelEventStreamGrace();
     if (sseReconnectTimerRef.current) {
       clearTimeout(sseReconnectTimerRef.current);
       sseReconnectTimerRef.current = null;
     }
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
-  }, []);
+  }, [cancelEventStreamGrace]);
+
+  const scheduleEventStreamClose = useCallback((sid: string) => {
+    cancelEventStreamGrace();
+    eventStreamGraceActiveRef.current = true;
+    const generation = eventStreamGraceGenerationRef.current;
+
+    const finalizeClose = () => {
+      if (
+        generation !== eventStreamGraceGenerationRef.current
+        || sessionIdRef.current !== sid
+        || !eventStreamGraceActiveRef.current
+      ) return;
+      eventStreamGraceActiveRef.current = false;
+      eventStreamGraceTimerRef.current = null;
+      // Soft close: do not cancel grace again (already done).
+      if (sseReconnectTimerRef.current) {
+        clearTimeout(sseReconnectTimerRef.current);
+        sseReconnectTimerRef.current = null;
+      }
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+    };
+
+    const checkServerIdle = async () => {
+      if (
+        generation !== eventStreamGraceGenerationRef.current
+        || sessionIdRef.current !== sid
+        || !eventStreamGraceActiveRef.current
+      ) return;
+
+      try {
+        const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
+        if (
+          generation !== eventStreamGraceGenerationRef.current
+          || sessionIdRef.current !== sid
+          || !eventStreamGraceActiveRef.current
+        ) return;
+
+        const state = data.state;
+        const promptActive = Boolean(data.running && state && (state.isStreaming || state.isPromptRunning));
+        if (promptActive) {
+          // Late work started (extension / queue) — revive UI running state.
+          eventStreamGraceActiveRef.current = false;
+          eventStreamGraceTimerRef.current = null;
+          agentRunningRef.current = true;
+          setAgentRunning(true);
+          setAgentPhase(state?.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+          return;
+        }
+
+        if (data.running && state?.isCompacting) {
+          setIsCompacting(true);
+          eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
+          return;
+        }
+      } catch {
+        // Network blip during grace — still close after the timer fires.
+      }
+
+      // Still idle after the grace window: drop the SSE.
+      eventStreamGraceTimerRef.current = setTimeout(finalizeClose, 0);
+    };
+
+    eventStreamGraceTimerRef.current = setTimeout(() => {
+      void checkServerIdle();
+    }, EVENT_STREAM_IDLE_GRACE_MS);
+  }, [cancelEventStreamGrace]);
 
   const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
-    closeEvents();
+    // New connection cancels any pending idle-grace close.
+    cancelEventStreamGrace();
+    if (sseReconnectTimerRef.current) {
+      clearTimeout(sseReconnectTimerRef.current);
+      sseReconnectTimerRef.current = null;
+    }
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
     const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
     eventSourceRef.current = es;
 
@@ -764,7 +856,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           // auto-reconnect. Settle the Promise and manually reconnect for
           // already-running sessions with exponential backoff.
           settle("closed");
-          if (eventSourceRef.current === es && agentRunningRef.current && mountedRef.current) {
+          // Reconnect while a prompt is running OR during the post-settle grace
+          // window so late extension events are not lost if the browser drops us.
+          if (
+            eventSourceRef.current === es
+            && mountedRef.current
+            && (agentRunningRef.current || eventStreamGraceActiveRef.current)
+          ) {
             eventSourceRef.current = null;
             const attempt = sseReconnectAttemptRef.current + 1;
             sseReconnectAttemptRef.current = attempt;
@@ -772,6 +870,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               // Give up: clear local running UI. Reconcile/loadSession can still
               // refresh messages when connectivity returns.
               agentRunningRef.current = false;
+              eventStreamGraceActiveRef.current = false;
               setAgentRunning(false);
               setAgentPhase(null);
               setRetryInfo(null);
@@ -782,9 +881,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               EVENT_STREAM_RECONNECT_BASE_MS * 2 ** (attempt - 1),
               EVENT_STREAM_RECONNECT_MAX_MS,
             );
+            const reconnectGeneration = eventStreamGraceGenerationRef.current;
             sseReconnectTimerRef.current = setTimeout(() => {
               sseReconnectTimerRef.current = null;
-              if (agentRunningRef.current && mountedRef.current && sessionIdRef.current === sid) {
+              if (
+                mountedRef.current
+                && sessionIdRef.current === sid
+                && !eventSourceRef.current
+                && reconnectGeneration === eventStreamGraceGenerationRef.current
+                && (agentRunningRef.current || eventStreamGraceActiveRef.current)
+              ) {
                 void connectEvents(sid);
               }
             }, delayMs);
@@ -795,7 +901,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // connection must be ready before they continue.
       };
     });
-  }, [closeEvents]);
+  }, [cancelEventStreamGrace]);
 
   const ensureEventsConnected = useCallback(async (sid: string) => {
     const result = await connectEvents(sid);
@@ -909,9 +1015,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
       const wasRunning = agentRunningRef.current;
       agentRunningRef.current = false;
-      // Drop the per-session SSE once the logical prompt is settled so idle
-      // multi-window tabs do not hold open EventSource connections.
-      closeEvents();
+      // Keep SSE open for a short grace window so late extension events
+      // (status widgets, follow-up agent_start) are not dropped. Hard-close
+      // only when there is no session id to grace-check against.
+      if (sid) scheduleEventStreamClose(sid);
+      else closeEvents();
       optimisticUserMessageKeyRef.current = null;
       if (!wasRunning) return;
       setAgentRunning(false);
@@ -920,7 +1028,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       dispatch({ type: "end" });
       onAgentEnd?.();
     }
-  }, [closeEvents, loadSession, onAgentEnd]);
+  }, [closeEvents, loadSession, onAgentEnd, scheduleEventStreamClose]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     // One settlement loop per run: a slash command starts one from handleSend and
@@ -1332,6 +1440,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // so early tokens are not dropped; late events from prior runs still mismatch.
     streamAcceptRunIdRef.current = promptRunId;
     sseReconnectAttemptRef.current = 0;
+    cancelEventStreamGrace();
     agentRunningRef.current = true;
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
@@ -1415,7 +1524,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, stickScrollToBottom, opts.chatInputRef, t]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, stickScrollToBottom, opts.chatInputRef, t]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1842,6 +1951,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       bashRecoveryIdRef.current += 1;
       promptSettleIdRef.current += 1;
       promptSettleRunIdRef.current = null;
+      eventStreamGraceGenerationRef.current += 1;
+      eventStreamGraceActiveRef.current = false;
+      if (eventStreamGraceTimerRef.current) {
+        clearTimeout(eventStreamGraceTimerRef.current);
+        eventStreamGraceTimerRef.current = null;
+      }
       if (sseReconnectTimerRef.current) {
         clearTimeout(sseReconnectTimerRef.current);
         sseReconnectTimerRef.current = null;
