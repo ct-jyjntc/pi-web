@@ -63,12 +63,14 @@ function resolvePackageRoot(packageName) {
 }
 
 function runEsbuild(args) {
-  // Prefer the JS entry via node — works on Windows without shell/.cmd shims.
+  // Spawn the native binary directly. Do NOT run it via `node <bin>` —
+  // esbuild/bin/esbuild is a Mach-O/ELF executable, not a JS file.
   try {
     const esbuildBin = require.resolve("esbuild/bin/esbuild");
-    return spawnSync(process.execPath, [esbuildBin, ...args], {
+    return spawnSync(esbuildBin, args, {
       cwd: root,
       encoding: "utf8",
+      shell: process.platform === "win32",
     });
   } catch {
     // not installed locally
