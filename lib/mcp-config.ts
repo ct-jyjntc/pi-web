@@ -260,23 +260,12 @@ export function getMcpAdapterStatus(): {
   installed: boolean;
   packageSource: string;
 } {
-  const source = "npm:pi-mcp-adapter";
-  const settingsPath = join(getAgentDir(), "settings.json");
-  let configured = false;
-  try {
-    if (existsSync(settingsPath)) {
-      const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as { packages?: unknown[] };
-      const packages = settings.packages ?? [];
-      configured = packages.some((entry) => {
-        const s = typeof entry === "string" ? entry : isRecord(entry) ? String(entry.source ?? "") : "";
-        return s === source || s === "pi-mcp-adapter" || s.startsWith("npm:pi-mcp-adapter@");
-      });
-    }
-  } catch {
-    configured = false;
-  }
-  const installed = existsSync(
-    join(getAgentDir(), "npm", "node_modules", "pi-mcp-adapter", "package.json"),
-  );
-  return { configured, installed, packageSource: source };
+  // pi-mcp-adapter is a first-party app dependency (see lib/builtin-extensions.ts),
+  // not an optional ~/.pi/agent package. Report present when the app install has it.
+  const source = "app:pi-mcp-adapter";
+  const appPkg = join(process.cwd(), "node_modules", "pi-mcp-adapter", "package.json");
+  const installed =
+    existsSync(appPkg)
+    || existsSync(join(getAgentDir(), "npm", "node_modules", "pi-mcp-adapter", "package.json"));
+  return { configured: installed, installed, packageSource: source };
 }

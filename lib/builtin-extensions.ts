@@ -1,0 +1,319 @@
+/**
+ * First-party agent capabilities shipped inside Pi Web (not via ~/.pi/agent/npm).
+ *
+ * Layers:
+ *   1. **Thin inline factories** (lib/first-party/todo + ask-user) — pure app modules.
+ *   2. **Heavy prebundled factories** (permission / subagents / mcp) — ESM bundles at
+ *      `node_modules/<pkg>/.pi-web-bundle/extension.mjs` produced by
+ *      `scripts/bundle-builtin-extensions.mjs`. Loaded as extensionFactories (no jiti).
+ *   3. **TS path fallback** — only if a heavy bundle is missing (dev before first bundle).
+ *
+ * Compaction uses the SDK native path (pi-better-compaction is not shipped).
+ * Legacy settings.json packages[] entries are stripped on boot.
+ */
+import { createRequire } from "module";
+import { existsSync, readFileSync } from "fs";
+import { dirname, join } from "path";
+import { pathToFileURL } from "url";
+import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import { getFirstPartyExtensionFactories } from "./first-party";
+import {
+  HEAVY_EXTENSION_SPECS,
+  loadHeavyExtensionFactories,
+  resolveHeavyBundlePath,
+  type HeavyLoadResult,
+} from "./first-party/heavy-extensions";
+
+const require = createRequire(import.meta.url);
+
+/**
+ * Heavy packages shipped as app dependencies.
+ * Prefer prebundled factories; TS entry paths are fallback only.
+ */
+export const BUILTIN_EXTENSION_PACKAGES = HEAVY_EXTENSION_SPECS.map((s) => s.packageName);
+
+export type BuiltinExtensionPackage = (typeof BUILTIN_EXTENSION_PACKAGES)[number];
+
+/** Names still stripped from settings.packages (includes retired thin packages). */
+export const LEGACY_BUILTIN_PACKAGE_NAMES = [
+  ...BUILTIN_EXTENSION_PACKAGES,
+  "@juicesharp/rpiv-ask-user-question",
+  "@juicesharp/rpiv-todo",
+  "@lll9p/pi-better-compaction",
+] as const;
+
+/** Legacy settings.json / package-manager source strings for the same packages. */
+export const BUILTIN_PACKAGE_SOURCES = LEGACY_BUILTIN_PACKAGE_NAMES.map(
+  (name) => `npm:${name}` as const,
+);
+
+/** Previously auto-installed TUI-only packages we still want to strip if present. */
+export const PRUNE_PACKAGE_SOURCES = [
+  "npm:pi-btw",
+  "npm:pi-markdown-preview",
+  "npm:pi-simplify",
+  "npm:pi-tool-display",
+  "npm:pi-rtk-optimizer",
+] as const;
+
+export type BuiltinExtensionPath = {
+  packageName: string;
+  path: string;
+};
+
+function readPiExtensionEntries(packageRoot: string): string[] {
+  try {
+    const pkg = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+      pi?: { extensions?: string[] };
+    };
+    const entries = pkg.pi?.extensions;
+    if (!Array.isArray(entries) || entries.length === 0) return [];
+    return entries
+      .map((rel) => join(packageRoot, rel))
+      .filter((abs) => existsSync(abs));
+  } catch {
+    return [];
+  }
+}
+
+function resolvePackageRoot(packageName: string): string | null {
+  const parts = packageName.split("/");
+  const candidates: string[] = [join(process.cwd(), "node_modules", ...parts)];
+
+  try {
+    for (const base of require.resolve.paths(packageName) ?? []) {
+      candidates.push(join(base, ...parts));
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    candidates.push(dirname(require.resolve(`${packageName}/package.json`)));
+  } catch {
+    // many packages omit package.json from "exports"
+  }
+
+  try {
+    let dir = dirname(require.resolve(packageName));
+    for (let i = 0; i < 8; i++) {
+      candidates.push(dir);
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // ignore
+  }
+
+  for (const root of candidates) {
+    if (root && existsSync(join(root, "package.json"))) {
+      try {
+        const name = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { name?: string }).name;
+        if (name === packageName) return root;
+      } catch {
+        // ignore malformed
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * TS entry paths for packages that do NOT yet have a prebundle (fallback).
+ */
+export function resolveBuiltinExtensionPaths(options?: {
+  /** Only packages listed here (defaults to those without a heavy bundle). */
+  onlyMissingBundles?: boolean;
+}): BuiltinExtensionPath[] {
+  const onlyMissing = options?.onlyMissingBundles !== false;
+  const out: BuiltinExtensionPath[] = [];
+  for (const packageName of BUILTIN_EXTENSION_PACKAGES) {
+    if (onlyMissing && resolveHeavyBundlePath(packageName)) continue;
+    const root = resolvePackageRoot(packageName);
+    if (!root) continue;
+    for (const path of readPiExtensionEntries(root)) {
+      out.push({ packageName, path });
+    }
+  }
+  return out;
+}
+
+/** Flat path list for DefaultResourceLoader.additionalExtensionPaths (fallback only). */
+export function getBuiltinAdditionalExtensionPaths(): string[] {
+  return resolveBuiltinExtensionPaths({ onlyMissingBundles: true }).map((e) => e.path);
+}
+
+let heavyCache: HeavyLoadResult | null = null;
+let heavyPromise: Promise<HeavyLoadResult> | null = null;
+
+/** Ensure heavy prebundled factories are imported (once per process). */
+export async function ensureHeavyExtensionFactories(): Promise<HeavyLoadResult> {
+  if (heavyCache) return heavyCache;
+  if (!heavyPromise) {
+    heavyPromise = loadHeavyExtensionFactories().then((r) => {
+      heavyCache = r;
+      return r;
+    });
+  }
+  return heavyPromise;
+}
+
+/**
+ * Resource-loader options for full agent sessions.
+ * Prefer prebundled heavy factories + thin first-party factories.
+ * Falls back to TS paths only for packages still missing a bundle.
+ *
+ * Call `await ensureHeavyExtensionFactories()` first when possible so heavy
+ * factories are populated; safe to call sync if prewarm already finished.
+ */
+export function getBuiltinResourceLoaderOptions(): {
+  additionalExtensionPaths: string[];
+  extensionFactories: InlineExtension[];
+} {
+  const heavy = heavyCache?.factories ?? [];
+  return {
+    additionalExtensionPaths: getBuiltinAdditionalExtensionPaths(),
+    extensionFactories: [...getFirstPartyExtensionFactories(), ...heavy],
+  };
+}
+
+let prewarmPromise: Promise<{ loaded: string[]; missing: string[]; errors: string[] }> | null = null;
+
+/**
+ * Preload heavy factories + warm any remaining TS fallbacks via the SDK loader.
+ * Never throws.
+ */
+export function prewarmBuiltinExtensions(): Promise<{
+  loaded: string[];
+  missing: string[];
+  errors: string[];
+}> {
+  if (prewarmPromise) return prewarmPromise;
+  prewarmPromise = (async () => {
+    const loaded: string[] = [];
+    const missing: string[] = [];
+    const errors: string[] = [];
+
+    try {
+      // Best-effort: generate missing bundles before import (dev / first boot).
+      await tryBundleHeavyExtensions();
+
+      const heavy = await ensureHeavyExtensionFactories();
+      for (const n of heavy.notes) {
+        // surface as loaded/missing via structured fields
+      }
+      for (const f of heavy.factories) {
+        if (typeof f !== "function") loaded.push(`<inline:${f.name}>`);
+      }
+      missing.push(...heavy.missing);
+      for (const n of heavy.notes) {
+        if (n.includes("failed") || n.includes("missing")) errors.push(n);
+      }
+
+      const fallbackPaths = getBuiltinAdditionalExtensionPaths();
+      if (fallbackPaths.length === 0 && heavy.factories.length > 0) {
+        // Full prebundle path — optional cheap factory-only reload for SDK cache.
+        const { DefaultResourceLoader, getAgentDir, SettingsManager } = await import(
+          "@earendil-works/pi-coding-agent"
+        );
+        const cwd = process.cwd();
+        const agentDir = getAgentDir();
+        const loader = new DefaultResourceLoader({
+          cwd,
+          agentDir,
+          settingsManager: SettingsManager.create(cwd, agentDir),
+          extensionFactories: getBuiltinResourceLoaderOptions().extensionFactories,
+          noSkills: true,
+          noPromptTemplates: true,
+          noThemes: true,
+          noContextFiles: true,
+        });
+        await loader.reload();
+        const result = loader.getExtensions();
+        for (const ext of result.extensions) loaded.push(ext.path);
+        for (const err of result.errors) errors.push(`${err.path}: ${err.error}`);
+        return { loaded: [...new Set(loaded)], missing, errors };
+      }
+
+      // Mixed / fallback: include TS paths for any unbundled packages.
+      const { DefaultResourceLoader, getAgentDir, SettingsManager } = await import(
+        "@earendil-works/pi-coding-agent"
+      );
+      const cwd = process.cwd();
+      const agentDir = getAgentDir();
+      const opts = getBuiltinResourceLoaderOptions();
+      const loader = new DefaultResourceLoader({
+        cwd,
+        agentDir,
+        settingsManager: SettingsManager.create(cwd, agentDir),
+        additionalExtensionPaths: opts.additionalExtensionPaths,
+        extensionFactories: opts.extensionFactories,
+        noSkills: true,
+        noPromptTemplates: true,
+        noThemes: true,
+        noContextFiles: true,
+      });
+      await loader.reload();
+      const result = loader.getExtensions();
+      for (const ext of result.extensions) loaded.push(ext.path);
+      for (const err of result.errors) errors.push(`${err.path}: ${err.error}`);
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
+    }
+
+    return { loaded: [...new Set(loaded)], missing, errors };
+  })();
+  return prewarmPromise;
+}
+
+/** Best-effort run of the esbuild bundle script (no throw). */
+async function tryBundleHeavyExtensions(): Promise<void> {
+  const needsBundle = HEAVY_EXTENSION_SPECS.some((s) => !resolveHeavyBundlePath(s.packageName));
+  if (!needsBundle) return;
+  try {
+    const { spawnSync } = await import("child_process");
+    const script = join(process.cwd(), "scripts", "bundle-builtin-extensions.mjs");
+    if (!existsSync(script)) {
+      console.warn("[pi-web] bundle script missing:", script);
+      return;
+    }
+    const result = spawnSync(process.execPath, [script], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    if (result.stdout) console.log(result.stdout.trimEnd());
+    if (result.status !== 0) {
+      console.warn("[pi-web] auto-bundle heavy extensions failed:", (result.stderr || result.stdout || "").trim());
+      return;
+    }
+    // Allow re-import of newly written bundles.
+    const { invalidateHeavyExtensionFactories } = await import("./first-party/heavy-extensions");
+    invalidateHeavyExtensionFactories();
+    heavyCache = null;
+    heavyPromise = null;
+  } catch (e) {
+    console.warn(
+      "[pi-web] auto-bundle heavy extensions failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
+/** True when a settings/package source string refers to a first-party / retired builtin. */
+export function isBuiltinPackageSource(source: string): boolean {
+  const s = source.trim();
+  if (!s) return false;
+  for (const name of LEGACY_BUILTIN_PACKAGE_NAMES) {
+    if (s === name || s === `npm:${name}` || s.startsWith(`npm:${name}@`)) {
+      return true;
+    }
+  }
+  return BUILTIN_PACKAGE_SOURCES.includes(s as (typeof BUILTIN_PACKAGE_SOURCES)[number]);
+}
+
+/** file URL helper for diagnostics */
+export function builtinExtensionFileUrl(absPath: string): string {
+  return pathToFileURL(absPath).href;
+}

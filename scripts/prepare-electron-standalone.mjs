@@ -8,6 +8,7 @@
  * packaged app unless we overlay full package dist trees.
  */
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
+import { spawnSync } from "child_process";
 import { join, basename } from "path";
 
 const root = process.cwd();
@@ -165,6 +166,78 @@ if (existsSync(nestedSrc)) {
 }
 
 console.log(`Nested agent deps: copied ${copiedNested}, skipped hoisted ${skippedHoisted}`);
+
+// First-party agent extensions ship as app dependencies (not ~/.pi/agent/npm).
+// The SDK JIT-loads their TypeScript entry files via jiti, so Next file-tracing
+// will not pull them in — overlay the full package trees + heavy runtime deps.
+const builtinExtensionPackages = [
+  "@gotgenes/pi-permission-system",
+  "@gotgenes/pi-subagents",
+  "pi-mcp-adapter",
+  "web-tree-sitter",
+  "tree-sitter-bash",
+];
+
+function overlayPackageTree(pkgName) {
+  const src = join(root, "node_modules", ...pkgName.split("/"));
+  const dest = join(standaloneNm, ...pkgName.split("/"));
+  if (!existsSync(src)) {
+    console.warn(`Warning: builtin package missing: ${pkgName}`);
+    return false;
+  }
+  rmSync(dest, { recursive: true, force: true });
+  // Keep sources (.ts) and wasm assets — jiti + tree-sitter need them.
+  cpSync(src, dest, {
+    recursive: true,
+    filter: (p) => {
+      const name = basename(p);
+      if (name === "README.md" || name === "CHANGELOG.md" || name === "LICENSE" || name === "LICENSE.md") return false;
+      if (name.endsWith(".map") || name.endsWith(".d.ts") || name.endsWith(".d.mts")) return false;
+      if (name === "docs" || name === "examples" || name === "test" || name === "tests" || name === "__tests__") return false;
+      if (name === ".github") return false;
+      return true;
+    },
+  });
+  return true;
+}
+
+let builtinCopied = 0;
+for (const name of builtinExtensionPackages) {
+  if (overlayPackageTree(name)) builtinCopied += 1;
+}
+console.log(`Overlaid ${builtinCopied}/${builtinExtensionPackages.length} builtin extension packages`);
+
+// Ensure heavy extension prebundles exist (extensionFactories path — no jiti at runtime).
+// Prefer already-built .pi-web-bundle under project node_modules; re-run script if missing.
+{
+  const needsBundle = builtinExtensionPackages.some((name) => {
+    const bundle = join(root, "node_modules", ...name.split("/"), ".pi-web-bundle", "extension.mjs");
+    return !existsSync(bundle);
+  });
+  if (needsBundle) {
+    console.log("Building missing heavy extension prebundles…");
+    const r = spawnSync(process.execPath, [join(root, "scripts", "bundle-builtin-extensions.mjs")], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: "inherit",
+    });
+    if (r.status !== 0) {
+      console.warn("Warning: bundle-builtin-extensions failed — runtime may fall back to jiti TS paths");
+    }
+  }
+  // Copy .pi-web-bundle dirs into standalone tree (overlayPackageTree filter may have skipped).
+  for (const name of builtinExtensionPackages) {
+    const srcBundle = join(root, "node_modules", ...name.split("/"), ".pi-web-bundle");
+    const destBundle = join(standaloneNm, ...name.split("/"), ".pi-web-bundle");
+    if (!existsSync(srcBundle)) {
+      console.warn(`Warning: missing prebundle for ${name}`);
+      continue;
+    }
+    rmSync(destBundle, { recursive: true, force: true });
+    cpSync(srcBundle, destBundle, { recursive: true });
+    console.log(`Copied prebundle ${name}/.pi-web-bundle`);
+  }
+}
 
 // node-pty: Next file-tracing keeps only package.json + lib/, but the native
 // prebuilds/ (pty.node + spawn-helper) are required at runtime in the packaged app.

@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+/**
+ * Pre-bundle heavy first-party pi extensions so runtime can load them as
+ * extensionFactories (plain ESM) instead of jiti-transpiling their TypeScript
+ * sources on every cold start.
+ *
+ * Output: <package>/.pi-web-bundle/extension.mjs
+ * (inside the package so nested deps like strip-json-comments still resolve)
+ *
+ * Uses npx esbuild so a local esbuild install is not required.
+ */
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { createRequire } from "module";
+import { spawnSync } from "child_process";
+import { fileURLToPath } from "url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
+
+/** @type {Array<{ name: string; packageName: string; entry: string; aliasSrc?: string }>} */
+const TARGETS = [
+  {
+    name: "permission",
+    packageName: "@gotgenes/pi-permission-system",
+    entry: "src/index.ts",
+    aliasSrc: "src",
+  },
+  {
+    name: "subagents",
+    packageName: "@gotgenes/pi-subagents",
+    entry: "src/index.ts",
+    aliasSrc: "src",
+  },
+  {
+    name: "mcp-adapter",
+    packageName: "pi-mcp-adapter",
+    entry: "index.ts",
+  },
+];
+
+function resolvePackageRoot(packageName) {
+  const parts = packageName.split("/");
+  const candidates = [join(root, "node_modules", ...parts)];
+  try {
+    for (const base of require.resolve.paths(packageName) ?? []) {
+      candidates.push(join(base, ...parts));
+    }
+  } catch {
+    // ignore
+  }
+  for (const dir of candidates) {
+    const pkgJson = join(dir, "package.json");
+    if (!existsSync(pkgJson)) continue;
+    try {
+      const name = JSON.parse(readFileSync(pkgJson, "utf8")).name;
+      if (name === packageName) return dir;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function runEsbuild(args) {
+  // Prefer local binary, fall back to npx.
+  const local = join(root, "node_modules", ".bin", "esbuild");
+  if (existsSync(local)) {
+    const r = spawnSync(local, args, { cwd: root, encoding: "utf8" });
+    return r;
+  }
+  const r = spawnSync("npx", ["--yes", "esbuild@0.25.12", ...args], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  return r;
+}
+
+function bundleOne(target) {
+  const pkgRoot = resolvePackageRoot(target.packageName);
+  if (!pkgRoot) {
+    return { ok: false, name: target.name, error: `package not installed: ${target.packageName}` };
+  }
+  const entryAbs = join(pkgRoot, target.entry);
+  if (!existsSync(entryAbs)) {
+    return { ok: false, name: target.name, error: `entry missing: ${entryAbs}` };
+  }
+
+  const outDir = join(pkgRoot, ".pi-web-bundle");
+  const outFile = join(outDir, "extension.mjs");
+  mkdirSync(outDir, { recursive: true });
+
+  /** @type {string[]} */
+  const args = [
+    entryAbs,
+    "--bundle",
+    "--platform=node",
+    "--format=esm",
+    "--packages=external",
+    // Extensions historically resolve pi-ai root to the compat entry (jiti virtualModules).
+    "--alias:@earendil-works/pi-ai=@earendil-works/pi-ai/compat",
+    "--alias:@mariozechner/pi-ai=@earendil-works/pi-ai/compat",
+    `--outfile=${outFile}`,
+  ];
+  if (target.aliasSrc) {
+    args.push(`--alias:#src=${join(pkgRoot, target.aliasSrc)}`);
+  }
+
+  const result = runEsbuild(args);
+  if (result.status !== 0) {
+    return {
+      ok: false,
+      name: target.name,
+      error: (result.stderr || result.stdout || "esbuild failed").trim(),
+    };
+  }
+  if (!existsSync(outFile)) {
+    return { ok: false, name: target.name, error: "esbuild produced no output" };
+  }
+
+  // Stamp for debugging / cache invalidation.
+  writeFileSync(
+    join(outDir, "meta.json"),
+    `${JSON.stringify(
+      {
+        name: target.name,
+        packageName: target.packageName,
+        entry: target.entry,
+        builtAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  return { ok: true, name: target.name, outFile, bytes: readFileSync(outFile).byteLength };
+}
+
+export function bundleBuiltinExtensions() {
+  const results = TARGETS.map(bundleOne);
+  return results;
+}
+
+// CLI
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) {
+  const results = bundleBuiltinExtensions();
+  let failed = 0;
+  for (const r of results) {
+    if (r.ok) {
+      console.log(`[bundle-builtin-extensions] ${r.name}: ${r.outFile} (${r.bytes} bytes)`);
+    } else {
+      failed += 1;
+      console.error(`[bundle-builtin-extensions] ${r.name}: FAILED — ${r.error}`);
+    }
+  }
+  if (failed) process.exit(1);
+  console.log(`[bundle-builtin-extensions] done (${results.length - failed}/${results.length})`);
+}

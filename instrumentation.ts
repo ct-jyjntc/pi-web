@@ -28,14 +28,16 @@ export async function register(): Promise<void> {
   const { ensureSubagentDelegation } = await import("@/lib/ensure-subagent-delegation");
   for (const note of ensureSubagentDelegation()) console.log(`[pi-web] ${note}`);
 
-  // Builtin packages: install missing + later upgrade to latest — all in background.
+  // Builtin extensions: migrate settings off package-manager ownership, then
+  // prewarm jiti cache from app node_modules. Never npm install/update.
   // Must never block / crash process boot (void + internal try/catch).
   const { ensureBuiltinPackages } = await import("@/lib/ensure-builtin-packages");
   void ensureBuiltinPackages()
     .then((r) => {
       for (const note of r.notes) console.log(`[pi-web] ${note}`);
-      if (r.installed.length) console.log(`[pi-web] Builtin packages installed: ${r.installed.join(", ")}`);
-      if (r.updated.length) console.log(`[pi-web] Builtin packages updated: ${r.updated.join(", ")}`);
+      if (r.missing.length) {
+        console.warn(`[pi-web] Builtin extensions missing from app install: ${r.missing.join(", ")}`);
+      }
     })
     .catch((error) => {
       console.error("[pi-web] ensureBuiltinPackages background error:", error);

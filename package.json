@@ -30,11 +30,11 @@
     "package.json"
   ],
   "scripts": {
-    "postinstall": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs",
+    "postinstall": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs && node scripts/bundle-builtin-extensions.mjs",
     "dev": "node scripts/fix-node-pty-perms.mjs && next dev -H 127.0.0.1 -p 30141",
     "dev:lan": "node scripts/fix-node-pty-perms.mjs && next dev -H 0.0.0.0 -p 30141",
     "build": "node scripts/fix-node-pty-perms.mjs && next build --webpack",
-    "build:electron": "npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
+    "build:electron": "npm run bundle:extensions && npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
     "start": "node scripts/fix-node-pty-perms.mjs && next start -H 127.0.0.1 -p 30141",
     "start:lan": "node scripts/fix-node-pty-perms.mjs && next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
@@ -48,7 +48,8 @@
     "dist:dmg": "npm run build:electron && electron-builder --mac dmg",
     "dist:mac": "npm run build:electron && electron-builder --mac dmg zip",
     "dist:win": "npm run build:electron && electron-builder --win nsis",
-    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
+    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
+    "bundle:extensions": "node scripts/bundle-builtin-extensions.mjs"
   },
   "build": {
     "appId": "com.ct-jyjntc.pi-web",
@@ -153,6 +154,8 @@
     "@earendil-works/pi-ai": "0.83.0",
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@earendil-works/pi-tui": "0.83.0",
+    "@gotgenes/pi-permission-system": "24.0.0",
+    "@gotgenes/pi-subagents": "19.2.1",
     "@lobehub/icons": "^5.6.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
@@ -163,6 +166,7 @@
     "mermaid": "^11.14.0",
     "next": "16.2.9",
     "node-pty": "^1.1.0",
+    "pi-mcp-adapter": "2.17.0",
     "proper-lockfile": "4.1.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -190,6 +194,7 @@
     "@types/ws": "^8.18.1",
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.12",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "jiti": "^2.7.0",

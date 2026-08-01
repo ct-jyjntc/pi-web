@@ -1,10 +1,7 @@
 /**
- * Derive a todo overlay payload from the transcript when the rpiv-todo
- * extension widget fails to surface (common in Pi Web: package keeps a
- * process-global "foreground session" pointer, so multi-session hosts never
- * re-bind the overlay to the active chat).
- *
- * Parses toolResult text produced by @juicesharp/rpiv-todo.
+ * Derive a todo overlay payload from the transcript when no live extension
+ * widget is present. Parses toolResult text from the first-party `todo` tool
+ * (lib/first-party/todo-extension.ts) — same envelope as the old rpiv-todo package.
  */
 import type { AgentMessage, AssistantMessage, ToolResultMessage } from "./types";
 

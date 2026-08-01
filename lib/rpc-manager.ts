@@ -32,12 +32,18 @@ import type { AgentSessionLike, ExtensionUiContextLike } from "./pi-types";
 import { MEMORY_CONTEXT_CUSTOM_TYPE, type ExtensionUiRequest, type ExtensionUiResponse, type ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
-import { ensureBuiltinPackages } from "./ensure-builtin-packages";
+import {
+  ensureHeavyExtensionFactories,
+  getBuiltinResourceLoaderOptions,
+} from "./builtin-extensions";
+import { ensureBuiltinPackages, migrateBuiltinPackageSettings } from "./ensure-builtin-packages";
 import { ensureSubagentDelegation } from "./ensure-subagent-delegation";
 
 // If packages spawn the Pi CLI, never use Electron as process.execPath.
 ensureSubagentSpawnEnv();
 ensureSubagentDelegation();
+// Strip legacy settings.packages entries before any session can start.
+for (const note of migrateBuiltinPackageSettings()) console.log(`[pi-web] ${note}`);
 void ensureBuiltinPackages();
 
 // ============================================================================
@@ -1386,18 +1392,22 @@ export async function startRpcSession(
     const toolsFullyDisabled = toolNames?.length === 0;
     const memoryBlock = !toolsFullyDisabled ? buildMemoryInjectBlock(cwd) : null;
     const modelRuntime = await createConfiguredModelRuntime();
+    // First-party extensions: thin tools as pure factories; heavy ones as
+    // prebundled ESM factories (fallback TS paths if a bundle is missing).
+    // Never installed into ~/.pi/agent/npm.
+    await ensureHeavyExtensionFactories();
+    const builtinLoader = getBuiltinResourceLoaderOptions();
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
       modelRuntime,
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
-      ...(memoryBlock
-        ? {
-            resourceLoaderOptions: {
-              appendSystemPromptOverride: (base: string[]) => [...base, memoryBlock],
-            },
-          }
-        : {}),
+      resourceLoaderOptions: {
+        ...builtinLoader,
+        ...(memoryBlock
+          ? { appendSystemPromptOverride: (base: string[]) => [...base, memoryBlock] }
+          : {}),
+      },
     });
     // Pi Web bash tool: explicit `background` param + foreground guardrails;
     // background services run in a real PTY mirrored in the Terminal workspace

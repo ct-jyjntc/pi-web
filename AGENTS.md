@@ -74,7 +74,9 @@ lib/
   npx.ts               npx runner used by skill install
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
-  ensure-builtin-packages.ts  auto-install first-party pi packages into ~/.pi/agent
+  ensure-builtin-packages.ts  migrate legacy package settings + prewarm builtin extensions
+  builtin-extensions.ts       heavy package paths + first-party extensionFactories
+  first-party/                inline todo + ask_user_question (no jiti packages)
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
   tool-presets.ts     FULL_TOOL_NAMES + getFullToolNames()
   types.ts            shared TypeScript types
@@ -172,7 +174,12 @@ Pi emits `compaction_start` / `compaction_end`. Manual compact is a blocking POS
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 
 ### Built-in packages and skills
-- First-party pi packages are auto-installed into `~/.pi/agent` on boot via `lib/ensure-builtin-packages.ts` (permission, subagents, todo, ask-user, better-compaction). TUI-only / unused packages (btw, markdown-preview, simplify, tool-display, rtk-optimizer) are pruned.
+- **Thin tools** (`todo`, `ask_user_question`) are pure first-party modules under `lib/first-party/` and register via `extensionFactories` (no jiti).
+- **Heavy capabilities** (permission, subagents, mcp-adapter) ship as app dependencies and are **prebundled** by `npm run bundle:extensions` → `node_modules/<pkg>/.pi-web-bundle/extension.mjs`, then loaded as `extensionFactories` (no jiti at session start). Missing bundles fall back to TS `additionalExtensionPaths` once.
+- Compaction uses the SDK native path (`pi-better-compaction` is not shipped).
+- Registration is centralized in `lib/builtin-extensions.ts` → `startRpcSession`. Nothing is installed into `~/.pi/agent/npm` on boot.
+- `lib/ensure-builtin-packages.ts` migrates legacy `settings.json` `packages[]` and prewarms factories. No npm install/update.
+- `postinstall` and `build:electron` run `bundle:extensions`. Electron packaging copies `.pi-web-bundle` trees in `scripts/prepare-electron-standalone.mjs`.
 - Extension runtime UI (confirm/select/input/editor, widgets, status chips, custom panels) is handled by `rpc-manager` + `ChatWindow` — there is no user-facing package manager UI.
 - `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.
