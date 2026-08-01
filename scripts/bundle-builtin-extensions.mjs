@@ -7,9 +7,10 @@
  * Output: <package>/.pi-web-bundle/extension.mjs
  * (inside the package so nested deps like strip-json-comments still resolve)
  *
- * Uses npx esbuild so a local esbuild install is not required.
+ * Prefer the esbuild JS API (cross-platform). Fall back to CLI via
+ * node_modules/.bin / npx when the package is not installed.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { createRequire } from "module";
 import { spawnSync } from "child_process";
@@ -62,20 +63,35 @@ function resolvePackageRoot(packageName) {
   return null;
 }
 
-function runEsbuild(args) {
-  // Spawn the native binary directly. Do NOT run it via `node <bin>` —
-  // esbuild/bin/esbuild is a Mach-O/ELF executable, not a JS file.
+/**
+ * Build one extension with the esbuild JS API when available.
+ * @returns {{ status: number, stderr: string, stdout: string }}
+ */
+function runEsbuildApi(options) {
+  let esbuild;
   try {
-    const esbuildBin = require.resolve("esbuild/bin/esbuild");
-    return spawnSync(esbuildBin, args, {
-      cwd: root,
-      encoding: "utf8",
-      shell: process.platform === "win32",
-    });
-  } catch {
-    // not installed locally
+    esbuild = require("esbuild");
+  } catch (err) {
+    // Package missing → fall through to CLI. Anything else is a hard failure later.
+    const message = err instanceof Error ? err.message : String(err);
+    return { status: -1, stderr: message, stdout: "" };
   }
+  try {
+    esbuild.buildSync(options);
+    return { status: 0, stderr: "", stdout: "" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { status: 1, stderr: message, stdout: "" };
+  }
+}
 
+/**
+ * CLI fallback: prefer npm bin shims (esbuild.cmd on Windows), never
+ * `node esbuild/bin/esbuild` (postinstall replaces that with a native binary
+ * on Unix; on Windows the unscoped path is not a runnable .exe).
+ * @param {string[]} args
+ */
+function runEsbuildCli(args) {
   const localName = process.platform === "win32" ? "esbuild.cmd" : "esbuild";
   const local = join(root, "node_modules", ".bin", localName);
   if (existsSync(local)) {
@@ -108,23 +124,47 @@ function bundleOne(target) {
   const outFile = join(outDir, "extension.mjs");
   mkdirSync(outDir, { recursive: true });
 
-  /** @type {string[]} */
-  const args = [
-    entryAbs,
-    "--bundle",
-    "--platform=node",
-    "--format=esm",
-    "--packages=external",
+  /** @type {Record<string, string>} */
+  const alias = {
     // Extensions historically resolve pi-ai root to the compat entry (jiti virtualModules).
-    "--alias:@earendil-works/pi-ai=@earendil-works/pi-ai/compat",
-    "--alias:@mariozechner/pi-ai=@earendil-works/pi-ai/compat",
-    `--outfile=${outFile}`,
-  ];
+    "@earendil-works/pi-ai": "@earendil-works/pi-ai/compat",
+    "@mariozechner/pi-ai": "@earendil-works/pi-ai/compat",
+  };
   if (target.aliasSrc) {
-    args.push(`--alias:#src=${join(pkgRoot, target.aliasSrc)}`);
+    alias["#src"] = join(pkgRoot, target.aliasSrc);
   }
 
-  const result = runEsbuild(args);
+  // 1) JS API — works on macOS / Linux / Windows without bin path quirks.
+  let result = runEsbuildApi({
+    entryPoints: [entryAbs],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    packages: "external",
+    alias,
+    outfile: outFile,
+    logLevel: "silent",
+  });
+
+  // 2) CLI only if the esbuild package itself is missing.
+  if (result.status === -1) {
+    /** @type {string[]} */
+    const args = [
+      entryAbs,
+      "--bundle",
+      "--platform=node",
+      "--format=esm",
+      "--packages=external",
+      "--alias:@earendil-works/pi-ai=@earendil-works/pi-ai/compat",
+      "--alias:@mariozechner/pi-ai=@earendil-works/pi-ai/compat",
+      `--outfile=${outFile}`,
+    ];
+    if (target.aliasSrc) {
+      args.push(`--alias:#src=${join(pkgRoot, target.aliasSrc)}`);
+    }
+    result = runEsbuildCli(args);
+  }
+
   if (result.status !== 0) {
     return {
       ok: false,
