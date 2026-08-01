@@ -63,17 +63,33 @@ function resolvePackageRoot(packageName) {
 }
 
 function runEsbuild(args) {
-  // Prefer local binary, fall back to npx.
-  const local = join(root, "node_modules", ".bin", "esbuild");
-  if (existsSync(local)) {
-    const r = spawnSync(local, args, { cwd: root, encoding: "utf8" });
-    return r;
+  // Prefer the JS entry via node — works on Windows without shell/.cmd shims.
+  try {
+    const esbuildBin = require.resolve("esbuild/bin/esbuild");
+    return spawnSync(process.execPath, [esbuildBin, ...args], {
+      cwd: root,
+      encoding: "utf8",
+    });
+  } catch {
+    // not installed locally
   }
-  const r = spawnSync("npx", ["--yes", "esbuild@0.25.12", ...args], {
+
+  const localName = process.platform === "win32" ? "esbuild.cmd" : "esbuild";
+  const local = join(root, "node_modules", ".bin", localName);
+  if (existsSync(local)) {
+    return spawnSync(local, args, {
+      cwd: root,
+      encoding: "utf8",
+      shell: process.platform === "win32",
+    });
+  }
+
+  // Fall back to npx (needs shell on Windows so .cmd resolves).
+  return spawnSync("npx", ["--yes", "esbuild@0.25.12", ...args], {
     cwd: root,
     encoding: "utf8",
+    shell: process.platform === "win32",
   });
-  return r;
 }
 
 function bundleOne(target) {
