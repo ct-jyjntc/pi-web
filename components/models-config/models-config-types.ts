@@ -3,8 +3,7 @@
  */
 import { normalizeModelCost } from "@/lib/model-cost";
 import type { FreeProviderId } from "@/lib/free-providers";
-import type { DiscoveredModel } from "@/lib/model-discovery";
-import type { ModelCatalogRecommendation } from "@/lib/model-catalog";
+import { PI_THINKING_LEVELS, type PiThinkingLevel } from "@/lib/thinking-level-map";
 
 export interface OAuthProvider {
   id: string;
@@ -42,6 +41,8 @@ export interface ModelEntry {
   disabled?: boolean;
   reasoning?: boolean;
   thinkingLevelMap?: Record<string, string | null>;
+  /** Official catalog supplied this map — UI must not edit it. */
+  thinkingMapLocked?: boolean;
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
@@ -79,31 +80,22 @@ export type ModelTestState =
   | { phase: "success"; latencyMs?: number; status?: number; responseText?: string }
   | { phase: "error"; message: string; latencyMs?: number; status?: number };
 
-export type ModelDiscoveryState =
-  | { phase: "idle" }
-  | { phase: "loading" }
-  | { phase: "success"; models: DiscoveredModel[]; endpoint: string }
-  | { phase: "error"; message: string };
 
-export type ModelCatalogState =
-  | { phase: "idle" }
-  | { phase: "loading" }
-  | { phase: "success"; recommendation: ModelCatalogRecommendation; appliedCount: number }
-  | { phase: "error"; message: string };
 
 export type Selection =
   | { type: "provider"; name: string }
   | { type: "model"; providerName: string; index: number }
   | { type: "oauth"; providerId: string }
-  | { type: "apikey"; providerId: string };
+  | { type: "apikey"; providerId: string }
+  | { type: "builtin-model"; providerId: string; modelId: string };
 
 export const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const;
 
 // ── Form field helpers ────────────────────────────────────────────────────────
 
 
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-export type ThinkingLevel = typeof THINKING_LEVELS[number];
+export const THINKING_LEVELS = PI_THINKING_LEVELS;
+export type ThinkingLevel = PiThinkingLevel;
 
 export const LEVEL_COLORS: Record<ThinkingLevel, string> = {
   off:     "var(--text-dim)",
@@ -120,8 +112,19 @@ export type ProviderModelRow = {
   id: string;
   name: string;
   reasoning: boolean;
+  /** True when the runtime did not identify reasoning support. */
+  reasoningEditable?: boolean;
   supportsImage: boolean;
   disabled: boolean;
+  contextWindow?: number;
+  /** True when contextWindow is user-supplied or missing from the runtime. */
+  contextWindowEditable?: boolean;
+  maxTokens?: number;
+  /** True when maxTokens is user-supplied or missing from the runtime. */
+  maxTokensEditable?: boolean;
+  input?: string[];
+  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  thinkingLevelMap?: Record<string, string | null>;
+  /** False when user may customize thinking map (no official map). */
+  thinkingMapEditable?: boolean;
 };
-
-

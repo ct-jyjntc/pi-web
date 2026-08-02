@@ -1,4 +1,8 @@
 import { isRecord } from "./type-guards";
+import {
+  thinkingLevelMapFromReasoningOptions,
+  type ThinkingLevelMap,
+} from "./thinking-level-map";
 
 export interface ModelCatalogCost {
   input?: number;
@@ -15,6 +19,8 @@ export interface ModelCatalogEntry {
   id: string;
   name: string;
   reasoning?: boolean;
+  /** Derived from models.dev reasoning_options.effort.values when present. */
+  thinkingLevelMap?: ThinkingLevelMap;
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
@@ -24,6 +30,7 @@ export interface ModelCatalogEntry {
 export interface ModelCatalogPreset {
   name?: string;
   reasoning?: boolean;
+  thinkingLevelMap?: ThinkingLevelMap;
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
@@ -179,18 +186,25 @@ function modeNumber(values: readonly number[]): number | undefined {
 }
 
 function metadataFromEntry(entry: ModelCatalogEntry): ModelCatalogPreset {
-  return {
+  const preset: ModelCatalogPreset = {
     name: entry.name,
     reasoning: entry.reasoning,
     input: entry.input,
     contextWindow: entry.contextWindow,
     maxTokens: entry.maxTokens,
   };
+  if (entry.thinkingLevelMap) preset.thinkingLevelMap = entry.thinkingLevelMap;
+  return preset;
 }
 
 function consensusMetadata(entries: readonly ModelCatalogEntry[]): ModelCatalogPreset {
   const total = entries.length;
-  return {
+  const thinkingLevelMap = modeValue(
+    entries.flatMap((entry) => entry.thinkingLevelMap ? [entry.thinkingLevelMap] : []),
+    total,
+    (value) => JSON.stringify(value),
+  );
+  const preset: ModelCatalogPreset = {
     name: modeValue(entries.map((entry) => entry.name), total, (value) => value.toLocaleLowerCase()),
     reasoning: modeValue(
       entries.flatMap((entry) => entry.reasoning === undefined ? [] : [entry.reasoning]),
@@ -213,6 +227,8 @@ function consensusMetadata(entries: readonly ModelCatalogEntry[]): ModelCatalogP
       String,
     ),
   };
+  if (thinkingLevelMap) preset.thinkingLevelMap = thinkingLevelMap;
+  return preset;
 }
 
 function priceFromEntry(
@@ -300,6 +316,8 @@ export function flattenModelsDevCatalog(value: unknown): ModelCatalogEntry[] {
       };
       if (providerBaseUrl) entry.providerBaseUrl = providerBaseUrl;
       if (typeof rawModel.reasoning === "boolean") entry.reasoning = rawModel.reasoning;
+      const thinkingLevelMap = thinkingLevelMapFromReasoningOptions(rawModel.reasoning_options);
+      if (thinkingLevelMap) entry.thinkingLevelMap = thinkingLevelMap;
       const input = readInputModalities(rawModel.modalities);
       if (input) entry.input = input;
       if (isRecord(rawModel.limit)) {

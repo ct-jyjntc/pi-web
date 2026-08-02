@@ -5,10 +5,24 @@ import { useLocale } from "@/hooks/useLocale";
 import { Icon } from "../Icon";
 import { Check as CheckIcon } from "lucide-react";
 import { Field, SecretTextInput, DetailStrip } from "./form-fields";
-import type { ApiKeyProvider } from "./models-config-types";
-import { ProviderModelsPanel } from "./ProviderModelsPanel";
+import { ConfigModelsEnablePanel } from "./ConfigModelsEnablePanel";
+import type { ApiKeyProvider, ProviderModelRow } from "./models-config-types";
 
-export function ApiKeyDetail({ provider, onRefresh, onModelsChanged }: { provider: ApiKeyProvider; onRefresh: () => void; onModelsChanged?: () => void }) {
+export function ApiKeyDetail({
+  provider,
+  onRefresh,
+  models,
+  modelsLoading = false,
+  modelsError = null,
+  onToggleModel,
+}: {
+  provider: ApiKeyProvider;
+  onRefresh: () => void;
+  models: readonly ProviderModelRow[];
+  modelsLoading?: boolean;
+  modelsError?: string | null;
+  onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
+}) {
   const { t } = useLocale();
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -66,7 +80,7 @@ export function ApiKeyDetail({ provider, onRefresh, onModelsChanged }: { provide
   }, [provider.id, onRefresh]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0, overflow: "auto" }}>
       <DetailStrip
         title={t("models.apiKey")}
         actions={(
@@ -78,12 +92,6 @@ export function ApiKeyDetail({ provider, onRefresh, onModelsChanged }: { provide
           </div>
         )}
       />
-
-      <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-        {provider.configured
-          ? t("models.apiKeyStored")
-          : t("models.enterApiKey")}
-      </p>
 
       <Field label={t("models.apiKey")}>
         <div style={{ display: "flex", gap: 6 }}>
@@ -133,16 +141,15 @@ export function ApiKeyDetail({ provider, onRefresh, onModelsChanged }: { provide
           {removing ? t("modal.removing") : t("modal.disconnect")}
         </button>
       )}
+      {provider.configured && (
+        <ConfigModelsEnablePanel
+          models={models}
+          loading={modelsLoading}
+          error={modelsError}
+          onToggleModel={onToggleModel}
+        />
+      )}
 
-      <ProviderModelsPanel
-        providerId={provider.id}
-        active={provider.configured}
-        onModelsChanged={onModelsChanged}
-      />
     </div>
   );
 }
-
-// ── Provider icon ─────────────────────────────────────────────────────────────
-
-

@@ -52,6 +52,25 @@ const TOKENRHYTHM_STATIC_MODELS: Model<"openai-completions">[] = [
     "maxTokens": 384000
   },
   {
+    "id": "deepseek-v4-flash-0731",
+    "name": "DeepSeek V4 Flash 0731",
+    "api": "openai-completions",
+    "provider": "tokenrhythm",
+    "baseUrl": "https://tokenrhythm.studio/v1",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1000000,
+    "maxTokens": 384000
+  },
+  {
     "id": "deepseek-v4-pro",
     "name": "DeepSeek V4 Pro",
     "api": "openai-completions",

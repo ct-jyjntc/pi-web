@@ -6,15 +6,18 @@ import { SettingsToggle } from "../SettingsToggle";
 import { Icon } from "../Icon";
 import { Check as CheckIcon } from "lucide-react";
 import { normalizeModelCost, type ModelCost } from "@/lib/model-cost";
-import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
+import type { ModelCatalogRecommendation } from "@/lib/model-catalog";
 import {
-  Field, TextInput, NumInput, Select, Check, SectionTitle, DetailStrip,
+  applyOfficialCatalogFields,
+  isCatalogExactMatch,
+} from "@/lib/model-catalog-apply";
+import {
+  Field, TextInput, NumInput, Select, Check, SectionTitle, DetailStrip, ReadOnlyValue,
 } from "./form-fields";
 import {
   API_OPTIONS,
   LEVEL_COLORS,
   THINKING_LEVELS,
-  type ModelCatalogState,
   type ModelEntry,
   type ModelTestState,
   type ProviderEntry,
@@ -31,10 +34,11 @@ export function ThinkingLevelMapEditor({
   const { t } = useLocale();
   const map = value ?? {};
 
-  const setLevel = (level: ThinkingLevel, entry: string | null | "omit") => {
+  const setLevel = (level: ThinkingLevel, entry: string | null | "default") => {
     const next = { ...map };
-    if (entry === "omit") {
-      delete next[level];
+    if (entry === "default") {
+      // Include level in user budget with standard API name.
+      next[level] = level;
     } else {
       next[level] = entry;
     }
@@ -45,9 +49,10 @@ export function ThinkingLevelMapEditor({
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {THINKING_LEVELS.map((level) => {
         const raw = map[level];
-        const state: "omit" | "null" | "string" =
-          !(level in map) ? "omit" : raw === null ? "null" : "string";
-        const strVal = typeof raw === "string" ? raw : "";
+        const inMap = level in map;
+        const state: "unset" | "default" | "null" | "string" =
+          !inMap ? "unset" : raw === null ? "null" : raw === level ? "default" : "string";
+        const strVal = state === "string" && typeof raw === "string" ? raw : "";
         const color = LEVEL_COLORS[level];
 
         return (
@@ -61,27 +66,26 @@ export function ThinkingLevelMapEditor({
               borderRadius: "var(--radius-sm)",
               background: "transparent",
               border: "1px solid transparent",
+              opacity: state === "unset" ? 0.75 : 1,
             }}
           >
-            {/* Level badge */}
             <div style={{ display: "flex", alignItems: "center", gap: 5, width: 68, flexShrink: 0 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0, opacity: state === "null" ? 0.3 : 1 }} />
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0, opacity: state === "null" || state === "unset" ? 0.3 : 1 }} />
               <span style={{
                 fontSize: 11,
                 fontFamily: "var(--font-mono)",
-                color: state === "null" ? "var(--text-dim)" : "var(--text-muted)",
+                color: state === "null" || state === "unset" ? "var(--text-dim)" : "var(--text-muted)",
                 textDecoration: state === "null" ? "line-through" : "none",
               }}>
                 {level}
               </span>
             </div>
 
-            {/* Default + Disabled buttons */}
             <div className="settings-segmented" style={{ minWidth: 0, flexShrink: 0 }}>
               <button
                 type="button"
-                onClick={() => setLevel(level, "omit")}
-                className={`chrome-btn${state === "omit" ? " is-active" : ""}`}
+                onClick={() => setLevel(level, "default")}
+                className={`chrome-btn${state === "default" ? " is-active" : ""}`}
               >
                 {t("models.thinkingDefault")}
               </button>
@@ -94,7 +98,6 @@ export function ThinkingLevelMapEditor({
               </button>
             </div>
 
-            {/* Custom button + input fused */}
             <div className="settings-segmented" style={{ minWidth: 0 }}>
               <button
                 type="button"
@@ -105,7 +108,7 @@ export function ThinkingLevelMapEditor({
                 {t("models.custom")}
               </button>
               <input
-                value={strVal}
+                value={state === "string" ? strVal : (state === "default" ? level : "")}
                 onChange={(e) => setLevel(level, e.target.value)}
                 onFocus={() => { if (state !== "string") setLevel(level, strVal || level); }}
                 placeholder={level}
@@ -114,7 +117,7 @@ export function ThinkingLevelMapEditor({
                   width: "12ch",
                   background: "transparent",
                   border: "none",
-                  color: state === "string" ? "var(--text)" : "var(--text-dim)",
+                  color: state === "string" || state === "default" ? "var(--text)" : "var(--text-dim)",
                   fontFamily: "var(--font-mono)",
                   fontSize: 11,
                   padding: "0 8px",
@@ -127,8 +130,83 @@ export function ThinkingLevelMapEditor({
     </div>
   );
 }
+export function ThinkingMapSummary({ map }: { map: Record<string, string | null> | undefined }) {
+  const { t } = useLocale();
+  return (
+    <div>
+      <SectionTitle>{t("models.thinkingMap")}</SectionTitle>
+      <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+        {map
+          ? Object.entries(map).map(([k, v]) => (
+              <div key={k} style={{ padding: "3px 0" }}>{k}: {v === null ? "—" : v}</div>
+            ))
+          : "—"}
+      </div>
+    </div>
+  );
+}
+
 
 // ── Model detail ──────────────────────────────────────────────────────────────
+
+
+export function seedThinkingBudgetMap(): Record<string, string | null> {
+  const seed: Record<string, string | null> = {};
+  for (const level of THINKING_LEVELS) seed[level] = level;
+  return seed;
+}
+
+/** Official map = read-only; otherwise a toggle to enable custom thinking budget + editor. */
+function ThinkingBudgetControls({
+  editable,
+  map,
+  onChangeMap,
+  deepseek,
+}: {
+  editable: boolean;
+  map: Record<string, string | null> | undefined;
+  onChangeMap: (v: Record<string, string | null> | undefined) => void;
+  deepseek?: { checked: boolean; onChange: (v: boolean) => void };
+}) {
+  const { t } = useLocale();
+  const budgetOn = !!map && Object.keys(map).length > 0;
+
+  if (!editable) {
+    return <ThinkingMapSummary map={map} />;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {deepseek && (
+        <Check
+          label={t("models.deepseekCompat")}
+          checked={deepseek.checked}
+          onChange={deepseek.onChange}
+        />
+      )}
+      <Check
+        label={t("models.thinkingBudget")}
+        checked={budgetOn}
+        onChange={(on) => onChangeMap(on ? seedThinkingBudgetMap() : undefined)}
+      />
+      {budgetOn && (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <SectionTitle>{t("models.thinkingMap")}</SectionTitle>
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              onClick={() => onChangeMap(undefined)}
+            >
+              {t("models.clearAll")}
+            </button>
+          </div>
+          <ThinkingLevelMapEditor value={map} onChange={onChangeMap} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export const DEEPSEEK_COMPAT = {
   thinkingFormat: "deepseek",
@@ -139,46 +217,6 @@ export function hasDeepseekCompat(model: ModelEntry): boolean {
   return model.compat?.thinkingFormat === "deepseek";
 }
 
-export function fillEmptyModelFields(
-  model: ModelEntry,
-  preset: ModelCatalogPreset,
-): { model: ModelEntry; appliedCount: number } {
-  const next = { ...model };
-  let appliedCount = 0;
-  if (!model.name?.trim() && preset.name) {
-    next.name = preset.name;
-    appliedCount += 1;
-  }
-  if (model.reasoning === undefined && preset.reasoning === true) {
-    next.reasoning = true;
-    appliedCount += 1;
-  }
-  if (!model.input?.length && preset.input?.length) {
-    next.input = [...preset.input];
-    appliedCount += 1;
-  }
-  if (model.contextWindow === undefined && preset.contextWindow !== undefined) {
-    next.contextWindow = preset.contextWindow;
-    appliedCount += 1;
-  }
-  if (model.maxTokens === undefined && preset.maxTokens !== undefined) {
-    next.maxTokens = preset.maxTokens;
-    appliedCount += 1;
-  }
-  if (preset.cost) {
-    const cost = { ...(model.cost ?? {}) } as ModelCost;
-    let costChanged = false;
-    for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
-      if (cost[key] === undefined && preset.cost[key] !== undefined) {
-        cost[key] = preset.cost[key]!;
-        costChanged = true;
-        appliedCount += 1;
-      }
-    }
-    if (costChanged) next.cost = normalizeModelCost(cost);
-  }
-  return { model: next, appliedCount };
-}
 
 export function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEntry {
   if (enabled) {
@@ -190,6 +228,8 @@ export function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEnt
   delete rest.requiresReasoningContentOnAssistantMessages;
   return { ...model, compat: Object.keys(rest).length ? rest : undefined };
 }
+
+
 
 export function ModelDetail({
   providerName,
@@ -209,16 +249,21 @@ export function ModelDetail({
 }) {
   const { t } = useLocale();
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
-  const [catalogState, setCatalogState] = useState<ModelCatalogState>({ phase: "idle" });
   const catalogRequestIdRef = useRef(0);
-  const catalogUndoRef = useRef<ModelEntry | null>(null);
+  const modelRef = useRef(model);
+  const onChangeRef = useRef(onChange);
+  modelRef.current = model;
+  onChangeRef.current = onChange;
+
+  const officialLocked = managed;
+  // Identified official thinking map → lock; otherwise user may customize.
+  const thinkingMapEditable = !model.thinkingMapLocked;
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
   const costVal = (k: keyof ModelCost) => {
     const n = model.cost?.[k];
     return n !== undefined && n !== null ? String(n) : "";
   };
   const setCost = (k: keyof ModelCost, v: string) => {
-    // Empty / invalid → 0; always keep full cost object with all four keys.
     const next = normalizeModelCost({ ...(model.cost ?? {}), [k]: v.trim() === "" ? 0 : v });
     onChange({ ...model, cost: next });
   };
@@ -239,11 +284,70 @@ export function ModelDetail({
     setTestState({ phase: "idle" });
   }, [providerName, provider.baseUrl, provider.api, provider.apiKey, model.id, model.api]);
 
+  // Auto-recognize models.dev exact matches and lock official fields.
+  // Free managed providers already ship official metadata; skip remote lookup.
   useEffect(() => {
-    catalogRequestIdRef.current += 1;
-    setCatalogState({ phase: "idle" });
-    catalogUndoRef.current = null;
-  }, [providerName, provider.baseUrl, model.id]);
+    const clearThinkingMapLock = () => {
+      const current = modelRef.current;
+      if (!current.thinkingMapLocked) return;
+      const next = { ...current };
+      delete next.thinkingMapLocked;
+      onChangeRef.current(next);
+    };
+
+    if (managed) {
+      catalogRequestIdRef.current += 1;
+      return;
+    }
+
+    const query = model.id.trim();
+    if (!query) {
+      catalogRequestIdRef.current += 1;
+      clearThinkingMapLock();
+      return;
+    }
+
+    const requestId = ++catalogRequestIdRef.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const params = new URLSearchParams({ q: query, provider: providerName, limit: "50" });
+          if (provider.baseUrl?.trim()) params.set("baseUrl", provider.baseUrl.trim());
+          const res = await fetch(`/api/models-config/catalog?${params}`);
+          const data = await res.json() as { recommendation?: ModelCatalogRecommendation; error?: string };
+          if (requestId !== catalogRequestIdRef.current) return;
+          if (!res.ok || data.error || !data.recommendation) {
+            console.warn("[models-config] catalog lookup failed", data.error ?? `HTTP ${res.status}`);
+            return;
+          }
+
+          const recommendation = data.recommendation;
+          if (!isCatalogExactMatch(recommendation)) {
+            clearThinkingMapLock();
+            return;
+          }
+
+          const applied = applyOfficialCatalogFields(modelRef.current, recommendation.preset);
+          const next = { ...applied.model };
+          if (recommendation.preset.thinkingLevelMap) {
+            next.thinkingMapLocked = true;
+          } else if (next.thinkingMapLocked) {
+            delete next.thinkingMapLocked;
+          }
+          if (applied.changed || next.thinkingMapLocked !== modelRef.current.thinkingMapLocked) {
+            onChangeRef.current(next);
+          }
+        } catch (error) {
+          if (requestId !== catalogRequestIdRef.current) return;
+          console.warn("[models-config] catalog lookup failed", error);
+        }
+      })();
+    }, 280);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [managed, model.id, provider.baseUrl, providerName]);
 
   const handleTest = useCallback(async () => {
     if (!model.id.trim() || testState.phase === "testing") return;
@@ -281,93 +385,13 @@ export function ModelDetail({
     }
   }, [model, provider, providerName, testState.phase]);
 
-  const handleCatalogFill = useCallback(async () => {
-    const query = model.id.trim();
-    if (managed || !query || catalogState.phase === "loading") return;
-    const requestId = ++catalogRequestIdRef.current;
-    setCatalogState({ phase: "loading" });
-    try {
-      const params = new URLSearchParams({ q: query, provider: providerName, limit: "50" });
-      if (provider.baseUrl?.trim()) params.set("baseUrl", provider.baseUrl.trim());
-      const res = await fetch(`/api/models-config/catalog?${params}`);
-      const data = await res.json() as { recommendation?: ModelCatalogRecommendation; error?: string };
-      if (requestId !== catalogRequestIdRef.current) return;
-      if (!res.ok || data.error || !data.recommendation) {
-        setCatalogState({ phase: "error", message: data.error ?? `HTTP ${res.status}` });
-        return;
-      }
-      const filled = fillEmptyModelFields(model, data.recommendation.preset);
-      if (filled.appliedCount > 0) {
-        catalogUndoRef.current = model;
-        onChange(filled.model);
-      }
-      setCatalogState({
-        phase: "success",
-        recommendation: data.recommendation,
-        appliedCount: filled.appliedCount,
-      });
-    } catch (error) {
-      if (requestId !== catalogRequestIdRef.current) return;
-      setCatalogState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
-    }
-  }, [catalogState.phase, managed, model, onChange, provider.baseUrl, providerName]);
-
-  const undoCatalogFill = () => {
-    const previous = catalogUndoRef.current;
-    if (!previous) return;
-    catalogUndoRef.current = null;
-    onChange(previous);
-    setCatalogState({ phase: "idle" });
-  };
-
-  const catalogResultSummary = (() => {
-    if (catalogState.phase !== "success") return null;
-    const { recommendation, appliedCount } = catalogState;
-    const applied = appliedCount > 0
-      ? t("models.catalogFilled", { count: appliedCount })
-      : t("models.catalogNoEmptyFields");
-    if (recommendation.price.status === "unreliable") {
-      const price = recommendation.price.reason === "no-exact-match"
-        ? t("models.catalogNoExactMatch")
-        : t("models.catalogPriceUnreliable");
-      return `${applied} · ${price}`;
-    }
-    const price = recommendation.price.method === "provider"
-      ? t("models.catalogPriceProvider", { provider: recommendation.price.providerName ?? recommendation.price.providerId ?? providerName })
-      : recommendation.price.method === "base-url"
-        ? t("models.catalogPriceBaseUrl", { provider: recommendation.price.providerName ?? recommendation.price.providerId ?? providerName })
-        : t("models.catalogPriceConsensus", {
-            support: recommendation.price.support,
-            total: recommendation.price.total,
-          });
-    return `${applied} · ${price}`;
-  })();
-  const catalogStatusText = catalogState.phase === "error"
-    ? catalogState.message
-    : catalogResultSummary;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0, overflow: "auto" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <DetailStrip
         title={t("models.model")}
         actions={(
           <>
-          {!managed && (
-            <button
-              type="button"
-              className="btn-ghost btn-compact"
-              onClick={() => void handleCatalogFill()}
-              disabled={!model.id.trim() || catalogState.phase === "loading"}
-              title={t("models.catalogFill")}
-            >
-              {catalogState.phase === "loading" ? t("models.catalogFilling") : t("models.catalogFill")}
-            </button>
-          )}
-          {catalogState.phase === "success" && catalogUndoRef.current && (
-            <button type="button" className="btn-ghost btn-compact" onClick={undoCatalogFill}>
-              {t("models.catalogUndo")}
-            </button>
-          )}
           {testSummary && (
             <span
               title={testSummary}
@@ -434,39 +458,8 @@ export function ModelDetail({
         )}
       />
 
-      {catalogStatusText && (
-        <div
-          style={{
-            fontSize: 12,
-            color: catalogState.phase === "error" ? "var(--destructive)" : "var(--text-muted)",
-            background: catalogState.phase === "error" ? "var(--destructive-bg)" : "var(--bg-subtle)",
-            border: `1px solid ${catalogState.phase === "error" ? "var(--destructive-border)" : "var(--border)"}`,
-            borderRadius: "var(--radius-sm)",
-            padding: "8px 10px",
-            lineHeight: 1.45,
-          }}
-        >
-          {catalogStatusText}
-        </div>
-      )}
-
-      {managed && (
-        <div
-          style={{
-            fontSize: 12,
-            color: "var(--text-muted)",
-            background: "var(--bg-subtle)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm)",
-            padding: "8px 10px",
-            lineHeight: 1.45,
-          }}
-        >
-          {t("models.freeModelNotice")}
-        </div>
-      )}
-
-      {model.disabled && (
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        {model.disabled && (
         <div
           style={{
             fontSize: 12,
@@ -481,87 +474,125 @@ export function ModelDetail({
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: managed ? "1fr" : "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label={t("models.idRequired")}>
           {managed ? (
-            <div className="input-base input-mono" style={{ opacity: 0.85, cursor: "default" }}>{model.id}</div>
+            <ReadOnlyValue mono>{model.id}</ReadOnlyValue>
           ) : (
             <TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono />
           )}
         </Field>
-        {!managed && (
-          <Field label={t("shell.name")}><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayName")} /></Field>
-        )}
+        <Field label={t("shell.name")}>
+          {officialLocked ? (
+            <ReadOnlyValue>{model.name?.trim() || model.id || "—"}</ReadOnlyValue>
+          ) : (
+            <TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayName")} />
+          )}
+        </Field>
       </div>
 
-      {managed ? null : (
-      <>
-
-      <Field label={t("models.apiOverride")}>
-        <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
-      </Field>
-
-      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-        <Check label={t("models.reasoning")} checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />
-        <Check label={t("models.imageInput")} checked={model.input?.includes("image") ?? false}
-          onChange={(v) => set("input", v ? ["text", "image"] : undefined)} />
-      </div>
-
-      {model.reasoning && (
+      {/* Free managed: only official summary. Catalog-locked + editable share the rest. */}
+      {managed ? (
         <>
-          <Check
-            label={t("models.deepseekCompat")}
-            checked={hasDeepseekCompat(model)}
-            onChange={(v) => onChange(setDeepseekCompat(model, v))}
-          />
-          <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <SectionTitle>{t("models.thinkingMap")}</SectionTitle>
-              {model.thinkingLevelMap && (
-                <button
-                  type="button"
-                  className="btn-ghost btn-compact"
-                  onClick={() => set("thinkingLevelMap", undefined)}
-                >
-                  {t("models.clearAll")}
-                </button>
-              )}
-            </div>
-            <ThinkingLevelMapEditor
-              value={model.thinkingLevelMap}
-              onChange={(v) => set("thinkingLevelMap", v)}
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 12, color: "var(--text-muted)" }}>
+            <span>{t("models.reasoning")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.reasoning ? "✓" : "—"}</strong></span>
+            <span>{t("models.imageInput")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.input?.includes("image") ? "✓" : "—"}</strong></span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label={t("models.contextWindow")}>
+              <ReadOnlyValue mono>{model.contextWindow !== undefined ? String(model.contextWindow) : "—"}</ReadOnlyValue>
+            </Field>
+            <Field label={t("models.maxOutput")}>
+              <ReadOnlyValue mono>{model.maxTokens !== undefined ? String(model.maxTokens) : "—"}</ReadOnlyValue>
+            </Field>
+          </div>
+          {model.reasoning && (
+            <ThinkingBudgetControls
+              editable={thinkingMapEditable}
+              map={model.thinkingLevelMap}
+              onChangeMap={(v) => {
+                if (!v) onChange({ ...model, thinkingLevelMap: undefined, thinkingMapLocked: undefined });
+                else set("thinkingLevelMap", v);
+              }}
             />
+          )}
+        </>
+      ) : (
+        <>
+          <Field label={t("models.apiOverride")}>
+            <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
+          </Field>
+
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+            {officialLocked ? (
+              <>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {t("models.reasoning")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.reasoning ? "✓" : "—"}</strong>
+                </span>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {t("models.imageInput")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.input?.includes("image") ? "✓" : "—"}</strong>
+                </span>
+              </>
+            ) : (
+              <>
+                <Check label={t("models.reasoning")} checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />
+                <Check label={t("models.imageInput")} checked={model.input?.includes("image") ?? false}
+                  onChange={(v) => set("input", v ? ["text", "image"] : undefined)} />
+              </>
+            )}
+          </div>
+
+          {model.reasoning && (
+            <ThinkingBudgetControls
+              editable={thinkingMapEditable}
+              map={model.thinkingLevelMap}
+              onChangeMap={(v) => {
+                if (!v) onChange({ ...model, thinkingLevelMap: undefined, thinkingMapLocked: undefined });
+                else set("thinkingLevelMap", v);
+              }}
+              deepseek={{
+                checked: hasDeepseekCompat(model),
+                onChange: (v) => onChange(setDeepseekCompat(model, v)),
+              }}
+            />
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label={t("models.contextWindow")}>
+              {officialLocked && model.contextWindow !== undefined ? (
+                <ReadOnlyValue mono>{String(model.contextWindow)}</ReadOnlyValue>
+              ) : (
+                <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
+                  onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
+              )}
+            </Field>
+            <Field label={t("models.maxOutput")}>
+              {officialLocked && model.maxTokens !== undefined ? (
+                <ReadOnlyValue mono>{String(model.maxTokens)}</ReadOnlyValue>
+              ) : (
+                <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
+                  onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
+              )}
+            </Field>
+          </div>
+
+          <div>
+            <SectionTitle>{t("models.cost")}</SectionTitle>
+            <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+              {(["input", "output", "cacheRead", "cacheWrite"] as const).map((k) => (
+                <Field key={k} label={k}>
+                  {officialLocked ? (
+                    <ReadOnlyValue mono>{costVal(k) || "0"}</ReadOnlyValue>
+                  ) : (
+                    <NumInput value={costVal(k)} onChange={(v) => setCost(k, v)} placeholder="0" />
+                  )}
+                </Field>
+              ))}
+            </div>
           </div>
         </>
       )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label={t("models.contextWindow")}>
-          <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
-            onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
-        </Field>
-        <Field label={t("models.maxOutput")}>
-          <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
-            onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
-        </Field>
       </div>
-
-      <div>
-        <SectionTitle>{t("models.cost")}</SectionTitle>
-        <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-          {(["input", "output", "cacheRead", "cacheWrite"] as const).map((k) => (
-            <Field key={k} label={k}>
-              <NumInput value={costVal(k)} onChange={(v) => setCost(k, v)} placeholder="0" />
-            </Field>
-          ))}
-        </div>
-      </div>
-      </>
-      )}
     </div>
   );
 }
-
-// ── Built-in provider model list (API key / OAuth) ────────────────────────────
-
-

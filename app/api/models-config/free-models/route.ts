@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { filterFreeModelIds, getFreeProvider, type FreeProviderId } from "@/lib/free-providers";
+import {
+  buildFreeModelEntries,
+  getFreeProvider,
+  type FreeProviderId,
+} from "@/lib/free-providers";
+import { loadModelsDevCatalogDetailed } from "@/lib/models-dev-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +14,11 @@ type OpenAiModelsResponse = {
   data?: Array<{ id?: unknown }>;
 };
 
+/**
+ * Free provider model list.
+ * Invariant: provider /models is required; models.dev enrichment is optional and
+ * always reports catalogSource (never a silent empty catch in this route).
+ */
 export async function GET(req: Request) {
   const providerId = new URL(req.url).searchParams.get("provider") as FreeProviderId | null;
   const def = getFreeProvider(providerId);
@@ -39,7 +49,11 @@ export async function GET(req: Request) {
     const rawIds = Array.isArray(json?.data)
       ? json.data.map((m) => (typeof m?.id === "string" ? m.id : "")).filter(Boolean)
       : [];
-    const models = filterFreeModelIds(def, rawIds).map((id) => ({ id, name: id }));
+
+    // Single owner soft-fail: loadModelsDevCatalogDetailed always returns a source.
+    const catalogLoad = await loadModelsDevCatalogDetailed();
+    const models = buildFreeModelEntries(def, rawIds, catalogLoad.entries);
+
     return NextResponse.json({
       provider: def.id,
       providerKey: def.providerKey,
@@ -47,6 +61,8 @@ export async function GET(req: Request) {
       baseUrl: def.baseUrl,
       api: def.api,
       models,
+      catalogSource: catalogLoad.source,
+      degraded: catalogLoad.source === "stale" || catalogLoad.source === "none",
     });
   } catch (error) {
     const message = error instanceof Error

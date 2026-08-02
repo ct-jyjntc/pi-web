@@ -3,10 +3,24 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { DetailStrip } from "./form-fields";
-import type { OAuthProvider, OAuthLoginState } from "./models-config-types";
-import { ProviderModelsPanel } from "./ProviderModelsPanel";
+import { ConfigModelsEnablePanel } from "./ConfigModelsEnablePanel";
+import type { OAuthProvider, OAuthLoginState, ProviderModelRow } from "./models-config-types";
 
-export function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuthProvider; onRefresh: () => void; onModelsChanged?: () => void }) {
+export function OAuthDetail({
+  provider,
+  onRefresh,
+  models,
+  modelsLoading = false,
+  modelsError = null,
+  onToggleModel,
+}: {
+  provider: OAuthProvider;
+  onRefresh: () => void;
+  models: readonly ProviderModelRow[];
+  modelsLoading?: boolean;
+  modelsError?: string | null;
+  onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
+}) {
   const { t } = useLocale();
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
   const [inputValue, setInputValue] = useState("");
@@ -131,7 +145,7 @@ export function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider
     loginState.phase === "prompt" || loginState.phase === "select";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0, overflow: "auto" }}>
       <DetailStrip
         title={t("models.subscription")}
         actions={(
@@ -270,15 +284,16 @@ export function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider
         )}
       </div>
 
-      <ProviderModelsPanel
-        providerId={provider.id}
-        active={provider.loggedIn}
-        onModelsChanged={onModelsChanged}
-      />
+      {provider.loggedIn && (
+        <ConfigModelsEnablePanel
+          models={models}
+          loading={modelsLoading}
+          error={modelsError}
+          onToggleModel={onToggleModel}
+        />
+      )}
     </div>
   );
 }
 
 // ── API Key detail ────────────────────────────────────────────────────────────
-
-

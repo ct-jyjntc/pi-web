@@ -24,16 +24,22 @@ export function ChatInputThinkingMenu({
   setThinkingDropdownOpen,
 }: ChatInputThinkingMenuProps) {
   const { t } = useLocale();
+  const hasUserMap = !!(thinkingLevelMap && Object.keys(thinkingLevelMap).length > 0);
+
   return (
     <div className="menu-card" style={style}>
       {THINKING_LEVELS.filter((lvl) => {
-        if (!availableThinkingLevels) return true;
         if (lvl === "auto") return true;
+        // User/config map fully owns the picker — do not merge with SDK defaults.
+        if (hasUserMap) {
+          if (!(lvl in thinkingLevelMap!)) return false;
+          return thinkingLevelMap![lvl] !== null;
+        }
+        if (!availableThinkingLevels) return true;
         return availableThinkingLevels.includes(lvl);
       }).map((lvl) => {
         const isActive = (thinkingLevel ?? "auto") === lvl;
         const label = t(THINKING_LEVEL_KEYS[lvl]);
-        // Provider-facing token when the model remaps this level (e.g. xhigh→max).
         const mappedVal = (lvl !== "auto" && thinkingLevelMap) ? thinkingLevelMap[lvl] : undefined;
         const showMapped = mappedVal != null && mappedVal !== "" && mappedVal !== lvl;
         return (

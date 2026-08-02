@@ -2056,15 +2056,17 @@ textarea.input-base:focus-visible {
   justify-content: space-between;
   gap: 10px;
   min-height: 32px;
-  margin: 0 0 12px;
-  padding-bottom: 10px;
+  margin: 0 0 8px;
+  padding: 2px 0 8px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow: visible;
 }
 .modal-field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-bottom: 12px;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 .modal-field-label {
   font-size: 11px;
@@ -3695,4 +3697,3 @@ textarea.input-base:focus-visible {
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
 }
-

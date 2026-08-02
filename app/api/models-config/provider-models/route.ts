@@ -6,20 +6,18 @@ import {
 } from "@/lib/disabled-models";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
+import { projectBuiltinProviderModel } from "@/lib/builtin-provider-models";
 
 export const dynamic = "force-dynamic";
 
-type ProviderModelRow = {
-  id: string;
-  name: string;
-  reasoning: boolean;
-  supportsImage: boolean;
-  disabled: boolean;
-};
-
 /**
- * GET ?provider=id
- * List runtime models for a built-in API-key / OAuth provider with disabled flags.
+ * Built-in provider model list (read + enable/disable).
+ *
+ * Owns: listing + disabled flags + live refresh status.
+ * Does not own field overrides — see /api/models-config/model-overrides.
+ *
+ * Invariant: one refresh path; response always includes `live` (true if network
+ * refresh succeeded). Soft-fail continues with static/last store when live=false.
  */
 export async function GET(req: Request) {
   const provider = new URL(req.url).searchParams.get("provider")?.trim() ?? "";
@@ -34,15 +32,21 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 404 });
     }
 
+    let live = false;
+    try {
+      await modelRuntime.refresh({ allowNetwork: true });
+      live = true;
+    } catch (error) {
+      // Single soft recovery: keep registered catalog, signal degraded.
+      console.warn(`[provider-models] refresh failed for ${provider}; using last store`, error);
+      live = false;
+    }
+
     const disabled = getDisabledModelRefs();
-    const models: ProviderModelRow[] = modelRuntime.getModels(provider).map((m) => ({
-      id: m.id,
-      name: m.name || m.id,
-      reasoning: !!m.reasoning,
-      supportsImage: Array.isArray(m.input) && m.input.includes("image"),
-      disabled: disabled.has(`${provider}/${m.id}`),
-    })).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-      || a.id.localeCompare(b.id));
+    const models = modelRuntime.getModels(provider)
+      .map((m) => projectBuiltinProviderModel(provider, m, disabled.has(`${provider}/${m.id}`)))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+        || a.id.localeCompare(b.id));
 
     const enabledCount = models.filter((m) => !m.disabled).length;
     return NextResponse.json({
@@ -50,6 +54,8 @@ export async function GET(req: Request) {
       displayName: def.name,
       modelCount: models.length,
       enabledCount,
+      live,
+      degraded: !live,
       models,
     });
   } catch (error) {

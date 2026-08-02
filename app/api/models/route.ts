@@ -3,6 +3,8 @@ import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { filterDisabledModels, getDisabledModelRefs } from "@/lib/disabled-models";
+import { applyThinkingMapOverrides } from "@/lib/model-overrides";
+import { availableThinkingLevelsFromMap } from "@/lib/thinking-level-map";
 import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { readWebSettings } from "@/lib/web-settings";
@@ -62,9 +64,18 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   for (const m of visible) {
     const key = `${m.provider}:${m.id}`;
     nameMap.set(key, m.name);
-    thinkingLevels[key] = getSupportedThinkingLevels(m);
     if (m.thinkingLevelMap) thinkingLevelMaps[key] = m.thinkingLevelMap;
     imageSupport[key] = Array.isArray(m.input) && m.input.includes("image");
+  }
+
+  // User / models.json maps + built-in overrides, then derive picker levels from maps.
+  const resolvedMaps = applyThinkingMapOverrides(thinkingLevelMaps);
+  for (const m of visible) {
+    const key = `${m.provider}:${m.id}`;
+    thinkingLevels[key] = availableThinkingLevelsFromMap(
+      resolvedMaps[key],
+      getSupportedThinkingLevels(m),
+    );
   }
 
   // Prefer Pi Web role default for new sessions; fall back to settings.json default.
@@ -106,7 +117,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
       modelList,
       defaultModel,
       thinkingLevels,
-      thinkingLevelMaps,
+      thinkingLevelMaps: resolvedMaps,
       thinkingLevelPins,
       imageSupport,
       ...(scope.warnings.length > 0 ? { modelScopeWarnings: scope.warnings } : {}),

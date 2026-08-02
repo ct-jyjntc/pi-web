@@ -10,18 +10,20 @@ import { ConfigPanelBackdrop, ConfigPanelShell } from "../ConfigPanelShell";
 import {
   getFreeProvider,
   isFreeManagedProvider,
+  mergeFreeModelEntries,
+  type FreeModelEntry,
   type FreeProviderDefinition,
   type FreeProviderId,
 } from "@/lib/free-providers";
 import { Icon } from "../Icon";
 import { Check as CheckIcon, Cpu } from "lucide-react";
 import { normalizeModelCost } from "@/lib/model-cost";
-import type { DiscoveredModel } from "@/lib/model-discovery";
 import { navRowClass } from "./form-fields";
 import {
   type ModelsJson,
   type ModelEntry,
   type ProviderEntry,
+  type ProviderModelRow,
   type Selection,
   type OAuthProvider,
   type ApiKeyProvider,
@@ -30,6 +32,7 @@ import {
 import { ProviderIcon } from "./provider-icons";
 import { ProviderDetail } from "./ProviderDetail";
 import { ModelDetail } from "./ModelDetail";
+import { BuiltinModelDetail } from "./BuiltinModelDetail";
 import { OAuthDetail } from "./OAuthDetail";
 import { ApiKeyDetail } from "./ApiKeyDetail";
 import { AddProviderPicker } from "./AddProviderPicker";
@@ -60,34 +63,37 @@ export function ModelsConfig({
   const [freeBusyId, setFreeBusyId] = useState<FreeProviderId | null>(null);
   const [freeRefreshKey, setFreeRefreshKey] = useState<string | null>(null);
   const [freeRefreshError, setFreeRefreshError] = useState<string | null>(null);
+  /** Built-in API-key / OAuth provider model catalogs for the unified settings UI. */
+  const [builtinModelsByProvider, setBuiltinModelsByProvider] = useState<Record<string, ProviderModelRow[]>>({});
+  const [builtinModelsLoading, setBuiltinModelsLoading] = useState<Record<string, boolean>>({});
+  const [builtinModelsError, setBuiltinModelsError] = useState<Record<string, string | null>>({});
   // JSON snapshot of the last loaded/saved config; closing with unsaved
   // edits (config differing from this) asks for confirmation instead of
   // silently discarding them.
   const savedConfigJsonRef = useRef<string>(JSON.stringify({ providers: {} }));
+  const configRef = useRef(config);
+  configRef.current = config;
 
-  const mergeFreeModels = useCallback((existing: ModelEntry[] | undefined, fetched: Array<{ id: string; name?: string }>): ModelEntry[] => {
-    const prevById = new Map((existing ?? []).map((m) => [m.id, m]));
-    return fetched.map((item) => {
-      const prev = prevById.get(item.id);
-      if (prev) {
-        return normalizeModelEntry({
-          ...prev,
-          id: item.id,
-          name: prev.name || item.name || item.id,
-        });
-      }
-      return normalizeModelEntry({
-        id: item.id,
-        name: item.name || item.id,
-        cost: normalizeModelCost(null),
-      });
-    });
+  const mergeFreeModels = useCallback((existing: ModelEntry[] | undefined, fetched: FreeModelEntry[]): ModelEntry[] => {
+    return mergeFreeModelEntries(existing, fetched).map((entry) => normalizeModelEntry(entry));
   }, []);
+  const buildFreeProviderEntry = useCallback((
+    def: FreeProviderDefinition,
+    provider: ProviderEntry | undefined,
+    models: FreeModelEntry[],
+  ): ProviderEntry => ({
+    ...(provider ?? {}),
+    managed: def.id,
+    baseUrl: def.baseUrl,
+    api: def.api,
+    apiKey: def.apiKey,
+    models: mergeFreeModels(provider?.models, models),
+  }), [mergeFreeModels]);
 
   const fetchFreeModels = useCallback(async (def: FreeProviderDefinition) => {
     const res = await fetch(`/api/models-config/free-models?provider=${encodeURIComponent(def.id)}`);
     const d = await res.json() as {
-      models?: Array<{ id: string; name?: string }>;
+      models?: FreeModelEntry[];
       error?: string;
     };
     if (!res.ok || d.error) throw new Error(d.error ?? `HTTP ${res.status}`);
@@ -112,13 +118,7 @@ export function ModelsConfig({
     setFreeRefreshError(null);
     try {
       const models = await fetchFreeModels(def);
-      const entry: ProviderEntry = {
-        managed: def.id,
-        baseUrl: def.baseUrl,
-        api: def.api,
-        apiKey: def.apiKey,
-        models: mergeFreeModels(undefined, models),
-      };
+      const entry = buildFreeProviderEntry(def, undefined, models);
       setConfig((prev) => ({
         ...prev,
         providers: { ...(prev.providers ?? {}), [def.providerKey]: entry },
@@ -133,7 +133,7 @@ export function ModelsConfig({
     } finally {
       setFreeBusyId(null);
     }
-  }, [config.providers, fetchFreeModels, mergeFreeModels, t]);
+  }, [config.providers, buildFreeProviderEntry, fetchFreeModels, t]);
 
   const refreshFreeProviderModels = useCallback(async (providerKey: string) => {
     const provider = config.providers?.[providerKey];
@@ -150,14 +150,7 @@ export function ModelsConfig({
           ...prev,
           providers: {
             ...(prev.providers ?? {}),
-            [providerKey]: {
-              ...current,
-              managed: def.id,
-              baseUrl: def.baseUrl,
-              api: def.api,
-              apiKey: def.apiKey,
-              models: mergeFreeModels(current.models, models),
-            },
+            [providerKey]: buildFreeProviderEntry(def, current, models),
           },
         };
       });
@@ -166,7 +159,7 @@ export function ModelsConfig({
     } finally {
       setFreeRefreshKey(null);
     }
-  }, [config.providers, fetchFreeModels, mergeFreeModels]);
+  }, [config.providers, buildFreeProviderEntry, fetchFreeModels]);
 
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -215,6 +208,57 @@ export function ModelsConfig({
       .finally(() => setLoading(false));
     refreshAuthProviders();
   }, [refreshAuthProviders]);
+
+  // Free provider official fields (context/reasoning/thinking map) come from
+  // models.dev and can gain new keys over time. Re-sync once per settings open;
+  // persist only when the merged models actually change.
+  const freeMetadataBackfillRef = useRef(false);
+  useEffect(() => {
+    if (loading || freeMetadataBackfillRef.current) return;
+    const providers = config.providers ?? {};
+    const freeEntries = Object.entries(providers).filter(([, provider]) => isFreeManagedProvider(provider));
+    freeMetadataBackfillRef.current = true;
+    if (freeEntries.length === 0) return;
+
+    void (async () => {
+      const updates = new Map<string, { def: FreeProviderDefinition; models: FreeModelEntry[] }>();
+      let changed = false;
+      for (const [key, provider] of freeEntries) {
+        const def = getFreeProvider(typeof provider.managed === "string" ? provider.managed : undefined);
+        if (!def) continue;
+        try {
+          const models = await fetchFreeModels(def);
+          const merged = buildFreeProviderEntry(def, provider, models);
+          if (JSON.stringify(merged.models) === JSON.stringify(provider.models ?? [])) continue;
+          updates.set(key, { def, models });
+          changed = true;
+        } catch (e) {
+          setFreeRefreshError(e instanceof Error ? e.message : String(e));
+        }
+      }
+      if (!changed) return;
+      const latestProviders = { ...(configRef.current.providers ?? {}) };
+      for (const [key, update] of updates) {
+        const current = latestProviders[key];
+        if (!current || !isFreeManagedProvider(current)) continue;
+        latestProviders[key] = buildFreeProviderEntry(update.def, current, update.models);
+      }
+      const payload = { ...configRef.current, providers: latestProviders };
+      setConfig(payload);
+      try {
+        const res = await fetch("/api/models-config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) return;
+        savedConfigJsonRef.current = JSON.stringify(payload);
+        onModelsChanged?.();
+      } catch {
+        // Keep enriched editor state; user can save manually.
+      }
+    })();
+  }, [loading, config, buildFreeProviderEntry, fetchFreeModels, onModelsChanged]);
 
   const addCustomProvider = useCallback(() => {
     let finalName = "new-provider";
@@ -273,31 +317,6 @@ export function ModelsConfig({
     });
   }, []);
 
-  const addDiscoveredModels = useCallback((providerName: string, models: DiscoveredModel[]) => {
-    if (models.length === 0) return;
-    setConfig((prev) => {
-      const provider = prev.providers?.[providerName] ?? {};
-      const existing = new Set((provider.models ?? []).map((m) => m.id));
-      const additions: ModelEntry[] = models
-        .filter((m) => m.id && !existing.has(m.id))
-        .map((m) => ({
-          id: m.id,
-          name: m.name,
-          cost: normalizeModelCost(null),
-        }));
-      if (additions.length === 0) return prev;
-      return {
-        ...prev,
-        providers: {
-          ...(prev.providers ?? {}),
-          [providerName]: {
-            ...provider,
-            models: [...(provider.models ?? []), ...additions],
-          },
-        },
-      };
-    });
-  }, []);
 
   const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
     setConfig((prev) => {
@@ -383,6 +402,69 @@ export function ModelsConfig({
   // report as configured — keep a single sidebar row under Subscriptions.
   const activeOAuthIds = new Set(activeOAuth.map((p) => p.id));
   const activeApiKey = apiKeyProviders.filter((p) => p.configured && !activeOAuthIds.has(p.id));
+  const activeBuiltinProviders = [
+    ...activeOAuth.map((p) => ({ id: p.id, label: p.name, type: "oauth" as const })),
+    ...activeApiKey.map((p) => ({ id: p.id, label: p.displayName, type: "apikey" as const })),
+  ];
+
+  const builtinProviderIdsKey = [
+    ...activeOAuth.map((p) => p.id),
+    ...activeApiKey.map((p) => p.id),
+  ].join("\0");
+
+  useEffect(() => {
+    const ids = builtinProviderIdsKey ? builtinProviderIdsKey.split("\0").filter(Boolean) : [];
+    if (ids.length === 0) {
+      setBuiltinModelsByProvider({});
+      setBuiltinModelsLoading({});
+      setBuiltinModelsError({});
+      return;
+    }
+    const loadingState = Object.fromEntries(ids.map((id) => [id, true]));
+    const errorState = Object.fromEntries(ids.map((id) => [id, null]));
+    setBuiltinModelsLoading(loadingState);
+    setBuiltinModelsError(errorState);
+    let cancelled = false;
+    void (async () => {
+      const next: Record<string, ProviderModelRow[]> = {};
+      const nextErrors: Record<string, string | null> = {};
+      await Promise.all(ids.map(async (id) => {
+        try {
+          const res = await fetch(`/api/models-config/provider-models?provider=${encodeURIComponent(id)}`);
+          const data = await res.json() as { models?: ProviderModelRow[]; error?: string };
+          if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+          next[id] = Array.isArray(data.models) ? data.models : [];
+          nextErrors[id] = null;
+        } catch (e) {
+          next[id] = [];
+          nextErrors[id] = e instanceof Error ? e.message : String(e);
+        }
+      }));
+      if (cancelled) return;
+      setBuiltinModelsByProvider(next);
+      setBuiltinModelsLoading(Object.fromEntries(ids.map((id) => [id, false])));
+      setBuiltinModelsError(nextErrors);
+    })();
+    return () => { cancelled = true; };
+  }, [builtinProviderIdsKey]);
+
+
+  const toggleBuiltinModel = useCallback(async (providerId: string, modelId: string, disabled: boolean) => {
+    const res = await fetch("/api/models-config/provider-models", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: providerId, modelId, disabled }),
+    });
+    const data = await res.json() as { success?: boolean; error?: string };
+    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+    setBuiltinModelsByProvider((prev) => ({
+      ...prev,
+      [providerId]: (prev[providerId] ?? []).map((m) => (
+        m.id === modelId ? { ...m, disabled } : m
+      )),
+    }));
+    onModelsChanged?.();
+  }, [onModelsChanged]);
 
   // Resolve current detail
   const detailContent = (() => {
@@ -390,12 +472,63 @@ export function ModelsConfig({
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} onModelsChanged={onModelsChanged} />;
+      return (
+        <OAuthDetail
+          key={p.id}
+          provider={p}
+          onRefresh={refreshAuthProviders}
+          models={builtinModelsByProvider[p.id] ?? []}
+          modelsLoading={builtinModelsLoading[p.id] ?? false}
+          modelsError={builtinModelsError[p.id] ?? null}
+          onToggleModel={(modelId, enabled) => toggleBuiltinModel(p.id, modelId, !enabled)}
+        />
+      );
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} onModelsChanged={onModelsChanged} />;
+      return (
+        <ApiKeyDetail
+          key={p.id}
+          provider={p}
+          onRefresh={refreshAuthProviders}
+          models={builtinModelsByProvider[p.id] ?? []}
+          modelsLoading={builtinModelsLoading[p.id] ?? false}
+          modelsError={builtinModelsError[p.id] ?? null}
+          onToggleModel={(modelId, enabled) => toggleBuiltinModel(p.id, modelId, !enabled)}
+        />
+      );
+    }
+    if (selection.type === "builtin-model") {
+      const models = builtinModelsByProvider[selection.providerId] ?? [];
+      const model = models.find((m) => m.id === selection.modelId);
+      if (!model) return null;
+      return (
+        <BuiltinModelDetail
+          key={`${selection.providerId}/${selection.modelId}`}
+          model={model}
+          onModelPatch={async (patch) => {
+            const res = await fetch("/api/models-config/model-overrides", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                provider: selection.providerId,
+                modelId: selection.modelId,
+                ...patch,
+              }),
+            });
+            const data = await res.json() as { success?: boolean; error?: string };
+            if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+            setBuiltinModelsByProvider((prev) => ({
+              ...prev,
+              [selection.providerId]: (prev[selection.providerId] ?? []).map((m) => (
+                m.id === selection.modelId ? { ...m, ...patch } : m
+              )),
+            }));
+            onModelsChanged?.();
+          }}
+        />
+      );
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
@@ -408,7 +541,6 @@ export function ModelsConfig({
           onChange={(p) => updateProvider(selection.name, p)}
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
-          onAddModels={(models) => addDiscoveredModels(selection.name, models)}
           onRefreshModels={isFreeManagedProvider(provider) ? () => void refreshFreeProviderModels(selection.name) : undefined}
           refreshingModels={freeRefreshKey === selection.name}
           refreshError={freeRefreshError}
@@ -450,36 +582,45 @@ export function ModelsConfig({
           {/* Left: tree */}
           <div className="modal-sidebar" style={isMobile ? { width: "100%", maxHeight: "40vh" } : undefined}>
             <div className="modal-sidebar-scroll">
-              {/* Active OAuth subscriptions */}
-              {activeOAuth.map((p) => {
-                const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
+              {/* Active subscriptions + models */}
+              {activeBuiltinProviders.map((p) => {
+                const isSelected = p.type === "oauth"
+                  ? selection?.type === "oauth" && selection.providerId === p.id
+                  : selection?.type === "apikey" && selection.providerId === p.id;
+                // Sidebar is navigation for enabled models; toggles live on provider details.
+                const models = (builtinModelsByProvider[p.id] ?? []).filter((m) => !m.disabled);
                 return (
-                  <div
-                    key={p.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelection({ type: "oauth", providerId: p.id })}
-                    className={navRowClass(isSelected)}
-                  >
-                    <ProviderIcon id={p.id} size={16} />
-                    <span className={`modal-nav-label${isSelected ? " is-strong" : ""}`}>{p.name}</span>
-                  </div>
-                );
-              })}
-
-              {/* Active API key providers */}
-              {activeApiKey.map((p) => {
-                const isSelected = selection?.type === "apikey" && selection.providerId === p.id;
-                return (
-                  <div
-                    key={p.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelection({ type: "apikey", providerId: p.id })}
-                    className={navRowClass(isSelected)}
-                  >
-                    <ProviderIcon id={p.id} size={16} />
-                    <span className={`modal-nav-label${isSelected ? " is-strong" : ""}`}>{p.displayName}</span>
+                  <div key={p.id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelection(p.type === "oauth"
+                        ? { type: "oauth", providerId: p.id }
+                        : { type: "apikey", providerId: p.id })}
+                      className={navRowClass(isSelected)}
+                    >
+                      <ProviderIcon id={p.id} size={16} />
+                      <span className={`modal-nav-label${isSelected ? " is-strong" : ""}`}>{p.label}</span>
+                    </div>
+                    {models.map((m) => {
+                      const isModelSelected = selection?.type === "builtin-model"
+                        && selection.providerId === p.id
+                        && selection.modelId === m.id;
+                      return (
+                        <div
+                          key={m.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelection({ type: "builtin-model", providerId: p.id, modelId: m.id })}
+                          className={navRowClass(isModelSelected, true)}
+                        >
+                          <span className="modal-nav-label is-mono">{m.id}</span>
+                          {m.reasoning && (
+                            <span style={{ fontSize: 9, padding: "1px 5px", border: "1px solid var(--border)", color: "var(--text-dim)", borderRadius: "var(--radius-xs)", flexShrink: 0 }}>T</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -518,8 +659,9 @@ export function ModelsConfig({
                       )}
                     </div>
 
-                    {/* Model rows */}
+                    {/* Model rows — only enabled (or empty draft); enable more on provider page */}
                     {models.map((m, i) => {
+                      if (m.disabled && m.id) return null;
                       const isModelSelected = selection?.type === "model" && selection.providerName === pName && selection.index === i;
                       return (
                         <div
@@ -528,14 +670,10 @@ export function ModelsConfig({
                           tabIndex={0}
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
                           className={navRowClass(isModelSelected, true)}
-                          style={m.disabled ? { opacity: 0.55 } : undefined}
                         >
                           <span className="modal-nav-label is-mono" style={{ color: m.id ? undefined : "var(--text-dim)" }}>
                             {m.id || t("models.newModel")}
                           </span>
-                          {m.disabled && (
-                            <span className="settings-badge" style={{ flexShrink: 0 }}>{t("models.disabled")}</span>
-                          )}
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 5px", border: "1px solid var(--border)", color: "var(--text-dim)", borderRadius: "var(--radius-xs)", flexShrink: 0 }}>T</span>
                           )}
@@ -657,4 +795,3 @@ export function ModelsConfig({
     </>
   );
 }
-

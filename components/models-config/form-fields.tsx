@@ -6,6 +6,14 @@ import { Eye, EyeOff } from "lucide-react";
 import { Icon } from "../Icon";
 import { useLocale } from "@/hooks/useLocale";
 
+export function ReadOnlyValue({ children, mono = false }: { children: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className={`input-base${mono ? " input-mono" : ""}`} style={{ opacity: 0.85, cursor: "default" }}>
+      {children}
+    </div>
+  );
+}
+
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="modal-field">
@@ -89,8 +97,24 @@ export function SecretTextInput({
   );
 }
 
-export function NumInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return <input type="number" className="input-base" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />;
+export function NumInput({ value, onChange, placeholder, onBlur, onKeyDown }: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  onBlur?: React.FocusEventHandler<HTMLInputElement>;
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+}) {
+  return (
+    <input
+      type="number"
+      className="input-base"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+    />
+  );
 }
 
 export function Select({ value, onChange, options, required }: { value: string; onChange: (v: string) => void; options: readonly string[]; required?: boolean }) {
@@ -140,5 +164,3 @@ export function navRowClass(selected: boolean, child = false): string {
 }
 
 // ── Provider detail ───────────────────────────────────────────────────────────
-
-
