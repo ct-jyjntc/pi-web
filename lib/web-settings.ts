@@ -15,6 +15,42 @@ export type ModelRoles = {
   plan: ModelRef | null;
 };
 
+/** Opt-in anti-bloat discipline for product users (Lean Mode). */
+export type LeanIntensity = "soft" | "review" | "hard";
+
+export type LeanModeSettings = {
+  /** Master switch; default false — zero behavior change when off. */
+  enabled: boolean;
+  /** soft = policy only; review/hard = policy + post-edit lean review. */
+  intensity: LeanIntensity;
+  /** When intensity is review|hard, run lean review after edit turns. */
+  reviewOnAgentEnd: boolean;
+};
+
+export function defaultLeanModeSettings(): LeanModeSettings {
+  return {
+    enabled: false,
+    intensity: "review",
+    reviewOnAgentEnd: true,
+  };
+}
+
+const LEAN_INTENSITIES = new Set<LeanIntensity>(["soft", "review", "hard"]);
+
+export function parseLeanModeSettings(value: unknown): LeanModeSettings {
+  const base = defaultLeanModeSettings();
+  if (!isRecord(value)) return base;
+  const intensityRaw = typeof value.intensity === "string" ? value.intensity : "";
+  return {
+    enabled: typeof value.enabled === "boolean" ? value.enabled : base.enabled,
+    intensity: LEAN_INTENSITIES.has(intensityRaw as LeanIntensity)
+      ? (intensityRaw as LeanIntensity)
+      : base.intensity,
+    reviewOnAgentEnd:
+      typeof value.reviewOnAgentEnd === "boolean" ? value.reviewOnAgentEnd : base.reviewOnAgentEnd,
+  };
+}
+
 export function emptyModelRoles(): ModelRoles {
   return { default: null, smol: null, plan: null };
 }
@@ -78,6 +114,11 @@ export type WebSettings = {
   advisorEnabled: boolean;
   /** Optional advisor model override; null = plan/default role. */
   advisorModel: ModelRef | null;
+  /**
+   * Opt-in Lean Mode: portable anti-bloat policy + optional post-edit review.
+   * Default off. Does not rewrite ~/.pi/agent/AGENTS.md.
+   */
+  leanMode: LeanModeSettings;
 
   // ── Network (restart recommended) ──
   /** HTTP(S) proxy URL, e.g. http://127.0.0.1:7890. Empty = direct. */
@@ -137,6 +178,7 @@ const DEFAULT_SETTINGS: WebSettings = {
   },
   advisorEnabled: false,
   advisorModel: null,
+  leanMode: defaultLeanModeSettings(),
   httpProxy: "",
   proxyBypass: "",
   customCaCerts: "",
@@ -258,6 +300,7 @@ function normalizeWebSettings(raw: unknown): WebSettings {
     })(),
     advisorEnabled: asBool(raw.advisorEnabled, DEFAULT_SETTINGS.advisorEnabled),
     advisorModel: parseModelRef(raw.advisorModel),
+    leanMode: parseLeanModeSettings(raw.leanMode),
     httpProxy: asString(raw.httpProxy),
     proxyBypass: asString(raw.proxyBypass),
     customCaCerts: asString(raw.customCaCerts),
@@ -318,6 +361,7 @@ function cloneWebSettings(settings: WebSettings): WebSettings {
       plan: settings.modelRoles.plan ? { ...settings.modelRoles.plan } : null,
     },
     projectMemory: { ...settings.projectMemory },
+    leanMode: { ...settings.leanMode },
   };
 }
 

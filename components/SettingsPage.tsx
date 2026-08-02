@@ -9,6 +9,7 @@ import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { McpConfig } from "./McpConfig";
 import { SettingsToggle } from "./SettingsToggle";
+import { LeanModeSettingsSection } from "./settings/LeanModeSettingsSection";
 import { UsagePanel, prefetchUsage } from "./UsagePanel";
 import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
@@ -18,7 +19,8 @@ import {
   saveWebSettings,
   type WebSettingsModelOption,
 } from "@/lib/web-settings-store";
-import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
+import type { CodeThemeId, LeanModeSettings, ThemeMode } from "@/lib/web-settings";
+import { defaultLeanModeSettings } from "@/lib/web-settings";
 import { Icon } from "./Icon";
 import { ChevronLeft } from "lucide-react";
 
@@ -229,6 +231,7 @@ export function SettingsPage({
     projectMemoryTopK: 12,
     advisorEnabled: false,
   });
+  const [leanMode, setLeanMode] = useState<LeanModeSettings>(() => defaultLeanModeSettings());
   const [advisorModelRef, setAdvisorModelRef] = useState("");
   const [memoryFacts, setMemoryFacts] = useState<Array<{ id: string; text: string }>>([]);
   const [newMemoryText, setNewMemoryText] = useState("");
@@ -307,6 +310,18 @@ export function SettingsPage({
               : prev.projectMemoryTopK,
           advisorEnabled: typeof s.advisorEnabled === "boolean" ? s.advisorEnabled : prev.advisorEnabled,
         }));
+        if (s.leanMode && typeof s.leanMode === "object" && !Array.isArray(s.leanMode)) {
+          const lm = s.leanMode as Partial<LeanModeSettings>;
+          setLeanMode((prev) => ({
+            enabled: typeof lm.enabled === "boolean" ? lm.enabled : prev.enabled,
+            intensity:
+              lm.intensity === "soft" || lm.intensity === "review" || lm.intensity === "hard"
+                ? lm.intensity
+                : prev.intensity,
+            reviewOnAgentEnd:
+              typeof lm.reviewOnAgentEnd === "boolean" ? lm.reviewOnAgentEnd : prev.reviewOnAgentEnd,
+          }));
+        }
         setAdvisorModelRef(
           typeof s.advisorModel === "object" && s.advisorModel && !Array.isArray(s.advisorModel)
             && typeof (s.advisorModel as { provider?: string }).provider === "string"
@@ -1335,6 +1350,17 @@ export function SettingsPage({
         }
       />
 
+      <LeanModeSettingsSection
+        leanMode={leanMode}
+        t={t}
+        onPatch={(partial) => {
+          setLeanMode((prev) => {
+            const next = { ...prev, ...partial };
+            void patchPref({ leanMode: next });
+            return next;
+          });
+        }}
+      />
     </>
   );
 

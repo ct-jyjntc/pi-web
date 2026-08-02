@@ -30,6 +30,9 @@ import { clearSessionMetrics, setChromeWidgetsMetric, setContextUsageMetric, set
 import { deriveTodoWidgetLines } from "@/lib/todo-from-transcript";
 import { setCompactHandlers } from "@/lib/compact-action-store";
 import { useWebSettings } from "@/lib/web-settings-store";
+import { useLeanReviewOnAgentEnd } from "@/hooks/useLeanReviewOnAgentEnd";
+import { LeanReviewCard } from "./LeanReviewCard";
+import { defaultLeanModeSettings, type LeanModeSettings } from "@/lib/web-settings";
 
 type Props = Pick<
   UseAgentSessionOptions,
@@ -430,6 +433,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // (synced right after the hook destructure, like messagesForAdvisorRef).
   const sessionIdForReviewRef = useRef<string | null>(null);
   const messagesForAdvisorRef = useRef<AgentMessage[]>([]);
+  const runLeanReviewRef = useRef<() => void>(() => {});
   const wrappedOnAgentEnd = useCallback(() => {
     // In-app completion tone (composer sound toggle).
     if (soundEnabledRef.current) {
@@ -532,6 +536,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         .catch(() => {});
     }
 
+    // Lean Mode post-edit review (opt-in; hook decides skip).
+    runLeanReviewRef.current();
+
     onAgentEnd?.();
   }, [newSessionCwd, onAgentEnd, session?.cwd, session?.id, t]);
 
@@ -571,6 +578,51 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   useEffect(() => {
     messagesForAdvisorRef.current = messages;
   }, [messages]);
+
+  const parseLeanModeFromSettings = useCallback((): LeanModeSettings => {
+    const raw = webSettings && typeof webSettings === "object"
+      ? (webSettings as { leanMode?: unknown }).leanMode
+      : undefined;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return defaultLeanModeSettings();
+    const lm = raw as Partial<LeanModeSettings>;
+    return {
+      enabled: lm.enabled === true,
+      intensity:
+        lm.intensity === "soft" || lm.intensity === "review" || lm.intensity === "hard"
+          ? lm.intensity
+          : "review",
+      reviewOnAgentEnd: lm.reviewOnAgentEnd !== false,
+    };
+  }, [webSettings]);
+
+  const { leanNote, clearLeanNote, runLeanReviewOnAgentEnd } = useLeanReviewOnAgentEnd({
+    getLeanMode: parseLeanModeFromSettings,
+    getCwd: () => session?.cwd ?? newSessionCwd,
+    getSessionId: () => session?.id ?? sessionIdForReviewRef.current,
+    getRecentToolNames: () => {
+      const msgs = messagesForAdvisorRef.current;
+      const tools: string[] = [];
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (!m) continue;
+        if (m.role === "assistant") {
+          const content = (m as AssistantMessage).content ?? [];
+          for (const b of content) {
+            if (b.type === "toolCall") tools.push(b.toolName || "tool");
+          }
+          break;
+        }
+        if (m.role === "user") break;
+      }
+      return tools;
+    },
+  });
+  runLeanReviewRef.current = runLeanReviewOnAgentEnd;
+
+  // Drop stale lean card when a new turn starts.
+  useEffect(() => {
+    if (agentRunning) clearLeanNote();
+  }, [agentRunning, clearLeanNote]);
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -1178,8 +1230,17 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     setChromeWidgetsMetric(topBarWidgetsRef.current);
   }, [chromeWidgetKey]);
 
+  const leanBanner = leanNote ? (
+    <LeanReviewCard
+      report={leanNote.report}
+      model={leanNote.model}
+      onDismiss={clearLeanNote}
+    />
+  ) : null;
+
   const chatInputElement = (
     <>
+    {leanBanner}
     {advisorBanner}
     <ChatInput
       ref={chatInputRef}

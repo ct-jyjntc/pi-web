@@ -14,6 +14,8 @@ import {
 import { createProjectMemoryTools } from "./agent-memory-tools";
 import { buildMemoryInjectBlock } from "./project-memory";
 import { buildQueryMemoryContext } from "./memory-context";
+import { buildLeanPolicyText } from "./lean-policy";
+import { resolveLeanMode } from "./lean-settings";
 import { createConfiguredModelRuntime } from "./model-runtime";
 import { readWebSettings } from "./web-settings";
 import { resolveContextUsageForUi } from "./context-usage";
@@ -1387,6 +1389,13 @@ export async function startRpcSession(
     const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
     const toolsFullyDisabled = toolNames?.length === 0;
     const memoryBlock = !toolsFullyDisabled ? buildMemoryInjectBlock(cwd) : null;
+    // Lean Mode: portable anti-bloat policy (opt-in). Same appendSystemPromptOverride
+    // as memory — do not add a second inject path.
+    const lean = !toolsFullyDisabled ? resolveLeanMode(cwd) : null;
+    const leanBlock = lean?.enabled ? buildLeanPolicyText(lean.intensity) : null;
+    const systemPromptExtras = [memoryBlock, leanBlock].filter(
+      (block): block is string => Boolean(block),
+    );
     const modelRuntime = await createConfiguredModelRuntime();
     // First-party extensions: thin tools as pure factories; heavy ones as
     // prebundled ESM factories (fallback TS paths if a bundle is missing).
@@ -1400,8 +1409,8 @@ export async function startRpcSession(
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
       resourceLoaderOptions: {
         ...builtinLoader,
-        ...(memoryBlock
-          ? { appendSystemPromptOverride: (base: string[]) => [...base, memoryBlock] }
+        ...(systemPromptExtras.length > 0
+          ? { appendSystemPromptOverride: (base: string[]) => [...base, ...systemPromptExtras] }
           : {}),
       },
     });

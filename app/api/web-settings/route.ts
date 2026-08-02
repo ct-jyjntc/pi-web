@@ -287,6 +287,34 @@ export async function PUT(req: NextRequest) {
       patch.projectMemory = next;
     }
 
+    if ("leanMode" in body) {
+      if (!body.leanMode || typeof body.leanMode !== "object" || Array.isArray(body.leanMode)) {
+        return NextResponse.json({ error: "Invalid leanMode" }, { status: 400 });
+      }
+      const current = readWebSettings().leanMode;
+      const raw = body.leanMode as Record<string, unknown>;
+      const next = { ...current };
+      if ("enabled" in raw) {
+        if (typeof raw.enabled !== "boolean") {
+          return NextResponse.json({ error: "Invalid leanMode.enabled" }, { status: 400 });
+        }
+        next.enabled = raw.enabled;
+      }
+      if ("intensity" in raw) {
+        if (raw.intensity !== "soft" && raw.intensity !== "review" && raw.intensity !== "hard") {
+          return NextResponse.json({ error: "Invalid leanMode.intensity" }, { status: 400 });
+        }
+        next.intensity = raw.intensity;
+      }
+      if ("reviewOnAgentEnd" in raw) {
+        if (typeof raw.reviewOnAgentEnd !== "boolean") {
+          return NextResponse.json({ error: "Invalid leanMode.reviewOnAgentEnd" }, { status: 400 });
+        }
+        next.reviewOnAgentEnd = raw.reviewOnAgentEnd;
+      }
+      patch.leanMode = next;
+    }
+
     const settings = writeWebSettings(patch);
     if (patch.modelRoles) {
       try {
