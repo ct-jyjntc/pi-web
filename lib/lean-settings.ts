@@ -7,10 +7,9 @@ import { isRecord } from "./type-guards";
 import {
   defaultLeanModeSettings,
   parseLeanModeSettings,
-  readWebSettings,
   type LeanModeSettings,
-  type WebSettings,
-} from "./web-settings";
+} from "./lean-mode-settings";
+import { readWebSettings, type WebSettings } from "./web-settings";
 
 /** Project-level override file (partial leanMode only is read). */
 export const PROJECT_LEAN_FILE = ".pi-web.json";

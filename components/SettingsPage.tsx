@@ -19,8 +19,8 @@ import {
   saveWebSettings,
   type WebSettingsModelOption,
 } from "@/lib/web-settings-store";
-import type { CodeThemeId, LeanModeSettings, ThemeMode } from "@/lib/web-settings";
-import { defaultLeanModeSettings } from "@/lib/web-settings";
+import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
+import { defaultLeanModeSettings, type LeanModeSettings } from "@/lib/lean-mode-settings";
 import { Icon } from "./Icon";
 import { ChevronLeft } from "lucide-react";
 

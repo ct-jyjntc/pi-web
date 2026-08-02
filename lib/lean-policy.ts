@@ -2,7 +2,7 @@
  * Portable Lean Mode policy text for system-prompt append.
  * Intensity-modulated; product-user facing (not Pi-Web hot-path trivia).
  */
-import type { LeanIntensity } from "./web-settings";
+import type { LeanIntensity } from "./lean-mode-settings";
 
 const CORE_RULES = [
   "1. **No stacked recovery** — If a failure mode already has retry / fallback / poll / reconcile / grace, merge or replace that path before adding another.",

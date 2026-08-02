@@ -1,7 +1,18 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { getAgentDir } from "./agent-dir";
+import {
+  defaultLeanModeSettings,
+  parseLeanModeSettings,
+  type LeanModeSettings,
+} from "./lean-mode-settings";
 import { isRecord } from "./type-guards";
+
+export type {
+  LeanIntensity,
+  LeanModeSettings,
+} from "./lean-mode-settings";
+export { defaultLeanModeSettings, parseLeanModeSettings } from "./lean-mode-settings";
 
 export type ModelRef = {
   provider: string;
@@ -14,42 +25,6 @@ export type ModelRoles = {
   smol: ModelRef | null;
   plan: ModelRef | null;
 };
-
-/** Opt-in anti-bloat discipline for product users (Lean Mode). */
-export type LeanIntensity = "soft" | "review" | "hard";
-
-export type LeanModeSettings = {
-  /** Master switch; default false — zero behavior change when off. */
-  enabled: boolean;
-  /** soft = policy only; review/hard = policy + post-edit lean review. */
-  intensity: LeanIntensity;
-  /** When intensity is review|hard, run lean review after edit turns. */
-  reviewOnAgentEnd: boolean;
-};
-
-export function defaultLeanModeSettings(): LeanModeSettings {
-  return {
-    enabled: false,
-    intensity: "review",
-    reviewOnAgentEnd: true,
-  };
-}
-
-const LEAN_INTENSITIES = new Set<LeanIntensity>(["soft", "review", "hard"]);
-
-export function parseLeanModeSettings(value: unknown): LeanModeSettings {
-  const base = defaultLeanModeSettings();
-  if (!isRecord(value)) return base;
-  const intensityRaw = typeof value.intensity === "string" ? value.intensity : "";
-  return {
-    enabled: typeof value.enabled === "boolean" ? value.enabled : base.enabled,
-    intensity: LEAN_INTENSITIES.has(intensityRaw as LeanIntensity)
-      ? (intensityRaw as LeanIntensity)
-      : base.intensity,
-    reviewOnAgentEnd:
-      typeof value.reviewOnAgentEnd === "boolean" ? value.reviewOnAgentEnd : base.reviewOnAgentEnd,
-  };
-}
 
 export function emptyModelRoles(): ModelRoles {
   return { default: null, smol: null, plan: null };

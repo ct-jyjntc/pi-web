@@ -5,7 +5,7 @@
  */
 import { SettingsToggle } from "@/components/SettingsToggle";
 import type { MessageKey } from "@/lib/i18n/messages";
-import type { LeanIntensity, LeanModeSettings } from "@/lib/web-settings";
+import type { LeanIntensity, LeanModeSettings } from "@/lib/lean-mode-settings";
 
 type Translate = (key: MessageKey) => string;
 

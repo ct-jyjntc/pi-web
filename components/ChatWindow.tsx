@@ -32,7 +32,7 @@ import { setCompactHandlers } from "@/lib/compact-action-store";
 import { useWebSettings } from "@/lib/web-settings-store";
 import { useLeanReviewOnAgentEnd } from "@/hooks/useLeanReviewOnAgentEnd";
 import { LeanReviewCard } from "./LeanReviewCard";
-import { defaultLeanModeSettings, type LeanModeSettings } from "@/lib/web-settings";
+import { defaultLeanModeSettings, type LeanModeSettings } from "@/lib/lean-mode-settings";
 
 type Props = Pick<
   UseAgentSessionOptions,

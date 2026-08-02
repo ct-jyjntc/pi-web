@@ -6,7 +6,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { LeanReport } from "@/lib/lean-review-types";
-import type { LeanIntensity, LeanModeSettings } from "@/lib/web-settings";
+import type { LeanIntensity, LeanModeSettings } from "@/lib/lean-mode-settings";
 
 const WRITE_TOOLS = new Set([
   "edit",

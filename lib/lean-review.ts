@@ -13,9 +13,9 @@ import {
 import { getRoleModelRef } from "./model-roles";
 import { assistantText as getText } from "./message-text";
 import { resolveLeanMode } from "./lean-settings";
+import type { LeanIntensity } from "./lean-mode-settings";
 import {
   readWebSettings,
-  type LeanIntensity,
   type ModelRef,
   type WebSettings,
 } from "./web-settings";
