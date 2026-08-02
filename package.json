@@ -62,6 +62,7 @@
     "files": [
       "electron/main.js",
       "electron/preload.js",
+      "electron/tray.js",
       "electron/icons/icon.icns",
       "electron/icons/icon.png",
       "electron/icons/icon.ico",

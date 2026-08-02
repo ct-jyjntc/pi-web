@@ -7,6 +7,7 @@ const http = require("http");
 const net = require("net");
 const fs = require("fs");
 const os = require("os");
+const { isTraySupported, ensureTray, destroyTray } = require("./tray");
 
 const HOST = "127.0.0.1";
 const isPackaged = app.isPackaged;
@@ -138,6 +139,40 @@ function broadcastWindowState() {
   } catch {
     // ignore
   }
+}
+
+/** Restore the main window (tray click / activate). Page state is preserved because hide ≠ destroy. */
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (serverProcess) {
+      bootRevealPending = false;
+      createWindow({ port: activePort, showWhenReady: true });
+    }
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+  broadcastWindowState();
+}
+
+/** Hide to tray instead of quitting. Keeps BrowserWindow + renderer session alive. */
+function hideMainWindowToTray() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.hide();
+  ensureAppTray();
+  broadcastWindowState();
+}
+
+function ensureAppTray() {
+  if (!isTraySupported()) return;
+  ensureTray({
+    showMainWindow,
+    quitApp: () => {
+      quitting = true;
+      app.quit();
+    },
+  });
 }
 
 function resolveNextBin() {
@@ -764,6 +799,15 @@ function createWindow(opts = {}) {
     mainWindow.on(eventName, () => broadcastWindowState());
   }
 
+  // Windows/Linux: X / Alt+F4 hide to tray (do not destroy). Real quit goes through tray → Quit.
+  if (isTraySupported()) {
+    mainWindow.on("close", (e) => {
+      if (quitting) return;
+      e.preventDefault();
+      hideMainWindowToTray();
+    });
+  }
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -849,6 +893,7 @@ ipcMain.handle("pi-desktop:window-maximize-toggle", () => {
 });
 
 ipcMain.handle("pi-desktop:window-close", () => {
+  // close event intercepts on win32/linux → hide to tray; macOS destroys the window.
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
 });
 
@@ -873,10 +918,7 @@ ipcMain.handle("pi-desktop:notify", (_event, payload = {}) => {
       timeoutType: "default",
     });
     n.on("click", () => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+      showMainWindow();
     });
     // Electron 42+ macOS UNNotification: unsigned / linker-signed apps emit
     // `failed` instead of showing a banner (often UNErrorDomain error 1).
@@ -915,9 +957,13 @@ app.whenReady().then(() => {
   // Best-effort initial caption colors before renderer localStorage is known.
   windowTheme = nativeTheme.shouldUseDarkColors ? "dark" : "light";
 
+  // Tray ready from boot so close→hide has an icon waiting in the notification area.
+  ensureAppTray();
+
   bootstrap().catch((err) => {
     console.error(err);
     dialog.showErrorBox("Pi Web failed to start", String(err?.message || err));
+    quitting = true;
     app.quit();
   });
 
@@ -930,19 +976,22 @@ app.whenReady().then(() => {
         bootRevealPending = false;
         createWindow({ port: activePort, showWhenReady: true });
       }
-    } else if (mainWindow) {
-      mainWindow.show();
+    } else {
+      showMainWindow();
     }
   });
 });
 
 app.on("before-quit", () => {
   quitting = true;
+  destroyTray();
   stopNextServer();
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  // macOS: stay in Dock. Windows/Linux: close is intercepted to tray, so this
+  // only runs on a real quit path — still skip if tray is keeping us alive.
+  if (process.platform === "darwin") return;
+  if (isTraySupported() && !quitting) return;
+  app.quit();
 });
