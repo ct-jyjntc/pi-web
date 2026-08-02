@@ -799,7 +799,8 @@ function createWindow(opts = {}) {
     mainWindow.on(eventName, () => broadcastWindowState());
   }
 
-  // Windows/Linux: X / Alt+F4 hide to tray (do not destroy). Real quit goes through tray → Quit.
+  // All platforms: close (X / traffic-light red / Alt+F4) hides to tray instead of destroying.
+  // Real quit goes through tray → Quit, Cmd+Q / app.quit (quitting=true skips this intercept).
   if (isTraySupported()) {
     mainWindow.on("close", (e) => {
       if (quitting) return;
@@ -893,7 +894,7 @@ ipcMain.handle("pi-desktop:window-maximize-toggle", () => {
 });
 
 ipcMain.handle("pi-desktop:window-close", () => {
-  // close event intercepts on win32/linux → hide to tray; macOS destroys the window.
+  // close event intercepts on all tray platforms → hide to tray.
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
 });
 
@@ -989,9 +990,10 @@ app.on("before-quit", () => {
 });
 
 app.on("window-all-closed", () => {
-  // macOS: stay in Dock. Windows/Linux: close is intercepted to tray, so this
-  // only runs on a real quit path — still skip if tray is keeping us alive.
-  if (process.platform === "darwin") return;
+  // Close is intercepted to tray on every desktop platform, so this only runs
+  // when the window was actually destroyed. Skip while tray is keeping us alive;
+  // macOS also stays resident via Dock + activate.
   if (isTraySupported() && !quitting) return;
+  if (process.platform === "darwin") return;
   app.quit();
 });

@@ -1,8 +1,9 @@
 "use strict";
 
 /**
- * System tray owner for Windows/Linux minimize-to-tray.
+ * System tray / menu-bar owner for minimize-to-tray on all desktop platforms.
  * Close hides the main BrowserWindow; tray click restores it with page state intact.
+ * macOS: status-item in the menu bar. Windows/Linux: notification-area tray icon.
  */
 
 const { Tray, Menu, nativeImage } = require("electron");
@@ -13,7 +14,7 @@ const path = require("path");
 let tray = null;
 
 function isTraySupported() {
-  return process.platform === "win32" || process.platform === "linux";
+  return process.platform === "win32" || process.platform === "linux" || process.platform === "darwin";
 }
 
 function getTrayIconPath() {
@@ -22,7 +23,12 @@ function getTrayIconPath() {
     const ico = path.join(iconsDir, "icon.ico");
     if (fs.existsSync(ico)) return ico;
   }
-  for (const name of ["icon-32.png", "icon-16.png", "icon.png"]) {
+  // macOS menu bar prefers a compact bitmap; 16/32 look sharper than the 512 source.
+  const preferred =
+    process.platform === "darwin"
+      ? ["icon-16.png", "icon-32.png", "icon.png"]
+      : ["icon-32.png", "icon-16.png", "icon.png"];
+  for (const name of preferred) {
     const candidate = path.join(iconsDir, name);
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -43,8 +49,10 @@ function ensureTray(deps) {
   const iconPath = getTrayIconPath();
   let image = nativeImage.createFromPath(iconPath);
   if (!image.isEmpty() && process.platform !== "win32") {
+    // Menu bar / tray bitmaps: 16–22 logical px; 32 covers @2x without looking huge.
+    const target = process.platform === "darwin" ? 16 : 32;
     const { width } = image.getSize();
-    if (width > 32) image = image.resize({ width: 32, height: 32 });
+    if (width > target) image = image.resize({ width: target, height: target });
   }
 
   tray = image.isEmpty() ? new Tray(iconPath) : new Tray(image);
@@ -63,7 +71,8 @@ function ensureTray(deps) {
     ]),
   );
 
-  // Windows: left-click restores. double-click covers some Linux DEs.
+  // Windows/Linux: left-click restores. double-click covers some Linux DEs.
+  // macOS: left-click often opens the context menu when one is set; click still restores when it fires.
   tray.on("click", () => deps.showMainWindow());
   tray.on("double-click", () => deps.showMainWindow());
   return tray;
