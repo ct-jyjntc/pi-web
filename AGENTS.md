@@ -12,6 +12,64 @@ Lint: `npm run lint`
 
 ---
 
+## AI Coding Constraints
+
+Hard rules for every agent change in this repo. Stock cleanup roadmap: `docs/superpowers/specs/2026-08-02-declutter-design.md`.  
+These govern **how you change code**. `Key Design Decisions & Traps` describes **why the code is the way it is today** — do not “fix” traps by stacking another recovery path.
+
+### Non-negotiables
+
+1. **MUST NOT** add a new fallback / retry / reconcile / grace / poll path for a failure mode that already has a recovery path. Merge or replace the existing path first.
+2. **MUST NOT** fix a bug only by widening `try/catch`, optional chaining, or “ignore error” without naming the invariant that failed.
+3. **MUST NOT** duplicate the same semantic across UI + hook + API + rpc. One owner module; others call it.
+4. **MUST** prefer deleting or merging code over adding guards when both would silence the symptom.
+5. **MUST NOT** introduce `as any`, `@ts-ignore`, or lint disables to silence a type error caused by the change.
+
+### Hot-path rules
+
+Applies to `hooks/useAgentSession.ts`, `lib/rpc-manager.ts`, `components/ChatWindow.tsx`, and `app/api/agent/**`.
+
+6. **Single flight for run lifecycle**: one monotonic run id owns streaming UI; late SSE and reconcile **MUST** no-op when `runId !== current`. Do not invent a fourth anti-stale mechanism.
+7. **SSE is primary; reconcile is backup only.** **MUST NOT** add a new periodic poller or `visibilitychange` / `online` listener for agent chat state. Extend the existing reconcile hook or remove it after proving SSE + settlement suffice.
+8. **Fork / session identity**: after any op that mutates wrapper identity (`fork`, destroy, reload), **MUST** drop the registry entry for the old id in the same turn. **MUST NOT** paper over wrong-id bugs with extra path lookups.
+9. **Settlement / grace**: **MUST NOT** stack another timer/grace on the existing post-prompt grace. If late events still drop, fix emission or the single grace owner.
+10. **Scroll**: owned by `use-stick-to-bottom`. **MUST NOT** reintroduce ad-hoc `scrollTop` writers except the documented settle / pagination / minimap exceptions under Traps.
+
+### Size & structure
+
+11. **Soft cap**: if a touched file is already **> 800 lines**, **MUST NOT** grow it by more than ~30 net lines unless the same change extracts at least that many lines out.
+12. **Hard trigger**: non-trivial logic in a file **> 1500 lines** → **MUST** extract a module/hook/component first, then implement. Current offenders include: `ModelsConfig.tsx`, `MessageView.tsx`, `ChatInput.tsx`, `useAgentSession.ts`, `SettingsPage.tsx`, `ChatWindow.tsx`, `SessionSidebar.tsx`, `AppShell.tsx`, `rpc-manager.ts`.
+13. **One concern per new file.** New modules **MUST** state a one-sentence responsibility in a file-header comment. No new `utils.ts` / `helpers.ts` dump files.
+14. **globalThis registries**: **MUST NOT** add `globalThis.__pi*` without (a) why module scope is insufficient, (b) a clear owner file, (c) invalidate/cleanup API. Prefer extending an existing registry module.
+
+### Dual-path / legacy
+
+15. **MUST NOT** add a dual implementation (classic+new, bundle+TS, poll+SSE, …) “for compatibility” without an explicit removal condition in the commit message.
+16. **Edit tool**: hashline `input` is preferred. **MUST NOT** expand classic `{ path, edits }` except bugfixes; new features are hashline-only.
+17. **Extensions**: prebundled factories are preferred. **MUST NOT** add new runtime dependence on jiti / TS `additionalExtensionPaths` except the existing missing-bundle fallback in `builtin-extensions.ts`.
+18. **Migrations**: must be idempotent and one-way. **MUST NOT** keep permanent read paths for pre-migration shapes after a shipped release (track removal in the declutter blueprint).
+
+### Before you patch (mandatory self-check)
+
+Before finishing a code change, answer in 1–2 lines each in the reply:
+
+1. **Invariant** — what invariant is protected or fixed?
+2. **Single owner** — where is the single entry for this state/logic?
+3. **Path count** — which recovery path number is this? Can it be 1?
+4. **Size** — any file >800 lines touched? Net line delta? Extract first?
+5. **Legacy** — new dual-path? If yes, removal condition?
+
+If (1)–(3) cannot be answered, **MUST NOT** land a patch-style fix.
+
+### Out of scope for these rules
+
+- Input validation, path security, auth, and project trust stay required.
+- Existing hot-reload `globalThis` usage is allowed; **undocumented new bags** are not.
+- Product feature count is not a violation; **same-layer duplicate mechanisms** and **ownerless fallbacks** are.
+- Giant-file splits are a blueprint phase, not a same-PR obligation unless rule 11–12 triggers.
+
+---
+
 ## Architecture
 
 ```
