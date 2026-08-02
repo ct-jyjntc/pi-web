@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useSyncExternalStore, type CSSProperties } from "react";
-import dynamic from "next/dynamic";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -41,70 +40,27 @@ import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import { Icon } from "./Icon";
 
-/**
- * Lazy panels only. SessionSidebar is eager (always visible on first paint).
- * ChatWindow is deferred until a session/cwd is active — the empty "Get Started"
- * state is owned by AppShell and does not need MessageView/markdown yet.
- * ContextTabBadge lives in its own leaf module so the tab strip does not pin
- * ContextPanel to the entry chunk.
- */
-const LAZY_PANEL_FALLBACK_STYLE: CSSProperties = {
-  flex: 1,
-  minHeight: 0,
-  height: "100%",
-  background: "var(--bg)",
-};
+import {
+  ChatWindow,
+  ContextPanel,
+  DebugPanel,
+  FileViewer,
+  GitPanel,
+  SettingsPage,
+  TerminalPanel,
+} from "./app-shell/lazy-panels";
+import {
+  EXPLORER_REFRESH_DEBOUNCE_MS,
+  RIGHT_PANEL_DEFAULT,
+  RIGHT_PANEL_MAX,
+  RIGHT_PANEL_MIN,
+  RIGHT_PANEL_WIDTH_KEY,
+  SESSION_REFRESH_DEBOUNCE_MS,
+} from "./app-shell/app-shell-constants";
+import { ShellStyles } from "./app-shell/ShellStyles";
+import { WORKSPACE_TABS } from "./app-shell/terminal-tabs";
+import { useAppShellTerminal } from "@/hooks/useAppShellTerminal";
 
-/** Fills exactly the box the real panel will occupy, so no layout shift. */
-function LazyPanelFallback() {
-  return <div style={LAZY_PANEL_FALLBACK_STYLE} aria-hidden />;
-}
-
-const ChatWindow = dynamic(() => import("./ChatWindow").then((m) => m.ChatWindow), {
-  ssr: false,
-  loading: LazyPanelFallback,
-});
-
-const FileViewer = dynamic(() => import("./FileViewer").then((m) => m.FileViewer), {
-  ssr: false,
-  loading: LazyPanelFallback,
-});
-
-const GitPanel = dynamic(() => import("./GitPanel").then((m) => m.GitPanel), {
-  ssr: false,
-  loading: LazyPanelFallback,
-});
-
-const DebugPanel = dynamic(() => import("./DebugPanel").then((m) => m.DebugPanel), {
-  ssr: false,
-  loading: LazyPanelFallback,
-});
-
-const ContextPanel = dynamic(() => import("./ContextPanel").then((m) => m.ContextPanel), {
-  ssr: false,
-  loading: LazyPanelFallback,
-});
-
-const TerminalPanel = dynamic(() => import("./TerminalPanel").then((m) => m.TerminalPanel), {
-  ssr: false,
-  loading: LazyPanelFallback,
-});
-
-const SettingsPage = dynamic(() => import("./SettingsPage").then((m) => m.SettingsPage), {
-  ssr: false,
-  // Blank fallback: AppShell warm-mounts SettingsPage hidden on idle, so a
-  // visible white/blank overlay while the chunk loads would be wrong — with a
-  // cold chunk the page simply appears a beat late instead of flashing.
-  loading: () => null,
-});
-
-/**
- * Every turn's `agent_end` used to fire a full session-list reload plus a
- * FileExplorer remount. Debounce both on the trailing edge so back-to-back
- * turns collapse into one refresh; the last one always lands.
- */
-const SESSION_REFRESH_DEBOUNCE_MS = 1500;
-const EXPLORER_REFRESH_DEBOUNCE_MS = 300;
 
 export function AppShell() {
   const router = useRouter();
@@ -115,6 +71,7 @@ export function AppShell() {
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
+  const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const [initialCwdStatus, setInitialCwdStatus] = useState<"idle" | "validating" | "ready" | "error">(
     () => initialNavigation.requestedCwd ? "validating" : "idle",
   );
@@ -268,10 +225,6 @@ export function AppShell() {
   }, [activeTopPanel]);
 
   // Right panel — workspace tabs + drag-resizable width (left sidebar stays fixed)
-  const RIGHT_PANEL_WIDTH_KEY = "pi-right-panel-width";
-  const RIGHT_PANEL_MIN = 280;
-  const RIGHT_PANEL_MAX = 900;
-  const RIGHT_PANEL_DEFAULT = 380;
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
@@ -286,20 +239,7 @@ export function AppShell() {
   // A live drag owns the width and writes it straight to the CSS variable, so
   // an unrelated re-render must not snap the ref back to the committed value.
   if (!rightPanelDraggingRef.current) rightPanelWidthRef.current = rightPanelWidth;
-  /** Right workspace: permanent Review | Files | Context | Terminal (like Files, always present) */
-  type WorkspaceTab =
-    | { id: "review"; kind: "review" }
-    | { id: "files"; kind: "files" }
-    | { id: "context"; kind: "context" }
-    | { id: "debug"; kind: "debug" }
-    | { id: "terminal"; kind: "terminal" };
-  const workspaceTabs: WorkspaceTab[] = [
-    { id: "review", kind: "review" },
-    { id: "files", kind: "files" },
-    { id: "context", kind: "context" },
-    { id: "debug", kind: "debug" },
-    { id: "terminal", kind: "terminal" },
-  ];
+  const workspaceTabs = WORKSPACE_TABS;
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string>("review");
   // Workspace panels stay mounted behind display:none once opened so they keep
   // scroll position, expanded diffs and inputs across tab switches. Only the
@@ -311,130 +251,22 @@ export function AppShell() {
       prev.includes(activeWorkspaceTabId) ? prev : [...prev, activeWorkspaceTabId]
     ));
   }, [activeWorkspaceTabId, rightPanelOpen]);
-  // Terminal sessions live inside the permanent Terminal workspace (like file subtabs).
-  type TerminalSessionTab = {
-    id: string;
-    label: string;
-    source: "user" | "agent";
-    attachSessionId?: string;
-    command?: string;
-  };
-  const terminalSeqRef = useRef(1);
-  const [terminalTabs, setTerminalTabs] = useState<TerminalSessionTab[]>([]);
-  const terminalTabsRef = useRef(terminalTabs);
-  terminalTabsRef.current = terminalTabs;
-  const [activeTerminalTabId, setActiveTerminalTabId] = useState<string | null>(null);
-  // Only mount a session once selected (correct xterm size); keep mounted after for keep-alive.
-  const [mountedTerminalIds, setMountedTerminalIds] = useState<string[]>([]);
-  const knownAgentPtyIdsRef = useRef(new Set<string>());
-
-  const renumberTerminalLabels = useCallback((tabs: TerminalSessionTab[]): TerminalSessionTab[] => {
-    let userIndex = 0;
-    return tabs.map((tab) => {
-      if (tab.source === "agent") {
-        const cmd = tab.command?.replace(/\s+/g, " ").trim();
-        const short = cmd && cmd.length > 28 ? `${cmd.slice(0, 25)}…` : cmd;
-        return {
-          ...tab,
-          label: short ? `${t("git.terminalAgent")} · ${short}` : t("git.terminalAgent"),
-        };
-      }
-      userIndex += 1;
-      return { ...tab, label: `${t("git.terminal")} ${userIndex}` };
-    });
-  }, [t]);
-
-  const addTerminalSession = useCallback(() => {
-    // Synchronous id/label so we can activate + mount in the same click (instant show).
-    const prev = terminalTabsRef.current;
-    if (prev.filter((tab) => tab.source === "user").length === 0) terminalSeqRef.current = 1;
-    const n = terminalSeqRef.current++;
-    const id = `term-${n}`;
-    const next = renumberTerminalLabels([...prev, { id, label: "", source: "user" }]);
-    setTerminalTabs(next);
-    setActiveTerminalTabId(id);
-    setMountedTerminalIds((mounted) => (mounted.includes(id) ? mounted : [...mounted, id]));
-    setActiveWorkspaceTabId("terminal");
-    setRightPanelOpen(true);
-    if (isMobile) setSidebarOpen(false);
-  }, [isMobile, renumberTerminalLabels]);
-
-  const closeTerminalSession = useCallback((tabId: string, options?: { kill?: boolean }) => {
-    const kill = options?.kill !== false;
-    const closing = terminalTabsRef.current.find((tab) => tab.id === tabId);
-    if (closing?.source === "agent" && closing.attachSessionId) {
-      knownAgentPtyIdsRef.current.delete(closing.attachSessionId);
-      if (kill) {
-        void fetch(`/api/cwd/pty/${closing.attachSessionId}`, { method: "DELETE", keepalive: true }).catch(() => {});
-      }
-    }
-    setTerminalTabs((prev) => {
-      const next = renumberTerminalLabels(prev.filter((tab) => tab.id !== tabId));
-      if (next.length === 0) {
-        terminalSeqRef.current = 1;
-        setActiveTerminalTabId(null);
-        setMountedTerminalIds([]);
-      } else {
-        setActiveTerminalTabId((cur) => {
-          if (cur !== tabId && next.some((tab) => tab.id === cur)) return cur;
-          return next[next.length - 1].id;
-        });
-        setMountedTerminalIds((mounted) => mounted.filter((id) => id !== tabId));
-      }
-      return next;
-    });
-  }, [renumberTerminalLabels]);
-
-  const upsertAgentTerminalSession = useCallback((session: {
-    id: string;
-    command?: string;
-    title?: string;
-    exited?: boolean;
-  }) => {
-    const tabId = `agent-${session.id}`;
-    // Stopped process → drop the tab instead of leaving a dead terminal around.
-    if (session.exited) {
-      if (terminalTabsRef.current.some((tab) => tab.id === tabId)) {
-        closeTerminalSession(tabId, { kill: true });
-      } else {
-        knownAgentPtyIdsRef.current.delete(session.id);
-      }
-      return;
-    }
-    knownAgentPtyIdsRef.current.add(session.id);
-    setTerminalTabs((prev) => {
-      const existing = prev.find((tab) => tab.id === tabId);
-      if (existing) {
-        return renumberTerminalLabels(prev.map((tab) => (
-          tab.id === tabId
-            ? { ...tab, command: session.command ?? session.title ?? tab.command }
-            : tab
-        )));
-      }
-      return renumberTerminalLabels([
-        ...prev,
-        {
-          id: tabId,
-          label: "",
-          source: "agent",
-          attachSessionId: session.id,
-          command: session.command ?? session.title,
-        },
-      ]);
-    });
-    setActiveTerminalTabId(tabId);
-    setMountedTerminalIds((mounted) => (mounted.includes(tabId) ? mounted : [...mounted, tabId]));
-    setActiveWorkspaceTabId("terminal");
-    setRightPanelOpen(true);
-  }, [closeTerminalSession, renumberTerminalLabels]);
-
-  // Ensure active session is in the mounted set (e.g. after switch).
-  useEffect(() => {
-    if (!activeTerminalTabId) return;
-    setMountedTerminalIds((prev) =>
-      prev.includes(activeTerminalTabId) ? prev : [...prev, activeTerminalTabId],
-    );
-  }, [activeTerminalTabId]);
+  const terminalWatchCwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null;
+  const {
+    terminalTabs,
+    activeTerminalTabId,
+    setActiveTerminalTabId,
+    mountedTerminalIds,
+    addTerminalSession,
+    closeTerminalSession,
+  } = useAppShellTerminal({
+    t: t as (key: string, params?: Record<string, string | number>) => string,
+    isMobile,
+    setSidebarOpen,
+    setRightPanelOpen,
+    setActiveWorkspaceTabId,
+    terminalWatchCwd,
+  });
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -458,7 +290,6 @@ export function AppShell() {
   }, []);
 
   const initialSessionId = initialNavigation.sessionId;
-  const [activeCwd, setActiveCwd] = useState<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
@@ -891,87 +722,6 @@ export function AppShell() {
     return () => observer.disconnect();
   }, [windowTitle]);
 
-  // Discover AI-started PTY sessions and surface them in the Terminal workspace.
-  const terminalWatchCwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null;
-  useEffect(() => {
-    if (!terminalWatchCwd) return;
-    let es: EventSource | null = null;
-    let cancelled = false;
-
-    const ingest = (session: {
-      id?: string;
-      source?: string;
-      command?: string;
-      title?: string;
-      exited?: boolean;
-    }) => {
-      if (!session.id || session.source !== "agent") return;
-      // Snapshot may include already-dead sessions — never re-open those.
-      if (session.exited) {
-        const tabId = `agent-${session.id}`;
-        if (terminalTabsRef.current.some((tab) => tab.id === tabId)) {
-          closeTerminalSession(tabId, { kill: true });
-        }
-        return;
-      }
-      upsertAgentTerminalSession({
-        id: session.id,
-        command: session.command,
-        title: session.title,
-        exited: false,
-      });
-    };
-
-    try {
-      es = new EventSource(`/api/cwd/pty/events?cwd=${encodeURIComponent(terminalWatchCwd)}`);
-      es.addEventListener("snapshot", (evt) => {
-        if (cancelled) return;
-        try {
-          const payload = JSON.parse((evt as MessageEvent).data) as {
-            sessions?: Array<{ id: string; source?: string; command?: string; title?: string; exited?: boolean }>;
-          };
-          for (const session of payload.sessions ?? []) ingest(session);
-        } catch {
-          // ignore
-        }
-      });
-      es.addEventListener("upsert", (evt) => {
-        if (cancelled) return;
-        try {
-          const payload = JSON.parse((evt as MessageEvent).data) as {
-            session?: { id: string; source?: string; command?: string; title?: string; exited?: boolean };
-          };
-          if (payload.session) ingest(payload.session);
-        } catch {
-          // ignore
-        }
-      });
-      es.addEventListener("remove", (evt) => {
-        if (cancelled) return;
-        try {
-          const payload = JSON.parse((evt as MessageEvent).data) as { id?: string };
-          if (!payload.id) return;
-          const tabId = `agent-${payload.id}`;
-          if (terminalTabsRef.current.some((tab) => tab.id === tabId)) {
-            // Session already destroyed server-side — just drop the tab.
-            closeTerminalSession(tabId, { kill: false });
-          } else {
-            knownAgentPtyIdsRef.current.delete(payload.id);
-          }
-        } catch {
-          // ignore
-        }
-      });
-    } catch {
-      // EventSource unavailable
-    }
-
-    return () => {
-      cancelled = true;
-      es?.close();
-    };
-  }, [closeTerminalSession, terminalWatchCwd, upsertAgentTerminalSession]);
-
   const sidebarContent = (
     <div
       className="sidebar-shell"
@@ -1000,77 +750,7 @@ export function AppShell() {
 
   return (
     <>
-    <style>{`
-      @keyframes session-info-pop {
-        0% {
-          opacity: 0;
-          transform: translateY(-24px);
-          filter: blur(6px);
-          box-shadow: 0 2px 8px rgba(0,0,0,0);
-        }
-        55% {
-          opacity: 1;
-          transform: translateY(0);
-          filter: blur(0);
-          background: color-mix(in srgb, var(--bg-selected) 70%, var(--bg-panel));
-          box-shadow: 0 18px 44px color-mix(in oklab, var(--text) 12%, transparent);
-        }
-        100% {
-          opacity: 1;
-          transform: translateY(0);
-          filter: blur(0);
-          background: var(--bg-panel);
-          box-shadow: var(--shadow-md);
-        }
-      }
-      @keyframes session-info-light-wash {
-        0% {
-          opacity: 0;
-          transform: translateX(-110%) skewX(-16deg);
-        }
-        24% {
-          opacity: 0.42;
-        }
-        100% {
-          opacity: 0;
-          transform: translateX(115%) skewX(-16deg);
-        }
-      }
-      .session-info-popover {
-        position: relative;
-        overflow: hidden;
-        transform-origin: top right;
-        animation: session-info-pop 360ms ease-out both;
-        will-change: transform, opacity, filter, background, box-shadow;
-      }
-      .session-info-popover::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        width: 44%;
-        pointer-events: none;
-        background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 24%, transparent), transparent);
-        animation: session-info-light-wash 620ms ease-out both;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .session-info-popover,
-        .session-info-popover::after {
-          animation: none;
-        }
-      }
-      @media (max-width: 640px) {
-        .sidebar-overlay-backdrop.sidebar-mobile-pending {
-          opacity: 0 !important;
-          pointer-events: none !important;
-        }
-        .sidebar-container.sidebar-mobile-pending.sidebar-open {
-          transform: translateX(-100%);
-          box-shadow: none;
-        }
-      }
-    `}</style>
+    <ShellStyles />
     <div style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}>
       {/* Mobile overlay backdrop */}
       <div

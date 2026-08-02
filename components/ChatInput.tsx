@@ -2,21 +2,18 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, forwardRef, memo, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
-import { clearDraft, getDraft, setDraft, transferDraft, type ChatDraftImage } from "@/lib/draft-store";
+import { clearDraft, getDraft, setDraft, transferDraft } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
   MAX_ATTACHED_IMAGES,
-  isBase64ImageWithinLimits,
 } from "@/lib/image-attachments";
 import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import {
-  AlertTriangle,
   ArrowRight,
   ArrowUpToLine,
-  Check,
   Cpu,
   Image,
   Lightbulb,
@@ -29,59 +26,49 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import { ComposerPalette } from "./ComposerPalette";
-import { FolderIcon, getFileIcon } from "./FileIcons";
 import { Icon } from "./Icon";
 import { PreviewableImage } from "./PreviewableImage";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocale } from "@/hooks/useLocale";
-import type { MessageKey } from "@/lib/i18n/messages";
 import { useContextUsageMetric } from "@/lib/session-metrics-store";
 import type { AttachedImage, ChatInputHandle } from "@/lib/chat-input-types";
+import { ContextUsageRing } from "./chat-input/ContextUsageRing";
+import {
+  ModelErrorBanner,
+  ModelScopeWarningBanner,
+  QueuedMessageRow,
+} from "./chat-input/ComposerBanners";
+import { ChatInputModelMenu } from "./chat-input/ChatInputModelMenu";
+import { ComposerAutocompleteMenus } from "./chat-input/ComposerAutocompleteMenus";
+import { ChatInputThinkingMenu } from "./chat-input/ChatInputThinkingMenu";
+import {
+  ChatInputPermissionMenu,
+  PermissionErrorToast,
+} from "./chat-input/ChatInputPermissionMenu";
+import {
+  BUILTIN_SLASH_COMMANDS,
+  COMPOSITION_END_ENTER_GRACE_MS,
+  MAX_INPUT_HEIGHT,
+  MODEL_FILTER_THRESHOLD,
+  MODEL_OPTION_COLLATOR,
+  SINGLE_LINE_MAX_HEIGHT,
+  SLASH_SOURCE_ORDER,
+  SLASH_SOURCES,
+  THINKING_LEVEL_KEYS,
+  compareModelOptions,
+  draftImagesToAttachedImages,
+  filterModelOptions,
+  imageToDraftImage,
+  revokeImagePreview,
+  slashMatchRank,
+  type ModelOption,
+  type PermissionMode,
+  type SlashCommandPaletteItem,
+  type SlashCommandSource,
+} from "./chat-input/chat-input-shared";
 
-/** Circular context-usage meter for the compact control. */
-function ContextUsageRing({ percent, size = 12 }: { percent: number | null; size?: number }) {
-  const r = 4.25;
-  const c = 2 * Math.PI * r;
-  const pct = percent == null ? 0 : Math.min(100, Math.max(0, percent));
-  const offset = c * (1 - pct / 100);
-  // Quiet monochrome fill; turns to text color when high, destructive when critical.
-  const stroke =
-    percent == null ? "var(--text-dim)"
-      : pct > 90 ? "var(--destructive)"
-        : pct > 70 ? "var(--text)"
-          : "var(--text-muted)";
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden
-      style={{ display: "block", flexShrink: 0 }}
-    >
-      <circle cx="6" cy="6" r={r} stroke="var(--border)" strokeWidth="1.5" />
-      <circle
-        cx="6"
-        cy="6"
-        r={r}
-        stroke={stroke}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeDasharray={c}
-        strokeDashoffset={offset}
-        transform="rotate(-90 6 6)"
-        style={{ transition: "stroke-dashoffset 0.2s ease, stroke 0.15s ease" }}
-      />
-    </svg>
-  );
-}
-
-interface ModelOption {
-  provider: string;
-  modelId: string;
-  name: string;
-}
+// Re-export for any external test/import of the pure filter helper.
+export { filterModelOptions } from "./chat-input/chat-input-shared";
 
 interface Props {
   onSend: (message: string, images?: AttachedImage[]) => void;
@@ -126,199 +113,8 @@ interface Props {
   toolbarRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-const PERMISSION_MODES = ["ask", "full"] as const;
-type PermissionMode = (typeof PERMISSION_MODES)[number];
-const COMPOSITION_END_ENTER_GRACE_MS = 100;
-/** Composer textarea autosize bounds, measured with multi-line metrics
- *  (font-size 14 / line-height 1.45 / 6px vertical padding, 32px min-height):
- *  one line lands at ~32px, a wrapped second line at ~53px. */
-const SINGLE_LINE_MAX_HEIGHT = 44;
-const MAX_INPUT_HEIGHT = 200;
-const MODEL_FILTER_THRESHOLD = 8;
-const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-function compareModelOptions(a: ModelOption, b: ModelOption): number {
-  return MODEL_OPTION_COLLATOR.compare(a.name || a.modelId, b.name || b.modelId)
-    || MODEL_OPTION_COLLATOR.compare(a.provider, b.provider)
-    || MODEL_OPTION_COLLATOR.compare(a.modelId, b.modelId);
-}
-
-export function filterModelOptions(options: ModelOption[], query: string): ModelOption[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  if (!normalizedQuery) return options;
-  return options.filter((option) => (
-    `${option.name} ${option.modelId}`
-      .toLocaleLowerCase()
-      .includes(normalizedQuery)
-  ));
-}
-
-const THINKING_LEVELS = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-const THINKING_LEVEL_KEYS: Record<typeof THINKING_LEVELS[number], MessageKey> = {
-  auto: "chat.thinkingAuto",
-  off: "chat.thinkingOff",
-  minimal: "chat.thinkingMinimal",
-  low: "chat.thinkingLow",
-  medium: "chat.thinkingMedium",
-  high: "chat.thinkingHigh",
-  xhigh: "chat.thinkingXhigh",
-  max: "chat.thinkingMax",
-};
-
-type SlashCommandPaletteItem = SlashCommandInfo | {
-  name: string;
-  description: string;
-  source: "builtin";
-};
-
-type SlashCommandSource = SlashCommandPaletteItem["source"];
-
-const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
-  { name: "compact", description: "chat.cmdCompact", source: "builtin" },
-  { name: "reload", description: "chat.cmdReload", source: "builtin" },
-  { name: "name", description: "chat.cmdName", source: "builtin" },
-  { name: "session", description: "chat.cmdSession", source: "builtin" },
-  { name: "copy", description: "chat.cmdCopy", source: "builtin" },
-];
-
-const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
-
-const SLASH_SOURCE_GROUP_KEYS: Record<SlashCommandSource, MessageKey> = {
-  builtin: "chat.slashBuiltin",
-  extension: "chat.slashExtensions",
-  prompt: "chat.slashPrompts",
-  skill: "chat.slashSkills",
-};
-
-const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
-  builtin: 0,
-  extension: 1,
-  prompt: 2,
-  skill: 3,
-};
-
-function slashMatchRank(command: SlashCommandPaletteItem, query: string): number {
-  const name = command.name.toLowerCase();
-  const description = command.description?.toLowerCase() ?? "";
-  if (name === query) return 0;
-  if (name.startsWith(query)) return 1;
-  if (name.includes(query)) return 2;
-  if (description.includes(query)) return 3;
-  return 4;
-}
-
-function imageToDraftImage(image: AttachedImage): ChatDraftImage {
-  return { data: image.data, mimeType: image.mimeType };
-}
-
-function draftImageToAttachedImage(image: ChatDraftImage): AttachedImage {
-  return {
-    ...image,
-    previewUrl: `data:${image.mimeType};base64,${image.data}`,
-  };
-}
-
-function draftImagesToAttachedImages(images: ChatDraftImage[] | undefined): AttachedImage[] {
-  return (images ?? [])
-    .filter(isBase64ImageWithinLimits)
-    .slice(0, MAX_ATTACHED_IMAGES)
-    .map(draftImageToAttachedImage);
-}
-
-function revokeImagePreview(image: AttachedImage): void {
-  if (image.previewUrl.startsWith("blob:")) {
-    URL.revokeObjectURL(image.previewUrl);
-  }
-}
-
-function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
-  const { t } = useLocale();
-  return (
-    <div
-      title={text}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "3px 10px",
-        fontSize: 12,
-        color: "var(--text-muted)",
-        minWidth: 0,
-      }}
-    >
-      <span
-        style={{
-          flexShrink: 0,
-          fontSize: 10,
-          fontFamily: "var(--font-mono)",
-          padding: "1px 7px",
-          borderRadius: "var(--radius-pill)",
-          border: `1px solid ${kind === "steer" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "var(--border)"}`,
-          color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
-        }}
-      >
-        {kind === "steer" ? t("chat.badgeSteer") : t("chat.badgeFollowUp")}
-      </span>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
-    </div>
-  );
-}
-
-function ModelScopeWarningBanner({ warnings }: { warnings?: string[] | null }) {
-  if (!warnings || warnings.length === 0) return null;
-  return (
-    <div
-      role="status"
-      style={{
-        marginBottom: 8,
-        padding: "7px 10px",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-sm)",
-        background: "var(--bg-subtle)",
-        color: "var(--text-muted)",
-        fontSize: 11,
-        lineHeight: 1.45,
-        fontFamily: "var(--font-mono)",
-        whiteSpace: "pre-wrap",
-      }}
-    >
-      {warnings.join("\n")}
-    </div>
-  );
-}
-
-function ModelErrorBanner({ error }: { error?: string | null }) {
-  const { t } = useLocale();
-  if (!error) return null;
-  return (
-    <div
-      role="alert"
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 8,
-        maxHeight: 120,
-        marginBottom: 8,
-        padding: "7px 10px",
-        overflowY: "auto",
-        border: "1px solid var(--destructive-border)",
-        borderRadius: "var(--radius-sm)",
-        background: "var(--destructive-bg)",
-        color: "var(--destructive)",
-        fontSize: 11,
-        lineHeight: 1.45,
-      }}
-    >
-      <Icon icon={AlertTriangle} size={13} strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 600 }}>{t("chat.modelError")}</div>
-        <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{error}</div>
-      </div>
-    </div>
-  );
-}
-
-// Memoized: this is a 2000-line component that must not re-render on every
+// Memoized: this is a large composer that must not re-render on every
 // streaming token reaching ChatWindow.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
@@ -1366,229 +1162,37 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
         {/* Main input */}
         <div style={{ position: "relative" }}>
-          {historyMenuOpen && inputHistory.length > 0 && (
-            <ComposerPalette
-              menuRef={historyMenuRef}
-              title={t("chat.inputHistory", { n: String(inputHistory.length) })}
-              hint={t("chat.enterToUse")}
-              maxHeight="min(44vh, 360px)"
-            >
-                {inputHistory.map((item, index) => {
-                  const active = index === historyActiveIndex;
-                  return (
-                    <button
-                      key={`${index}:${item}`}
-                      ref={(node) => {
-                        historyItemRefs.current[index] = node;
-                      }}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        applyHistoryInput(item);
-                      }}
-                      onMouseEnter={() => setHistoryActiveIndex(index)}
-                      style={{
-                        width: "100%",
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: 8,
-                        padding: "7px 8px",
-                        border: "none",
-                        borderRadius: "var(--radius-sm)",
-                        background: active ? "var(--bg-selected)" : "none",
-                        color: "var(--text)",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        fontSize: 12.5,
-                        lineHeight: 1.45,
-                      }}
-                    >
-                      <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)", paddingTop: 1 }}>
-                        {index + 1}
-                      </span>
-                      <span style={{ minWidth: 0, display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", overflowWrap: "anywhere" }}>
-                        {item}
-                      </span>
-                    </button>
-                  );
-                })}
-            </ComposerPalette>
-          )}
-          {slashMenuOpen && slashQuery !== null && (
-            <ComposerPalette
-              title={slashCommandsLoading ? t("chat.loadingCommands") : t("chat.slashCommands", { n: slashCommandCountLabel })}
-              hint={t("chat.tabEnter")}
-              maxHeight="min(56vh, 460px)"
-              bodyStyle={{ padding: 10 }}
-            >
-                {!slashCommandsLoading && filteredSlashCommands.length === 0 ? (
-                  <div style={{ padding: "2px 2px 4px", fontSize: 12, color: "var(--text-dim)" }}>
-                    {t("chat.noCommands")}
-                  </div>
-                ) : (
-                  groupedSlashCommands.map((group) => (
-                    <section key={group.source} style={{ marginBottom: 12 }}>
-                      <div
-                        style={{
-                          position: "sticky",
-                          top: -10,
-                          zIndex: 1,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          padding: "4px 0 6px",
-                          background: "var(--bg)",
-                          color: "var(--text-dim)",
-                          fontSize: 10,
-                          fontWeight: 600,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        <span>{t(SLASH_SOURCE_GROUP_KEYS[group.source])}</span>
-                        <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}>{group.items.length}</span>
-                      </div>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                          gap: 8,
-                        }}
-                      >
-                        {group.items.map(({ command, index }) => {
-                          const active = index === slashActiveIndex;
-                          return (
-                            <button
-                              key={`${command.source}:${command.name}`}
-                              ref={(node) => {
-                                slashItemRefs.current[index] = node;
-                              }}
-                              type="button"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                applySlashCommand(command);
-                              }}
-                              onMouseEnter={() => setSlashActiveIndex(index)}
-                              style={{
-                                width: "100%",
-                                minWidth: 0,
-                                minHeight: 58,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 4,
-                                justifyContent: "center",
-                                padding: "9px 10px",
-                                border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-                                borderRadius: "var(--radius-md)",
-                                background: active ? "var(--bg-selected)" : "var(--bg-panel)",
-                                color: "var(--text)",
-                                cursor: "pointer",
-                                textAlign: "left",
-                                boxShadow: active ? "0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent)" : "none",
-                              }}
-                            >
-                              <span style={{
-                                fontSize: 13,
-                                fontFamily: "var(--font-mono)",
-                                overflowWrap: "anywhere",
-                                wordBreak: "break-word",
-                              }}>
-                                /{command.name}
-                              </span>
-                              {command.description && (
-                                <span style={{
-                                  display: "-webkit-box",
-                                  WebkitBoxOrient: "vertical",
-                                  WebkitLineClamp: 2,
-                                  overflow: "hidden",
-                                  fontSize: 11,
-                                  lineHeight: 1.35,
-                                  color: "var(--text-dim)",
-                                }}>
-                                  {command.source === "builtin" && command.description.startsWith("chat.")
-                                    ? t(command.description as MessageKey)
-                                    : command.description}
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  ))
-                )}
-            </ComposerPalette>
-          )}
-          {atMenuOpen && atQuery !== null && (() => {
-            const indexLoading = fileIndexLoading && (!fileIndex || fileIndex.cwd !== cwd);
-            const matchCountLabel = atMatches.length === 1 ? "1 match" : `${atMatches.length} matches`;
-            // With a truncated index, local results are provisional — the
-            // debounced server search over the full listing replaces them.
-            const truncatedHint = fileIndex?.truncated && !serverResultInUse
-              ? (atQuery.query ? " · searching all files…" : " · index truncated")
-              : "";
-            return (
-              <ComposerPalette
-                title={
-                  indexLoading
-                    ? t("chat.loadingFiles")
-                    : `${t("chat.files", { n: matchCountLabel })}${truncatedHint}`
-                }
-                hint={t("chat.tabEnter")}
-                maxHeight="min(48vh, 400px)"
-              >
-                  {!indexLoading && atMatches.length === 0 ? (
-                    <div style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-dim)" }}>
-                      {needsServerSearch && !serverResultInUse ? t("chat.searching") : t("chat.noMatchingFiles")}
-                    </div>
-                  ) : (
-                    atMatches.map((entry, index) => {
-                      const active = index === atActiveIndex;
-                      const name = entry.path.split("/").pop() ?? entry.path;
-                      const dirPrefix = entry.path.slice(0, entry.path.length - name.length);
-                      return (
-                        <button
-                          key={`${entry.isDir ? "d" : "f"}:${entry.path}`}
-                          ref={(node) => {
-                            atItemRefs.current[index] = node;
-                          }}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            applyAtCompletion(entry);
-                          }}
-                          onMouseEnter={() => setAtActiveIndex(index)}
-                          style={{
-                            width: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            padding: "6px 8px",
-                            border: "none",
-                            borderRadius: "var(--radius-sm)",
-                            background: active ? "var(--bg-selected)" : "none",
-                            color: "var(--text)",
-                            cursor: "pointer",
-                            textAlign: "left",
-                            fontSize: 12,
-                            fontFamily: "var(--font-mono)",
-                          }}
-                        >
-                          <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
-                            {entry.isDir ? <FolderIcon size={14} /> : getFileIcon(name, 14)}
-                          </span>
-                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {dirPrefix && <span style={{ color: "var(--text-dim)" }}>{dirPrefix}</span>}
-                            {name}
-                            {entry.isDir && <span style={{ color: "var(--text-dim)" }}>/</span>}
-                          </span>
-                        </button>
-                      );
-                    })
-                  )}
-              </ComposerPalette>
-            );
-          })()}
+          <ComposerAutocompleteMenus
+            historyMenuOpen={historyMenuOpen}
+            inputHistory={inputHistory}
+            historyActiveIndex={historyActiveIndex}
+            setHistoryActiveIndex={setHistoryActiveIndex}
+            applyHistoryInput={applyHistoryInput}
+            historyMenuRef={historyMenuRef}
+            historyItemRefs={historyItemRefs}
+            slashMenuOpen={slashMenuOpen}
+            slashQuery={slashQuery}
+            slashCommandsLoading={slashCommandsLoading}
+            slashCommandCountLabel={slashCommandCountLabel}
+            filteredSlashCommands={filteredSlashCommands}
+            groupedSlashCommands={groupedSlashCommands}
+            slashActiveIndex={slashActiveIndex}
+            setSlashActiveIndex={setSlashActiveIndex}
+            applySlashCommand={applySlashCommand}
+            slashItemRefs={slashItemRefs}
+            atMenuOpen={atMenuOpen}
+            atQuery={atQuery}
+            atMatches={atMatches}
+            atActiveIndex={atActiveIndex}
+            setAtActiveIndex={setAtActiveIndex}
+            applyAtCompletion={applyAtCompletion}
+            atItemRefs={atItemRefs}
+            fileIndexLoading={fileIndexLoading}
+            fileIndex={fileIndex}
+            cwd={cwd}
+            serverResultInUse={serverResultInUse}
+            needsServerSearch={needsServerSearch}
+          />
           <div
             className={`composer-shell${isStreaming && (onSteer || onFollowUp) ? " is-streaming" : ""}`}
           >
@@ -1776,108 +1380,21 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       {currentName ?? (modelOptions.length > 0 ? t("chat.selectModel") : t("chat.noModels"))}
                     </span>
                   </button>
-                  {modelDropdownOpen && modelDropdownRect && (() => {
-                    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-                    const bottom = viewportHeight - modelDropdownRect.top + 6;
-                    const maxH = Math.max(120, Math.min(modelDropdownRect.top - 8, viewportHeight * 0.6));
-                    // On mobile, pin to a small left margin and cap width to the
-                    // viewport so long model names never push the panel off-screen.
-                    const panelPos: React.CSSProperties = isMobile
-                      ? { left: 8, right: 8, maxWidth: "calc(100vw - 16px)" }
-                      : { left: modelDropdownRect.left, width: "max-content", minWidth: modelDropdownRect.width };
-                    return (
-                      <div ref={modelDropdownPanelRef} className="menu-card" style={{
-                      position: "fixed",
-                      bottom,
-                      ...panelPos,
-                      zIndex: 500,
-                      maxHeight: maxH,
-                      overflow: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                      }}>
-                      {showModelFilter && (
-                        <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-                          <input
-                            value={modelFilter}
-                            onChange={(e) => setModelFilter(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                setModelFilter("");
-                                setModelDropdownOpen(false);
-                              }
-                            }}
-                            placeholder={t("chat.filterModels")}
-                            aria-label={t("chat.filterModels")}
-                            autoFocus
-                            autoComplete="off"
-                            spellCheck={false}
-                            className="input-base"
-                            style={{
-                              width: "100%",
-                              minWidth: isMobile ? 0 : 220,
-                              fontSize: 11,
-                              fontFamily: "var(--font-mono)",
-                              padding: "5px 8px",
-                              borderRadius: 0,
-                              boxSizing: "border-box",
-                            }}
-                          />
-                        </div>
-                      )}
-                      <div style={{ minHeight: 0, overflowY: "auto" }}>
-                        {modelsByProvider.length === 0 ? (
-                          <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                            {modelFilter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
-                          </div>
-                        ) : modelsByProvider.map((group, gi) => (
-                          <div key={group.provider}>
-                            {(modelsByProvider.length > 1) && (
-                              <div style={{
-                                padding: "6px 12px 4px",
-                                fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
-                                textTransform: "uppercase", letterSpacing: "0.06em",
-                                borderTop: gi > 0 ? "1px solid var(--border)" : "none",
-                              }}>
-                                {group.provider}
-                              </div>
-                            )}
-                            {group.options.map((opt) => {
-                              const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
-                              return (
-                                <button
-                                  key={`${opt.provider}:${opt.modelId}`}
-                                  onClick={() => {
-                                    setModelDropdownOpen(false);
-                                    setModelFilter("");
-                                    if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId);
-                                  }}
-                                  style={{
-                                    display: "flex", alignItems: "center", gap: 8,
-                                    width: "100%", padding: "7px 12px",
-                                    background: isActive ? "var(--bg-selected)" : "none",
-                                    border: "none",
-                                    color: isActive ? "var(--text)" : "var(--text-muted)",
-                                    cursor: "pointer", fontSize: 12, textAlign: "left",
-                                    fontWeight: isActive ? 600 : 400,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                                >
-                                  {isActive
-                                    ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, color: "var(--accent)" }} />
-                                    : <span style={{ width: 10, flexShrink: 0 }} />}
-                                  {opt.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    );
-                  })()}
+                  {modelDropdownOpen && modelDropdownRect && (
+                    <ChatInputModelMenu
+                      isMobile={isMobile}
+                      modelDropdownRect={modelDropdownRect}
+                      showModelFilter={showModelFilter}
+                      modelFilter={modelFilter}
+                      setModelFilter={setModelFilter}
+                      setModelDropdownOpen={setModelDropdownOpen}
+                      modelsByProvider={modelsByProvider}
+                      model={model}
+                      isAutoModelSelection={isAutoModelSelection}
+                      onModelChange={onModelChange}
+                      panelRef={modelDropdownPanelRef}
+                    />
+                  )}
                 </div>
             )}
           </div>
@@ -1953,49 +1470,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   {(!isMobile || controlsMenuOpen) && <span>{thinkingDisplayLabel}</span>}
                 </button>
                 {thinkingDropdownOpen && thinkingMenuRect && (
-                  <div className="menu-card" style={fixedMenuStyle(thinkingMenuRect, 112)}>
-                    {THINKING_LEVELS.filter((lvl) => {
-                      if (!availableThinkingLevels) return true;
-                      if (lvl === "auto") return true;
-                      return availableThinkingLevels.includes(lvl);
-                    }).map((lvl) => {
-                      const isActive = (thinkingLevel ?? "auto") === lvl;
-                      const label = t(THINKING_LEVEL_KEYS[lvl]);
-                      // Provider-facing token when the model remaps this level (e.g. xhigh→max).
-                      const mappedVal = (lvl !== "auto" && thinkingLevelMap) ? thinkingLevelMap[lvl] : undefined;
-                      const showMapped = mappedVal != null && mappedVal !== "" && mappedVal !== lvl;
-                      return (
-                        <button
-                          key={lvl}
-                          onClick={() => { setThinkingDropdownOpen(false); if (!isActive) onThinkingLevelChange(lvl); }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            width: "100%", padding: "7px 12px",
-                            background: isActive ? "var(--bg-selected)" : "none",
-                            border: "none",
-                            color: isActive ? "var(--text)" : "var(--text-muted)",
-                            cursor: "pointer", fontSize: 12, textAlign: "left",
-                            fontWeight: isActive ? 600 : 400,
-                            whiteSpace: "nowrap",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                        >
-                          {isActive
-                            ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, color: "var(--accent)" }} />
-                            : <span style={{ width: 10, flexShrink: 0 }} />}
-                          <span style={{ flex: 1 }}>
-                            {label}
-                            {showMapped && (
-                              <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>
-                                ({mappedVal})
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <ChatInputThinkingMenu
+                    style={fixedMenuStyle(thinkingMenuRect, 112)}
+                    thinkingLevel={thinkingLevel}
+                    availableThinkingLevels={availableThinkingLevels}
+                    thinkingLevelMap={thinkingLevelMap}
+                    onThinkingLevelChange={onThinkingLevelChange}
+                    setThinkingDropdownOpen={setThinkingDropdownOpen}
+                  />
                 )}
               </div>
             )}
@@ -2028,54 +1510,19 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 if (!anchor) return null;
                 const pos = fixedMenuStyle(anchor, 220);
                 return (
-                  <div role="alert" style={{
-                    position: "fixed",
-                    bottom: pos.bottom,
-                    right: pos.right,
-                    zIndex: 500,
-                    background: "var(--bg-panel)", color: "var(--destructive)",
-                    fontSize: 11, padding: "4px 8px", borderRadius: "var(--radius-sm)",
-                    maxWidth: "min(420px, 80vw)", overflowWrap: "break-word",
-                    border: "1px solid color-mix(in oklab, var(--destructive) 28%, var(--border))",
-                    boxShadow: "var(--shadow-md)",
-                  }}>
-                    {t("chat.permissionChangeFailed")}: {permissionError}
-                  </div>
+                  <PermissionErrorToast
+                    bottom={pos.bottom}
+                    right={pos.right}
+                    permissionError={permissionError}
+                  />
                 );
               })()}
               {permissionDropdownOpen && permissionMenuRect && (
-                <div className="menu-card" style={fixedMenuStyle(permissionMenuRect, 220)}>
-                  {PERMISSION_MODES.map((mode) => {
-                    const isActive = permissionMode === mode;
-                    const title = mode === "full" ? t("chat.permissionFull") : t("chat.permissionAsk");
-                    const desc = mode === "full" ? t("chat.permissionFullDesc") : t("chat.permissionAskDesc");
-                    return (
-                      <button
-                        key={mode}
-                        onClick={() => void applyPermissionMode(mode)}
-                        style={{
-                          display: "flex", alignItems: "flex-start", gap: 8,
-                          width: "100%", padding: "9px 12px",
-                          background: isActive ? "var(--bg-selected)" : "none",
-                          border: "none",
-                          color: isActive ? "var(--text)" : "var(--text-muted)",
-                          cursor: "pointer", fontSize: 12, textAlign: "left",
-                          fontWeight: isActive ? 600 : 400,
-                        }}
-                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                      >
-                        {isActive
-                          ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, marginTop: 3, color: "var(--accent)" }} />
-                          : <span style={{ width: 10, flexShrink: 0 }} />}
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ display: "block", color: mode === "full" ? "var(--destructive)" : "inherit" }}>{title}</span>
-                          <span style={{ display: "block", fontSize: 11, color: "var(--text-dim)", marginTop: 2, fontWeight: 400 }}>{desc}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <ChatInputPermissionMenu
+                  style={fixedMenuStyle(permissionMenuRect, 220)}
+                  permissionMode={permissionMode}
+                  applyPermissionMode={applyPermissionMode}
+                />
               )}
             </div>
 

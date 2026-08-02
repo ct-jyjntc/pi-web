@@ -10,6 +10,11 @@
  *
  * Classic path: try strict hashline hunk apply first, then SDK fuzzy classic edit.
  * Failures get kind/path/excerpt recovery text via edit-failure.ts.
+ *
+ * @deprecated dual-path — classic `{ path, edits }` is **bugfix-only**.
+ * New features must be hashline-only. Removal target: **pi-web 1.0.0** or
+ * **2026-12-01** (whichever first), tracked under declutter Phase 2.
+ * After removal, keep hashline `input` + optional hunk mode only.
  */
 import { Type } from "typebox";
 import { isAbsolute, resolve } from "path";
@@ -160,7 +165,7 @@ const HASHLINE_GUIDELINES = [
   "Ops: SWAP N.=M: (+ body rows), DEL N.=M, INS.PRE N: / INS.POST N: / INS.HEAD: / INS.TAIL: (body rows are +TEXT).",
   "Line numbers refer to the ORIGINAL file snapshot for that tag; do not renumber mid-patch.",
   "On stale-tag rejection: STOP and re-read before further edits.",
-  "Classic fallback still works: edit({ path, edits: [{ oldText, newText }] }) — use only when hashline is awkward.",
+  "Classic fallback still works: edit({ path, edits: [{ oldText, newText }] }) — bugfix-only; deprecated dual-path, removal by pi-web 1.0.0 / 2026-12-01.",
   "When changing multiple separate locations in one file, prefer one edit call with multiple ops/sections.",
   "On edit failure, use the kind/path/excerpt/tag in the error to craft a smaller unique anchor; do not rewrite whole files with write unless necessary.",
 ];

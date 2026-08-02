@@ -1,7 +1,7 @@
 # Declutter Design — Anti-Patch Convergence
 
 **Date:** 2026-08-02  
-**Status:** Phase 0 (docs only)  
+**Status:** Phase 1 done; Phase 3 complete for giant UI shells (optional further thins remain)  
 **Hard rules:** [`AGENTS.md` § AI Coding Constraints](../../../AGENTS.md)  
 **Non-goal this doc:** restate every MUST/MUST NOT — cite AGENTS instead.
 
@@ -89,7 +89,7 @@ Symptoms: hard to reason about the main path, high risk of stale-state bugs, and
 
 | Dual path | Direction |
 |-----------|-----------|
-| Hashline edit vs classic `{ path, edits }` | Classic = bugfix only; mark deprecated in comments/docs |
+| Hashline edit vs classic `{ path, edits }` | Classic = bugfix only; **deprecated** in `agent-edit-tool.ts` — removal **pi-web 1.0.0 or 2026-12-01** |
 | Extension bundle vs TS path fallback | Keep one-shot missing-bundle fallback; no new TS-only extensions |
 | Multiple live-state readers | One module (continue existing live-state direction) |
 | Memory / settings legacy fields | After migration ships, set a removal version |
@@ -126,11 +126,11 @@ New dual-path?: no | yes + removal condition
 
 ## Overall success checklist
 
-- [ ] `AGENTS.md` hard constraints present; later commits show the self-check when relevant
-- [ ] Hot-path finish/recovery has a documented state machine matching implementation
-- [ ] `useAgentSession.ts` / `rpc-manager.ts` line counts down vs Phase 0 baseline
-- [ ] Count of >1500-line TS/TSX sources down
-- [ ] At least one redundant recovery path removed and one legacy dual path removed or dated
+- [x] `AGENTS.md` hard constraints present; later commits show the self-check when relevant
+- [x] Hot-path finish/recovery has a documented state machine matching implementation (`2026-08-02-agent-run-lifecycle.md`)
+- [x] `useAgentSession.ts` / `rpc-manager.ts` line counts down vs Phase 0 baseline (useAgentSession 2043→1741; rpc-manager 1553→28 façade + split modules)
+- [x] Count of >1500-line TS/TSX sources down (hot path + all Phase 3 giants split/thinned; ChatInput/AppShell still &gt;1000 but under prior peaks)
+- [x] At least one redundant recovery path removed and one legacy dual path removed or dated (reconcile keep+justified; classic edit dated 1.0.0 / 2026-12-01)
 - [ ] No new `globalThis.__pi*` unless this blueprint is revised and approved
 
 ## Baseline sizes (Phase 0 snapshot)

@@ -1,0 +1,124 @@
+/**
+ * Pure helpers and constants for the chat composer (model filter, slash palette, drafts).
+ */
+import type { SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { ChatDraftImage } from "@/lib/draft-store";
+import type { MessageKey } from "@/lib/i18n/messages";
+import type { AttachedImage } from "@/lib/chat-input-types";
+import {
+  MAX_ATTACHED_IMAGES,
+  isBase64ImageWithinLimits,
+} from "@/lib/image-attachments";
+
+export interface ModelOption {
+  provider: string;
+  modelId: string;
+  name: string;
+}
+
+export const PERMISSION_MODES = ["ask", "full"] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+export const COMPOSITION_END_ENTER_GRACE_MS = 100;
+export const SINGLE_LINE_MAX_HEIGHT = 44;
+export const MAX_INPUT_HEIGHT = 200;
+export const MODEL_FILTER_THRESHOLD = 8;
+export const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+export function compareModelOptions(a: ModelOption, b: ModelOption): number {
+  return MODEL_OPTION_COLLATOR.compare(a.name || a.modelId, b.name || b.modelId)
+    || MODEL_OPTION_COLLATOR.compare(a.provider, b.provider)
+    || MODEL_OPTION_COLLATOR.compare(a.modelId, b.modelId);
+}
+
+export function filterModelOptions(options: ModelOption[], query: string): ModelOption[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return options;
+  return options.filter((option) => (
+    `${option.name} ${option.modelId}`
+      .toLocaleLowerCase()
+      .includes(normalizedQuery)
+  ));
+}
+
+
+export const THINKING_LEVELS = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const THINKING_LEVEL_KEYS: Record<typeof THINKING_LEVELS[number], MessageKey> = {
+  auto: "chat.thinkingAuto",
+  off: "chat.thinkingOff",
+  minimal: "chat.thinkingMinimal",
+  low: "chat.thinkingLow",
+  medium: "chat.thinkingMedium",
+  high: "chat.thinkingHigh",
+  xhigh: "chat.thinkingXhigh",
+  max: "chat.thinkingMax",
+};
+
+export type SlashCommandPaletteItem = SlashCommandInfo | {
+  name: string;
+  description: string;
+  source: "builtin";
+};
+
+export type SlashCommandSource = SlashCommandPaletteItem["source"];
+
+export const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
+  { name: "compact", description: "chat.cmdCompact", source: "builtin" },
+  { name: "reload", description: "chat.cmdReload", source: "builtin" },
+  { name: "name", description: "chat.cmdName", source: "builtin" },
+  { name: "session", description: "chat.cmdSession", source: "builtin" },
+  { name: "copy", description: "chat.cmdCopy", source: "builtin" },
+];
+
+export const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
+
+export const SLASH_SOURCE_GROUP_KEYS: Record<SlashCommandSource, MessageKey> = {
+  builtin: "chat.slashBuiltin",
+  extension: "chat.slashExtensions",
+  prompt: "chat.slashPrompts",
+  skill: "chat.slashSkills",
+};
+
+export const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
+  builtin: 0,
+  extension: 1,
+  prompt: 2,
+  skill: 3,
+};
+
+export function slashMatchRank(command: SlashCommandPaletteItem, query: string): number {
+  const name = command.name.toLowerCase();
+  const description = command.description?.toLowerCase() ?? "";
+  if (name === query) return 0;
+  if (name.startsWith(query)) return 1;
+  if (name.includes(query)) return 2;
+  if (description.includes(query)) return 3;
+  return 4;
+}
+
+
+export function imageToDraftImage(image: AttachedImage): ChatDraftImage {
+  return { data: image.data, mimeType: image.mimeType };
+}
+
+export function draftImageToAttachedImage(image: ChatDraftImage): AttachedImage {
+  return {
+    ...image,
+    previewUrl: `data:${image.mimeType};base64,${image.data}`,
+  };
+}
+
+export function draftImagesToAttachedImages(images: ChatDraftImage[] | undefined): AttachedImage[] {
+  return (images ?? [])
+    .filter(isBase64ImageWithinLimits)
+    .slice(0, MAX_ATTACHED_IMAGES)
+    .map(draftImageToAttachedImage);
+}
+
+export function revokeImagePreview(image: AttachedImage): void {
+  if (image.previewUrl.startsWith("blob:")) {
+    URL.revokeObjectURL(image.previewUrl);
+  }
+}
+
+

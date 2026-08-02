@@ -11,13 +11,64 @@ import type {
   SessionInfo,
   SessionTreeNode,
 } from "@/lib/types";
-import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useLocale } from "@/hooks/useLocale";
 import { getFullToolNames } from "@/lib/tool-presets";
 import { ensureWebSettings } from "@/lib/web-settings-store";
 import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
 import type { AttachedImage, ChatInputHandle } from "@/lib/chat-input-types";
+import {
+  AGENT_STATE_RECONCILE_MS,
+  BASH_STATE_RECONCILE_MS,
+  PROMPT_SETTLE_INITIAL_DELAY_MS,
+  PROMPT_SETTLE_MAX_MS,
+  PROMPT_SETTLE_POLL_MS,
+} from "@/lib/agent-run-lifecycle";
+import {
+  applyLiveAgentStateFields,
+  clampThinkingLevelForModel,
+  normalizeQueuedMessages,
+  queuedMessagesEqual,
+  type AgentStateResponse,
+  type QueuedMessages,
+  type ThinkingLevelOption,
+} from "@/lib/agent-session-live-apply";
+import {
+  createNoticeId,
+  noticeReducer,
+  NOTICE_EXIT_ANIMATION_MS,
+  NOTICE_VISIBLE_MS,
+  type NoticeType,
+} from "@/lib/agent-session-notices";
+import { userMessageKey } from "@/lib/agent-session-message-key";
+import {
+  readCompactContextUsage,
+  readCompactResult,
+  type CompactCommandResult,
+  type CompactResultInfo,
+} from "@/lib/agent-session-compact-parse";
+import {
+  EventStreamConnectionError,
+  streamReducer,
+} from "@/lib/agent-session-stream-state";
+import type { AgentPhase } from "@/lib/agent-session-phase";
+import { applyExtensionUiRequest } from "@/lib/agent-session-extension-ui";
+import { parseSlashCommandLine } from "@/lib/agent-session-slash-parse";
+import { handleAgentSessionEvent } from "@/lib/agent-session-handle-event";
+import {
+  cancelEventStreamGrace as cancelEventStreamGraceImpl,
+  closeEventSource,
+  connectEventSource,
+  ensureEventSourceConnected,
+  scheduleEventStreamClose as scheduleEventStreamCloseImpl,
+  type AgentEventSourceContext,
+} from "@/lib/agent-session-event-source";
+
+// Re-export public types so existing `@/hooks/useAgentSession` importers stay stable.
+export type { QueuedMessages, ThinkingLevelOption } from "@/lib/agent-session-live-apply";
+export type { NoticeItem, NoticeType } from "@/lib/agent-session-notices";
+export type { CompactResultInfo } from "@/lib/agent-session-compact-parse";
+export type { AgentPhase } from "@/lib/agent-session-phase";
 
 export interface SessionData {
   sessionId: string;
@@ -29,143 +80,17 @@ export interface SessionData {
   contextUsage?: ContextUsage | null;
 }
 
-interface StreamingState {
-  isStreaming: boolean;
-  streamingMessage: Partial<AgentMessage> | null;
-}
-
-type StreamAction =
-  | { type: "start" }
-  | { type: "update"; message: Partial<AgentMessage> }
-  | { type: "end" }
-  | { type: "reset" };
-
-function streamReducer(state: StreamingState, action: StreamAction): StreamingState {
-  switch (action.type) {
-    case "start":
-      return { isStreaming: true, streamingMessage: null };
-    case "update":
-      return { isStreaming: true, streamingMessage: action.message };
-    case "end":
-    case "reset":
-      return { isStreaming: false, streamingMessage: null };
-    default:
-      return state;
-  }
-}
-
 interface AgentEvent {
   type: string;
   [key: string]: unknown;
-}
-
-interface CompactCommandResult {
-  tokensBefore?: number;
-  estimatedTokensAfter?: number;
-  contextUsage?: ContextUsage | null;
 }
 
 interface LastAssistantTextResponse {
   text?: string;
 }
 
-type AgentStateResponse = {
-  contextUsage?: ContextUsage | null;
-  systemPrompt?: string;
-  thinkingLevel?: string;
-  isStreaming?: boolean;
-  isPromptRunning?: boolean;
-  isBashRunning?: boolean;
-  isCompacting?: boolean;
-  extensionStatuses?: ExtensionStatusItem[];
-  extensionWidgets?: ExtensionWidgetItem[];
-  queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
-};
-
-export interface QueuedMessages {
-  steering: string[];
-  followUp: string[];
-}
-
-function normalizeQueuedMessages(q?: { steering?: string[]; followUp?: string[] } | null): QueuedMessages {
-  return { steering: q?.steering ?? [], followUp: q?.followUp ?? [] };
-}
-
-function sameStringList(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-function queuedMessagesEqual(a: QueuedMessages, b: QueuedMessages): boolean {
-  return sameStringList(a.steering, b.steering) && sameStringList(a.followUp, b.followUp);
-}
-
-type LiveContextUsage = ContextUsage | null;
-
-/** Apply optional live-agent state fields without overwriting unset properties. */
-function applyLiveAgentStateFields(
-  liveState: AgentStateResponse | undefined | null,
-  setters: {
-    setContextUsage: (v: LiveContextUsage) => void;
-    setSystemPrompt: (v: string | null) => void;
-    setThinkingLevel?: (v: ThinkingLevelOption) => void;
-    setExtensionStatuses: (v: ExtensionStatusItem[]) => void;
-    setExtensionWidgets: (v: ExtensionWidgetItem[]) => void;
-    setQueuedMessages?: (v: QueuedMessages) => void;
-  },
-): void {
-  if (!liveState) return;
-  if (liveState.contextUsage !== undefined) setters.setContextUsage(liveState.contextUsage ?? null);
-  if (liveState.systemPrompt !== undefined) setters.setSystemPrompt(liveState.systemPrompt ?? null);
-  if (liveState.thinkingLevel !== undefined && setters.setThinkingLevel) {
-    setters.setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");
-  }
-  if (liveState.extensionStatuses !== undefined) {
-    setters.setExtensionStatuses(liveState.extensionStatuses ?? []);
-  }
-  if (liveState.extensionWidgets !== undefined) {
-    setters.setExtensionWidgets(liveState.extensionWidgets ?? []);
-  }
-  if (liveState.queuedMessages !== undefined && setters.setQueuedMessages) {
-    setters.setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
-  }
-}
-
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
-export type NoticeType = "info" | "success" | "warning" | "error";
-
-export type NoticeItem = {
-  id: string;
-  message: string;
-  type: NoticeType;
-  exiting?: boolean;
-};
-
-type NoticeState = {
-  visible: NoticeItem[];
-  pending: NoticeItem[];
-};
-
-type NoticeAction =
-  | { type: "add"; notice: NoticeItem }
-  | { type: "mark_oldest_exiting" }
-  | { type: "remove"; id: string };
-
-export type AgentPhase =
-  | { kind: "waiting_model" }
-  | { kind: "running_command" }
-  | { kind: "running_tools"; tools: { id: string; name: string }[] }
-  | null;
-
-export interface CompactResultInfo {
-  reason: "manual" | "threshold" | "overflow" | "auto" | string;
-  tokensBefore: number;
-  estimatedTokensAfter: number;
-}
 
 export interface SlashCommandInfo {
   name: string;
@@ -197,168 +122,8 @@ export interface UseAgentSessionOptions {
   onSessionStatsPanelOpen?: () => void;
 }
 
-export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-
-const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
-const PROMPT_SETTLE_POLL_MS = 1_500;
-const PROMPT_SETTLE_MAX_MS = 20_000;
-/** Keep SSE open briefly after UI settlement so late extension events can arrive. */
-const EVENT_STREAM_IDLE_GRACE_MS = 30_000;
-const AGENT_STATE_RECONCILE_MS = 15_000;
-const BASH_STATE_RECONCILE_MS = 1_000;
-const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
-const EVENT_STREAM_RECONNECT_BASE_MS = 1_000;
-const EVENT_STREAM_RECONNECT_MAX_MS = 15_000;
-const EVENT_STREAM_RECONNECT_MAX_ATTEMPTS = 6;
-const MAX_NOTICES = 5;
-const NOTICE_VISIBLE_MS = 5000;
-const NOTICE_EXIT_ANIMATION_MS = 180;
-
-type EventStreamConnectionStatus = "connected" | "timeout" | "closed";
-
-type EventStreamConnectionResult = {
-  status: EventStreamConnectionStatus;
-  source: EventSource;
-};
-
-class EventStreamConnectionError extends Error {
-  constructor(public readonly status: Exclude<EventStreamConnectionStatus, "connected">) {
-    super(status === "timeout" ? "agent.sseTimeout" : "agent.sseFailed");
-    this.name = "EventStreamConnectionError";
-  }
-}
-
-function createNoticeId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function markOldestNoticeExiting(notices: NoticeItem[]): NoticeItem[] {
-  const index = notices.findIndex((notice) => !notice.exiting);
-  if (index === -1) return notices;
-  return notices.map((notice, i) => (
-    i === index ? { ...notice, exiting: true } : notice
-  ));
-}
-
-function fillPendingNotices(visible: NoticeItem[], pending: NoticeItem[]): NoticeState {
-  let nextVisible = visible;
-  let nextPending = pending;
-  while (nextPending.length > 0 && nextVisible.length < MAX_NOTICES) {
-    const [next, ...rest] = nextPending;
-    nextVisible = [...nextVisible, next];
-    nextPending = rest;
-  }
-  if (nextPending.length > 0 && !nextVisible.some((notice) => notice.exiting)) {
-    nextVisible = markOldestNoticeExiting(nextVisible);
-  }
-  return { visible: nextVisible, pending: nextPending };
-}
-
-function noticeReducer(state: NoticeState, action: NoticeAction): NoticeState {
-  switch (action.type) {
-    case "add": {
-      if (state.visible.some((notice) => notice.exiting) || state.visible.length >= MAX_NOTICES) {
-        return {
-          visible: state.visible.some((notice) => notice.exiting)
-            ? state.visible
-            : markOldestNoticeExiting(state.visible),
-          pending: [...state.pending, action.notice],
-        };
-      }
-      return { ...state, visible: [...state.visible, action.notice] };
-    }
-    case "mark_oldest_exiting":
-      return { ...state, visible: markOldestNoticeExiting(state.visible) };
-    case "remove": {
-      const visible = state.visible.filter((notice) => notice.id !== action.id);
-      return fillPendingNotices(visible, state.pending);
-    }
-    default:
-      return state;
-  }
-}
-
-function extractMessageText(message: Partial<AgentMessage>): string {
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block) =>
-      block && typeof block === "object"
-        && (block as { type?: string }).type === "text"
-        && typeof (block as { text?: unknown }).text === "string"
-        ? (block as { text: string }).text
-        : "")
-    .filter(Boolean)
-    .join("\n");
-}
-
-function imageSignature(block: unknown): string {
-  if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "image") return "";
-  const source = (block as { source?: unknown }).source;
-  if (source && typeof source === "object") {
-    const src = source as { type?: unknown; media_type?: unknown; data?: unknown; url?: unknown };
-    return [
-      src.type === "url" ? "url" : "base64",
-      typeof src.media_type === "string" ? src.media_type : "",
-      typeof src.data === "string" ? src.data : "",
-      typeof src.url === "string" ? src.url : "",
-    ].join(":");
-  }
-  const flat = block as { data?: unknown; mimeType?: unknown };
-  return [
-    "base64",
-    typeof flat.mimeType === "string" ? flat.mimeType : "",
-    typeof flat.data === "string" ? flat.data : "",
-    "",
-  ].join(":");
-}
-
-function userMessageKey(message: Partial<AgentMessage>): string {
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === "string") return JSON.stringify({ text: content, images: [] });
-  if (!Array.isArray(content)) return JSON.stringify({ text: "", images: [] });
-  return JSON.stringify({
-    text: extractMessageText(message),
-    images: content.map(imageSignature).filter(Boolean),
-  });
-}
-
-function readCompactResult(result: unknown, reason: string): CompactResultInfo | null {
-  if (!result || typeof result !== "object") return null;
-  const r = result as CompactCommandResult;
-  if (typeof r.tokensBefore !== "number" || typeof r.estimatedTokensAfter !== "number") return null;
-  return { reason, tokensBefore: r.tokensBefore, estimatedTokensAfter: r.estimatedTokensAfter };
-}
-
-function readCompactContextUsage(
-  result: unknown,
-  fallbackWindow?: number | null,
-): ContextUsage | null {
-  if (!result || typeof result !== "object") return null;
-  const r = result as CompactCommandResult;
-  if (r.contextUsage && typeof r.contextUsage.contextWindow === "number" && r.contextUsage.contextWindow > 0) {
-    return {
-      percent: r.contextUsage.percent ?? null,
-      contextWindow: r.contextUsage.contextWindow,
-      tokens: r.contextUsage.tokens ?? null,
-    };
-  }
-  if (typeof r.estimatedTokensAfter !== "number") return null;
-  const contextWindow = fallbackWindow && fallbackWindow > 0 ? fallbackWindow : null;
-  if (!contextWindow) return null;
-  return {
-    tokens: r.estimatedTokensAfter,
-    contextWindow,
-    percent: (r.estimatedTokensAfter / contextWindow) * 100,
-  };
 }
 
 type SelectedModel = { provider: string; modelId: string };
@@ -374,24 +139,6 @@ type ModelsResponse = {
   imageSupport?: Record<string, boolean>;
   modelError?: string;
 };
-
-function clampThinkingLevelForModel(
-  current: ThinkingLevelOption,
-  supported: string[] | undefined,
-): ThinkingLevelOption {
-  if (current === "auto") return "auto";
-  if (!supported || supported.length === 0) return "auto";
-  if (supported.includes(current)) return current;
-  // Prefer a sensible default on the new model, else first supported, else auto.
-  for (const prefer of ["medium", "low", "high", "off"] as const) {
-    if (supported.includes(prefer)) return prefer;
-  }
-  const first = supported[0];
-  if (first === "off" || first === "minimal" || first === "low" || first === "medium" || first === "high" || first === "xhigh" || first === "max") {
-    return first;
-  }
-  return "auto";
-}
 
 type SlashCommandsResponse = {
   commands?: SlashCommandInfo[];
@@ -475,6 +222,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   /** Prompt run id currently owning a settlement loop, so it never runs twice. */
   const promptSettleRunIdRef = useRef<number | null>(null);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
+  /** Settlement kick from connectEvents (defined later) without a second finish path. */
+  const waitForPromptSettlementRef = useRef<((sid: string, runId?: number) => Promise<void>) | null>(null);
   /** Monotonic id for the active prompt run; used to drop late SSE / loadSession results. */
   const promptRunIdRef = useRef(0);
   /** Epoch accepted for streaming message_* events (set on agent_start / local send). */
@@ -728,188 +477,39 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [ensureNewSession]);
 
+  const getEventSourceCtx = useCallback((): AgentEventSourceContext => ({
+    eventSourceRef,
+    sessionIdRef,
+    agentRunningRef,
+    mountedRef,
+    promptRunIdRef,
+    sseReconnectAttemptRef,
+    sseReconnectTimerRef,
+    eventStreamGraceTimerRef,
+    eventStreamGraceGenerationRef,
+    eventStreamGraceActiveRef,
+    waitForPromptSettlementRef,
+    handleAgentEventRef,
+    setAgentRunning,
+    setAgentPhase,
+    setIsCompacting,
+  }), []);
+
   const cancelEventStreamGrace = useCallback(() => {
-    eventStreamGraceGenerationRef.current += 1;
-    eventStreamGraceActiveRef.current = false;
-    if (eventStreamGraceTimerRef.current) {
-      clearTimeout(eventStreamGraceTimerRef.current);
-      eventStreamGraceTimerRef.current = null;
-    }
-  }, []);
+    cancelEventStreamGraceImpl(getEventSourceCtx());
+  }, [getEventSourceCtx]);
 
   const closeEvents = useCallback(() => {
-    cancelEventStreamGrace();
-    if (sseReconnectTimerRef.current) {
-      clearTimeout(sseReconnectTimerRef.current);
-      sseReconnectTimerRef.current = null;
-    }
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
-  }, [cancelEventStreamGrace]);
+    closeEventSource(getEventSourceCtx());
+  }, [getEventSourceCtx]);
 
   const scheduleEventStreamClose = useCallback((sid: string) => {
-    cancelEventStreamGrace();
-    eventStreamGraceActiveRef.current = true;
-    const generation = eventStreamGraceGenerationRef.current;
-
-    const finalizeClose = () => {
-      if (
-        generation !== eventStreamGraceGenerationRef.current
-        || sessionIdRef.current !== sid
-        || !eventStreamGraceActiveRef.current
-      ) return;
-      eventStreamGraceActiveRef.current = false;
-      eventStreamGraceTimerRef.current = null;
-      // Soft close: do not cancel grace again (already done).
-      if (sseReconnectTimerRef.current) {
-        clearTimeout(sseReconnectTimerRef.current);
-        sseReconnectTimerRef.current = null;
-      }
-      eventSourceRef.current?.close();
-      eventSourceRef.current = null;
-    };
-
-    const checkServerIdle = async () => {
-      if (
-        generation !== eventStreamGraceGenerationRef.current
-        || sessionIdRef.current !== sid
-        || !eventStreamGraceActiveRef.current
-      ) return;
-
-      try {
-        const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
-        if (
-          generation !== eventStreamGraceGenerationRef.current
-          || sessionIdRef.current !== sid
-          || !eventStreamGraceActiveRef.current
-        ) return;
-
-        const state = data.state;
-        const promptActive = Boolean(data.running && state && (state.isStreaming || state.isPromptRunning));
-        if (promptActive) {
-          // Late work started (extension / queue) — revive UI running state.
-          eventStreamGraceActiveRef.current = false;
-          eventStreamGraceTimerRef.current = null;
-          agentRunningRef.current = true;
-          setAgentRunning(true);
-          setAgentPhase(state?.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
-          return;
-        }
-
-        if (data.running && state?.isCompacting) {
-          setIsCompacting(true);
-          eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
-          return;
-        }
-      } catch {
-        // Network blip during grace — still close after the timer fires.
-      }
-
-      // Still idle after the grace window: drop the SSE.
-      eventStreamGraceTimerRef.current = setTimeout(finalizeClose, 0);
-    };
-
-    eventStreamGraceTimerRef.current = setTimeout(() => {
-      void checkServerIdle();
-    }, EVENT_STREAM_IDLE_GRACE_MS);
-  }, [cancelEventStreamGrace]);
-
-  const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
-    // New connection cancels any pending idle-grace close.
-    cancelEventStreamGrace();
-    if (sseReconnectTimerRef.current) {
-      clearTimeout(sseReconnectTimerRef.current);
-      sseReconnectTimerRef.current = null;
-    }
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
-    const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
-    eventSourceRef.current = es;
-
-    return new Promise((resolve) => {
-      let settled = false;
-      const settle = (status: EventStreamConnectionStatus) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        resolve({ status, source: es });
-      };
-      const timeout = setTimeout(() => settle("timeout"), EVENT_STREAM_CONNECT_TIMEOUT_MS);
-
-      es.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data) as AgentEvent;
-          if (event.type === "connected") {
-            sseReconnectAttemptRef.current = 0;
-            settle("connected");
-          }
-          handleAgentEventRef.current?.(event);
-        } catch {
-          // ignore
-        }
-      };
-      es.onerror = () => {
-        if (es.readyState === EventSource.CLOSED) {
-          // Fatal error (404/500/content-type mismatch): browser won't
-          // auto-reconnect. Settle the Promise and manually reconnect for
-          // already-running sessions with exponential backoff.
-          settle("closed");
-          // Reconnect while a prompt is running OR during the post-settle grace
-          // window so late extension events are not lost if the browser drops us.
-          if (
-            eventSourceRef.current === es
-            && mountedRef.current
-            && (agentRunningRef.current || eventStreamGraceActiveRef.current)
-          ) {
-            eventSourceRef.current = null;
-            const attempt = sseReconnectAttemptRef.current + 1;
-            sseReconnectAttemptRef.current = attempt;
-            if (attempt > EVENT_STREAM_RECONNECT_MAX_ATTEMPTS) {
-              // Give up: clear local running UI. Reconcile/loadSession can still
-              // refresh messages when connectivity returns.
-              agentRunningRef.current = false;
-              eventStreamGraceActiveRef.current = false;
-              setAgentRunning(false);
-              setAgentPhase(null);
-              setRetryInfo(null);
-              dispatch({ type: "end" });
-              return;
-            }
-            const delayMs = Math.min(
-              EVENT_STREAM_RECONNECT_BASE_MS * 2 ** (attempt - 1),
-              EVENT_STREAM_RECONNECT_MAX_MS,
-            );
-            const reconnectGeneration = eventStreamGraceGenerationRef.current;
-            sseReconnectTimerRef.current = setTimeout(() => {
-              sseReconnectTimerRef.current = null;
-              if (
-                mountedRef.current
-                && sessionIdRef.current === sid
-                && !eventSourceRef.current
-                && reconnectGeneration === eventStreamGraceGenerationRef.current
-                && (agentRunningRef.current || eventStreamGraceActiveRef.current)
-              ) {
-                void connectEvents(sid);
-              }
-            }, delayMs);
-          }
-        }
-        // Recoverable errors (CONNECTING): let EventSource auto-reconnect.
-        // The timeout above resolves only to let callers decide whether this
-        // connection must be ready before they continue.
-      };
-    });
-  }, [cancelEventStreamGrace]);
+    scheduleEventStreamCloseImpl(getEventSourceCtx(), sid);
+  }, [getEventSourceCtx]);
 
   const ensureEventsConnected = useCallback(async (sid: string) => {
-    const result = await connectEvents(sid);
-    if (result.status === "connected" || result.source.readyState === EventSource.OPEN) return;
-    if (eventSourceRef.current === result.source) eventSourceRef.current = null;
-    result.source.close();
-    throw new EventStreamConnectionError(result.status);
-  }, [connectEvents]);
+    await ensureEventSourceConnected(getEventSourceCtx(), sid);
+  }, [getEventSourceCtx]);
 
   const respondToExtensionUi = useCallback(async (
     request: ExtensionUiDialogRequest,
@@ -957,52 +557,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const handleExtensionUiRequest = useCallback((request: ExtensionUiRequest) => {
-    switch (request.method) {
-      case "select":
-      case "confirm":
-      case "input":
-      case "editor":
-        setExtensionDialog(request);
-        break;
-      case "notify": {
-        addNotice({
-          id: request.id,
-          message: request.message,
-          type: request.notifyType ?? "info",
-        });
-        break;
-      }
-      case "setStatus":
-        setExtensionStatuses((prev) => {
-          const rest = prev.filter((item) => item.key !== request.statusKey);
-          return request.statusText ? [...rest, { key: request.statusKey, text: request.statusText }] : rest;
-        });
-        break;
-      case "setWidget":
-        setExtensionWidgets((prev) => {
-          const rest = prev.filter((item) => item.key !== request.widgetKey);
-          return request.widgetLines
-            ? [...rest, {
-                key: request.widgetKey,
-                lines: request.widgetLines,
-                placement: request.widgetPlacement ?? "aboveEditor",
-              }]
-            : rest;
-        });
-        break;
-      case "setTitle":
-        if (request.title) document.title = request.title;
-        break;
-      case "set_editor_text":
-        opts.chatInputRef?.current?.insertText(request.text);
-        break;
-      case "custom":
-        setExtensionCustomUi((current) => {
-          if (request.closed) return current?.id === request.id ? null : current;
-          return request;
-        });
-        break;
-    }
+    applyExtensionUiRequest(request, {
+      setExtensionDialog,
+      setExtensionCustomUi,
+      setExtensionStatuses,
+      setExtensionWidgets,
+      addNotice,
+      insertEditorText: (text) => opts.chatInputRef?.current?.insertText(text),
+    });
   }, [addNotice, opts.chatInputRef]);
 
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId?: number) => {
@@ -1083,6 +645,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [finishPromptWithoutStream]);
+
+  waitForPromptSettlementRef.current = waitForPromptSettlement;
 
   const waitForBashSettlement = useCallback(async (sid: string) => {
     const recoveryId = bashRecoveryIdRef.current + 1;
@@ -1197,214 +761,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => clearPendingStreamUpdate, [clearPendingStreamUpdate]);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
-    switch (event.type) {
-      case "session_destroyed":
-        // Wrapper gone (idle/fork/delete). Stop reconnect thrash and finish the
-        // local run if we still think it's active — do not leave a ghost stream.
-        sseReconnectAttemptRef.current = EVENT_STREAM_RECONNECT_MAX_ATTEMPTS + 1;
-        if (sseReconnectTimerRef.current) {
-          clearTimeout(sseReconnectTimerRef.current);
-          sseReconnectTimerRef.current = null;
-        }
-        // The server closes the stream right after this event. A server-side
-        // close leaves EventSource in CONNECTING (not CLOSED), so it silently
-        // auto-reconnects — and the events route recreates the whole agent
-        // session for an unknown id, restarting its 10-minute idle timer. That
-        // resurrection loop never ends, so close the stream explicitly here.
-        closeEvents();
-        if (agentRunningRef.current) {
-          void finishPromptWithoutStream(sessionIdRef.current, promptRunIdRef.current);
-        }
-        break;
-      case "agent_start": {
-        // Accept streaming events for the current prompt generation. If this
-        // start is from a remote/reconnect path without a local handleSend,
-        // mint a run id so late events from a prior generation can be dropped.
-        if (!agentRunningRef.current) {
-          promptRunIdRef.current += 1;
-        }
-        streamAcceptRunIdRef.current = promptRunIdRef.current;
-        agentRunningRef.current = true;
-        setAgentRunning(true);
-        setAgentPhase({ kind: "waiting_model" });
-        dispatch({ type: "start" });
-        break;
-      }
-      case "agent_end": {
-        // One logical prompt can emit multiple agent_end events before retrying,
-        // compacting, or continuing messages queued by extension handlers.
-        // Keep agentRunning true and SSE open until prompt_done + server-idle
-        // settlement (or reconcile) so a mid-run end cannot drop the rest.
-        if (!agentRunningRef.current) break;
-        const runId = promptRunIdRef.current;
-        // Only touch streaming UI if this still matches the generation that
-        // accepted stream events. Late ends from a prior run are ignored.
-        if (runId !== streamAcceptRunIdRef.current) break;
-        clearPendingStreamUpdate();
-        setAgentPhase(null);
-        setRetryInfo(null);
-        dispatch({ type: "end" });
-        const sid = sessionIdRef.current;
-        if (sid) {
-          // One reload with live state (queue / usage / widgets). Settlement
-          // still owns the final idle flip — do not also GET /api/agent here.
-          void loadSession(sid, false, true);
-          // Kick settlement even if prompt_done is delayed/missing.
-          void waitForPromptSettlement(sid, runId);
-        }
-        break;
-      }
-      case "prompt_done":
-        if (!agentRunningRef.current) break;
-        // Extension commands can call pi.sendUserMessage(), which starts its
-        // agent run asynchronously. In that case prompt_done for the command
-        // arrives before agent_start for the injected message. Give that run
-        // time to start and settle against server state instead of ending the
-        // UI immediately and dropping its subsequent streaming events.
-        // Bind to the current run so a late prompt_done cannot finish a newer one.
-        // Also the normal path for finishing after agent_end (multi-end runs).
-        if (sessionIdRef.current) {
-          void waitForPromptSettlement(sessionIdRef.current, promptRunIdRef.current);
-        }
-        break;
-      case "prompt_error":
-        addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? t("agent.commandFailed") });
-        break;
-      case "extension_error":
-        addNotice({
-          type: "error",
-          message: (event.error as string | undefined) ?? t("agent.extensionFailed"),
-        });
-        break;
-      case "message_start":
-      case "message_update": {
-        // Ignore streaming events arriving after this run already finished
-        // (e.g. SSE data buffered while the tab was frozen, flushed after
-        // reconcile) — they would resurrect a ghost streaming bubble.
-        // Also drop events that do not belong to the generation that last
-        // saw agent_start / local send (late events after a new run began).
-        if (!agentRunningRef.current) break;
-        if (promptRunIdRef.current !== streamAcceptRunIdRef.current) break;
-        const msg = event.message as Partial<AgentMessage> | undefined;
-        if (msg?.role === "user") {
-          break;
-        }
-        if (msg) {
-          if (streamUpdateTimerRef.current === null) {
-            dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
-            streamUpdateTimerRef.current = window.setTimeout(() => {
-              streamUpdateTimerRef.current = null;
-              const pending = pendingStreamUpdateRef.current;
-              pendingStreamUpdateRef.current = null;
-              if (pending && agentRunningRef.current) {
-                dispatch({ type: "update", message: normalizeToolCalls(pending as AgentMessage) });
-              }
-            }, 100); // slightly longer coalesce window = fewer full-tree paints while typing tokens
-          } else {
-            // Keep the raw event message: only the last one inside the coalesce
-            // window ever reaches React, so normalizing here would allocate a
-            // new content array per token for a result that gets overwritten.
-            pendingStreamUpdateRef.current = msg;
-          }
-        }
-        setAgentPhase(null);
-        break;
-      }
-      case "message_end": {
-        // Same late-event guard: after reconcile finished this run,
-        // loadSession already loaded this message from the session file —
-        // appending it again would duplicate it.
-        if (!agentRunningRef.current) break;
-        if (promptRunIdRef.current !== streamAcceptRunIdRef.current) break;
-        clearPendingStreamUpdate();
-        const completed = event.message as AgentMessage | undefined;
-        if (completed && completed.role === "user") {
-          // Delivered steering/follow-up messages surface here as user
-          // messages. The run's initial prompt also emits one, but handleSend
-          // already appended it optimistically. Consume only the still-adjacent
-          // optimistic bubble; later same-text queue deliveries must render.
-          const delivered = normalizeToolCalls(completed);
-          const deliveredKey = userMessageKey(delivered);
-          const optimisticKey = optimisticUserMessageKeyRef.current;
-          optimisticUserMessageKeyRef.current = null;
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (optimisticKey && last?.role === "user" && userMessageKey(last) === optimisticKey) {
-              return optimisticKey === deliveredKey
-                ? prev
-                : [...prev.slice(0, -1), delivered];
-            }
-            return [...prev, delivered];
-          });
-        } else if (completed) {
-          setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
-        }
-        dispatch({ type: "reset" });
-        setAgentPhase({ kind: "waiting_model" });
-        break;
-      }
-      case "tool_execution_start": {
-        const id = event.toolCallId as string;
-        const name = event.toolName as string;
-        setAgentPhase((prev) => {
-          const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
-          if (!tools.some((t) => t.id === id)) tools.push({ id, name });
-          return { kind: "running_tools", tools };
-        });
-        break;
-      }
-      case "tool_execution_end": {
-        const id = event.toolCallId as string;
-        setAgentPhase((prev) => {
-          if (prev?.kind !== "running_tools") return prev;
-          const tools = prev.tools.filter((t) => t.id !== id);
-          if (tools.length === 0) return { kind: "waiting_model" };
-          return { kind: "running_tools", tools };
-        });
-        break;
-      }
-      case "queue_update":
-        setQueuedMessages({
-          steering: [...((event.steering as string[] | undefined) ?? [])],
-          followUp: [...((event.followUp as string[] | undefined) ?? [])],
-        });
-        break;
-      case "auto_retry_start":
-        setRetryInfo({ attempt: event.attempt as number, maxAttempts: event.maxAttempts as number, errorMessage: event.errorMessage as string | undefined });
-        break;
-      case "auto_retry_end":
-        setRetryInfo(null);
-        break;
-      case "compaction_start":
-        setIsCompacting(true);
-        setCompactError(null);
-        setCompactResult(null);
-        break;
-      case "compaction_end":
-        setIsCompacting(false);
-        if (event.errorMessage) {
-          setCompactError(event.errorMessage as string);
-          setCompactResult(null);
-        } else if (!event.aborted) {
-          setCompactResult(readCompactResult(event.result, (event.reason as string | undefined) ?? "auto"));
-          // Refresh branch messages + live usage immediately (SDK leaves
-          // getContextUsage null until the next assistant reply; server
-          // estimates for the UI).
-          const sid = sessionIdRef.current;
-          if (sid) {
-            void (async () => {
-              await loadSession(sid, false, true);
-              // Belt-and-suspenders: apply compact payload usage if state
-              // path was slow/missed.
-              setContextUsage((prev) => readCompactContextUsage(event.result, prev?.contextWindow) ?? prev);
-            })();
-          }
-        }
-        break;
-      case "extension_ui_request":
-        handleExtensionUiRequest(event as ExtensionUiRequest);
-        break;
-    }
+    handleAgentSessionEvent(event, {
+      agentRunningRef,
+      sessionIdRef,
+      promptRunIdRef,
+      streamAcceptRunIdRef,
+      optimisticUserMessageKeyRef,
+      sseReconnectAttemptRef,
+      sseReconnectTimerRef,
+      pendingStreamUpdateRef,
+      streamUpdateTimerRef,
+      setAgentRunning,
+      setAgentPhase,
+      setRetryInfo,
+      setMessages,
+      setQueuedMessages,
+      setIsCompacting,
+      setCompactError,
+      setCompactResult,
+      setContextUsage,
+      dispatchStream: dispatch,
+      clearPendingStreamUpdate,
+      closeEvents,
+      finishPromptWithoutStream,
+      loadSession,
+      waitForPromptSettlement,
+      handleExtensionUiRequest,
+      addNotice,
+      t,
+    });
   }, [addNotice, clearPendingStreamUpdate, closeEvents, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, waitForPromptSettlement, t]);
   handleAgentEventRef.current = handleAgentEvent;
 
@@ -1718,12 +1103,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isNew, newSessionCwd, session?.cwd, thinkingLevel]);
 
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
-    if (!text.startsWith("/")) return { handled: false };
-    const match = text.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
-    if (!match) return { handled: false };
+    const parsed = parseSlashCommandLine(text);
+    if (!parsed) return { handled: false };
 
-    const [, commandName, rawArgs = ""] = match;
-    const args = rawArgs.trim();
+    const { name: commandName, args } = parsed;
     const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
@@ -1917,7 +1300,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setAgentRunning(true);
             setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
             dispatch({ type: "start" });
-            void connectEvents(session.id);
+            void connectEventSource(getEventSourceCtx(), session.id);
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
               // Bind settlement to a run id so it cannot finish a later user send.
               const runId = promptRunIdRef.current + 1;

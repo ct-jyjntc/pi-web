@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "@/hooks/useTheme";
 import { useLocale } from "@/hooks/useLocale";
@@ -11,7 +11,6 @@ import { McpConfig } from "./McpConfig";
 import { SettingsToggle } from "./SettingsToggle";
 import { LeanModeSettingsSection } from "./settings/LeanModeSettingsSection";
 import { UsagePanel, prefetchUsage } from "./UsagePanel";
-import { CODE_THEME_OPTIONS, getCodeThemeStyle, SyntaxHighlighter } from "@/lib/syntax-highlighter";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import { getAppUpdateInfo, setAppUpdateInfo, subscribeAppUpdate } from "@/lib/app-update-store";
 import {
@@ -19,7 +18,6 @@ import {
   saveWebSettings,
   type WebSettingsModelOption,
 } from "@/lib/web-settings-store";
-import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 import { defaultLeanModeSettings, type LeanModeSettings } from "@/lib/lean-mode-settings";
 import { Icon } from "./Icon";
 import { ChevronLeft } from "lucide-react";
@@ -36,117 +34,18 @@ export type SettingsSection =
   | "mcp"
   | "tools";
 
-type LspServerRow = {
-  id: string;
-  label: string;
-  command: string;
-  languages: string[];
-  available: boolean;
-  resolvedPath: string | null;
-  /** Platform-resolved install command (not brew-first). */
-  install: string;
-  installTip?: string;
-  brew?: string;
-  platform?: string;
-};
-
-function modelValue(provider: string, modelId: string): string {
-  return `${provider}/${modelId}`;
-}
-
-function ModelSelect({
-  value,
-  models,
-  loading,
-  disabled = false,
-  placeholder,
-  ariaLabel,
-  unavailableLabel,
-  onChange,
-}: {
-  value: string;
-  models: WebSettingsModelOption[];
-  loading: boolean;
-  disabled?: boolean;
-  placeholder: string;
-  ariaLabel: string;
-  unavailableLabel: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <select
-      className="input-base input-mono"
-      value={value}
-      disabled={loading || disabled}
-      onChange={(e) => onChange(e.target.value)}
-      style={{ width: "100%", maxWidth: "100%" }}
-      aria-label={ariaLabel}
-    >
-      <option value="">{placeholder}</option>
-      {models.map((model) => {
-        const ref = modelValue(model.provider, model.modelId);
-        return (
-          <option key={ref} value={ref}>
-            {model.name} · {model.provider}
-          </option>
-        );
-      })}
-      {value && !models.some((model) => modelValue(model.provider, model.modelId) === value) && (
-        <option value={value}>{value} ({unavailableLabel})</option>
-      )}
-    </select>
-  );
-}
-
-function SegmentedOption({
-  active,
-  label,
-  onClick,
-  title,
-}: {
-  active: boolean;
-  label: string;
-  onClick: (e: MouseEvent<HTMLButtonElement>) => void;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      className={`chrome-btn${active ? " is-active" : ""}`}
-      onClick={onClick}
-      title={title}
-      aria-pressed={active}
-    >
-      {label}
-    </button>
-  );
-}
-
-function SettingsRow({
-  title,
-  description,
-  action,
-  stacked = false,
-}: {
-  title: string;
-  description?: string;
-  action: ReactNode;
-  stacked?: boolean;
-}) {
-  return (
-    <div className={`settings-row${stacked ? " is-stacked" : ""}`}>
-      <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-        <div className="settings-row-title">{title}</div>
-        {description && <div className="settings-row-desc">{description}</div>}
-      </div>
-      <div style={{ flexShrink: 0, width: stacked ? "100%" : undefined }}>{action}</div>
-    </div>
-  );
-}
-
-function sectionTitle(text: string) {
-  return <div className="settings-section-title">{text}</div>;
-}
+import {
+  ModelSelect,
+  SegmentedOption,
+  SettingsRow,
+  sectionTitle,
+  type LspServerRow,
+} from "./settings/settings-ui";
+import { ToolsSettingsPanel } from "./settings/ToolsSettingsPanel";
+import { NetworkSettingsPanel } from "./settings/NetworkSettingsPanel";
+import { AgentModelsSettingsPanel } from "./settings/AgentModelsSettingsPanel";
+import { MemorySettingsPanel } from "./settings/MemorySettingsPanel";
+import { AppearanceSettingsPanel } from "./settings/AppearanceSettingsPanel";
 
 export function SettingsPage({
   onClose,
@@ -654,251 +553,33 @@ export function SettingsPage({
   );
 
   const agentModelsPanel = (
-    <>
-      {sectionTitle(t("settings.modelRoles"))}
-
-      <SettingsRow
-        stacked
-        title={t("settings.roleDefault")}
-        description={t("settings.roleDefaultDesc")}
-        action={
-          <ModelSelect
-            value={roleDefaultRef}
-            models={models}
-            loading={loadingModels}
-            disabled={savingKey === "roleDefault"}
-            placeholder={loadingModels ? t("common.loading") : t("settings.roleDefaultFallback")}
-            ariaLabel={t("settings.roleDefault")}
-            unavailableLabel={t("settings.modelUnavailable")}
-            onChange={(value) => void saveRoleModel("default", value)}
-          />
-        }
-      />
-
-      <SettingsRow
-        stacked
-        title={t("settings.roleSmol")}
-        description={t("settings.roleSmolDesc")}
-        action={
-          <ModelSelect
-            value={roleSmolRef}
-            models={models}
-            loading={loadingModels}
-            disabled={savingKey === "roleSmol"}
-            placeholder={loadingModels ? t("common.loading") : t("settings.roleSmolFallback")}
-            ariaLabel={t("settings.roleSmol")}
-            unavailableLabel={t("settings.modelUnavailable")}
-            onChange={(value) => void saveRoleModel("smol", value)}
-          />
-        }
-      />
-
-      <SettingsRow
-        stacked
-        title={t("settings.rolePlan")}
-        description={t("settings.rolePlanDesc")}
-        action={
-          <ModelSelect
-            value={rolePlanRef}
-            models={models}
-            loading={loadingModels}
-            disabled={savingKey === "rolePlan"}
-            placeholder={loadingModels ? t("common.loading") : t("settings.rolePlanFallback")}
-            ariaLabel={t("settings.rolePlan")}
-            unavailableLabel={t("settings.modelUnavailable")}
-            onChange={(value) => void saveRoleModel("plan", value)}
-          />
-        }
-      />
-
-      <div style={{ margin: "4px 0 14px" }}>
-        <button
-          type="button"
-          className="btn-ghost btn-compact"
-          onClick={() => setSection("models")}
-        >
-          {t("settings.manageProviders")}
-        </button>
-      </div>
-
-      {sectionTitle(t("settings.utilityModels"))}
-
-      <SettingsRow
-        stacked
-        title={t("settings.titleModel")}
-        description={t("settings.titleModelDesc")}
-        action={
-          <ModelSelect
-            value={titleModelRef}
-            models={models}
-            loading={loadingModels}
-            disabled={savingKey === "titleModel"}
-            placeholder={loadingModels ? t("common.loading") : t("settings.titleModelDefault")}
-            ariaLabel={t("settings.titleModel")}
-            unavailableLabel={t("settings.modelUnavailable")}
-            onChange={(value) => void saveModelPref("titleModel", value)}
-          />
-        }
-      />
-
-      <SettingsRow
-        stacked
-        title={t("settings.commitModel")}
-        description={t("settings.commitModelDesc")}
-        action={
-          <ModelSelect
-            value={commitModelRef}
-            models={models}
-            loading={loadingModels}
-            disabled={savingKey === "commitModel"}
-            placeholder={loadingModels ? t("common.loading") : t("settings.commitModelDefault")}
-            ariaLabel={t("settings.commitModel")}
-            unavailableLabel={t("settings.modelUnavailable")}
-            onChange={(value) => void saveModelPref("commitModel", value)}
-          />
-        }
-      />
-
-      {saveErrorBlock}
-    </>
+    <AgentModelsSettingsPanel
+      models={models}
+      loadingModels={loadingModels}
+      savingKey={savingKey}
+      roleDefaultRef={roleDefaultRef}
+      roleSmolRef={roleSmolRef}
+      rolePlanRef={rolePlanRef}
+      titleModelRef={titleModelRef}
+      commitModelRef={commitModelRef}
+      saveModelPref={saveModelPref}
+      saveRoleModel={saveRoleModel}
+      setSection={setSection}
+      saveErrorBlock={saveErrorBlock}
+    />
   );
 
   const networkPanel = (
-    <>
-
-      {sectionTitle(t("settings.network"))}
-
-      <SettingsRow
-        stacked
-        title={t("settings.httpProxy")}
-        description={t("settings.httpProxyDesc")}
-        action={
-          <input
-            className="input-base input-mono"
-            value={prefs.httpProxy}
-            placeholder={t("settings.httpProxyPlaceholder")}
-            onChange={(e) => setPrefs((p) => ({ ...p, httpProxy: e.target.value }))}
-            onBlur={() => void patchPref({ httpProxy: prefs.httpProxy }, { restart: true })}
-            style={{ width: "100%" }}
-          />
-        }
-      />
-      <SettingsRow
-        stacked
-        title={t("settings.proxyBypass")}
-        description={t("settings.proxyBypassDesc")}
-        action={
-          <input
-            className="input-base input-mono"
-            value={prefs.proxyBypass}
-            placeholder={t("settings.proxyBypassPlaceholder")}
-            onChange={(e) => setPrefs((p) => ({ ...p, proxyBypass: e.target.value }))}
-            onBlur={() => void patchPref({ proxyBypass: prefs.proxyBypass }, { restart: true })}
-            style={{ width: "100%" }}
-          />
-        }
-      />
-      <SettingsRow
-        stacked
-        title={t("settings.customCa")}
-        description={t("settings.customCaDesc")}
-        action={
-          <input
-            className="input-base input-mono"
-            value={prefs.customCaCerts}
-            placeholder={t("settings.customCaPlaceholder")}
-            onChange={(e) => setPrefs((p) => ({ ...p, customCaCerts: e.target.value }))}
-            onBlur={() => void patchPref({ customCaCerts: prefs.customCaCerts }, { restart: true })}
-            style={{ width: "100%" }}
-          />
-        }
-      />
-
-      <SettingsRow
-        stacked
-        title={t("settings.networkTest")}
-        description={t("settings.networkTestDesc")}
-        action={
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
-            <button
-              type="button"
-              className="btn-primary btn-compact"
-              disabled={networkTesting}
-              style={{ alignSelf: "flex-start" }}
-              onClick={() => {
-                setNetworkTesting(true);
-                setNetworkReport(null);
-                void fetch("/api/network/test", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({}),
-                })
-                  .then(async (res) => {
-                    const data = await res.json() as typeof networkReport & { error?: string };
-                    if (!res.ok || data?.error) throw new Error(data?.error ?? `HTTP ${res.status}`);
-                    setNetworkReport(data);
-                  })
-                  .catch((e) => setNetworkReport({ error: e instanceof Error ? e.message : String(e) }))
-                  .finally(() => setNetworkTesting(false));
-              }}
-            >
-              {networkTesting ? t("settings.networkTestRunning") : t("settings.networkTestRun")}
-            </button>
-            {networkReport && (
-              <div
-                className="settings-status-card"
-                style={{ flexDirection: "column", alignItems: "stretch", gap: 0, lineHeight: 1.45 }}
-              >
-                {networkReport.error ? (
-                  <div style={{ color: "var(--destructive)" }}>{networkReport.error}</div>
-                ) : (
-                  <>
-                    <div style={{ marginBottom: 6 }}>
-                      {t("settings.networkTestOk", {
-                        ok: networkReport.summary?.fetchOk ?? 0,
-                        total: networkReport.summary?.fetchTotal ?? 0,
-                      })}
-                      {" · proxy="}
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                        {networkReport.proxy?.httpProxy || networkReport.proxy?.envHttpProxy || "(none)"}
-                      </span>
-                    </div>
-                    <ul style={{ margin: 0, padding: "0 0 0 16px" }}>
-                      {(networkReport.fetches ?? []).map((f) => (
-                        <li key={f.url} style={{ marginBottom: 4 }}>
-                          <span style={{ color: f.ok ? "var(--success)" : "var(--destructive)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                            {f.ok ? `HTTP ${f.status}` : "FAIL"}
-                          </span>
-                          {" "}
-                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{f.url}</span>
-                          <span style={{ color: "var(--text-dim)" }}> ({f.ms}ms)</span>
-                          {f.error && <div style={{ color: "var(--destructive)", fontSize: 11 }}>{f.error}</div>}
-                        </li>
-                      ))}
-                    </ul>
-                    <div style={{ marginTop: 8 }}>
-                      {networkReport.search?.ok
-                        ? t("settings.networkSearchOk", {
-                            n: networkReport.search.count ?? 0,
-                            ms: networkReport.search.ms,
-                          })
-                        : `${t("settings.networkSearchFail")}${networkReport.search?.error ? `: ${networkReport.search.error}` : ""}`}
-                      {networkReport.search?.first && (
-                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                          {networkReport.search.first.title} — {networkReport.search.first.url}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        }
-      />
-
-      {saveErrorBlock}
-    </>
+    <NetworkSettingsPanel
+      prefs={prefs}
+      setPrefs={setPrefs}
+      patchPref={patchPref}
+      networkTesting={networkTesting}
+      setNetworkTesting={setNetworkTesting}
+      networkReport={networkReport}
+      setNetworkReport={setNetworkReport}
+      saveErrorBlock={saveErrorBlock}
+    />
   );
 
   const generalSystemPanel = (
@@ -1041,285 +722,26 @@ export function SettingsPage({
   );
 
   const memoryPanel = (
-    <>
-      {sectionTitle(t("settings.memory"))}
-
-      <SettingsRow
-        title={t("settings.projectMemory")}
-        description={t("settings.projectMemoryDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.projectMemoryEnabled}
-            onChange={(next) => {
-              setPrefs((p) => ({
-                ...p,
-                projectMemoryEnabled: next,
-                // Turning tools off also turns inject off.
-                projectMemoryAutoInject: next ? p.projectMemoryAutoInject : false,
-              }));
-              void patchPref({
-                projectMemory: next
-                  ? { enabled: true }
-                  : { enabled: false, autoInject: false },
-              });
-            }}
-          />
-        }
-      />
-      <SettingsRow
-        title={t("settings.projectMemoryAutoInject")}
-        description={t("settings.projectMemoryAutoInjectDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.projectMemoryAutoInject}
-            disabled={!prefs.projectMemoryEnabled}
-            onChange={(next) => {
-              setPrefs((p) => ({ ...p, projectMemoryAutoInject: next }));
-              void patchPref({ projectMemory: { autoInject: next } });
-            }}
-          />
-        }
-      />
-      <SettingsRow
-        stacked
-        title={t("settings.projectMemoryTopK")}
-        description={t("settings.projectMemoryTopKDesc")}
-        action={
-          <input
-            className="input-base input-mono"
-            type="number"
-            min={0}
-            max={50}
-            value={prefs.projectMemoryTopK}
-            disabled={!prefs.projectMemoryEnabled || !prefs.projectMemoryAutoInject}
-            onChange={(e) => setPrefs((p) => ({
-              ...p,
-              projectMemoryTopK: Number(e.target.value) || 0,
-            }))}
-            onBlur={() => void patchPref({
-              projectMemory: { autoInjectTopK: prefs.projectMemoryTopK },
-            })}
-            style={{ width: 100 }}
-          />
-        }
-      />
-
-      {!cwd && (
-        <div className="settings-row-desc" style={{ marginTop: 4, marginBottom: 8 }}>
-          {t("settings.projectMemoryNeedCwd")}
-        </div>
-      )}
-
-      {cwd && prefs.projectMemoryEnabled && (
-        <div style={{ marginTop: 8, marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("settings.projectMemoryFacts")}</div>
-          {memoryFacts.length === 0 ? (
-            <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>{t("settings.projectMemoryEmpty")}</div>
-          ) : (
-            <ul style={{ margin: "0 0 8px", padding: 0, listStyle: "none" }}>
-              {memoryFacts.map((f) => (
-                <li key={f.id} className="settings-list-row" style={{ alignItems: "center" }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere" }}>{f.text}</span>
-                  <button
-                    type="button"
-                    className="btn-ghost btn-compact"
-                    disabled={memoryBusy}
-                    onClick={() => {
-                      setMemoryBusy(true);
-                      void fetch("/api/project-memory", {
-                        method: "DELETE",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ cwd, id: f.id }),
-                      })
-                        .then(async (res) => {
-                          const data = await res.json() as { error?: string };
-                          if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                          setMemoryFacts((prev) => prev.filter((x) => x.id !== f.id));
-                        })
-                        .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                        .finally(() => setMemoryBusy(false));
-                    }}
-                    style={{ flexShrink: 0 }}
-                  >
-                    {t("settings.projectMemoryDelete")}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              className="input-base"
-              value={newMemoryText}
-              onChange={(e) => setNewMemoryText(e.target.value)}
-              placeholder={t("settings.projectMemoryAdd")}
-              style={{ flex: 1 }}
-            />
-            <button
-              type="button"
-              className="btn-primary btn-compact"
-              disabled={memoryBusy || !newMemoryText.trim()}
-              onClick={() => {
-                setMemoryBusy(true);
-                void fetch("/api/project-memory", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ cwd, text: newMemoryText.trim() }),
-                })
-                  .then(async (res) => {
-                    const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
-                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                    if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev]);
-                    setNewMemoryText("");
-                  })
-                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                  .finally(() => setMemoryBusy(false));
-              }}
-            >
-              {t("settings.projectMemoryAdd")}
-            </button>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="btn-ghost btn-compact"
-              disabled={memoryReflectBusy || memoryBusy || memoryFacts.length === 0}
-              title={t("settings.projectMemoryReflectDesc")}
-              onClick={() => {
-                setMemoryReflectBusy(true);
-                setMemoryReflectText(null);
-                setMemoryReflectMeta(null);
-                void fetch("/api/project-memory", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ cwd, action: "reflect", useModel: true, limit: 40 }),
-                })
-                  .then(async (res) => {
-                    const data = await res.json() as {
-                      reflection?: { summary?: string; mode?: string; factCount?: number; model?: string };
-                      error?: string;
-                    };
-                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                    const r = data.reflection;
-                    setMemoryReflectText(r?.summary ?? "");
-                    setMemoryReflectMeta(
-                      r
-                        ? `${r.mode ?? "?"} · ${r.factCount ?? 0} facts${r.model ? ` · ${r.model}` : ""}`
-                        : null,
-                    );
-                  })
-                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                  .finally(() => setMemoryReflectBusy(false));
-              }}
-            >
-              {memoryReflectBusy ? t("settings.projectMemoryReflecting") : t("settings.projectMemoryReflect")}
-            </button>
-            <button
-              type="button"
-              className="btn-ghost btn-compact"
-              disabled={memoryReflectBusy || memoryBusy || memoryFacts.length === 0}
-              onClick={() => {
-                setMemoryReflectBusy(true);
-                setMemoryReflectText(null);
-                setMemoryReflectMeta(null);
-                void fetch("/api/project-memory", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ cwd, action: "reflect", heuristicOnly: true, limit: 40 }),
-                })
-                  .then(async (res) => {
-                    const data = await res.json() as {
-                      reflection?: { summary?: string; mode?: string; factCount?: number };
-                      error?: string;
-                    };
-                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                    const r = data.reflection;
-                    setMemoryReflectText(r?.summary ?? "");
-                    setMemoryReflectMeta(r ? `${r.mode ?? "heuristic"} · ${r.factCount ?? 0} facts` : null);
-                  })
-                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                  .finally(() => setMemoryReflectBusy(false));
-              }}
-            >
-              {t("settings.projectMemoryReflectFast")}
-            </button>
-          </div>
-          {memoryReflectText && (
-            <div
-              style={{
-                marginTop: 10,
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-md)",
-                background: "var(--bg-subtle)",
-                padding: "10px 12px",
-                maxHeight: 280,
-                overflow: "auto",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                {memoryReflectMeta && (
-                  <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                    {memoryReflectMeta}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="btn-ghost btn-compact"
-                  disabled={memoryBusy || memoryReflectBusy || !memoryReflectText.trim()}
-                  style={{ marginLeft: "auto", height: 22, minHeight: 22, padding: "0 8px", fontSize: 11 }}
-                  title={t("settings.projectMemoryRetainReflectDesc")}
-                  onClick={() => {
-                    // Store a short durable pointer (first meaningful non-heading line)
-                    const lines = memoryReflectText
-                      .split("\n")
-                      .map((l) => l.trim())
-                      .filter((l) => l && !l.startsWith("#") && !l.startsWith("---") && !l.startsWith("mode:") && !l.startsWith("facts"));
-                    const pick = lines.find((l) => l.startsWith("-") || l.match(/^\d+\./)) ?? lines[0] ?? "";
-                    const text = pick.replace(/^[-*\d.\s]+/, "").trim().slice(0, 360);
-                    if (!text) return;
-                    setMemoryBusy(true);
-                    void fetch("/api/project-memory", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        cwd,
-                        text: `Reflect: ${text}`,
-                        tags: ["reflect"],
-                        importance: 0.7,
-                      }),
-                    })
-                      .then(async (res) => {
-                        const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
-                        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                        if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev.filter((x) => x.id !== data.fact!.id)]);
-                      })
-                      .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                      .finally(() => setMemoryBusy(false));
-                  }}
-                >
-                  {t("settings.projectMemoryRetainReflect")}
-                </button>
-              </div>
-              <pre
-                style={{
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                  color: "var(--text-muted)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {memoryReflectText}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-
-      {saveErrorBlock}
-    </>
+    <MemorySettingsPanel
+      prefs={prefs}
+      setPrefs={setPrefs}
+      patchPref={patchPref}
+      cwd={cwd}
+      memoryFacts={memoryFacts}
+      setMemoryFacts={setMemoryFacts}
+      newMemoryText={newMemoryText}
+      setNewMemoryText={setNewMemoryText}
+      memoryBusy={memoryBusy}
+      setMemoryBusy={setMemoryBusy}
+      memoryReflectBusy={memoryReflectBusy}
+      setMemoryReflectBusy={setMemoryReflectBusy}
+      memoryReflectText={memoryReflectText}
+      setMemoryReflectText={setMemoryReflectText}
+      memoryReflectMeta={memoryReflectMeta}
+      setMemoryReflectMeta={setMemoryReflectMeta}
+      setSaveError={setSaveError}
+      saveErrorBlock={saveErrorBlock}
+    />
   );
 
   const agentAdvisorPanel = (
@@ -1488,267 +910,15 @@ export function SettingsPage({
     </>
   );
 
-  const previewCode = `const themePreview = {
-  surface: "sidebar",
-  accent: "#339CFF",
-  contrast: 45,
-};`;
-
   const appearancePanel = (
-    <div className="settings-page-general">
-      {sectionTitle(t("settings.appearanceUi"))}
-
-      <SettingsRow
-        title={t("settings.themeMode")}
-        description={t("settings.themeModeDesc")}
-        action={
-          <div className="settings-segmented" style={{ minWidth: 220 }}>
-            {(["light", "dark", "system"] as ThemeMode[]).map((mode) => (
-              <SegmentedOption
-                key={mode}
-                active={(themeMode || appearance.themeMode) === mode}
-                label={
-                  mode === "light"
-                    ? t("settings.themeLight")
-                    : mode === "dark"
-                      ? t("settings.themeDark")
-                      : t("settings.themeSystem")
-                }
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setThemeMode(mode, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-                  void patchPref({ themeMode: mode });
-                }}
-              />
-            ))}
-          </div>
-        }
-      />
-
-      <SettingsRow
-        title={t("settings.uiFontSize")}
-        description={t("settings.uiFontSizeDesc")}
-        action={
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <input
-              className="input-base input-mono"
-              type="number"
-              min={12}
-              max={18}
-              step={1}
-              value={appearance.uiFontSize}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (!Number.isFinite(n)) return;
-                const clamped = Math.min(18, Math.max(12, Math.round(n)));
-                setAppearanceSnapshot({ uiFontSize: clamped });
-                void patchPref({ uiFontSize: clamped });
-              }}
-              style={{ width: 72, textAlign: "right" }}
-            />
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>px</span>
-          </div>
-        }
-      />
-
-      {sectionTitle(t("settings.appearanceCode"))}
-
-      <SettingsRow
-        stacked
-        title={t("settings.codeThemeLight")}
-        description={t("settings.codeThemeLightDesc")}
-        action={
-          <select
-            className="input-base"
-            value={appearance.codeThemeLight}
-            onChange={(e) => void patchPref({ codeThemeLight: e.target.value as CodeThemeId })}
-            style={{ width: "100%", maxWidth: 320 }}
-          >
-            {CODE_THEME_OPTIONS.filter((o) => o.mode === "light").map((o) => (
-              <option key={o.id} value={o.id}>{o.label}</option>
-            ))}
-          </select>
-        }
-      />
-      <SettingsRow
-        stacked
-        title={t("settings.codeThemeDark")}
-        description={t("settings.codeThemeDarkDesc")}
-        action={
-          <select
-            className="input-base"
-            value={appearance.codeThemeDark}
-            onChange={(e) => void patchPref({ codeThemeDark: e.target.value as CodeThemeId })}
-            style={{ width: "100%", maxWidth: 320 }}
-          >
-            {CODE_THEME_OPTIONS.filter((o) => o.mode === "dark").map((o) => (
-              <option key={o.id} value={o.id}>{o.label}</option>
-            ))}
-          </select>
-        }
-      />
-      <SettingsRow
-        title={t("settings.showLineNumbers")}
-        description={t("settings.showLineNumbersDesc")}
-        action={
-          <SettingsToggle
-            enabled={appearance.showCodeLineNumbers}
-            onChange={(next) => void patchPref({ showCodeLineNumbers: next })}
-          />
-        }
-      />
-      <SettingsRow
-        title={t("settings.wrapCodeLines")}
-        description={t("settings.wrapCodeLinesDesc")}
-        action={
-          <SettingsToggle
-            enabled={appearance.wrapCodeLines}
-            onChange={(next) => void patchPref({ wrapCodeLines: next })}
-          />
-        }
-      />
-      <SettingsRow
-        title={t("settings.codeFontSize")}
-        description={t("settings.codeFontSizeDesc")}
-        action={
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <input
-              className="input-base input-mono"
-              type="number"
-              min={10}
-              max={18}
-              step={0.5}
-              value={appearance.codeFontSize}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (!Number.isFinite(n)) return;
-                const clamped = Math.min(18, Math.max(10, Math.round(n * 2) / 2));
-                setAppearanceSnapshot({ codeFontSize: clamped });
-                void patchPref({ codeFontSize: clamped });
-              }}
-              style={{ width: 72, textAlign: "right" }}
-            />
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>px</span>
-          </div>
-        }
-      />
-
-      {sectionTitle(t("settings.codePreview"))}
-      <div className="settings-row-desc" style={{ marginBottom: 10 }}>
-        {t("settings.codePreviewDesc")}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
-        {([
-          {
-            id: appearance.codeThemeLight,
-            label: t("settings.previewLight"),
-            dark: false,
-          },
-          {
-            id: appearance.codeThemeDark,
-            label: t("settings.previewDark"),
-            dark: true,
-            // Fixed light/dark preview chrome comes from .code-preview in globals.css.
-          },
-        ] as const).map((preview) => {
-          const active = isDark === preview.dark;
-          const themeStyle = getCodeThemeStyle(preview.id, preview.dark);
-          const themeBg =
-            (themeStyle["pre[class*=\"language-\"]"] as { backgroundColor?: string } | undefined)?.backgroundColor
-            || (themeStyle.pre as { backgroundColor?: string } | undefined)?.backgroundColor
-            || "var(--preview-code-bg)";
-          return (
-            <div
-              key={String(preview.dark)}
-              className={`code-preview ${preview.dark ? "is-dark" : "is-light"}`}
-              style={{
-                border: "1px solid var(--preview-chrome-border)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--preview-chrome-bg)",
-                overflow: "hidden",
-              }}
-            >
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-                padding: "8px 10px",
-                borderBottom: "1px solid var(--preview-chrome-border)",
-                fontSize: 11,
-                color: "var(--preview-chrome-fg)",
-                background: "var(--preview-chrome-bg)",
-              }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                  <span style={{ fontWeight: 600, color: "var(--preview-title-fg)" }}>{preview.label}</span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>
-                    {CODE_THEME_OPTIONS.find((o) => o.id === preview.id)?.label}
-                  </span>
-                </div>
-                <span style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-                  {active && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        lineHeight: "18px",
-                        height: 18,
-                        padding: "0 7px",
-                        borderRadius: "var(--radius-xs)",
-                        border: "1px solid var(--preview-chrome-border)",
-                        color: "var(--preview-title-fg)",
-                        background: "var(--preview-active-bg)",
-                      }}
-                    >
-                      {t("settings.previewActive")}
-                    </span>
-                  )}
-                  {!active && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        lineHeight: "18px",
-                        height: 18,
-                        padding: "0 7px",
-                        borderRadius: "var(--radius-xs)",
-                        border: "1px solid var(--preview-chrome-border)",
-                        color: "var(--preview-chrome-fg)",
-                      }}
-                    >
-                      {preview.dark ? t("settings.themeDark") : t("settings.themeLight")}
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div style={{ padding: 10, background: themeBg }}>
-                <SyntaxHighlighter
-                  language="typescript"
-                  style={themeStyle}
-                  showLineNumbers={appearance.showCodeLineNumbers}
-                  wrapLongLines={appearance.wrapCodeLines}
-                  customStyle={{
-                    margin: 0,
-                    padding: "10px 12px",
-                    fontSize: appearance.codeFontSize,
-                    backgroundColor: themeBg,
-                    borderRadius: "var(--radius-xs)",
-                  }}
-                  codeTagProps={{
-                    style: {
-                      fontFamily: "var(--font-mono)",
-                      fontSize: appearance.codeFontSize,
-                      backgroundColor: "transparent",
-                    },
-                  }}
-                >
-                  {previewCode}
-                </SyntaxHighlighter>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <AppearanceSettingsPanel
+      themeMode={themeMode}
+      setThemeMode={setThemeMode}
+      isDark={isDark}
+      isMobile={isMobile}
+      appearance={appearance}
+      patchPref={patchPref}
+    />
   );
 
   // Critical layout is inlined so a CSS-load race cannot leave settings
@@ -1806,113 +976,17 @@ export function SettingsPage({
   const mainScrolls = section !== "models" && section !== "skills";
 
   const toolsPanel = (
-    <div className="settings-page-general">
-      {sectionTitle(t("settings.lsp"))}
-      <div className="settings-row-desc" style={{ marginBottom: 12 }}>
-        {t("settings.lspDesc")}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-          {lspMeta
-            ? t("settings.lspAvailable", { count: lspMeta.availableCount, total: lspMeta.total })
-            : lspLoading
-              ? "…"
-              : "—"}
-        </span>
-        <button type="button" className="btn-ghost btn-compact" disabled={lspLoading} onClick={() => void loadLspHealth()}>
-          {t("settings.lspRefresh")}
-        </button>
-      </div>
-      <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 14 }}>
-        {t("settings.lspBuiltin")}
-      </div>
-      {lspError && (
-        <div style={{ color: "var(--destructive)", fontSize: 12, marginBottom: 12 }}>{lspError}</div>
-      )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {(lspServers ?? []).map((s) => (
-          <div
-            key={s.id}
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-md)",
-              padding: "10px 12px",
-              background: "var(--bg-panel)",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "var(--radius-pill)",
-                  background: s.available ? "var(--success)" : "var(--text-dim)",
-                  flexShrink: 0,
-                }}
-              />
-              <strong style={{ fontSize: 13, fontWeight: 600 }}>{s.label}</strong>
-              <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>{s.id}</span>
-              {!s.available && (
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("settings.lspMissing")}</span>
-              )}
-            </div>
-            <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginTop: 6, wordBreak: "break-all" }}>
-              {s.available ? (s.resolvedPath ?? s.command) : s.command}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
-              {s.languages.join(", ")}
-            </div>
-            {!s.available && (
-              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <code
-                    style={{
-                      fontSize: 11,
-                      fontFamily: "var(--font-mono)",
-                      background: "var(--bg-subtle)",
-                      padding: "4px 8px",
-                      borderRadius: "var(--radius-xs)",
-                      border: "1px solid var(--border)",
-                      color: "var(--text-muted)",
-                      maxWidth: "100%",
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    {s.install}
-                  </code>
-                  <button
-                    type="button"
-                    className="btn-ghost btn-compact"
-                    onClick={async () => {
-                      // Always copy the platform-resolved primary command (never force brew on Windows).
-                      const text = s.install;
-                      try {
-                        await navigator.clipboard.writeText(text);
-                        setLspCopiedId(s.id);
-                        window.setTimeout(() => setLspCopiedId((id) => (id === s.id ? null : id)), 1500);
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                  >
-                    {lspCopiedId === s.id ? t("settings.lspCopied") : t("settings.lspCopyInstall")}
-                  </button>
-                </div>
-                {s.installTip && (
-                  <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
-                    {s.installTip}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-        {!lspLoading && lspServers && lspServers.length === 0 && (
-          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>—</div>
-        )}
-      </div>
-    </div>
+    <ToolsSettingsPanel
+      lspServers={lspServers}
+      lspMeta={lspMeta}
+      lspLoading={lspLoading}
+      lspError={lspError}
+      lspCopiedId={lspCopiedId}
+      loadLspHealth={loadLspHealth}
+      setLspCopiedId={setLspCopiedId}
+    />
   );
+
   const mainStyle: CSSProperties = {
     flex: 1,
     minWidth: 0,
