@@ -11,9 +11,8 @@
  * Compaction uses the SDK native path (pi-better-compaction is not shipped).
  * Legacy settings.json packages[] entries are stripped on boot.
  */
-import { createRequire } from "module";
 import { existsSync, readFileSync } from "fs";
-import { dirname, join } from "path";
+import { join } from "path";
 import { pathToFileURL } from "url";
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import { getFirstPartyExtensionFactories } from "./first-party";
@@ -23,8 +22,7 @@ import {
   resolveHeavyBundlePath,
   type HeavyLoadResult,
 } from "./first-party/heavy-extensions";
-
-const require = createRequire(import.meta.url);
+import { resolveNpmPackageRoot } from "./resolve-npm-package-root";
 
 /**
  * Heavy packages shipped as app dependencies.
@@ -76,49 +74,6 @@ function readPiExtensionEntries(packageRoot: string): string[] {
   }
 }
 
-function resolvePackageRoot(packageName: string): string | null {
-  const parts = packageName.split("/");
-  const candidates: string[] = [join(process.cwd(), "node_modules", ...parts)];
-
-  try {
-    for (const base of require.resolve.paths(packageName) ?? []) {
-      candidates.push(join(base, ...parts));
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    candidates.push(dirname(require.resolve(`${packageName}/package.json`)));
-  } catch {
-    // many packages omit package.json from "exports"
-  }
-
-  try {
-    let dir = dirname(require.resolve(packageName));
-    for (let i = 0; i < 8; i++) {
-      candidates.push(dir);
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-  } catch {
-    // ignore
-  }
-
-  for (const root of candidates) {
-    if (root && existsSync(join(root, "package.json"))) {
-      try {
-        const name = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { name?: string }).name;
-        if (name === packageName) return root;
-      } catch {
-        // ignore malformed
-      }
-    }
-  }
-  return null;
-}
-
 /**
  * TS entry paths for packages that do NOT yet have a prebundle (fallback).
  */
@@ -130,7 +85,7 @@ export function resolveBuiltinExtensionPaths(options?: {
   const out: BuiltinExtensionPath[] = [];
   for (const packageName of BUILTIN_EXTENSION_PACKAGES) {
     if (onlyMissing && resolveHeavyBundlePath(packageName)) continue;
-    const root = resolvePackageRoot(packageName);
+    const root = resolveNpmPackageRoot(packageName);
     if (!root) continue;
     for (const path of readPiExtensionEntries(root)) {
       out.push({ packageName, path });
