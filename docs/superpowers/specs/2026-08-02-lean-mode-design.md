@@ -1,7 +1,7 @@
 # Lean Mode Design — Anti-Bloat for Product Users
 
 **Date:** 2026-08-02  
-**Status:** Approved (spec)  
+**Status:** Approved (spec) — implementation plan: [`../plans/2026-08-02-lean-mode-implementation.md`](../plans/2026-08-02-lean-mode-implementation.md)  
 **Related:** [`AGENTS.md` § AI Coding Constraints](../../../AGENTS.md) (Pi-Web **repo** self-discipline only); [declutter blueprint](./2026-08-02-declutter-design.md) (internal cleanup, not user product)
 
 ## Problem
@@ -306,10 +306,11 @@ Files >800 lines touched: yes/no; net lines: ...
 New dual-path?: no | yes + removal condition
 ```
 
-## Open items for implementation plan (not blocking this spec)
+## Open items (resolved / residual)
 
-- Exact project override filename (`.pi-web.json` vs `.pi/web.json`)
-- Precise “had writes this turn” detection (tool events vs `git diff` baseline)
-- Whether Lean card state is client-only or session-persisted in v1
-- i18n keys EN/ZH copy final wording
-- Hard intensity Settings helper text (“stricter review in this version”)
+| Item | Resolution |
+|------|------------|
+| Project override filename | **Locked:** `<cwd>/.pi-web.json` (`leanMode` partial) — see implementation plan |
+| “Had writes” detection | Client toolCall heuristic + server empty-diff skip |
+| Lean card persistence | **v1 client-only** (refresh clears) |
+| i18n / Hard helper copy | Finalized in implementation Phase 2 |
