@@ -6,6 +6,10 @@
  * Next file tracing only keeps statically-reachable JS. pi-coding-agent dynamically
  * imports modules like pi-ai/dist/oauth.js at runtime, which causes HTTP 500 in the
  * packaged app unless we overlay full package dist trees.
+ *
+ * Native binaries are pruned to the packaging target (host by default):
+ *   PI_WEB_TARGET_PLATFORM=darwin|win32|linux
+ *   PI_WEB_TARGET_ARCH=arm64|x64
  */
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { spawnSync } from "child_process";
@@ -15,6 +19,14 @@ const root = process.cwd();
 const standalone = join(root, ".next", "standalone");
 const staticDir = join(root, ".next", "static");
 const publicDir = join(root, "public");
+
+// Packaging target for native prebuild pruning. Defaults to the build host so
+// `dist:mac` on arm64 Mac only ships darwin-arm64 binaries (not win32/linux).
+const targetPlatform = process.env.PI_WEB_TARGET_PLATFORM || process.platform;
+const targetArch =
+  process.env.PI_WEB_TARGET_ARCH ||
+  (process.arch === "arm64" || process.arch === "x64" ? process.arch : "x64");
+const targetTriple = `${targetPlatform}-${targetArch}`;
 
 if (!existsSync(join(standalone, "server.js"))) {
   console.error("Missing .next/standalone/server.js — run `npm run build` first (output: standalone).");
@@ -74,6 +86,73 @@ function copyFiltered(src, dest) {
   ensureDir(join(dest, ".."));
   cpSync(src, dest);
 }
+
+/** Drop prebuilds/* except the target platform-arch triple (e.g. darwin-arm64). */
+function prunePrebuildsToTarget(pkgRoot, label = basename(pkgRoot)) {
+  const pre = join(pkgRoot, "prebuilds");
+  if (!existsSync(pre)) return 0;
+  let removed = 0;
+  for (const entry of readdirSync(pre)) {
+    if (entry === targetTriple) continue;
+    rmSync(join(pre, entry), { recursive: true, force: true });
+    removed += 1;
+  }
+  if (removed > 0) {
+    console.log(`Pruned ${removed} non-target prebuild(s) from ${label} (kept ${targetTriple})`);
+  }
+  return removed;
+}
+
+/**
+ * tree-sitter-bash is only consumed via web-tree-sitter Language.load(wasm).
+ * Keep package.json + the .wasm; drop native prebuilds, C sources, bindings.
+ */
+function slimTreeSitterBash(dest) {
+  if (!existsSync(dest)) return;
+  const keep = new Set(["package.json", "tree-sitter-bash.wasm"]);
+  let removed = 0;
+  for (const entry of readdirSync(dest)) {
+    if (keep.has(entry)) continue;
+    rmSync(join(dest, entry), { recursive: true, force: true });
+    removed += 1;
+  }
+  if (!existsSync(join(dest, "tree-sitter-bash.wasm"))) {
+    console.error("tree-sitter-bash.wasm missing after slim — aborting.");
+    process.exit(1);
+  }
+  console.log(`Slimmed tree-sitter-bash to wasm-only (removed ${removed} entries)`);
+}
+
+/**
+ * Keep @mariozechner/clipboard + the matching platform package
+ * (clipboard-darwin-arm64, clipboard-win32-x64-msvc, clipboard-linux-x64-gnu, …).
+ * Drop universal + other OS/arch optional packages.
+ */
+function pruneClipboardPlatformPackages(marioDir) {
+  if (!existsSync(marioDir)) return 0;
+  let removed = 0;
+  const prefix = `${targetPlatform}-${targetArch}`;
+  for (const entry of readdirSync(marioDir)) {
+    if (entry === "clipboard") continue;
+    if (!entry.startsWith("clipboard-")) continue;
+    const rest = entry.slice("clipboard-".length);
+    // Prefer arch-specific over fat universal binary.
+    if (rest === "darwin-universal") {
+      rmSync(join(marioDir, entry), { recursive: true, force: true });
+      removed += 1;
+      continue;
+    }
+    if (rest === prefix || rest.startsWith(`${prefix}-`)) continue;
+    rmSync(join(marioDir, entry), { recursive: true, force: true });
+    removed += 1;
+  }
+  if (removed > 0) {
+    console.log(`Pruned ${removed} non-target @mariozechner/clipboard-* package(s) (target ${prefix})`);
+  }
+  return removed;
+}
+
+console.log(`Native prune target: ${targetTriple}`);
 
 const standaloneNm = join(standalone, "node_modules");
 const earendilRoot = join(root, "node_modules/@earendil-works");
@@ -167,6 +246,10 @@ if (existsSync(nestedSrc)) {
 
 console.log(`Nested agent deps: copied ${copiedNested}, skipped hoisted ${skippedHoisted}`);
 
+// Optional native clipboard packages ship for every OS under the agent tree.
+pruneClipboardPlatformPackages(join(nestedDest, "@mariozechner"));
+pruneClipboardPlatformPackages(join(standaloneNm, "@mariozechner"));
+
 // First-party agent extensions ship as app dependencies (not ~/.pi/agent/npm).
 // The SDK JIT-loads their TypeScript entry files via jiti, so Next file-tracing
 // will not pull them in — overlay the full package trees + heavy runtime deps.
@@ -207,6 +290,9 @@ for (const name of builtinExtensionPackages) {
 }
 console.log(`Overlaid ${builtinCopied}/${builtinExtensionPackages.length} builtin extension packages`);
 
+// permission-system loads bash grammar via web-tree-sitter + .wasm only.
+slimTreeSitterBash(join(standaloneNm, "tree-sitter-bash"));
+
 // Ensure heavy extension prebundles exist (extensionFactories path — no jiti at runtime).
 // Prefer already-built .pi-web-bundle under project node_modules; re-run script if missing.
 {
@@ -241,22 +327,31 @@ console.log(`Overlaid ${builtinCopied}/${builtinExtensionPackages.length} builti
 
 // node-pty: Next file-tracing keeps only package.json + lib/, but the native
 // prebuilds/ (pty.node + spawn-helper) are required at runtime in the packaged app.
+// Copy then prune to the packaging target so mac-arm64 does not ship ~58M of win32.
 const nodePtySrc = join(root, "node_modules", "node-pty");
 const nodePtyDest = join(standaloneNm, "node-pty");
 if (existsSync(nodePtySrc)) {
   rmSync(nodePtyDest, { recursive: true, force: true });
-  // Full package (prebuilds are platform binaries — keep them).
   cpSync(nodePtySrc, nodePtyDest, {
     recursive: true,
     filter: (src) => {
       const name = basename(src);
-      // Drop docs / types only; keep prebuilds, src binding metadata, scripts.
       if (name === "README.md" || name === "CHANGELOG.md" || name === "LICENSE") return false;
       if (name.endsWith(".map") || name.endsWith(".d.ts")) return false;
       if (name === "docs" || name === "examples" || name === "test" || name === "tests") return false;
+      // Build-only trees — runtime uses prebuilds/ + lib/.
+      if (name === "src" || name === "deps" || name === "scripts" || name === "typings") return false;
+      if (name === "binding.gyp") return false;
+      // winpty/conpty are Windows-only.
+      if (name === "third_party" && targetPlatform !== "win32") return false;
+      // Skip foreign prebuild dirs while copying (faster than copy-all + delete).
+      const parent = basename(join(src, ".."));
+      if (parent === "prebuilds" && name !== targetTriple && statSync(src).isDirectory()) return false;
       return true;
     },
   });
+
+  prunePrebuildsToTarget(nodePtyDest, "node-pty");
 
   // npm/cp can strip +x from spawn-helper → opaque "posix_spawnp failed".
   const fixHelper = (dir) => {
@@ -280,14 +375,12 @@ if (existsSync(nodePtySrc)) {
   fixHelper(join(nodePtyDest, "prebuilds"));
   fixHelper(join(nodePtyDest, "build"));
 
-  const armHelper = join(nodePtyDest, "prebuilds", "darwin-arm64", "pty.node");
-  const x64Helper = join(nodePtyDest, "prebuilds", "darwin-x64", "pty.node");
-  const winHelper = join(nodePtyDest, "prebuilds", "win32-x64", "pty.node");
-  if (!existsSync(armHelper) && !existsSync(x64Helper) && !existsSync(winHelper)) {
-    console.error("node-pty prebuilds missing after overlay — aborting.");
+  const targetPty = join(nodePtyDest, "prebuilds", targetTriple, "pty.node");
+  if (!existsSync(targetPty)) {
+    console.error(`node-pty prebuild missing for ${targetTriple} after overlay — aborting.`);
     process.exit(1);
   }
-  console.log("Overlaid node-pty with native prebuilds");
+  console.log(`Overlaid node-pty with ${targetTriple} prebuilds only`);
 } else {
   console.warn("Warning: node_modules/node-pty not found — terminal PTY will not work in package");
 }
