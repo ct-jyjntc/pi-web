@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "./agent-dir";
 import { formatRoleModelForAgent } from "./model-roles";
 import { readWebSettings, type WebSettings } from "./web-settings";
 

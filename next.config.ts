@@ -20,7 +20,8 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   experimental: {
-    optimizePackageImports: ["@lobehub/icons"],
+    // Tree-shake icon barrels so first-load JS does not pull every glyph.
+    optimizePackageImports: ["@lobehub/icons", "lucide-react"],
     // Default is 10MB; uploads allow up to ~101MB wire body before our 413 checks run.
     proxyClientMaxBodySize: "105mb",
   },

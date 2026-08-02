@@ -12,6 +12,17 @@ contextBridge.exposeInMainWorld("piDesktop", {
   windowState: () => ipcRenderer.invoke("pi-desktop:window-state"),
   notify: (payload) => ipcRenderer.invoke("pi-desktop:notify", payload),
   getWebSettingsPath: () => ipcRenderer.invoke("pi-desktop:get-web-settings-path"),
+  /**
+   * Cold-start handshake: AppShell calls this after first paint so the main
+   * process can dismiss the splash without flashing a white React mount frame.
+   */
+  notifyUiReady: () => {
+    try {
+      ipcRenderer.send("pi-desktop:ui-ready");
+    } catch {
+      // ignore
+    }
+  },
   onWindowStateChange: (callback) => {
     if (typeof callback !== "function") return () => {};
     const handler = (_event, state) => callback(state);

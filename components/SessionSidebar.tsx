@@ -38,6 +38,8 @@ declare global {
         callback: (state: { maximized?: boolean }) => void,
       ) => () => void;
       notify?: (payload: { title: string; body: string; silent?: boolean }) => Promise<{ ok?: boolean }>;
+      /** Electron cold-start: shell painted, splash may dismiss. */
+      notifyUiReady?: () => void;
       isDesktop?: boolean;
       platform?: string;
     };

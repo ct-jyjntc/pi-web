@@ -12,7 +12,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "./agent-dir";
 import {
   BUILTIN_PACKAGE_SOURCES,
   PRUNE_PACKAGE_SOURCES,

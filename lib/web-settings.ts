@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "./agent-dir";
 import { isRecord } from "./type-guards";
 
 export type ModelRef = {

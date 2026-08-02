@@ -1322,13 +1322,9 @@ export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   return sessions.length;
 }
 
-export function getRunningRpcSessionIds(): string[] {
-  const ids = new Set<string>();
-  for (const [sessionId, session] of getRegistry()) {
-    if (session.isRunning()) ids.add(session.sessionId || sessionId);
-  }
-  return [...ids];
-}
+// Re-export the thin snapshot helper so existing call sites keep working.
+// Implementation lives in rpc-running.ts so list/poll routes can avoid this module.
+export { getRunningRpcSessionIds } from "./rpc-running";
 
 /**
  * Get or create an AgentSession for the given session.

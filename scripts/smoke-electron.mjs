@@ -43,9 +43,12 @@ function probe(path = "/", timeoutMs = 1500) {
 async function waitForServer(timeoutMs = 90_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const r = await probe("/");
-    if (r.ok && r.status && r.status < 500) return r;
-    await new Promise((r) => setTimeout(r, 400));
+    // Prefer the lightweight health route used by electron/main.js cold start.
+    const health = await probe("/api/health");
+    if (health.ok && health.status && health.status < 500) return health;
+    const home = await probe("/");
+    if (home.ok && home.status && home.status < 500) return home;
+    await new Promise((r) => setTimeout(r, 150));
   }
   throw new Error(`Server not ready on http://${HOST}:${PORT}`);
 }
@@ -139,6 +142,7 @@ try {
 
   // Core APIs used by the desktop shell
   const endpoints = [
+    "/api/health",
     "/api/sessions",
     "/api/models",
     "/api/home",

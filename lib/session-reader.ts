@@ -2,7 +2,6 @@ import {
   SessionManager,
   buildContextEntries as piBuildContextEntries,
   buildSessionContext as piBuildSessionContext,
-  getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, createReadStream, existsSync, openSync, readSync, statSync } from "fs";
 import { readdir, stat } from "fs/promises";
@@ -10,6 +9,7 @@ import { join, normalize as normalizePath } from "path";
 import { createInterface } from "readline";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "./agent-dir";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";

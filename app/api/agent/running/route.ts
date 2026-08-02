@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getRunningRpcSessionIds } from "@/lib/rpc-manager";
+// Thin registry reader — keep this route free of the rpc-manager module graph.
+import { getRunningRpcSessionIds } from "@/lib/rpc-running";
 
 export const dynamic = "force-dynamic";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useSyncExternalStore, type CSSProperties } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useSyncExternalStore, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -19,8 +19,9 @@ import {
   X,
 } from "lucide-react";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+// Sidebar is always on first paint — keep it static so cold start never shows a
+// blank panel while a dynamic chunk downloads (that looked like a broken UI).
 import { SessionSidebar } from "./SessionSidebar";
-import { ChatWindow } from "./ChatWindow";
 import { TabBar, type Tab } from "./TabBar";
 import { hydrateAppearanceFromServer } from "@/lib/appearance-store";
 import { BranchNavigator } from "./BranchNavigator";
@@ -41,11 +42,11 @@ import type { ProjectTrustStatus } from "@/lib/api-types";
 import { Icon } from "./Icon";
 
 /**
- * Lazy panels. None of these can be on screen at first paint — the right
- * workspace starts collapsed and Settings starts closed — so keeping them out
- * of the entry chunk is pure first-load savings with no behaviour change.
- * ContextTabBadge lives in its own leaf module (./ContextTabBadge) so the
- * always-present workspace tab strip does not pin ContextPanel to the entry.
+ * Lazy panels only. SessionSidebar is eager (always visible on first paint).
+ * ChatWindow is deferred until a session/cwd is active — the empty "Get Started"
+ * state is owned by AppShell and does not need MessageView/markdown yet.
+ * ContextTabBadge lives in its own leaf module so the tab strip does not pin
+ * ContextPanel to the entry chunk.
  */
 const LAZY_PANEL_FALLBACK_STYLE: CSSProperties = {
   flex: 1,
@@ -58,6 +59,11 @@ const LAZY_PANEL_FALLBACK_STYLE: CSSProperties = {
 function LazyPanelFallback() {
   return <div style={LAZY_PANEL_FALLBACK_STYLE} aria-hidden />;
 }
+
+const ChatWindow = dynamic(() => import("./ChatWindow").then((m) => m.ChatWindow), {
+  ssr: false,
+  loading: LazyPanelFallback,
+});
 
 const FileViewer = dynamic(() => import("./FileViewer").then((m) => m.FileViewer), {
   ssr: false,
@@ -169,6 +175,26 @@ export function AppShell() {
     if (platformClass) root.classList.add(platformClass);
     return () => {
       root.classList.remove("pi-desktop", "pi-desktop-mac", "pi-desktop-win", "pi-desktop-linux");
+    };
+  }, []);
+
+  // Tell Electron the shell has painted so cold-start splash can be dismissed.
+  // Double rAF waits until layout + paint, not just commit.
+  useLayoutEffect(() => {
+    const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
+    if (!desktop?.isDesktop || typeof desktop.notifyUiReady !== "function") return;
+    let cancelled = false;
+    let outer = 0;
+    let inner = 0;
+    outer = window.requestAnimationFrame(() => {
+      inner = window.requestAnimationFrame(() => {
+        if (!cancelled) desktop.notifyUiReady?.();
+      });
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(outer);
+      window.cancelAnimationFrame(inner);
     };
   }, []);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
