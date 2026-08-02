@@ -24,6 +24,11 @@ import {
   isHashlineInputArgs,
   type HashlineHunk,
 } from "./hashline-edit";
+import {
+  checkLargeFileNetGrowth,
+  estimateHashlineNetGrowth,
+  resolveHardGateForCwd,
+} from "./lean-hard-gate";
 
 type EditToolDefinitionLike = {
   name: string;
@@ -45,6 +50,11 @@ type EditToolDefinitionLike = {
 function resolveEditPath(cwd: string, pathValue: unknown): string | undefined {
   if (typeof pathValue !== "string" || !pathValue.trim()) return undefined;
   return isAbsolute(pathValue) ? pathValue : resolve(cwd, pathValue);
+}
+
+function countLines(text: string): number {
+  if (!text) return 0;
+  return text.split(/\r\n|\r|\n/).length;
 }
 
 function firstOldText(args: Record<string, unknown>): string | undefined {
@@ -203,9 +213,25 @@ export function createPiWebEditToolDefinition(
     },
     execute: async (toolCallId, args, signal, onUpdate, ctx) => {
       try {
+        const hardGate = resolveHardGateForCwd(cwd);
+
         // 1) Preferred: hashline patch language
         if (isHashlineInputArgs(args)) {
-          const results = applyHashlinePatch(cwd, String(args.input));
+          const input = String(args.input);
+          if (hardGate) {
+            const net = estimateHashlineNetGrowth(input);
+            const pathMatch = input.match(/\[(.+?)#[0-9A-Fa-f]{4}\]/);
+            if (pathMatch && net > hardGate.maxNetGrowthOnLargeFile) {
+              const msg = checkLargeFileNetGrowth({
+                cwd,
+                path: pathMatch[1],
+                netGrowth: net,
+                gate: hardGate,
+              });
+              if (msg) throw new Error(msg);
+            }
+          }
+          const results = applyHashlinePatch(cwd, input);
           const text = results.map((r) => r.summary ?? `Applied ${r.applied} op(s) to ${r.path}`).join("\n");
           // Prefer first file's patch for the chat SplitPatchView; multi-file still in results.
           const patch = results.map((r) => r.patch).filter(Boolean).join("\n") || undefined;
@@ -228,6 +254,19 @@ export function createPiWebEditToolDefinition(
             ...h,
             hash: h.hash || hashBlock(h.oldText),
           }));
+          if (hardGate) {
+            let net = 0;
+            for (const h of hunks) {
+              net += countLines(String(h.newText ?? "")) - countLines(String(h.oldText ?? ""));
+            }
+            const msg = checkLargeFileNetGrowth({
+              cwd,
+              path: String(args.path),
+              netGrowth: net,
+              gate: hardGate,
+            });
+            if (msg) throw new Error(msg);
+          }
           const result = applyHashlineEdits(cwd, String(args.path), hunks);
           return {
             content: [{
@@ -247,6 +286,19 @@ export function createPiWebEditToolDefinition(
         // 3) Classic path+edits — exact unique match first, then SDK fuzzy classic
         if (isClassicEditArgs(args)) {
           const { path, edits } = normalizeClassicEdits(args);
+          if (hardGate) {
+            let net = 0;
+            for (const e of edits) {
+              net += countLines(e.newText) - countLines(e.oldText);
+            }
+            const msg = checkLargeFileNetGrowth({
+              cwd,
+              path,
+              netGrowth: net,
+              gate: hardGate,
+            });
+            if (msg) throw new Error(msg);
+          }
 
           // Exact unique replace (no self-computed hash — hash would always match).
           try {

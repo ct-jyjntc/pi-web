@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02  
 **Spec:** [`docs/superpowers/specs/2026-08-02-lean-mode-design.md`](../specs/2026-08-02-lean-mode-design.md)  
-**Status:** Ready for implementation  
+**Status:** Implemented (v1 + follow-ups: turn-scoped diff, idle session reset, manual re-run, hard gates, project override UI)  
 **Constraint bible:** `AGENTS.md` § AI Coding Constraints
 
 ## Outcome

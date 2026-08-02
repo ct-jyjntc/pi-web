@@ -1324,6 +1324,17 @@ export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   return sessions.length;
 }
 
+/**
+ * Shut down idle (not streaming) in-process sessions so the next prompt
+ * reloads system prompt extras (e.g. Lean Mode policy). Running sessions
+ * are left alone so we do not kill an active turn.
+ */
+export async function destroyIdleRpcSessions(): Promise<number> {
+  const sessions = Array.from(getRegistry().values()).filter((session) => !session.isRunning());
+  await Promise.all(sessions.map((session) => session.shutdown()));
+  return sessions.length;
+}
+
 // Re-export the thin snapshot helper so existing call sites keep working.
 // Implementation lives in rpc-running.ts so list/poll routes can avoid this module.
 export { getRunningRpcSessionIds } from "./rpc-running";

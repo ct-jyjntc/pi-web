@@ -12,6 +12,8 @@ export async function POST(request: NextRequest) {
       sessionId?: string;
       intensity?: string;
       mode?: string;
+      paths?: unknown;
+      allowFullWorktree?: boolean;
     };
     const cwd = body.cwd?.trim() ?? "";
     const sessionId = body.sessionId?.trim() ?? "";
@@ -26,7 +28,17 @@ export async function POST(request: NextRequest) {
     if (body.intensity === "soft" || body.intensity === "review" || body.intensity === "hard") {
       intensity = body.intensity;
     }
-    const result = await runLeanReview({ cwd, sessionId, intensity, mode });
+    const paths = Array.isArray(body.paths)
+      ? body.paths.filter((p): p is string => typeof p === "string").map((p) => p.trim()).filter(Boolean).slice(0, 40)
+      : undefined;
+    const result = await runLeanReview({
+      cwd,
+      sessionId,
+      intensity,
+      mode,
+      paths,
+      allowFullWorktree: body.allowFullWorktree === true,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     return NextResponse.json(

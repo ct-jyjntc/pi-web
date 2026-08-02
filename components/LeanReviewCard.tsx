@@ -9,11 +9,15 @@ import type { LeanReport } from "@/lib/lean-review-types";
 export function LeanReviewCard({
   report,
   model,
+  busy,
   onDismiss,
+  onRerun,
 }: {
   report: LeanReport;
   model?: string;
+  busy?: boolean;
   onDismiss?: () => void;
+  onRerun?: () => void;
 }) {
   const { t } = useLocale();
   const concern =
@@ -66,16 +70,29 @@ export function LeanReviewCard({
             {model}
           </span>
         ) : null}
-        {onDismiss ? (
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={onDismiss}
-            style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px" }}
-          >
-            {t("lean.dismiss")}
-          </button>
-        ) : null}
+        <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {onRerun ? (
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={busy}
+              onClick={onRerun}
+              style={{ fontSize: 11, padding: "2px 8px" }}
+            >
+              {busy ? t("lean.reviewRunning") : t("lean.reviewManual")}
+            </button>
+          ) : null}
+          {onDismiss ? (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={onDismiss}
+              style={{ fontSize: 11, padding: "2px 8px" }}
+            >
+              {t("lean.dismiss")}
+            </button>
+          ) : null}
+        </span>
       </div>
 
       {report.summary ? (

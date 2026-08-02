@@ -70,30 +70,80 @@ async function resolveReviewModel(cwd: string, prefs: WebSettings): Promise<Reso
   return resolveUtilityModel(cwd, null);
 }
 
-/** Read-only worktree diff; empty when not a git repo or clean. */
+const GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "1" };
+
+async function gitDiff(cwd: string, extraArgs: string[]): Promise<string> {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["diff", "--no-color", "--no-ext-diff", ...extraArgs],
+    { cwd, maxBuffer: 2 * 1024 * 1024, timeout: 15_000, env: GIT_ENV },
+  );
+  return (stdout ?? "").trim();
+}
+
+/**
+ * Turn-scoped diff: prefer paths touched this turn.
+ * Avoids reviewing the entire dirty worktree.
+ */
+export async function collectTurnDiff(
+  cwd: string,
+  paths: string[] | undefined,
+): Promise<{ diff: string; truncated: boolean; scope: "paths" | "none" | "fallback-full" }> {
+  const cleaned = (paths ?? [])
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .slice(0, 40);
+
+  try {
+    if (cleaned.length > 0) {
+      // Against HEAD for listed paths (covers staged+committed baseline).
+      let diff = await gitDiff(cwd, ["HEAD", "--", ...cleaned]);
+      if (!diff) {
+        // Unstaged-only path filter
+        diff = await gitDiff(cwd, ["--", ...cleaned]);
+      }
+      // Untracked new files: show as /dev/null → file when possible
+      if (!diff) {
+        const chunks: string[] = [];
+        for (const p of cleaned.slice(0, 12)) {
+          try {
+            const { stdout } = await execFileAsync(
+              "git",
+              ["diff", "--no-color", "--no-ext-diff", "--no-index", "--", "/dev/null", p],
+              { cwd, maxBuffer: 512 * 1024, timeout: 8_000, env: GIT_ENV },
+            );
+            const part = (stdout ?? "").trim();
+            if (part) chunks.push(part);
+          } catch (err) {
+            // git --no-index exits 1 when files differ — still has stdout
+            const e = err as { stdout?: string };
+            const part = String(e.stdout ?? "").trim();
+            if (part) chunks.push(part);
+          }
+        }
+        diff = chunks.join("\n\n");
+      }
+      if (!diff) return { diff: "", truncated: false, scope: "paths" };
+      if (diff.length <= MAX_DIFF_CHARS) return { diff, truncated: false, scope: "paths" };
+      return {
+        diff: `${diff.slice(0, MAX_DIFF_CHARS)}\n\n…[diff truncated]`,
+        truncated: true,
+        scope: "paths",
+      };
+    }
+
+    // No paths: do NOT fall back to full dirty tree (false positives).
+    return { diff: "", truncated: false, scope: "none" };
+  } catch {
+    return { diff: "", truncated: false, scope: "none" };
+  }
+}
+
+/** @deprecated prefer collectTurnDiff — full tree only for explicit manual override */
 export async function collectWorktreeDiff(cwd: string): Promise<{ diff: string; truncated: boolean }> {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["diff", "--no-color", "--no-ext-diff", "HEAD"],
-      {
-        cwd,
-        maxBuffer: 2 * 1024 * 1024,
-        timeout: 15_000,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: "1" },
-      },
-    );
-    let diff = (stdout ?? "").trim();
-    // Include untracked as empty-file diffs is heavy; also try staged+unstaged combined:
-    if (!diff) {
-      const unstaged = await execFileAsync("git", ["diff", "--no-color", "--no-ext-diff"], {
-        cwd,
-        maxBuffer: 2 * 1024 * 1024,
-        timeout: 15_000,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: "1" },
-      });
-      diff = (unstaged.stdout ?? "").trim();
-    }
+    let diff = await gitDiff(cwd, ["HEAD"]);
+    if (!diff) diff = await gitDiff(cwd, []);
     if (!diff) return { diff: "", truncated: false };
     if (diff.length <= MAX_DIFF_CHARS) return { diff, truncated: false };
     return { diff: `${diff.slice(0, MAX_DIFF_CHARS)}\n\n…[diff truncated]`, truncated: true };
@@ -225,6 +275,10 @@ export async function runLeanReview(opts: {
   sessionId: string;
   intensity?: LeanIntensity;
   mode: "auto" | "manual";
+  /** Paths touched this turn (preferred). Empty → no full-tree fallback. */
+  paths?: string[];
+  /** Manual only: allow full worktree when paths empty (explicit). */
+  allowFullWorktree?: boolean;
 }): Promise<LeanReviewResult> {
   const { cwd, mode } = opts;
   const prefs = readWebSettings();
@@ -237,8 +291,50 @@ export async function runLeanReview(opts: {
     return { skipped: true, reason: "review-on-end-off" };
   }
 
-  const { diff, truncated } = await collectWorktreeDiff(cwd);
-  if (!diff) return { skipped: true, reason: "no-diff" };
+  let paths = (opts.paths ?? []).filter(Boolean);
+  if (paths.length === 0) {
+    // Server-side fallback: last assistant toolCalls on the session branch.
+    try {
+      const { buildSessionContext, getSessionEntries, resolveSessionPath } = await import("./session-reader");
+      const path = await resolveSessionPath(opts.sessionId);
+      if (path) {
+        const { messages } = buildSessionContext(getSessionEntries(path));
+        const { pathsFromAssistantContent } = await import("./lean-paths");
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i];
+          if (m.role === "assistant") {
+            paths = pathsFromAssistantContent(m.content);
+            break;
+          }
+          if (m.role === "user") break;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  let diff = "";
+  let truncated = false;
+  let scope: string = "none";
+  if (paths.length > 0) {
+    const collected = await collectTurnDiff(cwd, paths);
+    diff = collected.diff;
+    truncated = collected.truncated;
+    scope = collected.scope;
+  } else if (mode === "manual" && opts.allowFullWorktree) {
+    const full = await collectWorktreeDiff(cwd);
+    diff = full.diff;
+    truncated = full.truncated;
+    scope = "fallback-full";
+  }
+
+  if (!diff) {
+    return {
+      skipped: true,
+      reason: paths.length === 0 ? "no-paths" : "no-diff",
+    };
+  }
 
   let resolved: ResolvedUtilityModel;
   try {
@@ -259,8 +355,10 @@ export async function runLeanReview(opts: {
           role: "user",
           content: [
             `Intensity: ${intensity}`,
+            `Diff scope: ${scope}`,
+            paths.length ? `Touched paths:\n${paths.map((p) => `- ${p}`).join("\n")}` : "",
             truncated ? "Note: diff was truncated for size." : "",
-            "Worktree diff (focus on agent-shaped change smells):",
+            "Diff for this turn only (judge change-shape smells, not pre-existing dirty tree):",
             "",
             diff,
           ]

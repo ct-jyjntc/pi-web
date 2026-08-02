@@ -312,10 +312,32 @@ export async function PUT(req: NextRequest) {
         }
         next.reviewOnAgentEnd = raw.reviewOnAgentEnd;
       }
+      if ("hardGates" in raw) {
+        if (!raw.hardGates || typeof raw.hardGates !== "object" || Array.isArray(raw.hardGates)) {
+          return NextResponse.json({ error: "Invalid leanMode.hardGates" }, { status: 400 });
+        }
+        const hg = raw.hardGates as Record<string, unknown>;
+        const thr = Number(hg.largeFileLineThreshold);
+        const maxNet = Number(hg.maxNetGrowthOnLargeFile);
+        next.hardGates = {
+          ...next.hardGates,
+          ...(Number.isFinite(thr) ? { largeFileLineThreshold: thr } : {}),
+          ...(Number.isFinite(maxNet) ? { maxNetGrowthOnLargeFile: maxNet } : {}),
+        };
+      }
       patch.leanMode = next;
     }
 
     const settings = writeWebSettings(patch);
+    let idleSessionsReset = 0;
+    if (patch.leanMode) {
+      try {
+        const { destroyIdleRpcSessions } = await import("@/lib/rpc-manager");
+        idleSessionsReset = await destroyIdleRpcSessions();
+      } catch (error) {
+        console.error("[pi-web] destroyIdleRpcSessions failed:", error);
+      }
+    }
     if (patch.modelRoles) {
       try {
         for (const note of syncAgentModelsFromRoles(settings)) {
@@ -328,6 +350,10 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       settings: settingsPayload(settings),
+      idleSessionsReset,
+      leanSessionsNote: patch.leanMode
+        ? "Lean Mode changes apply on the next agent turn (idle sessions were reset; active runs keep the old prompt until they finish)."
+        : undefined,
       requiresRestart: ["httpProxy", "proxyBypass", "customCaCerts", "disableHardwareAcceleration"],
     });
   } catch (error) {

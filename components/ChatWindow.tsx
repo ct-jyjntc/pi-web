@@ -585,6 +585,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       : undefined;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return defaultLeanModeSettings();
     const lm = raw as Partial<LeanModeSettings>;
+    const base = defaultLeanModeSettings();
     return {
       enabled: lm.enabled === true,
       intensity:
@@ -592,10 +593,26 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           ? lm.intensity
           : "review",
       reviewOnAgentEnd: lm.reviewOnAgentEnd !== false,
+      hardGates: {
+        largeFileLineThreshold:
+          typeof lm.hardGates?.largeFileLineThreshold === "number"
+            ? lm.hardGates.largeFileLineThreshold
+            : base.hardGates.largeFileLineThreshold,
+        maxNetGrowthOnLargeFile:
+          typeof lm.hardGates?.maxNetGrowthOnLargeFile === "number"
+            ? lm.hardGates.maxNetGrowthOnLargeFile
+            : base.hardGates.maxNetGrowthOnLargeFile,
+      },
     };
   }, [webSettings]);
 
-  const { leanNote, clearLeanNote, runLeanReviewOnAgentEnd } = useLeanReviewOnAgentEnd({
+  const {
+    leanNote,
+    leanBusy,
+    clearLeanNote,
+    runLeanReviewOnAgentEnd,
+    runLeanReviewManual,
+  } = useLeanReviewOnAgentEnd({
     getLeanMode: parseLeanModeFromSettings,
     getCwd: () => session?.cwd ?? newSessionCwd,
     getSessionId: () => session?.id ?? sessionIdForReviewRef.current,
@@ -615,6 +632,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         if (m.role === "user") break;
       }
       return tools;
+    },
+    getRecentAssistantContent: () => {
+      const msgs = messagesForAdvisorRef.current;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (!m) continue;
+        if (m.role === "assistant") return (m as AssistantMessage).content ?? [];
+        if (m.role === "user") break;
+      }
+      return [];
     },
   });
   runLeanReviewRef.current = runLeanReviewOnAgentEnd;
@@ -1230,12 +1257,28 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     setChromeWidgetsMetric(topBarWidgetsRef.current);
   }, [chromeWidgetKey]);
 
+  const leanCfg = parseLeanModeFromSettings();
+  const leanEnabled = leanCfg.enabled && leanCfg.intensity !== "soft";
   const leanBanner = leanNote ? (
     <LeanReviewCard
       report={leanNote.report}
       model={leanNote.model}
+      busy={leanBusy}
       onDismiss={clearLeanNote}
+      onRerun={leanEnabled ? runLeanReviewManual : undefined}
     />
+  ) : leanEnabled ? (
+    <div style={{ margin: "8px 12px 0", display: "flex", justifyContent: "flex-end" }}>
+      <button
+        type="button"
+        className="btn-ghost"
+        disabled={leanBusy || sessionBusy}
+        onClick={() => runLeanReviewManual()}
+        style={{ fontSize: 11, padding: "2px 8px" }}
+      >
+        {leanBusy ? t("lean.reviewRunning") : t("lean.reviewManual")}
+      </button>
+    </div>
   ) : null;
 
   const chatInputElement = (

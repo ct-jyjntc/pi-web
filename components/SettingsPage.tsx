@@ -320,6 +320,16 @@ export function SettingsPage({
                 : prev.intensity,
             reviewOnAgentEnd:
               typeof lm.reviewOnAgentEnd === "boolean" ? lm.reviewOnAgentEnd : prev.reviewOnAgentEnd,
+            hardGates: {
+              largeFileLineThreshold:
+                typeof lm.hardGates?.largeFileLineThreshold === "number"
+                  ? lm.hardGates.largeFileLineThreshold
+                  : prev.hardGates.largeFileLineThreshold,
+              maxNetGrowthOnLargeFile:
+                typeof lm.hardGates?.maxNetGrowthOnLargeFile === "number"
+                  ? lm.hardGates.maxNetGrowthOnLargeFile
+                  : prev.hardGates.maxNetGrowthOnLargeFile,
+            },
           }));
         }
         setAdvisorModelRef(
@@ -1353,9 +1363,16 @@ export function SettingsPage({
       <LeanModeSettingsSection
         leanMode={leanMode}
         t={t}
+        cwd={cwd}
         onPatch={(partial) => {
           setLeanMode((prev) => {
-            const next = { ...prev, ...partial };
+            const next: LeanModeSettings = {
+              ...prev,
+              ...partial,
+              hardGates: partial.hardGates
+                ? { ...prev.hardGates, ...partial.hardGates }
+                : prev.hardGates,
+            };
             void patchPref({ leanMode: next });
             return next;
           });
