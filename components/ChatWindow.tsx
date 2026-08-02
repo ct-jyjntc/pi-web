@@ -941,18 +941,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onDismiss={clearLeanNote}
       onRerun={leanEnabled ? runLeanReviewManual : undefined}
     />
-  ) : leanEnabled ? (
-    <div style={{ margin: "8px 12px 0", display: "flex", justifyContent: "flex-end" }}>
-      <button
-        type="button"
-        className="btn-ghost"
-        disabled={leanBusy || sessionBusy}
-        onClick={() => runLeanReviewManual()}
-        style={{ fontSize: 11, padding: "2px 8px" }}
-      >
-        {leanBusy ? t("lean.reviewRunning") : t("lean.reviewManual")}
-      </button>
-    </div>
   ) : null;
 
   const chatInputElement = (
@@ -995,6 +983,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
+      leanCheckEnabled={leanEnabled}
+      leanCheckBusy={leanBusy || sessionBusy}
+      onLeanCheck={leanEnabled ? runLeanReviewManual : undefined}
     />
     </>
   );
