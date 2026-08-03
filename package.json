@@ -35,6 +35,10 @@
     "dev:lan": "node scripts/fix-node-pty-perms.mjs && next dev -H 0.0.0.0 -p 30141",
     "build": "node scripts/fix-node-pty-perms.mjs && next build --webpack",
     "build:electron": "npm run bundle:extensions && npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
+    "desktop:dev": "vite",
+    "desktop:build": "vite build",
+    "daemon": "node daemon/server.mjs",
+    "smoke:daemon": "node scripts/smoke-daemon.mjs",
     "start": "node scripts/fix-node-pty-perms.mjs && next start -H 127.0.0.1 -p 30141",
     "start:lan": "node scripts/fix-node-pty-perms.mjs && next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
@@ -43,6 +47,7 @@
     "smoke:electron-notify": "node scripts/smoke-electron-notify.mjs",
     "electron": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs && electron .",
     "electron:dev": "npm run electron",
+    "electron:daemon": "npm run desktop:build && PI_WEB_RUNTIME=daemon npm run electron",
     "electron:prod": "npm run build:electron && npm run electron",
     "electron:rebuild": "npm run electron:prod",
     "dist:dmg": "npm run build:electron && electron-builder --mac dmg",
@@ -195,14 +200,16 @@
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "4.5.2",
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.25.12",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
-    "jiti": "^2.7.0",
+    "jiti": "2.7.0",
     "postcss": "^8",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "6.3.5"
   }
 }

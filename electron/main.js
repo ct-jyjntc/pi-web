@@ -527,11 +527,31 @@ function hasProductionBuild() {
   return fs.existsSync(path.join(appRoot, ".next", "BUILD_ID"));
 }
 
+/** Phase B: lightweight daemon (no Next.js). See docs/phase-b-desktop-daemon.md */
+function hasDaemonEntry() {
+  return fs.existsSync(path.join(appRoot, "daemon", "server.mjs"));
+}
+
+function hasDesktopUi() {
+  return fs.existsSync(path.join(appRoot, "desktop-dist", "index.html"));
+}
+
+/**
+ * Prefer daemon when desktop SPA is built (or forced).
+ * PI_WEB_RUNTIME=next forces the legacy Next path.
+ * PI_WEB_RUNTIME=daemon forces daemon even without desktop-dist (API-only shell).
+ */
+function useDaemonRuntime() {
+  if (process.env.PI_WEB_RUNTIME === "next") return false;
+  if (process.env.PI_WEB_RUNTIME === "daemon") return hasDaemonEntry();
+  return hasDaemonEntry() && hasDesktopUi();
+}
+
 function attachServerExitHandler(child) {
   child.on("exit", (code) => {
     serverProcess = null;
     if (!quitting && code && code !== 0) {
-      console.error(`Next.js server exited (code=${code})`);
+      console.error(`Local server exited (code=${code})`);
       if (mainWindow && !mainWindow.isDestroyed()) {
         dialog.showErrorBox(
           "Pi Web server stopped",
@@ -594,6 +614,69 @@ function augmentPathForNodeTools(baseEnv) {
     next.PI_SUBAGENT_PI_BINARY = piBinary;
   }
   return next;
+}
+
+/**
+ * Phase B desktop server: node daemon/server.mjs (static SPA + API via jiti).
+ * Does not start Next.js.
+ */
+function startDaemonServer(port) {
+  if (!hasDaemonEntry()) {
+    throw new Error(
+      "Daemon entry missing (daemon/server.mjs).\n\nThis build expects the Phase B desktop runtime.",
+    );
+  }
+
+  const daemonEntry = path.join(appRoot, "daemon", "server.mjs");
+  const bundledNode = resolveBundledNodeBinary();
+  const bundledBinDir = bundledNode ? path.dirname(bundledNode) : null;
+  const bundledPi = bundledBinDir
+    ? path.join(bundledBinDir, process.platform === "win32" ? "pi.cmd" : "pi")
+    : null;
+
+  const webSettings = readPiWebSettingsFile();
+  const env = augmentPathForNodeTools({
+    ...process.env,
+    PORT: String(port),
+    HOSTNAME: HOST,
+    PI_WEB_NO_OPEN: "1",
+    BROWSER: "none",
+    NODE_ENV: "production",
+    PI_WEB_RUNTIME: "daemon",
+    PI_WEB_DESKTOP_DIST: path.join(appRoot, "desktop-dist"),
+    ...(bundledNode ? { PI_WEB_NODE: bundledNode, PI_WEB_BUNDLE_NODE_BINARY: bundledNode } : {}),
+    ...(bundledPi && fs.existsSync(bundledPi)
+      ? { PI_WEB_PI_BINARY: bundledPi, PI_SUBAGENT_PI_BINARY: bundledPi }
+      : {}),
+  });
+  applyNetworkEnvFromSettings(env, webSettings);
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.PI_WEB_GIT_BINARY;
+  delete env.GIT_EXEC_PATH;
+  delete env.GIT_TEMPLATE_DIR;
+
+  if (bundledBinDir) {
+    const pathKey = process.platform === "win32" ? "Path" : "PATH";
+    const sep = process.platform === "win32" ? ";" : ":";
+    const parts = String(env[pathKey] || "").split(sep).filter(Boolean);
+    if (!parts.includes(bundledBinDir)) parts.unshift(bundledBinDir);
+    env[pathKey] = parts.join(sep);
+  }
+
+  const runtimeNode = resolveBundledNodeBinary() || resolveNodeBinary();
+  console.log(
+    `[electron] Starting desktop daemon via ${runtimeNode} (${daemonEntry}) on http://${HOST}:${port}`,
+  );
+  const child = spawn(runtimeNode, [daemonEntry], {
+    cwd: appRoot,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout?.on("data", (chunk) => process.stdout.write(chunk));
+  child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+  attachServerExitHandler(child);
+  serverProcess = child;
+  return child;
 }
 
 function startNextServer(port) {
@@ -828,13 +911,20 @@ async function bootstrap() {
   // 2) Hidden main window loads React as soon as the server accepts connections.
   // 3) Reveal when IPC/DOM says the shell painted (never wait on slow warm routes).
   bootRevealPending = true;
-  createSplashWindow("Starting local server…");
+  const daemon = useDaemonRuntime();
+  createSplashWindow(daemon ? "Starting desktop daemon…" : "Starting local server…");
 
   activePort = await findFreePort(PREFERRED_PORT);
   const bootStarted = Date.now();
-  startNextServer(activePort);
+  if (daemon) {
+    console.log("[electron] Runtime: daemon (Phase B, no Next.js)");
+    startDaemonServer(activePort);
+  } else {
+    console.log("[electron] Runtime: next (legacy)");
+    startNextServer(activePort);
+  }
   await waitForServer(activePort);
-  console.log(`[electron] Server ready on http://${HOST}:${activePort} in ${Date.now() - bootStarted}ms`);
+  console.log(`[electron] Server ready on http://${HOST}:${activePort} in ${Date.now() - bootStarted}ms (runtime=${daemon ? "daemon" : "next"})`);
 
   setSplashSubtitle("Loading workspace…");
   // Do NOT await warm — /api/sessions first import can take seconds and used to

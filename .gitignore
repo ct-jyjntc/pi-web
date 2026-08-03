@@ -20,6 +20,7 @@
 # production
 /build
 /dist
+/desktop-dist
 /release
 
 # misc

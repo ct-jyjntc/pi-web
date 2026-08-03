@@ -14,24 +14,39 @@ import { encodeFilePathForApi } from "@/lib/file-paths";
 import { Icon } from "./Icon";
 import type { editor } from "monaco-editor";
 
-const MONACO_ESM = "../node_modules/monaco-editor/esm/vs";
-
+// Static worker URLs (no template strings) so Vite/Rollup can resolve workers;
+// Next/webpack also accept these relative import.meta.url forms.
 if (typeof window !== "undefined") {
   (self as { MonacoEnvironment?: { getWorker: (moduleId: string, label: string) => Worker } }).MonacoEnvironment = {
     getWorker(_moduleId: string, label: string): Worker {
       if (label === "typescript" || label === "javascript") {
-        return new Worker(new URL(`${MONACO_ESM}/language/typescript/ts.worker.js`, import.meta.url), { type: "module" });
+        return new Worker(
+          new URL("../node_modules/monaco-editor/esm/vs/language/typescript/ts.worker.js", import.meta.url),
+          { type: "module" },
+        );
       }
       if (label === "json") {
-        return new Worker(new URL(`${MONACO_ESM}/language/json/json.worker.js`, import.meta.url), { type: "module" });
+        return new Worker(
+          new URL("../node_modules/monaco-editor/esm/vs/language/json/json.worker.js", import.meta.url),
+          { type: "module" },
+        );
       }
       if (label === "css" || label === "scss" || label === "less") {
-        return new Worker(new URL(`${MONACO_ESM}/language/css/css.worker.js`, import.meta.url), { type: "module" });
+        return new Worker(
+          new URL("../node_modules/monaco-editor/esm/vs/language/css/css.worker.js", import.meta.url),
+          { type: "module" },
+        );
       }
       if (label === "html" || label === "handlebars" || label === "razor") {
-        return new Worker(new URL(`${MONACO_ESM}/language/html/html.worker.js`, import.meta.url), { type: "module" });
+        return new Worker(
+          new URL("../node_modules/monaco-editor/esm/vs/language/html/html.worker.js", import.meta.url),
+          { type: "module" },
+        );
       }
-      return new Worker(new URL(`${MONACO_ESM}/editor/editor.worker.js`, import.meta.url), { type: "module" });
+      return new Worker(
+        new URL("../node_modules/monaco-editor/esm/vs/editor/editor.worker.js", import.meta.url),
+        { type: "module" },
+      );
     },
   };
   loader.config({ monaco });
