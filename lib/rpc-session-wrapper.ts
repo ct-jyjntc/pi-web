@@ -677,8 +677,10 @@ export class AgentSessionWrapper {
         if (this.baseToolNames) {
           this.inner.setActiveToolsByName(this.applyModeToTools(this.baseToolNames));
         }
-        // Sync the global ask/full permission to match the mode. Best-effort:
-        // tool-level mode still applies if the permission write fails.
+        // Sync global ask/full permission on disk. The permission-system
+        // extension re-reads yoloMode in before_agent_start (refreshConfig) —
+        // no session reload required for the next prompt. Tool allow-list is
+        // applied immediately above.
         try {
           const current = getPermissionMode();
           const wantsFull = agentModeWantsFullPermission(next);

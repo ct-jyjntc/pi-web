@@ -395,6 +395,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
     const sid = sessionIdRef.current;
     if (!isNew || !newSessionCwd || !sid || newSessionPromotedRef.current) return;
+    // Empty ensure_session shells must not enter the sidebar as "(no messages)".
+    if (messageCount <= 0) return;
     newSessionPromotedRef.current = true;
     onSessionCreated?.({
       id: sid,
@@ -431,6 +433,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const result = await res.json() as { sessionId: string };
       const realId = result.sessionId;
       sessionIdRef.current = realId;
+      // Mode may have been chosen before the archive existed — apply now.
+      if (sessionMode !== "ask") {
+        try {
+          await sendAgentCommand(realId, { type: "set_mode", mode: sessionMode });
+        } catch (e) {
+          console.error("Failed to apply deferred agent mode:", e);
+        }
+      }
       return realId;
     })();
 
@@ -440,43 +450,47 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, thinkingLevel]);
+  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, thinkingLevel, sessionMode]);
+
+  const loadCustomSlashCommands = useCallback(async (cwdValue: string | null | undefined): Promise<SlashCommandInfo[]> => {
+    if (!cwdValue) return [];
+    try {
+      const res = await fetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
+      if (!res.ok) return [];
+      const body = await res.json() as { commands?: Array<{ name: string; description?: string; args: string[]; source: "user" | "project" }> };
+      return (body.commands ?? []).map((c) => ({
+        name: c.name,
+        description: c.description || (c.args.length > 0 ? `args: ${c.args.join(", ")}` : "Custom command"),
+        source: "custom" as const,
+        sourceInfo: {
+          path: cwdValue,
+          source: c.source,
+          scope: "project" as const,
+          origin: "top-level" as const,
+        },
+      }));
+    } catch {
+      // Custom commands are best-effort.
+      return [];
+    }
+  }, []);
 
   const loadSlashCommands = useCallback(async () => {
-    const sid = sessionIdRef.current ?? await ensureNewSession();
-    if (!sid) {
-      setSlashCommands([]);
-      return [] as SlashCommandInfo[];
-    }
+    // Do not ensure_session just to populate the slash palette. That persists an
+    // empty .jsonl (model/thinking only) which used to show as "(no messages)".
+    // Builtins are client-side; custom commands only need cwd. Extension/prompt/
+    // skill commands load once a real session already exists.
+    const sid = sessionIdRef.current;
+    const cwdValue = session?.cwd ?? newSessionCwd;
     setSlashCommandsLoading(true);
     try {
-      const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
-      const commands = data?.commands ?? [];
-      // User/project custom commands (markdown files with $NAME placeholders).
-      let custom: SlashCommandInfo[] = [];
-      const cwdValue = session?.cwd ?? newSessionCwd;
-      if (cwdValue) {
-        try {
-          const res = await fetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
-          if (res.ok) {
-            const body = await res.json() as { commands?: Array<{ name: string; description?: string; args: string[]; source: "user" | "project" }> };
-            custom = (body.commands ?? []).map((c) => ({
-              name: c.name,
-              description: c.description || (c.args.length > 0 ? `args: ${c.args.join(", ")}` : "Custom command"),
-              source: "custom" as const,
-              sourceInfo: {
-                path: cwdValue,
-                source: c.source,
-                scope: "project" as const,
-                origin: "top-level" as const,
-              },
-            }));
-          }
-        } catch {
-          // Custom commands are best-effort.
-        }
+      const custom = await loadCustomSlashCommands(cwdValue);
+      if (!sid) {
+        setSlashCommands(custom);
+        return custom;
       }
-      const merged = [...custom, ...commands];
+      const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
+      const merged = [...custom, ...(data?.commands ?? [])];
       setSlashCommands(merged);
       return merged;
     } catch (e) {
@@ -486,7 +500,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       setSlashCommandsLoading(false);
     }
-  }, [ensureNewSession, newSessionCwd, session?.cwd]);
+  }, [loadCustomSlashCommands, newSessionCwd, session?.cwd]);
 
   const getEventSourceCtx = useCallback((): AgentEventSourceContext => ({
     eventSourceRef,
@@ -1121,7 +1135,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
    *  popping the "reloaded" notice. Used after mode/permission switches where
    *  the button state itself is the feedback. */
   const reloadSession = useCallback(async () => {
-    const sid = sessionIdRef.current ?? await ensureNewSession();
+    // Never create an empty archive just to reload — nothing is loaded yet.
+    const sid = sessionIdRef.current;
     if (!sid) return;
     try {
       await sendAgentCommand(sid, { type: "reload" });
@@ -1134,14 +1149,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Silent session reload failed:", e);
     }
-  }, [ensureNewSession, loadSession, loadTools, loadSlashCommands, loadModels]);
+  }, [loadSession, loadTools, loadSlashCommands, loadModels]);
 
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     const parsed = parseSlashCommandLine(text);
     if (!parsed) return { handled: false };
 
     const { name: commandName, args } = parsed;
-    const sid = sessionIdRef.current ?? await ensureNewSession();
+    // Meta commands need an existing session. Do not ensure_session here — that
+    // would leave a "(no messages)" shell if the user never sends a prompt.
+    const sid = sessionIdRef.current;
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
       if (result.error) {
@@ -1242,7 +1259,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadSession, promoteNewSession, onSessionStatsPanelOpen, t, session?.cwd, newSessionCwd, handleSend, reloadSession]);
+  }, [addNotice, isCompacting, loadSession, promoteNewSession, onSessionStatsPanelOpen, t, session?.cwd, newSessionCwd, handleSend, reloadSession]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -1455,16 +1472,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages.length, contextUsage?.tokens, contextUsage?.percent, contextUsage?.contextWindow]);
 
   const setAgentMode = useCallback(async (mode: AgentMode) => {
-    const sid = sessionIdRef.current ?? await ensureNewSession();
-    if (!sid) return { ok: false as const, error: t("agent.noSession") };
+    const sid = sessionIdRef.current;
+    if (!sid) {
+      // Defer until first prompt/ensure — do not create an empty session file
+      // just because the user toggled ask/auto/plan/yolo on a blank composer.
+      setSessionMode(mode);
+      return { ok: true as const, mode };
+    }
     try {
       const result = await sendAgentCommand<{ mode?: string }>(sid, { type: "set_mode", mode });
-      setSessionMode(parseAgentMode(result?.mode));
-      return { ok: true as const, mode: parseAgentMode(result?.mode) };
+      const next = parseAgentMode(result?.mode);
+      setSessionMode(next);
+      // No client reload: set_mode applies tools immediately; permission
+      // extension hot-reads yoloMode on the next before_agent_start.
+      // (Avoids "已重新加载会话资源" and a second recovery path.)
+      return { ok: true as const, mode: next };
     } catch (e) {
       return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
     }
-  }, [ensureNewSession, t]);
+  }, []);
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,

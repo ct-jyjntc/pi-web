@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs, { promises as fsp } from "fs";
 import path from "path";
 import {
+  fileAccessDenied,
   getAllowedFileRoots,
   isExistingFilePathAllowed,
   isFilePathAllowed,
@@ -84,7 +85,9 @@ async function getUploadDirectory(segments: string[]): Promise<
   const directory = filePathFromSegments(segments);
   const allowedRoots = await getAllowedFileRoots();
   if (!isFilePathAllowed(directory, allowedRoots)) {
-    return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
+    return {
+      response: NextResponse.json(fileAccessDenied(directory, allowedRoots, "not_in_roots"), { status: 403 }),
+    };
   }
 
   let stat: fs.Stats;
@@ -103,7 +106,12 @@ async function getUploadDirectory(segments: string[]): Promise<
   // no window where the checked path and the target path can diverge.
   const realDirectory = await fsp.realpath(directory);
   if (!isFilePathAllowed(realDirectory, resolveRealRoots(allowedRoots))) {
-    return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
+    return {
+      response: NextResponse.json(
+        fileAccessDenied(realDirectory, allowedRoots, "realpath_escape"),
+        { status: 403 },
+      ),
+    };
   }
 
   return { directory: realDirectory };
@@ -133,8 +141,11 @@ export async function POST(
         return NextResponse.json({ error: "content must be a string" }, { status: 400 });
       }
       const allowedRoots = await getAllowedFileRoots();
-      if (!isFilePathAllowed(filePath, allowedRoots) || !isExistingFilePathAllowed(filePath, allowedRoots)) {
-        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      if (!isFilePathAllowed(filePath, allowedRoots)) {
+        return NextResponse.json(fileAccessDenied(filePath, allowedRoots, "not_in_roots"), { status: 403 });
+      }
+      if (!isExistingFilePathAllowed(filePath, allowedRoots)) {
+        return NextResponse.json(fileAccessDenied(filePath, allowedRoots, "existing_path_escape"), { status: 403 });
       }
       let stat: fs.Stats;
       try {
@@ -152,7 +163,7 @@ export async function POST(
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
       if (!isFilePathAllowed(realPath, resolveRealRoots(allowedRoots))) {
-        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+        return NextResponse.json(fileAccessDenied(realPath, allowedRoots, "realpath_escape"), { status: 403 });
       }
       try {
         const formattedText = await formatFileWithProjectFormatter(
@@ -184,7 +195,7 @@ export async function POST(
       }
       const allowedRoots = await getAllowedFileRoots();
       if (!isFilePathAllowed(filePath, allowedRoots)) {
-        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+        return NextResponse.json(fileAccessDenied(filePath, allowedRoots, "not_in_roots"), { status: 403 });
       }
       let stat: fs.Stats;
       try {
@@ -205,7 +216,7 @@ export async function POST(
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
       if (!isFilePathAllowed(realPath, resolveRealRoots(allowedRoots))) {
-        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+        return NextResponse.json(fileAccessDenied(realPath, allowedRoots, "realpath_escape"), { status: 403 });
       }
 
       let content = body.content;
@@ -541,7 +552,7 @@ export async function GET(
       type !== "list" &&
       await isFilePathReferencedBySession(filePath, sessionId);
     if (!allowedByRoot && !allowedBySessionReference) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      return NextResponse.json(fileAccessDenied(filePath, allowedRoots, "not_in_roots"), { status: 403 });
     }
 
     let stat: fs.Stats;
@@ -552,7 +563,7 @@ export async function GET(
     }
 
     if (!allowedBySessionReference && !isExistingFilePathAllowed(filePath, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      return NextResponse.json(fileAccessDenied(filePath, allowedRoots, "existing_path_escape"), { status: 403 });
     }
 
     if (type === "read") {

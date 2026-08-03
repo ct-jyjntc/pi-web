@@ -231,7 +231,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleThinkingLevelChange, loadSlashCommands,
-    reloadSession,
     sessionMode, setAgentMode,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
@@ -723,9 +722,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
-  const handlePermissionModeApplied = useCallback(() => {
-    void reloadSession();
-  }, [reloadSession]);
   // Expose compact to Context panel (no confirm) without prop-drilling AppShell.
   useEffect(() => {
     if (!(session || isNew)) {
@@ -888,12 +884,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onBuiltinCommand={handleBuiltinSlashCommand}
       mode={sessionMode}
       onModeChange={async (next) => {
+        // setAgentMode owns silent permission reload — no second path / no notice.
         const result = await setAgentMode(next);
         if (!result.ok) {
           addNotice({ type: "error", message: result.error ?? "Failed to switch mode" });
-          return;
         }
-        if (session || isNew) void handlePermissionModeApplied();
       }}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}

@@ -19,6 +19,7 @@
 import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, relative, resolve } from "path";
+import { checkSourceSyntax, formatSyntaxGuardFailure } from "./edit-syntax-guard";
 
 export type HashlineHunk = {
   /** Optional explicit hash of the old block (sha1 first 12 hex of normalized oldText). */
@@ -42,7 +43,30 @@ export type HashlineResult = {
   patch?: string;
   /** Human notes e.g. SWAP.BLK 1 → lines 1-4 */
   resolved?: string[];
+  /** Soft size discipline signal for agents (not an error). */
+  largeFileWarning?: string;
 };
+
+/** Soft cap aligned with AGENTS.md size discipline — warn, do not block. */
+export const LARGE_FILE_LINE_WARN = 800;
+
+/** Line count for soft-warn (trailing empty from final newline does not inflate). */
+export function countContentLines(content: string): number {
+  if (!content) return 0;
+  const normalized = content.replace(/\r\n/g, "\n");
+  if (normalized === "") return 0;
+  const parts = normalized.endsWith("\n") ? normalized.slice(0, -1).split("\n") : normalized.split("\n");
+  return parts.length;
+}
+
+export function largeFileEditWarning(displayPath: string, content: string): string | undefined {
+  const lines = countContentLines(content);
+  if (lines < LARGE_FILE_LINE_WARN) return undefined;
+  return (
+    `Note: ${displayPath} is ~${lines} lines (≥${LARGE_FILE_LINE_WARN}). ` +
+    `Prefer extract-module before stacking multi-hunk patches on this hot file.`
+  );
+}
 
 function normalize(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -124,13 +148,19 @@ export function applyHashlineEdits(
     next = next.slice(0, p.start) + p.newText + next.slice(p.end);
   }
 
-  writeFileSync(abs, preserveLineEndings(original, next), "utf8");
   const rel = displayPath(cwd, abs);
+  const syntax = checkSourceSyntax(abs, next, cwd);
+  if (!syntax.ok) {
+    throw new Error(formatSyntaxGuardFailure(rel, syntax));
+  }
+
+  writeFileSync(abs, preserveLineEndings(original, next), "utf8");
   const newTag = computeFileTag(next);
   const oldTag = computeFileTag(content);
   const before = content.endsWith("\n") ? content : `${content}\n`;
   const after = next.endsWith("\n") ? next : `${next}\n`;
   const diff = buildUnifiedDiff(rel, before, after);
+  const largeFileWarning = largeFileEditWarning(rel, next);
   return {
     path: abs,
     applied: planned.length,
@@ -139,7 +169,10 @@ export function applyHashlineEdits(
     tag: newTag,
     diff,
     patch: diff,
-    summary: `Applied ${planned.length} hashline hunk(s) to ${rel} → #${newTag}`,
+    largeFileWarning,
+    summary:
+      `Applied ${planned.length} hashline hunk(s) to ${rel} → #${newTag}` +
+      (largeFileWarning ? `\n${largeFileWarning}` : ""),
   };
 }
 
@@ -498,6 +531,19 @@ export function parseHashlinePatch(input: string): { sections: PatchSection[]; w
         continue;
       }
 
+      // Models often paste bare code under SWAP/INS without the required '+' body prefix.
+      // That line is then parsed as an op and fails opaquely — make the recovery explicit.
+      if (
+        !trimmed.startsWith("+")
+        && !/^(SWAP|DEL|INS\.|REM\b|MV\s|\[)/i.test(trimmed)
+        && /[{}();=]|^\s*(const|let|var|function|import|export|return|if|class|type|interface)\b/.test(trimmed)
+      ) {
+        throw new Error(
+          `Hashline body lines must start with '+'. Got: ${trimmed.slice(0, 100)}\n` +
+            `Example:\n  SWAP 10.=10:\n  +const x = 1;\n` +
+            `Re-read the file and resend the patch with '+' on every body row.`,
+        );
+      }
       throw new Error(`Unrecognized hashline op: ${trimmed.slice(0, 100)}`);
     }
 
@@ -680,6 +726,10 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
     }
 
     const outAbs = mvOp ? resolvePath(cwd, mvOp.dest) : abs;
+    const syntax = checkSourceSyntax(outAbs, nextLf, cwd);
+    if (!syntax.ok) {
+      throw new Error(formatSyntaxGuardFailure(displayPath(cwd, outAbs), syntax));
+    }
     if (mvOp) {
       mkdirSync(dirname(outAbs), { recursive: true });
     }
@@ -695,9 +745,11 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
     const newTag = computeFileTag(nextLf);
     const rel = displayPath(cwd, outAbs);
     const diff = buildUnifiedDiff(rel, lf.endsWith("\n") ? lf : `${lf}\n`, nextLf.endsWith("\n") ? nextLf : `${nextLf}\n`);
+    const largeFileWarning = largeFileEditWarning(rel, nextLf);
     const notes = [
       ...resolved,
       ...(warnings.length ? [`Warnings: ${warnings.join("; ")}`] : []),
+      ...(largeFileWarning ? [largeFileWarning] : []),
     ];
     results.push({
       path: outAbs,
@@ -708,11 +760,13 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
       diff,
       patch: diff,
       resolved: notes,
+      largeFileWarning,
       summary:
         `Edited ${rel} (${concrete.length} op(s)) #${section.tag} → #${newTag}` +
         (mvOp ? ` (moved from ${displayPath(cwd, abs)})` : "") +
         (resolved.length ? `\n${resolved.join("\n")}` : "") +
-        (warnings.length ? `\nWarnings: ${warnings.join("; ")}` : ""),
+        (warnings.length ? `\nWarnings: ${warnings.join("; ")}` : "") +
+        (largeFileWarning ? `\n${largeFileWarning}` : ""),
     });
   }
 

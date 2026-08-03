@@ -17,9 +17,14 @@
  * After removal, keep hashline `input` + optional hunk mode only.
  */
 import { Type } from "typebox";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { isAbsolute, resolve } from "path";
 import { createEditToolDefinition } from "@earendil-works/pi-coding-agent";
 import { classifyEditFailure, formatEditFailureMessage } from "./edit-failure";
+import {
+  checkSourceSyntax,
+  formatSyntaxGuardFailure,
+} from "./edit-syntax-guard";
 import { formatFileOnDisk } from "./format-file";
 import {
   applyHashlineEdits,
@@ -28,6 +33,7 @@ import {
   isClassicEditArgs,
   isHashlineHunkArgs,
   isHashlineInputArgs,
+  largeFileEditWarning,
   type HashlineHunk,
 } from "./hashline-edit";
 type EditToolDefinitionLike = {
@@ -117,9 +123,9 @@ function enrichEditError(
     return error instanceof Error ? error : new Error(String(error));
   }
 
-  // Hashline-specific errors already have actionable text.
+  // Hashline / syntax-guard errors already have actionable text.
   if (error instanceof Error && (
-    /Stale or wrong tag|Expected section header|Placeholder or invalid tag|Unrecognized hashline|Invalid line range|out of bounds|hash mismatch|not unique|not found/i.test(error.message)
+    /Stale or wrong tag|Expected section header|Placeholder or invalid tag|Unrecognized hashline|Hashline body lines must start|Edit rejected: would leave unparsable|Invalid line range|out of bounds|hash mismatch|not unique|not found/i.test(error.message)
   )) {
     return error;
   }
@@ -153,9 +159,13 @@ const HASHLINE_GUIDELINES = [
   "Prefer hashline patch language via edit({ input }) — default and most reliable path.",
   "Every section starts with [path#TAG]. TAG is the 4-hex file fingerprint from a fresh read (shown as [path#TAG] / 1:line). Copy it exactly — never invent #XXXX / #TAG placeholders.",
   "Ops: SWAP N.=M: (+ body rows), DEL N.=M, INS.PRE N: / INS.POST N: / INS.HEAD: / INS.TAIL: (body rows are +TEXT).",
+  "Body rows under SWAP/INS MUST start with '+'. Bare code lines are rejected (not ops).",
   "N.=M means inclusive start..end line numbers from the read output (e.g. lines 10-12 → SWAP 10.=12:). M is NOT a line count.",
   "Line numbers refer to the ORIGINAL file snapshot for that tag; do not renumber mid-patch.",
-  "On stale-tag rejection: STOP and re-read before further edits.",
+  "On stale-tag rejection: STOP and re-read that path before further edits. Do not chain edits on a path with a stale TAG.",
+  "JS/TS edits that would leave unparsable source are rejected and not written — fix the patch, do not paper over with another file.",
+  "Keep one file green: after a syntax rejection, re-read and repair that file before editing others.",
+  "On already-large files (~800+ lines), extract a module first; prefer small single-hunk patches over multi-range rewrites of hot files.",
   "Classic fallback still works: edit({ path, edits: [{ oldText, newText }] }) — bugfix-only; deprecated dual-path, removal by pi-web 1.0.0 / 2026-12-01.",
   "When changing multiple separate locations in one file, prefer one edit call with multiple ops/sections.",
   "On edit failure, use the kind/path/excerpt/tag in the error to craft a smaller unique anchor; do not rewrite whole files with write unless necessary.",
@@ -278,7 +288,9 @@ export function createPiWebEditToolDefinition(
             return {
               content: [{
                 type: "text",
-                text: `Successfully replaced ${result.applied} block(s) in ${path} (hashline-strict) → #${result.tag ?? "?"}.`,
+                text:
+                  `Successfully replaced ${result.applied} block(s) in ${path} (hashline-strict) → #${result.tag ?? "?"}.` +
+                  (result.largeFileWarning ? `\n${result.largeFileWarning}` : ""),
               }],
               details: {
                 mode: "classic-via-hashline",
@@ -291,6 +303,8 @@ export function createPiWebEditToolDefinition(
           } catch (strictError) {
             // Fall back to SDK classic (fuzzy whitespace tolerance)
             try {
+              const abs = resolveEditPath(cwd, path);
+              const before = abs && existsSync(abs) ? readFileSync(abs, "utf8") : null;
               const classicResult = await classic.execute(
                 toolCallId,
                 { path, edits },
@@ -298,17 +312,38 @@ export function createPiWebEditToolDefinition(
                 onUpdate,
                 ctx,
               ) as { content?: unknown; details?: Record<string, unknown> };
+              // Fuzzy path can write unparsable source; reject + rollback like hashline.
+              let sizeNote: string | undefined;
+              if (abs && before != null && existsSync(abs)) {
+                const after = readFileSync(abs, "utf8");
+                if (after !== before) {
+                  const syntax = checkSourceSyntax(abs, after, cwd);
+                  if (!syntax.ok) {
+                    writeFileSync(abs, before, "utf8");
+                    throw new Error(formatSyntaxGuardFailure(path, syntax));
+                  }
+                  sizeNote = largeFileEditWarning(path, after);
+                }
+              }
               if (classicResult && typeof classicResult === "object") {
-                formatEditedFiles([resolveEditPath(cwd, path)]);
+                formatEditedFiles([abs]);
+                if (sizeNote && Array.isArray(classicResult.content)) {
+                  const content = classicResult.content as Array<{ type?: string; text?: string }>;
+                  const first = content[0];
+                  if (first && first.type === "text" && typeof first.text === "string") {
+                    first.text = `${first.text}\n${sizeNote}`;
+                  }
+                }
                 return {
                   ...classicResult,
                   details: {
                     ...(classicResult.details ?? {}),
                     mode: "classic-fuzzy",
+                    largeFileWarning: sizeNote,
                   },
                 };
               }
-              formatEditedFiles([resolveEditPath(cwd, path)]);
+              formatEditedFiles([abs]);
               return classicResult;
             } catch (classicError) {
               const strictNote = strictError instanceof Error

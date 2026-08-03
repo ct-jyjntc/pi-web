@@ -244,23 +244,29 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
     projectByCwd.set(cwd, await resolveProject(cwd));
   }));
 
-  return sessions.map((s) => {
-    cacheSessionPath(s.id, s.path);
-    const project = s.cwd ? projectByCwd.get(s.cwd) : undefined;
-    return {
-      path: s.path,
-      id: s.id,
-      cwd: s.cwd,
-      name: s.name,
-      created: s.created.toISOString(),
-      modified: s.modified.toISOString(),
-      messageCount: s.messageCount,
-      firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
-      projectRoot: project?.projectRoot ?? s.cwd,
-      ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
-    };
-  });
+  // Keep path cache for every archive (direct open / RPC still need it), but
+  // hide zero-message shells from the sidebar. ensure_session and pre-prompt
+  // model/thinking writes create durable .jsonl files with no user content;
+  // listing them as "(no messages)" is noise, not history.
+  return sessions
+    .map((s) => {
+      cacheSessionPath(s.id, s.path);
+      const project = s.cwd ? projectByCwd.get(s.cwd) : undefined;
+      return {
+        path: s.path,
+        id: s.id,
+        cwd: s.cwd,
+        name: s.name,
+        created: s.created.toISOString(),
+        modified: s.modified.toISOString(),
+        messageCount: s.messageCount,
+        firstMessage: s.firstMessage || "(no messages)",
+        parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
+        projectRoot: project?.projectRoot ?? s.cwd,
+        ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
+      };
+    })
+    .filter((s) => s.messageCount > 0);
 }
 
 export async function listAllSessions(): Promise<SessionInfo[]> {
