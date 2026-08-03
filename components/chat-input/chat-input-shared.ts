@@ -68,6 +68,9 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
   { name: "name", description: "chat.cmdName", source: "builtin" },
   { name: "session", description: "chat.cmdSession", source: "builtin" },
   { name: "copy", description: "chat.cmdCopy", source: "builtin" },
+  { name: "undo", description: "chat.cmdUndo", source: "builtin" },
+  { name: "redo", description: "chat.cmdRedo", source: "builtin" },
+  { name: "init", description: "chat.cmdInit", source: "builtin" },
 ];
 
 export const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "custom", "extension", "prompt", "skill"];

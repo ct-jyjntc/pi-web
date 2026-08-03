@@ -21,6 +21,7 @@ import { MEMORY_CONTEXT_CUSTOM_TYPE, type ExtensionUiRequest, type ExtensionUiRe
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 import { buildQueryMemoryContext } from "./memory-context";
 import { resolveContextUsageForUi } from "./context-usage";
+import { beginAgentTurn, sealAgentTurn } from "./workspace-turn-journal";
 
 export interface AgentEvent {
   type: string;
@@ -191,6 +192,12 @@ export class AgentSessionWrapper {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       if (event.type === "agent_end") {
         invalidateSessionListCache();
+        // Seal workspace file mutations for /undo after the turn settles.
+        try {
+          sealAgentTurn(this.inner.sessionId);
+        } catch {
+          // Journal must never break agent_end delivery.
+        }
       }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
@@ -446,6 +453,23 @@ export class AgentSessionWrapper {
           }
         }
         this.promptRunning = true;
+        try {
+          // Capture the pre-prompt leaf so /undo can navigate_tree back here
+          // (before this user turn + assistant replies).
+          let leafId: string | undefined;
+          try {
+            const sm = this.inner.sessionManager as {
+              getLeafId?: () => string | null;
+              getLeafEntry?: () => { id?: string } | null;
+            };
+            leafId = sm.getLeafId?.() ?? sm.getLeafEntry?.()?.id ?? undefined;
+          } catch {
+            leafId = undefined;
+          }
+          beginAgentTurn(this.inner.sessionId, leafId ? { userEntryId: leafId } : undefined);
+        } catch {
+          // Journal open is best-effort.
+        }
         this.inner.prompt(command.message as string, {
           ...(promptImages?.length ? { images: promptImages } : {}),
           ...(streamingBehavior ? { streamingBehavior } : {}),
@@ -453,11 +477,22 @@ export class AgentSessionWrapper {
         }).then(() => {
           this.promptRunning = false;
           this.resetIdleTimer();
+          // Seal if agent_end was missed (e.g. no model stream).
+          try {
+            sealAgentTurn(this.inner.sessionId);
+          } catch {
+            // ignore
+          }
           if (!this._alive) return;
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
         }).catch((error) => {
           this.promptRunning = false;
           this.resetIdleTimer();
+          try {
+            sealAgentTurn(this.inner.sessionId);
+          } catch {
+            // ignore
+          }
           if (!this._alive) return;
           invalidateSessionListCache();
           this.emit({

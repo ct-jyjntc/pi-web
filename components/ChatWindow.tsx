@@ -25,6 +25,7 @@ import { classifyWidgetKey, isChromeTopBarWidgetKey, todoWidgetHasContent } from
 import { clearSessionMetrics, setChromeWidgetsMetric, setContextUsageMetric, setExtensionStatusesMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { deriveTodoWidgetLines } from "@/lib/todo-from-transcript";
 import { setCompactHandlers } from "@/lib/compact-action-store";
+import { setSessionNavHandlers } from "@/lib/session-nav-store";
 import { useWebSettings } from "@/lib/web-settings-store";
 import {
   CHAT_COLUMN_PADDING,
@@ -722,10 +723,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
-  // Expose compact to Context panel (no confirm) without prop-drilling AppShell.
+  // Expose compact + leaf navigation to Context panel without prop-drilling AppShell.
   useEffect(() => {
     if (!(session || isNew)) {
       setCompactHandlers(null);
+      setSessionNavHandlers(null);
       return;
     }
     const resultText = compactResult
@@ -738,8 +740,18 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       error: compactError,
       resultText,
     });
-    return () => setCompactHandlers(null);
-  }, [session, isNew, handleCompact, handleAbortCompaction, isCompacting, compactError, compactResult]);
+    setSessionNavHandlers({
+      sessionId: session?.id ?? null,
+      navigateToLeaf: async (leafId) => {
+        if (!leafId) return;
+        await handleNavigate(leafId);
+      },
+    });
+    return () => {
+      setCompactHandlers(null);
+      setSessionNavHandlers(null);
+    };
+  }, [session, isNew, handleCompact, handleAbortCompaction, isCompacting, compactError, compactResult, handleNavigate]);
 
   const advisorBanner = advisorNote ? (
     <div

@@ -40,6 +40,49 @@ import {
   canonicalHashlinePath,
   withHashlinePathLock,
 } from "./hashline-snapshots";
+import { recordFileMutation } from "./workspace-turn-journal";
+
+export type PiWebEditToolOptions = {
+  getSessionId?: () => string | undefined;
+};
+
+function readTextOrNull(abs: string): string | null {
+  if (!existsSync(abs)) return null;
+  try {
+    return readFileSync(abs, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function snapshotPaths(paths: string[]): Map<string, string | null> {
+  const map = new Map<string, string | null>();
+  for (const p of paths) {
+    if (!p || map.has(p)) continue;
+    map.set(p, readTextOrNull(p));
+  }
+  return map;
+}
+
+/** Record before→after for journal after a successful edit (+ optional format). */
+function recordSnapshots(
+  sessionId: string | undefined,
+  beforeMap: Map<string, string | null>,
+): void {
+  if (!sessionId || beforeMap.size === 0) return;
+  for (const [abs, before] of beforeMap) {
+    const after = readTextOrNull(abs);
+    if (before === after) continue;
+    const kind =
+      before == null && after != null
+        ? "create"
+        : after == null
+          ? "delete"
+          : "edit";
+    recordFileMutation(sessionId, { path: abs, kind, before, after });
+  }
+}
+
 type EditToolDefinitionLike = {
   name: string;
   label?: string;
@@ -177,8 +220,10 @@ const HASHLINE_GUIDELINES = [
 
 export function createPiWebEditToolDefinition(
   cwd: string,
+  options: PiWebEditToolOptions = {},
 ): ReturnType<typeof createEditToolDefinition> {
   const classic = createEditToolDefinition(cwd) as unknown as EditToolDefinitionLike;
+  const getSessionId = options.getSessionId;
 
   const def: EditToolDefinitionLike = {
     name: "edit",
@@ -264,8 +309,16 @@ export function createPiWebEditToolDefinition(
         // 1) Preferred: hashline patch language
         if (isHashlineInputArgs(args)) {
           const input = String(args.input);
-          const results = await withPathsLocked(hashlinePaths(input), () => applyHashlinePatch(cwd, input));
+          const paths = hashlinePaths(input);
+          const beforeMap = snapshotPaths(paths);
+          const results = await withPathsLocked(paths, () => applyHashlinePatch(cwd, input));
           await formatEditedFiles(results.map((r) => r.path));
+          // Also snapshot any path only present in results (e.g. delete ops).
+          for (const r of results) {
+            const abs = isAbsolute(r.path) ? r.path : resolve(cwd, r.path);
+            if (!beforeMap.has(abs)) beforeMap.set(abs, null);
+          }
+          recordSnapshots(getSessionId?.(), beforeMap);
           const text = results.map((r) => r.summary ?? `Applied ${r.applied} op(s) to ${r.path}`).join("\n");
           // Prefer first file's patch for the chat SplitPatchView; multi-file still in results.
           const patch = results.map((r) => r.patch).filter(Boolean).join("\n") || undefined;
@@ -284,12 +337,15 @@ export function createPiWebEditToolDefinition(
 
         // 2) Hunk mode
         if (isHashlineHunkArgs(args)) {
+          const abs = resolveEditPath(cwd, args.path);
+          const beforeMap = snapshotPaths(abs ? [abs] : []);
           const hunks = (args.hunks as HashlineHunk[]).map((h) => ({
             ...h,
             hash: h.hash || hashBlock(h.oldText),
           }));
           const result = applyHashlineEdits(cwd, String(args.path), hunks);
           await formatEditedFiles([result.path]);
+          recordSnapshots(getSessionId?.(), beforeMap);
           return {
             content: [{
               type: "text",
@@ -308,6 +364,8 @@ export function createPiWebEditToolDefinition(
         // 3) Classic path+edits — exact unique match first, then SDK fuzzy classic
         if (isClassicEditArgs(args)) {
           const { path, edits } = normalizeClassicEdits(args);
+          const absClassic = resolveEditPath(cwd, path);
+          const beforeMap = snapshotPaths(absClassic ? [absClassic] : []);
 
           // Exact unique replace (no self-computed hash — hash would always match).
           try {
@@ -317,6 +375,7 @@ export function createPiWebEditToolDefinition(
             }));
             const result = applyHashlineEdits(cwd, path, hunks);
             await formatEditedFiles([result.path]);
+            recordSnapshots(getSessionId?.(), beforeMap);
             return {
               content: [{
                 type: "text",
@@ -335,8 +394,8 @@ export function createPiWebEditToolDefinition(
           } catch (strictError) {
             // Fall back to SDK classic (fuzzy whitespace tolerance)
             try {
-              const abs = resolveEditPath(cwd, path);
-              const before = abs && existsSync(abs) ? readFileSync(abs, "utf8") : null;
+              const abs = absClassic;
+              const before = abs ? beforeMap.get(abs) ?? null : null;
               const classicResult = await classic.execute(
                 toolCallId,
                 { path, edits },
@@ -359,6 +418,7 @@ export function createPiWebEditToolDefinition(
               }
               if (classicResult && typeof classicResult === "object") {
                 await formatEditedFiles([abs]);
+                recordSnapshots(getSessionId?.(), beforeMap);
                 if (sizeNote && Array.isArray(classicResult.content)) {
                   const content = classicResult.content as Array<{ type?: string; text?: string }>;
                   const first = content[0];
@@ -376,6 +436,7 @@ export function createPiWebEditToolDefinition(
                 };
               }
               await formatEditedFiles([abs]);
+              recordSnapshots(getSessionId?.(), beforeMap);
               return classicResult;
             } catch (classicError) {
               const strictNote = strictError instanceof Error

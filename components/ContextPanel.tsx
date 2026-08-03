@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AlignLeft, Check, Copy, FileText, Square } from "lucide-react";
+import { AlignLeft, Check, Copy, FileText, Redo2, Square, Undo2 } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { copyText } from "@/lib/clipboard";
 import { useSessionMetrics } from "@/lib/session-metrics-store";
 import { getCompactHandlers, requestCompact, subscribeCompactHandlers } from "@/lib/compact-action-store";
+import { requestNavigateToLeaf } from "@/lib/session-nav-store";
 import type { ExtensionStatusItem } from "@/lib/types";
 import { Icon } from "./Icon";
 
@@ -62,11 +63,44 @@ export function ContextPanel() {
   const [checkpointBusy, setCheckpointBusy] = useState(false);
   const [collabBusy, setCollabBusy] = useState(false);
   const [collabUrl, setCollabUrl] = useState<string | null>(null);
+  const [journal, setJournal] = useState<{
+    canUndo: boolean;
+    canRedo: boolean;
+    undoCount: number;
+    redoCount: number;
+    lastTurn: { fileCount: number } | null;
+  }>({ canUndo: false, canRedo: false, undoCount: 0, redoCount: 0, lastTurn: null });
+  const [journalBusy, setJournalBusy] = useState(false);
+  const [journalMessage, setJournalMessage] = useState<string | null>(null);
+
+  const refreshJournal = useCallback(async (sid: string) => {
+    try {
+      const res = await fetch(`/api/workspace-journal?sessionId=${encodeURIComponent(sid)}`);
+      const data = await res.json() as {
+        canUndo?: boolean;
+        canRedo?: boolean;
+        undoCount?: number;
+        redoCount?: number;
+        lastTurn?: { fileCount: number } | null;
+      };
+      if (!res.ok) return;
+      setJournal({
+        canUndo: Boolean(data.canUndo),
+        canRedo: Boolean(data.canRedo),
+        undoCount: data.undoCount ?? 0,
+        redoCount: data.redoCount ?? 0,
+        lastTurn: data.lastTurn ?? null,
+      });
+    } catch {
+      // best-effort
+    }
+  }, []);
 
   useEffect(() => {
     const sid = sessionStats?.sessionId;
     if (!sid) {
       setCheckpoints([]);
+      setJournal({ canUndo: false, canRedo: false, undoCount: 0, redoCount: 0, lastTurn: null });
       return;
     }
     let cancelled = false;
@@ -78,8 +112,69 @@ export function ContextPanel() {
       .catch(() => {
         if (!cancelled) setCheckpoints([]);
       });
+    void refreshJournal(sid);
     return () => { cancelled = true; };
-  }, [sessionStats?.sessionId]);
+  }, [sessionStats?.sessionId, refreshJournal]);
+
+  const runJournalAction = useCallback(async (action: "undo" | "redo") => {
+    const sid = sessionStats?.sessionId;
+    if (!sid) return;
+    setJournalBusy(true);
+    setJournalMessage(null);
+    try {
+      const res = await fetch("/api/workspace-journal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sid, action }),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        error?: string;
+        restored?: string[];
+        userEntryId?: string;
+        status?: typeof journal;
+      };
+      if (data.status) {
+        setJournal({
+          canUndo: Boolean(data.status.canUndo),
+          canRedo: Boolean(data.status.canRedo),
+          undoCount: data.status.undoCount ?? 0,
+          redoCount: data.status.redoCount ?? 0,
+          lastTurn: data.status.lastTurn ?? null,
+        });
+      } else {
+        await refreshJournal(sid);
+      }
+      if (!res.ok || !data.ok) {
+        setJournalMessage(data.error ?? (action === "undo" ? t("shell.undoFailed") : t("shell.redoFailed")));
+        return;
+      }
+      // Rewind chat UI via the active session's navigateToLeaf (loadContext included).
+      // Falls back to server navigate_tree when no chat is registered for this id.
+      if (action === "undo" && data.userEntryId) {
+        try {
+          const navigated = await requestNavigateToLeaf(sid, data.userEntryId);
+          if (!navigated) {
+            await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "navigate_tree", targetId: data.userEntryId }),
+            });
+          }
+        } catch {
+          // File undo already applied; tree rewind is best-effort.
+        }
+      }
+      const n = data.restored?.length ?? 0;
+      setJournalMessage(
+        action === "undo" ? t("shell.undoRestored", { n: String(n) }) : t("shell.redoRestored", { n: String(n) }),
+      );
+    } catch (e) {
+      setJournalMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setJournalBusy(false);
+    }
+  }, [refreshJournal, sessionStats?.sessionId, t]);
 
   const shareCollab = useCallback(async () => {
     const sid = sessionStats?.sessionId;
@@ -121,10 +216,13 @@ export function ContextPanel() {
     if (!sid || !entryId) return;
     setCheckpointBusy(true);
     try {
+      // Prefer live chat navigation so the transcript reloads for the leaf.
+      const navigated = await requestNavigateToLeaf(sid, entryId);
+      if (navigated) return;
       const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "navigate_tree", entryId }),
+        body: JSON.stringify({ type: "navigate_tree", targetId: entryId }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };
@@ -524,6 +622,55 @@ export function ContextPanel() {
                 {kvRow(t("shell.toolCalls"), sessionStats.toolCalls.toLocaleString())}
                 {kvRow(t("shell.toolResults"), sessionStats.toolResults.toLocaleString())}
                 {kvRow(t("shell.total"), sessionStats.totalMessages.toLocaleString())}
+
+                {sectionHeader(t("shell.workspaceUndo"))}
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.4 }}>
+                    {t("shell.workspaceUndoDesc")}
+                  </div>
+                  {!journal.canUndo && !journal.canRedo ? (
+                    <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("shell.workspaceUndoEmpty")}</div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                      undo×{journal.undoCount}
+                      {journal.lastTurn ? ` · last ${journal.lastTurn.fileCount} file(s)` : ""}
+                      {journal.canRedo ? ` · redo×${journal.redoCount}` : ""}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-compact"
+                      disabled={journalBusy || !journal.canUndo}
+                      onClick={() => void runJournalAction("undo")}
+                      title="/undo"
+                    >
+                      <Icon icon={Undo2} size="sm" />
+                      {t("shell.undo")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-compact"
+                      disabled={journalBusy || !journal.canRedo}
+                      onClick={() => void runJournalAction("redo")}
+                      title="/redo"
+                    >
+                      <Icon icon={Redo2} size="sm" />
+                      {t("shell.redo")}
+                    </button>
+                  </div>
+                  {journalMessage && (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{journalMessage}</div>
+                  )}
+                </div>
 
                 {sectionHeader(t("shell.checkpoints"))}
                 {checkpoints.length === 0 ? (

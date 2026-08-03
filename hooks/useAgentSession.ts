@@ -1222,6 +1222,74 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return complete({ handled: true, message: t("agent.copiedAssistant") });
         }
 
+        case "undo":
+        case "redo": {
+          if (!sid) return complete({ handled: true, error: t("agent.noSession") });
+          if (streamState.isStreaming) {
+            return complete({ handled: true, error: t("agent.commandFailed") });
+          }
+          const res = await fetch("/api/workspace-journal", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: sid, action: commandName }),
+          });
+          const body = await res.json().catch(() => null) as {
+            ok?: boolean;
+            error?: string;
+            restored?: string[];
+            userEntryId?: string;
+          } | null;
+          if (!res.ok || !body?.ok) {
+            const fallback = commandName === "undo" ? t("agent.undoNothing") : t("agent.redoNothing");
+            return complete({ handled: true, error: body?.error ?? fallback });
+          }
+          // After file undo, rewind the conversation branch to the pre-prompt leaf.
+          if (commandName === "undo" && body.userEntryId) {
+            try {
+              await navigateToLeaf(body.userEntryId);
+            } catch {
+              // File undo already applied; tree rewind is best-effort.
+            }
+          }
+          const n = body.restored?.length ?? 0;
+          return complete({
+            handled: true,
+            message: commandName === "undo" ? t("agent.undoOk", { n: String(n) }) : t("agent.redoOk", { n: String(n) }),
+          });
+        }
+
+        case "init": {
+          const cwdValue = session?.cwd ?? newSessionCwd;
+          if (!cwdValue) return complete({ handled: true, error: t("agent.initNeedCwd") });
+          const focus = args.trim() || undefined;
+          const res = await fetch("/api/project-init", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cwd: cwdValue, focus }),
+          });
+          const body = await res.json().catch(() => null) as {
+            ok?: boolean;
+            error?: string;
+            created?: boolean;
+            source?: string;
+            bytes?: number;
+          } | null;
+          if (!res.ok || body?.ok === false || body?.error) {
+            return complete({
+              handled: true,
+              error: body?.error ?? t("agent.initFailed"),
+            });
+          }
+          return complete({
+            handled: true,
+            message: t("agent.initOk", {
+              action: body?.created ? t("agent.initCreated") : t("agent.initUpdated"),
+              source: body?.source ?? "?",
+              bytes: String(body?.bytes ?? 0),
+            }),
+          });
+        }
+
         default: {
           // User/project custom command: /name key=value → render markdown body
           // ($NAME placeholders) and send it as a regular message.
@@ -1263,7 +1331,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, isCompacting, loadSession, promoteNewSession, onSessionStatsPanelOpen, t, session?.cwd, newSessionCwd, handleSend, reloadSession]);
+  }, [addNotice, isCompacting, loadSession, promoteNewSession, onSessionStatsPanelOpen, t, session?.cwd, newSessionCwd, handleSend, reloadSession, streamState.isStreaming, navigateToLeaf]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An

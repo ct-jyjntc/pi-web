@@ -6,6 +6,7 @@
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager } from "@earendil-works/pi-coding-agent";
 import { createPiWebBashToolDefinition } from "./agent-bash-pty";
 import { createPiWebEditToolDefinition } from "./agent-edit-tool";
+import { createPiWebWriteToolDefinition } from "./agent-write-tool";
 import { createGithubTools } from "./agent-github-tool";
 import { createPiWebReadToolDefinition } from "./agent-read-tool";
 import { createAdvancedTools } from "./agent-advanced-tools";
@@ -135,7 +136,15 @@ export async function startRpcSession(
         }
       },
     });
-    const agentEditTool = createPiWebEditToolDefinition(cwd);
+    const getSessionId = (): string | undefined => {
+      try {
+        return sessionManager.getSessionId();
+      } catch {
+        return undefined;
+      }
+    };
+    const agentEditTool = createPiWebEditToolDefinition(cwd, { getSessionId });
+    const agentWriteTool = createPiWebWriteToolDefinition(cwd, { getSessionId });
     const agentReadTool = createPiWebReadToolDefinition(cwd);
     const memoryTools = !toolsFullyDisabled && readWebSettings().projectMemory.enabled
       ? createProjectMemoryTools(cwd)
@@ -149,14 +158,10 @@ export async function startRpcSession(
           ...createGithubTools(cwd),
           ...createAdvancedTools({
             cwd,
-            getSessionId: () => {
-              try { return sessionManager.getSessionId(); } catch { return undefined; }
-            },
+            getSessionId,
           }),
           ...createCheckpointTools({
-            getSessionId: () => {
-              try { return sessionManager.getSessionId(); } catch { return undefined; }
-            },
+            getSessionId,
             getLeafId: () => {
               try {
                 // Prefer the current branch leaf so rewind navigates correctly.
@@ -177,6 +182,7 @@ export async function startRpcSession(
       customTools: [
         agentBashTool as never,
         agentEditTool as never,
+        agentWriteTool as never,
         agentReadTool as never,
         ...(memoryTools as never[]),
         ...(extraTools as never[]),

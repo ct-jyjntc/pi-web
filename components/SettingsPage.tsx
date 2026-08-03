@@ -27,6 +27,7 @@ export type SettingsSection =
   | "general"
   | "agent"
   | "memory"
+  | "permissions"
   | "network"
   | "usage"
   | "appearance"
@@ -48,6 +49,7 @@ import { AgentModelsSettingsPanel } from "./settings/AgentModelsSettingsPanel";
 import { ModelThinkingControl } from "./settings/ModelThinkingControl";
 import { MemorySettingsPanel } from "./settings/MemorySettingsPanel";
 import { AppearanceSettingsPanel } from "./settings/AppearanceSettingsPanel";
+import { PermissionsSettingsPanel } from "./settings/PermissionsSettingsPanel";
 
 export function SettingsPage({
   onClose,
@@ -458,6 +460,7 @@ export function SettingsPage({
       items: [
         { id: "agent", label: t("settings.agent") },
         { id: "memory", label: t("settings.memory") },
+        { id: "permissions", label: t("settings.permissions") },
       ],
     },
     {
@@ -1117,6 +1120,7 @@ export function SettingsPage({
               {memoryPanel}
             </div>
           )}
+          {section === "permissions" && <PermissionsSettingsPanel />}
           {section === "network" && (
             <div className="settings-page-general">
               {networkPanel}
