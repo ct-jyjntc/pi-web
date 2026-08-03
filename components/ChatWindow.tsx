@@ -262,6 +262,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // markdown/highlight render of older items is interruptible instead of one
   // long synchronous commit right after a session switch.
   const [visibleCount, setVisibleCount] = useState(FIRST_PAINT_RENDER_ITEMS);
+
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
   const hasMessages = messages.length > 0;
@@ -628,9 +629,18 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           variant={variant}
         />
       );
-      if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
+      if (!isVisible) return null;
+      const entryId = entryIds[idx];
+      // Always mount a data-entry-id host so search can jump to process-rail
+      // messages (attachRef false) as well as normal transcript rows.
+      const attachRef = options.attachRef !== false && currentRefIdx !== undefined;
       return (
-        <div key={`${keyPrefix}-${idx}`} className={options.liveTail ? "chat-message-item is-live" : "chat-message-item"} ref={attachVisibleRef(currentRefIdx)}>
+        <div
+          key={`${keyPrefix}-${idx}`}
+          className={options.liveTail ? "chat-message-item is-live" : "chat-message-item"}
+          ref={attachRef ? attachVisibleRef(currentRefIdx!) : undefined}
+          data-entry-id={entryId || undefined}
+        >
           {view}
         </div>
       );

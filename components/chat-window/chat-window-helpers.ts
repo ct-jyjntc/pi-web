@@ -201,14 +201,3 @@ export function findVerticalScrollParent(start: HTMLElement | null): HTMLElement
   }
   return null;
 }
-
-/**
- * Turn-level process rail (Hermes-style). Settled turns start collapsed with a
- * "Thought for Ns" label; expanding reveals thinking / tools / interim prose.
- *
- * Expand/collapse keeps the toggle button fixed in the viewport and grows or
- * shrinks content *below* it. Without this, stick-to-bottom re-locks the
- * transcript to the bottom on height change and the button flies upward —
- * forcing the user to scroll up just to collapse again.
- */
-

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { hasPrimaryMod, isEditableKeyboardTarget } from "@/lib/keyboard";
 
 // ---------------------------------------------------------------------------
 // Module-level registry — ChatWindow registers the abort handler here so that
@@ -20,47 +21,127 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 // Hook: global keyboard shortcuts
 // ---------------------------------------------------------------------------
 
-interface UseGlobalKeyboardShortcutsOptions {
-  /** Called when Ctrl+Alt+N is pressed. Receives current cwd. */
+export type WorkspaceShortcutTab = "review" | "files" | "context" | "terminal" | "debug";
+
+export interface UseGlobalKeyboardShortcutsOptions {
+  /** Called when Ctrl+Alt+N / ⌘⇧N is pressed. Receives current cwd. */
   onNewSession?: (cwd: string) => void;
   /** The currently selected project directory (sidebar cwd). */
   activeCwd?: string | null;
+  onToggleSidebar?: () => void;
+  onOpenSettings?: () => void;
+  onToggleRightPanel?: () => void;
+  onOpenShortcutsHelp?: () => void;
+  onFocusComposer?: () => void;
+  onWorkspaceTab?: (tab: WorkspaceShortcutTab) => void;
+  /** When true, Esc closes help/settings instead of aborting (parent owns). */
+  suppressEscAbort?: boolean;
 }
 
 /**
- * Register global keyboard shortcuts for the application.
+ * Global keyboard shortcuts for the application shell.
  *
- * Shortcuts handled here:
- *   Esc          – stop the running agent (via module-level abort handler)
- *   Ctrl+Alt+N   – create a new session in the active project directory
- *
- * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
- * ChatInput manages its own Esc logic (closing slash / @ file menus, stopping
- * the agent when no menu is open) because it needs intimate knowledge of menu
- * state that is local to that component.
+ *   Esc            – stop running agent (not inside inputs; dialogs handle own Esc)
+ *   ⌘/Ctrl+B       – toggle left sidebar
+ *   ⌘/Ctrl+,       – settings
+ *   ⌘/Ctrl+\       – toggle right workspace panel
+ *   ⌘/Ctrl+L       – focus composer
+ *   ⌘/Ctrl+/       – shortcuts help
+ *   ⌘/Ctrl+⇧N      – new session (also Ctrl+Alt+N)
+ *   ⌘/Ctrl+1..4    – Review / Files / Context / Terminal workspace tabs
  */
 export function useGlobalKeyboardShortcuts(
   options: UseGlobalKeyboardShortcutsOptions,
 ): void {
-  const { onNewSession, activeCwd } = options;
+  const {
+    onNewSession,
+    activeCwd,
+    onToggleSidebar,
+    onOpenSettings,
+    onToggleRightPanel,
+    onOpenShortcutsHelp,
+    onFocusComposer,
+    onWorkspaceTab,
+    suppressEscAbort,
+  } = options;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      // ---- Esc: stop agent ----
-      if (e.key === "Escape") {
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      const primary = hasPrimaryMod(e);
+      const editable = isEditableKeyboardTarget(e.target);
+
+      // ---- Esc: stop agent (inputs / dialogs handle their own) ----
+      if (key === "Escape") {
+        if (suppressEscAbort) return;
         if (!globalAbortHandler) return;
-
-        const tag = (e.target as HTMLElement)?.tagName;
-        // Let textarea/input handle Esc internally (ChatInput menus / stop).
-        if (tag === "TEXTAREA" || tag === "INPUT") return;
-
+        if (editable) return;
         e.preventDefault();
         globalAbortHandler();
         return;
       }
 
-      // ---- Ctrl+Alt+N: new session ----
-      if (e.key === "n" && e.ctrlKey && e.altKey) {
+      // Always-available primary-mod shortcuts (even while typing).
+      if (primary && !e.altKey) {
+        // Shortcuts help
+        if (key === "/" || key === "?") {
+          if (!onOpenShortcutsHelp) return;
+          e.preventDefault();
+          onOpenShortcutsHelp();
+          return;
+        }
+        // Settings (comma)
+        if (key === "," && !e.shiftKey) {
+          if (!onOpenSettings) return;
+          e.preventDefault();
+          onOpenSettings();
+          return;
+        }
+      }
+
+      // Remaining primary-mod shortcuts: skip when typing in a field
+      // (except we already handled K , / above).
+      if (editable && primary) {
+        // Still allow focus-composer only when not already in composer? skip.
+        return;
+      }
+
+      if (primary && !e.altKey) {
+        if (key === "b" && !e.shiftKey) {
+          if (!onToggleSidebar) return;
+          e.preventDefault();
+          onToggleSidebar();
+          return;
+        }
+        if (key === "\\" && !e.shiftKey) {
+          if (!onToggleRightPanel) return;
+          e.preventDefault();
+          onToggleRightPanel();
+          return;
+        }
+        if (key === "l" && !e.shiftKey) {
+          if (!onFocusComposer) return;
+          e.preventDefault();
+          onFocusComposer();
+          return;
+        }
+        if (e.shiftKey && key === "n") {
+          if (!activeCwd || !onNewSession) return;
+          e.preventDefault();
+          onNewSession(activeCwd);
+          return;
+        }
+        // Workspace tabs 1–4
+        if (!e.shiftKey && onWorkspaceTab) {
+          if (key === "1") { e.preventDefault(); onWorkspaceTab("review"); return; }
+          if (key === "2") { e.preventDefault(); onWorkspaceTab("files"); return; }
+          if (key === "3") { e.preventDefault(); onWorkspaceTab("context"); return; }
+          if (key === "4") { e.preventDefault(); onWorkspaceTab("terminal"); return; }
+        }
+      }
+
+      // ---- Ctrl+Alt+N: new session (legacy) ----
+      if (key === "n" && e.ctrlKey && e.altKey) {
         if (!activeCwd || !onNewSession) return;
         e.preventDefault();
         onNewSession(activeCwd);
@@ -69,5 +150,15 @@ export function useGlobalKeyboardShortcuts(
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeCwd, onNewSession]);
+  }, [
+    activeCwd,
+    onNewSession,
+    onToggleSidebar,
+    onOpenSettings,
+    onToggleRightPanel,
+    onOpenShortcutsHelp,
+    onFocusComposer,
+    onWorkspaceTab,
+    suppressEscAbort,
+  ]);
 }

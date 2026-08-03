@@ -9,4 +9,6 @@ export interface ChatInputHandle {
   insertIfEmpty: (content: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  /** Focus the composer textarea (global ⌘/Ctrl+L). */
+  focus: () => void;
 }

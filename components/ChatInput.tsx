@@ -246,6 +246,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     addImages(files: File[]) {
       processImageFiles(files);
     },
+    focus() {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      const len = ta.value.length;
+      ta.setSelectionRange(len, len);
+    },
   }));
 
   const processImageFiles = useCallback(async (files: File[]) => {

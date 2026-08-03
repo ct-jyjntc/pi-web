@@ -36,8 +36,10 @@ import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { TopBarChromeWidgets } from "./TopBarChromeWidgets";
+import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@/lib/app-update-store";
 import type { ProjectTrustStatus } from "@/lib/api-types";
+import { formatShortcut, modKeyLabel } from "@/lib/keyboard";
 import { Icon } from "./Icon";
 
 import {
@@ -83,6 +85,7 @@ export function AppShell() {
   // Once true, SettingsPage stays mounted (hidden when closed) so reopening is
   // instant and its state survives. Flipped on first open, hover, or idle.
   const [settingsWarm, setSettingsWarm] = useState(false);
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const appUpdate = useSyncExternalStore(subscribeAppUpdate, getAppUpdateInfo, () => null);
 
@@ -387,6 +390,12 @@ export function AppShell() {
     }
   }, [router, isMobile]);
 
+
+  const openWorkspaceTab = useCallback((kind: "review" | "files" | "context" | "terminal" | "debug") => {
+    setRightPanelOpen(true);
+    setActiveWorkspaceTabId(kind);
+  }, []);
+
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
     setSelectedSession(null);
     setNewSessionCwd(cwd);
@@ -399,10 +408,20 @@ export function AppShell() {
     router.replace("/", { scroll: false });
   }, [router, isMobile]);
 
-  // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
+  // Global keyboard shortcuts (Esc, ⌘K search, sidebar, settings, workspace tabs…)
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
-    activeCwd,
+    activeCwd: activeCwd ?? selectedSession?.cwd ?? newSessionCwd,
+    onToggleSidebar: handleSidebarToggle,
+    onOpenSettings: () => {
+      setSettingsWarm(true);
+      setSettingsOpen(true);
+    },
+    onToggleRightPanel: () => setRightPanelOpen((v) => !v),
+    onOpenShortcutsHelp: () => setShortcutsHelpOpen(true),
+    onFocusComposer: () => chatInputRef.current?.focus(),
+    onWorkspaceTab: openWorkspaceTab,
+    suppressEscAbort: shortcutsHelpOpen || settingsOpen,
   });
 
   // Client-built transient SessionInfo (new session / fork) lacks the
@@ -810,7 +829,7 @@ export function AppShell() {
               type="button"
               className="chrome-btn is-icon"
               onClick={handleSidebarToggle}
-              title={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
+              title={`${sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")} (${formatShortcut(modKeyLabel(), "B")})`}
               aria-label={sidebarOpen ? t("shell.hideSidebar") : t("shell.showSidebar")}
             >
               {sidebarOpen ? (
@@ -827,7 +846,7 @@ export function AppShell() {
                 setSettingsOpen(true);
               }}
               onPointerEnter={() => setSettingsWarm(true)}
-              title={t("shell.settings")}
+              title={`${t("shell.settings")} (${formatShortcut(modKeyLabel(), ",")})`}
               aria-label={t("shell.settings")}
             >
               <Icon icon={Settings} size={16} strokeWidth={2} />
@@ -895,7 +914,7 @@ export function AppShell() {
               type="button"
               className={`chrome-btn is-icon${rightPanelOpen ? " is-active" : ""}`}
               onClick={() => setRightPanelOpen((v) => !v)}
-              title={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
+              title={`${rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")} (${formatShortcut(modKeyLabel(), "\\")})`}
               aria-label={rightPanelOpen ? t("shell.hideFilePanel") : t("shell.showFilePanel")}
               style={{ flexShrink: 0 }}
             >
@@ -1386,6 +1405,10 @@ export function AppShell() {
         onConfirm={() => void handleTrustProject()}
       />
     )}
+    <ShortcutsHelpDialog
+      open={shortcutsHelpOpen}
+      onClose={() => setShortcutsHelpOpen(false)}
+    />
     </>
   );
 }

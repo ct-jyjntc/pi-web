@@ -27,6 +27,20 @@ const en = {
   "shell.updateAvailable": "Update {version}",
   "shell.updateAvailableTitle": "Update available: {version}. Click to open the release page.",
 
+  // Keyboard shortcuts
+  "shortcuts.title": "Keyboard shortcuts",
+  "shortcuts.toggleSidebar": "Toggle sidebar",
+  "shortcuts.settings": "Open settings",
+  "shortcuts.toggleRightPanel": "Toggle right workspace",
+  "shortcuts.focusComposer": "Focus chat input",
+  "shortcuts.newSession": "New session",
+  "shortcuts.tabReview": "Workspace: Review",
+  "shortcuts.tabFiles": "Workspace: Files",
+  "shortcuts.tabContext": "Workspace: Context",
+  "shortcuts.tabTerminal": "Workspace: Terminal",
+  "shortcuts.abort": "Stop running agent",
+  "shortcuts.thisHelp": "Show this help",
+
   // Top bar
   "shell.hideSidebar": "Hide sidebar",
   "shell.showSidebar": "Show sidebar",
@@ -914,6 +928,19 @@ const zh: Record<MessageKey, string> = {
   "shell.settings": "设置",
   "shell.updateAvailable": "更新 {version}",
   "shell.updateAvailableTitle": "发现新版本 {version}，点击打开发布页。",
+
+  "shortcuts.title": "键盘快捷键",
+  "shortcuts.toggleSidebar": "切换侧栏",
+  "shortcuts.settings": "打开设置",
+  "shortcuts.toggleRightPanel": "切换右侧工作区",
+  "shortcuts.focusComposer": "聚焦输入框",
+  "shortcuts.newSession": "新建会话",
+  "shortcuts.tabReview": "工作区：审查",
+  "shortcuts.tabFiles": "工作区：文件",
+  "shortcuts.tabContext": "工作区：上下文",
+  "shortcuts.tabTerminal": "工作区：终端",
+  "shortcuts.abort": "停止正在运行的 Agent",
+  "shortcuts.thisHelp": "显示此帮助",
 
   "shell.hideSidebar": "隐藏侧栏",
   "shell.showSidebar": "显示侧栏",
