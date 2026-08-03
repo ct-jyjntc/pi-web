@@ -3697,3 +3697,25 @@ textarea.input-base:focus-visible {
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
 }
+
+/* Monaco file editor: git change-line gutters (FileEditor.tsx) */
+.file-editor-gutter-added {
+  background: var(--success);
+  width: 3px !important;
+  margin-left: 3px;
+  border-radius: 2px;
+  opacity: 0.9;
+}
+.file-editor-gutter-modified {
+  background: var(--text-muted);
+  width: 3px !important;
+  margin-left: 3px;
+  border-radius: 2px;
+  opacity: 0.6;
+}
+.file-editor-line-added {
+  background: color-mix(in oklab, var(--success) 7%, transparent);
+}
+.file-editor-line-modified {
+  background: color-mix(in oklab, var(--text) 5%, transparent);
+}

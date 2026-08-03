@@ -26,7 +26,8 @@ import { resolveLocalFileHref } from "@/lib/file-links";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins } from "@/lib/markdown";
 import { DiffView, FILE_CODE_STYLE, FILE_LINE_NUMBER_STYLE } from "./DiffView";
 import { Icon } from "./Icon";
-import { AtSign, Download, WrapText } from "lucide-react";
+import { FileEditor } from "./FileEditor";
+import { AtSign, Download, Pencil, WrapText, X } from "lucide-react";
 import type { CodeThemeId } from "@/lib/web-settings";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 
@@ -624,13 +625,13 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   const [diagList, setDiagList] = useState<Array<LineDiagnostic & { line: number; column?: number }>>([]);
   const [diagPanelOpen, setDiagPanelOpen] = useState(false);
   const [diagSummary, setDiagSummary] = useState<{ errors: number; warnings: number } | null>(null);
+  const [editMode, setEditMode] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const gitDiffRequestRef = useRef(0);
   const contentRequestRef = useRef(0);
   const contentPathRef = useRef(filePath);
   contentPathRef.current = filePath;
   const contentRef = useRef<HTMLDivElement | null>(null);
-
   const fetchContent = useCallback((targetPath: string) => {
     const requestId = ++contentRequestRef.current;
     return fetch(getFileApiUrl(targetPath, "read", sourceSessionId))
@@ -741,7 +742,8 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
     setDiagList([]);
     setDiagSummary(null);
     setDiagPanelOpen(false);
-
+    setEditMode(false);
+    setEditMode(false);
     if (esRef.current) {
       esRef.current.close();
       esRef.current = null;
@@ -971,11 +973,32 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
               })}
             </div>
           )}
-
           <div className="file-viewer-actions">
             {displayMode === "source" && (
               <>
-                {onMentionLines && (
+                {!editMode && (
+                  <button
+                    type="button"
+                    onClick={() => setEditMode(true)}
+                    title={t("viewer.edit")}
+                    aria-label={t("viewer.edit")}
+                    className="file-viewer-icon-button"
+                  >
+                    <Icon icon={Pencil} size={14} strokeWidth={2} />
+                  </button>
+                )}
+                {editMode && (
+                  <button
+                    type="button"
+                    onClick={() => setEditMode(false)}
+                    title={t("viewer.exitEdit")}
+                    aria-label={t("viewer.exitEdit")}
+                    className="file-viewer-icon-button"
+                  >
+                    <Icon icon={X} size={14} strokeWidth={2} />
+                  </button>
+                )}
+                {onMentionLines && !editMode && (
                   <button
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
@@ -1013,7 +1036,21 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
       {/* Content area + diagnostics panel */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       <div ref={contentRef} className="file-viewer-content" style={{ flex: 1, overflow: "auto", background: "var(--bg)", minHeight: 0 }}>
-        {displayMode === "diff" && hasGitDiff ? (
+        {editMode ? (
+          <FileEditor
+            filePath={filePath}
+            cwd={cwd}
+            initialContent={data.content}
+            language={data.language}
+            isDark={isDark}
+            codeFontSize={appearance.codeFontSize}
+            wrapLines={wrapLines || appearance.wrapCodeLines}
+            onSaved={() => {
+              void fetchContent(filePath);
+              void fetchGitDiff(filePath);
+            }}
+          />
+        ) : displayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && displayMode === "preview" ? (
           <iframe

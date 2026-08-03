@@ -20,6 +20,7 @@ import { Type } from "typebox";
 import { isAbsolute, resolve } from "path";
 import { createEditToolDefinition } from "@earendil-works/pi-coding-agent";
 import { classifyEditFailure, formatEditFailureMessage } from "./edit-failure";
+import { formatFileOnDisk } from "./format-file";
 import {
   applyHashlineEdits,
   applyHashlinePatch,
@@ -29,7 +30,6 @@ import {
   isHashlineInputArgs,
   type HashlineHunk,
 } from "./hashline-edit";
-
 type EditToolDefinitionLike = {
   name: string;
   label?: string;
@@ -209,6 +209,16 @@ export function createPiWebEditToolDefinition(
     },
     execute: async (toolCallId, args, signal, onUpdate, ctx) => {
       try {
+        // Best-effort post-edit formatting (opencode parity): agent edits land
+        // formatted. Fire-and-forget so a slow formatter never blocks the turn;
+        // the file watcher reflects the change in the UI.
+        const formatEditedFiles = (paths: Array<string | undefined>) => {
+          for (const p of paths) {
+            if (!p) continue;
+            const abs = isAbsolute(p) ? p : resolve(cwd, p);
+            void formatFileOnDisk(cwd, abs).catch(() => {});
+          }
+        };
         // 1) Preferred: hashline patch language
         if (isHashlineInputArgs(args)) {
           const input = String(args.input);
@@ -217,6 +227,7 @@ export function createPiWebEditToolDefinition(
           // Prefer first file's patch for the chat SplitPatchView; multi-file still in results.
           const patch = results.map((r) => r.patch).filter(Boolean).join("\n") || undefined;
           const tag = results.map((r) => r.tag).filter(Boolean).join(",");
+          formatEditedFiles(results.map((r) => r.path));
           return {
             content: [{ type: "text", text }],
             details: {
@@ -236,6 +247,7 @@ export function createPiWebEditToolDefinition(
             hash: h.hash || hashBlock(h.oldText),
           }));
           const result = applyHashlineEdits(cwd, String(args.path), hunks);
+          formatEditedFiles([result.path]);
           return {
             content: [{
               type: "text",
@@ -262,6 +274,7 @@ export function createPiWebEditToolDefinition(
               newText: e.newText,
             }));
             const result = applyHashlineEdits(cwd, path, hunks);
+            formatEditedFiles([result.path]);
             return {
               content: [{
                 type: "text",
@@ -286,6 +299,7 @@ export function createPiWebEditToolDefinition(
                 ctx,
               ) as { content?: unknown; details?: Record<string, unknown> };
               if (classicResult && typeof classicResult === "object") {
+                formatEditedFiles([resolveEditPath(cwd, path)]);
                 return {
                   ...classicResult,
                   details: {
@@ -294,6 +308,7 @@ export function createPiWebEditToolDefinition(
                   },
                 };
               }
+              formatEditedFiles([resolveEditPath(cwd, path)]);
               return classicResult;
             } catch (classicError) {
               const strictNote = strictError instanceof Error

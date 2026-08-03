@@ -70,10 +70,11 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
   { name: "copy", description: "chat.cmdCopy", source: "builtin" },
 ];
 
-export const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
+export const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "custom", "extension", "prompt", "skill"];
 
 export const SLASH_SOURCE_GROUP_KEYS: Record<SlashCommandSource, MessageKey> = {
   builtin: "chat.slashBuiltin",
+  custom: "chat.slashCustom",
   extension: "chat.slashExtensions",
   prompt: "chat.slashPrompts",
   skill: "chat.slashSkills",
@@ -81,9 +82,10 @@ export const SLASH_SOURCE_GROUP_KEYS: Record<SlashCommandSource, MessageKey> = {
 
 export const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
   builtin: 0,
-  extension: 1,
-  prompt: 2,
-  skill: 3,
+  custom: 1,
+  extension: 2,
+  prompt: 3,
+  skill: 4,
 };
 
 export function slashMatchRank(command: SlashCommandPaletteItem, query: string): number {
@@ -120,5 +122,4 @@ export function revokeImagePreview(image: AttachedImage): void {
     URL.revokeObjectURL(image.previewUrl);
   }
 }
-
 

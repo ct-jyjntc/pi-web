@@ -14,6 +14,7 @@ import { invalidateModelsCache } from "./models-cache";
 import { invalidateUtilityModelRuntimes } from "./utility-model";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus } from "./project-trust";
+import { getPermissionMode, setPermissionMode } from "./permission-mode";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike } from "./pi-types";
 import { MEMORY_CONTEXT_CUSTOM_TYPE, type ExtensionUiRequest, type ExtensionUiResponse, type ExtensionWidgetItem } from "./types";
@@ -66,10 +67,12 @@ type ExtensionCommandContextActionsLike = {
   switchSession: () => Promise<{ cancelled: boolean }>;
   reload: () => Promise<void>;
 };
-
 type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
+
+import { agentModeStripsWriteTools, agentModeWantsFullPermission, parseAgentMode, type AgentMode } from "./agent-mode";
+export type { AgentMode } from "./agent-mode";
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
@@ -144,6 +147,14 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
+  /** Full tool allow-list as last set via set_tools (incl. extension tools). */
+  private baseToolNames: string[] | null = null;
+  /**
+   * Unified agent mode: ask (confirm before changes) / auto (auto-edit) /
+   * plan (read-only, plan first) / yolo (full access). Combines tool set
+   * (plan strips edit/write) with the global ask/full permission setting.
+   */
+  private mode: AgentMode = "ask";
 
   constructor(
     public readonly inner: AgentSessionLike,
@@ -480,8 +491,8 @@ export class AgentSessionWrapper {
             followUp: [...this.inner.getFollowUpMessages()],
           },
           contextUsage,
-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
+          mode: this.mode,
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
         };
@@ -653,10 +664,30 @@ export class AgentSessionWrapper {
 
       case "set_tools": {
         const toolNames = command.toolNames as string[];
+        this.baseToolNames = withExtensionTools(this.inner, toolNames);
         this.setForceEmptySystemPrompt(toolNames.length === 0);
-        this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
+        this.inner.setActiveToolsByName(this.applyModeToTools(this.baseToolNames));
         this.applyForcedEmptySystemPrompt();
         return null;
+      }
+
+      case "set_mode": {
+        const next = parseAgentMode(command.mode);
+        this.mode = next;
+        if (this.baseToolNames) {
+          this.inner.setActiveToolsByName(this.applyModeToTools(this.baseToolNames));
+        }
+        // Sync the global ask/full permission to match the mode. Best-effort:
+        // tool-level mode still applies if the permission write fails.
+        try {
+          const current = getPermissionMode();
+          const wantsFull = agentModeWantsFullPermission(next);
+          if (wantsFull && !current.yoloMode) setPermissionMode("full");
+          if (!wantsFull && current.yoloMode) setPermissionMode("ask");
+        } catch {
+          // ignore — permission write must never fail set_mode
+        }
+        return { mode: this.mode };
       }
 
       case "reload": {
@@ -721,6 +752,18 @@ export class AgentSessionWrapper {
       default:
         throw new Error(`Unsupported command: ${type}`);
     }
+  }
+
+  /** Plan strips write tools; ask/auto/yolo keep the full allow-list. */
+  private applyModeToTools(names: string[]): string[] {
+    if (agentModeStripsWriteTools(this.mode)) {
+      return names.filter((name) => name !== "edit" && name !== "write");
+    }
+    return names;
+  }
+
+  get currentMode(): AgentMode {
+    return this.mode;
   }
 
   destroy(): void {

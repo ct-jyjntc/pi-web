@@ -11,6 +11,7 @@ import type {
   SessionInfo,
   SessionTreeNode,
 } from "@/lib/types";
+import { parseAgentMode, type AgentMode } from "@/lib/agent-mode";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useLocale } from "@/hooks/useLocale";
 import { getFullToolNames } from "@/lib/tool-presets";
@@ -94,7 +95,7 @@ type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }
 export interface SlashCommandInfo {
   name: string;
   description?: string;
-  source: "extension" | "prompt" | "skill";
+  source: "extension" | "prompt" | "skill" | "custom";
   sourceInfo?: {
     path: string;
     source: string;
@@ -174,6 +175,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
+  /** opencode-style Plan/Build mode for the active session. */
+  /** Unified agent mode: ask / auto / plan / yolo for the active session. */
+  const [sessionMode, setSessionMode] = useState<AgentMode>("ask");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
@@ -448,8 +452,33 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
       const commands = data?.commands ?? [];
-      setSlashCommands(commands);
-      return commands;
+      // User/project custom commands (markdown files with $NAME placeholders).
+      let custom: SlashCommandInfo[] = [];
+      const cwdValue = session?.cwd ?? newSessionCwd;
+      if (cwdValue) {
+        try {
+          const res = await fetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
+          if (res.ok) {
+            const body = await res.json() as { commands?: Array<{ name: string; description?: string; args: string[]; source: "user" | "project" }> };
+            custom = (body.commands ?? []).map((c) => ({
+              name: c.name,
+              description: c.description || (c.args.length > 0 ? `args: ${c.args.join(", ")}` : "Custom command"),
+              source: "custom" as const,
+              sourceInfo: {
+                path: cwdValue,
+                source: c.source,
+                scope: "project" as const,
+                origin: "top-level" as const,
+              },
+            }));
+          }
+        } catch {
+          // Custom commands are best-effort.
+        }
+      }
+      const merged = [...custom, ...commands];
+      setSlashCommands(merged);
+      return merged;
     } catch (e) {
       console.error("Failed to load slash commands:", e);
       setSlashCommands([]);
@@ -457,7 +486,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       setSlashCommandsLoading(false);
     }
-  }, [ensureNewSession]);
+  }, [ensureNewSession, newSessionCwd, session?.cwd]);
 
   const getEventSourceCtx = useCallback((): AgentEventSourceContext => ({
     eventSourceRef,
@@ -686,13 +715,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setQueuedMessages((prev) => queuedMessagesEqual(prev, nextQueued) ? prev : nextQueued);
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
-      if (busy || !agentRunningRef.current) return;
       applyLiveAgentStateFields(state, {
         setContextUsage,
         setSystemPrompt,
+        setSessionMode,
         setExtensionStatuses,
         setExtensionWidgets,
       });
+      if (busy || !agentRunningRef.current) return;
       await finishPromptWithoutStream(sid, runId);
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
@@ -1087,6 +1117,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, session?.cwd, thinkingLevel]);
 
+  /** Silent reload: re-reads session + tools + slash commands + models without
+   *  popping the "reloaded" notice. Used after mode/permission switches where
+   *  the button state itself is the feedback. */
+  const reloadSession = useCallback(async () => {
+    const sid = sessionIdRef.current ?? await ensureNewSession();
+    if (!sid) return;
+    try {
+      await sendAgentCommand(sid, { type: "reload" });
+      await Promise.all([
+        loadSession(sid, false, true),
+        loadTools(sid),
+        loadSlashCommands(),
+        loadModels(),
+      ]);
+    } catch (e) {
+      console.error("Silent session reload failed:", e);
+    }
+  }, [ensureNewSession, loadSession, loadTools, loadSlashCommands, loadModels]);
+
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     const parsed = parseSlashCommandLine(text);
     if (!parsed) return { handled: false };
@@ -1122,16 +1171,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         case "reload": {
           if (!sid) return complete({ handled: true, error: t("agent.noSessionReload") });
-          await sendAgentCommand(sid, { type: "reload" });
-          await Promise.all([
-            loadSession(sid, false, true),
-            loadTools(sid),
-            loadSlashCommands(),
-            loadModels(),
-          ]);
+          await reloadSession();
           return complete({ handled: true, message: t("agent.reloaded") });
         }
-
         case "name": {
           if (!sid) return complete({ handled: true, error: t("agent.noSessionName") });
           if (!args) return complete({ handled: true, error: t("agent.nameUsage") });
@@ -1159,15 +1201,48 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return complete({ handled: true, message: t("agent.copiedAssistant") });
         }
 
-        default:
+        default: {
+          // User/project custom command: /name key=value → render markdown body
+          // ($NAME placeholders) and send it as a regular message.
+          const cwdValue = session?.cwd ?? newSessionCwd;
+          if (cwdValue) {
+            try {
+              const res = await fetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
+              if (res.ok) {
+                const body = await res.json() as { commands?: Array<{ name: string; args: string[] }> };
+                const command = (body.commands ?? []).find((c) => c.name === commandName);
+                if (command) {
+                  const values: Record<string, string> = {};
+                  for (const pair of args.split(/\s+/)) {
+                    const eq = pair.indexOf("=");
+                    if (eq > 0) values[pair.slice(0, eq)] = pair.slice(eq + 1);
+                  }
+                  const renderRes = await fetch("/api/commands", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ cwd: cwdValue, name: commandName, args: values }),
+                  });
+                  const rendered = await renderRes.json().catch(() => null) as { body?: string; error?: string } | null;
+                  if (!renderRes.ok || !rendered?.body) {
+                    return complete({ handled: true, error: rendered?.error ?? "Failed to render command" });
+                  }
+                  await handleSend(rendered.body);
+                  return complete({ handled: true, message: t("agent.commandCompleted") });
+                }
+              }
+            } catch {
+              return complete({ handled: true, error: "Failed to run custom command" });
+            }
+          }
           return { handled: false };
+        }
       }
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen, t]);
+  }, [addNotice, ensureNewSession, isCompacting, loadSession, promoteNewSession, onSessionStatsPanelOpen, t, session?.cwd, newSessionCwd, handleSend, reloadSession]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -1306,6 +1381,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setContextUsage,
             setSystemPrompt,
             setThinkingLevel,
+            setSessionMode,
             setExtensionStatuses,
             setExtensionWidgets,
             setQueuedMessages,
@@ -1315,10 +1391,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
-      bashRecoveryIdRef.current += 1;
-      promptSettleIdRef.current += 1;
-      promptSettleRunIdRef.current = null;
       eventStreamGraceGenerationRef.current += 1;
       eventStreamGraceActiveRef.current = false;
       if (eventStreamGraceTimerRef.current) {
@@ -1382,6 +1454,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setSessionStatsOverride(null);
   }, [messages.length, contextUsage?.tokens, contextUsage?.percent, contextUsage?.contextWindow]);
 
+  const setAgentMode = useCallback(async (mode: AgentMode) => {
+    const sid = sessionIdRef.current ?? await ensureNewSession();
+    if (!sid) return { ok: false as const, error: t("agent.noSession") };
+    try {
+      const result = await sendAgentCommand<{ mode?: string }>(sid, { type: "set_mode", mode });
+      setSessionMode(parseAgentMode(result?.mode));
+      return { ok: true as const, mode: parseAgentMode(result?.mode) };
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+    }
+  }, [ensureNewSession, t]);
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
@@ -1402,9 +1485,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
+    reloadSession,
     handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId, addNotice,
     bashRunning, pendingBash,
+    sessionMode, setAgentMode,
     // Subscriptions
     handleAgentEventRef,
   };

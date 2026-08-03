@@ -35,8 +35,7 @@ import {
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { isIgnoredDirentName } from "@/lib/file-ignore";
-
-/** Reused across watch events — a new TextEncoder per SSE frame is pure garbage. */
+import { formatFileWithProjectFormatter } from "@/lib/format-file";
 const textEncoder = new TextEncoder();
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
@@ -121,10 +120,125 @@ export async function POST(
 ) {
   try {
     const { path: segments } = await params;
+    const filePath = filePathFromSegments(segments);
+    const type = request.nextUrl.searchParams.get("type") ?? "upload";
+
+    // Save a text file (Monaco editor). Shares the GET allow-list so only
+    // browsable project files can be written, with a realpath check so a
+    // symlink inside an allowed root cannot redirect the write outside it.
+    // Format a text buffer without writing (editor "Format" command).
+    if (type === "format") {
+      const body = await request.json().catch(() => null) as { content?: unknown } | null;
+      if (typeof body?.content !== "string") {
+        return NextResponse.json({ error: "content must be a string" }, { status: 400 });
+      }
+      const allowedRoots = await getAllowedFileRoots();
+      if (!isFilePathAllowed(filePath, allowedRoots) || !isExistingFilePathAllowed(filePath, allowedRoots)) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
+      let stat: fs.Stats;
+      try {
+        stat = await fsp.stat(filePath);
+      } catch {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      if (!stat.isFile()) {
+        return NextResponse.json({ error: "Not a file" }, { status: 400 });
+      }
+      let realPath: string;
+      try {
+        realPath = await fsp.realpath(filePath);
+      } catch {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      if (!isFilePathAllowed(realPath, resolveRealRoots(allowedRoots))) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
+      try {
+        const formattedText = await formatFileWithProjectFormatter(
+          path.dirname(realPath),
+          realPath,
+          body.content,
+        );
+        if (formattedText == null) {
+          return NextResponse.json({ ok: true, content: body.content, changed: false, formatter: false });
+        }
+        return NextResponse.json({
+          ok: true,
+          content: formattedText,
+          changed: formattedText !== body.content,
+          formatter: true,
+        });
+      } catch (error) {
+        return NextResponse.json(
+          { ok: false, error: error instanceof Error ? error.message : String(error) },
+          { status: 500 },
+        );
+      }
+    }
+
+    if (type === "save") {
+      const body = await request.json().catch(() => null) as { content?: unknown; format?: unknown } | null;
+      if (typeof body?.content !== "string") {
+        return NextResponse.json({ error: "content must be a string" }, { status: 400 });
+      }
+      const allowedRoots = await getAllowedFileRoots();
+      if (!isFilePathAllowed(filePath, allowedRoots)) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
+      let stat: fs.Stats;
+      try {
+        stat = await fsp.stat(filePath);
+      } catch {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      if (!stat.isFile()) {
+        return NextResponse.json({ error: "Not a file" }, { status: 400 });
+      }
+      if (stat.size > TEXT_PREVIEW_MAX_BYTES) {
+        return NextResponse.json({ error: "File too large to save via editor (>256KB)" }, { status: 413 });
+      }
+      let realPath: string;
+      try {
+        realPath = await fsp.realpath(filePath);
+      } catch {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      if (!isFilePathAllowed(realPath, resolveRealRoots(allowedRoots))) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
+
+      let content = body.content;
+      let formatted = false;
+      if (body.format !== false) {
+        try {
+          const formattedText = await formatFileWithProjectFormatter(
+            path.dirname(realPath),
+            realPath,
+            content,
+          );
+          if (formattedText != null && formattedText !== content) {
+            content = formattedText;
+            formatted = true;
+          }
+        } catch {
+          // Formatting must never block a save.
+        }
+      }
+      try {
+        await fsp.writeFile(realPath, content, "utf8");
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : String(error) },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({ ok: true, size: Buffer.byteLength(content, "utf8"), formatted });
+    }
+
     const uploadDirectory = await getUploadDirectory(segments);
     if ("response" in uploadDirectory) return uploadDirectory.response;
     const { directory } = uploadDirectory;
-    const type = request.nextUrl.searchParams.get("type") ?? "upload";
 
     if (type === "upload-check") {
       const body = await request.json().catch(() => null) as { fileNames?: unknown } | null;

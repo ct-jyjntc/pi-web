@@ -6,6 +6,7 @@
 
 import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
 import type { ContextUsage } from "@/lib/pi-types";
+import { parseAgentMode, type AgentMode } from "@/lib/agent-mode";
 
 export type ThinkingLevelOption =
   | "auto"
@@ -25,6 +26,8 @@ export type AgentStateResponse = {
   isPromptRunning?: boolean;
   isBashRunning?: boolean;
   isCompacting?: boolean;
+  /** Unified agent mode (ask/auto/plan/yolo) from the RPC wrapper. */
+  mode?: AgentMode;
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
@@ -62,6 +65,7 @@ export function applyLiveAgentStateFields(
     setContextUsage: (v: LiveContextUsage) => void;
     setSystemPrompt: (v: string | null) => void;
     setThinkingLevel?: (v: ThinkingLevelOption) => void;
+    setSessionMode?: (v: AgentMode) => void;
     setExtensionStatuses: (v: ExtensionStatusItem[]) => void;
     setExtensionWidgets: (v: ExtensionWidgetItem[]) => void;
     setQueuedMessages?: (v: QueuedMessages) => void;
@@ -72,6 +76,9 @@ export function applyLiveAgentStateFields(
   if (liveState.systemPrompt !== undefined) setters.setSystemPrompt(liveState.systemPrompt ?? null);
   if (liveState.thinkingLevel !== undefined && setters.setThinkingLevel) {
     setters.setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");
+  }
+  if (liveState.mode !== undefined && setters.setSessionMode) {
+    setters.setSessionMode(parseAgentMode(liveState.mode));
   }
   if (liveState.extensionStatuses !== undefined) {
     setters.setExtensionStatuses(liveState.extensionStatuses ?? []);

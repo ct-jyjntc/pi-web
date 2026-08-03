@@ -17,8 +17,6 @@ import {
   Cpu,
   Image,
   Lightbulb,
-  Lock,
-  LockOpen,
   RefreshCw,
   Square,
   Undo2,
@@ -41,10 +39,7 @@ import {
 import { ChatInputModelMenu } from "./chat-input/ChatInputModelMenu";
 import { ComposerAutocompleteMenus } from "./chat-input/ComposerAutocompleteMenus";
 import { ChatInputThinkingMenu } from "./chat-input/ChatInputThinkingMenu";
-import {
-  ChatInputPermissionMenu,
-  PermissionErrorToast,
-} from "./chat-input/ChatInputPermissionMenu";
+import { ChatInputModeMenu, agentModeIcon, AGENT_MODE_KEYS } from "./chat-input/ChatInputModeMenu";
 import {
   BUILTIN_SLASH_COMMANDS,
   COMPOSITION_END_ENTER_GRACE_MS,
@@ -62,10 +57,10 @@ import {
   revokeImagePreview,
   slashMatchRank,
   type ModelOption,
-  type PermissionMode,
   type SlashCommandPaletteItem,
   type SlashCommandSource,
 } from "./chat-input/chat-input-shared";
+import { parseAgentMode, type AgentMode } from "@/lib/agent-mode";
 
 // Re-export for any external test/import of the pure filter helper.
 export { filterModelOptions } from "./chat-input/chat-input-shared";
@@ -88,7 +83,6 @@ interface Props {
   /** Open right-panel Context workspace (context ring next to send). */
   onOpenContext?: () => void;
   /** Called after permission mode is persisted so the host can /reload. */
-  onPermissionModeApplied?: () => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   availableThinkingLevels?: string[] | null;
@@ -108,6 +102,9 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  /** Unified agent mode (ask/auto/plan/yolo). */
+  mode?: AgentMode;
+  onModeChange?: (mode: AgentMode) => Promise<{ ok: boolean; error?: string } | void> | void;
   /** Host measures the toolbar strip for the composer underlay — handed over by
    *  ref so the host's ResizeObserver never has to querySelector on each tick. */
   toolbarRef?: React.RefObject<HTMLDivElement | null>;
@@ -119,7 +116,6 @@ interface Props {
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
   onOpenContext,
-  onPermissionModeApplied,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   supportsImageInput = false,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -129,6 +125,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  mode,
+  onModeChange,
   toolbarRef,
 
 }: Props, ref) {
@@ -142,13 +140,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [modelFilter, setModelFilter] = useState("");
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
-  const [permissionDropdownOpen, setPermissionDropdownOpen] = useState(false);
-  // Fixed-position anchors (same pattern as model picker) so menus escape overflow clipping
   const [thinkingMenuRect, setThinkingMenuRect] = useState<{ top: number; right: number } | null>(null);
-  const [permissionMenuRect, setPermissionMenuRect] = useState<{ top: number; right: number } | null>(null);
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
-  const [permissionBusy, setPermissionBusy] = useState(false);
-  const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
+  const [modeMenuRect, setModeMenuRect] = useState<{ top: number; right: number } | null>(null);
+  const [modeBusy, setModeBusy] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
 
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
@@ -173,9 +168,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
-  const permissionDropdownRef = useRef<HTMLDivElement>(null);
-  const controlsMenuRef = useRef<HTMLDivElement>(null);
+  const modeDropdownRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
+  const controlsMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
@@ -917,53 +912,24 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const currentName = displayModelName;
 
   const thinkingDisplayLabel = t(THINKING_LEVEL_KEYS[thinkingLevel ?? "auto"]);
-  const permissionLabel = permissionMode === "full" ? t("chat.permissionFull") : t("chat.permissionAsk");
+  const activeMode: AgentMode = parseAgentMode(mode ?? (onModeChange ? "ask" : undefined));
+  const modeLabel = t(AGENT_MODE_KEYS[activeMode].label);
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/permissions")
-      .then(async (res) => {
-        const data = (await res.json()) as { mode?: string };
-        if (!cancelled && (data.mode === "ask" || data.mode === "full")) {
-          setPermissionMode(data.mode);
-        }
-      })
-      .catch(() => { /* ignore */ });
-    return () => { cancelled = true; };
-  }, []);
-
-  const applyPermissionMode = useCallback(async (mode: PermissionMode) => {
-    if (permissionBusy || mode === permissionMode) {
-      setPermissionDropdownOpen(false);
+  const applyMode = useCallback(async (next: AgentMode) => {
+    if (modeBusy || !onModeChange) {
+      setModeDropdownOpen(false);
       return;
     }
-    setPermissionBusy(true);
-    setPermissionError(null);
-    setPermissionDropdownOpen(false);
+    setModeBusy(true);
+    setModeDropdownOpen(false);
     try {
-      const res = await fetch("/api/permissions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
-      });
-      const data = (await res.json()) as { mode?: string; error?: string };
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-      if (data.mode === "ask" || data.mode === "full") setPermissionMode(data.mode);
-      onPermissionModeApplied?.();
-    } catch (e) {
-      console.error("Failed to set permission mode:", e);
-      setPermissionError(e instanceof Error ? e.message : String(e));
+      await onModeChange(next);
     } finally {
-      setPermissionBusy(false);
+      setModeBusy(false);
     }
-  }, [onPermissionModeApplied, permissionBusy, permissionMode]);
+  }, [modeBusy, onModeChange]);
 
-  useEffect(() => {
-    if (!permissionError) return;
-    const timer = window.setTimeout(() => setPermissionError(null), 6000);
-    return () => window.clearTimeout(timer);
-  }, [permissionError]);
-
+  // Close dropdowns on outside click
   // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -977,8 +943,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
       }
-      if (permissionDropdownRef.current && !permissionDropdownRef.current.contains(e.target as Node)) {
-        setPermissionDropdownOpen(false);
+      if (modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
+        setModeDropdownOpen(false);
       }
       if (controlsMenuRef.current && !controlsMenuRef.current.contains(e.target as Node)) {
         setControlsMenuOpen(false);
@@ -1481,50 +1447,36 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 )}
               </div>
             )}
-            <div ref={permissionDropdownRef} style={{ position: "relative" }}>
-              <button
-                type="button"
-                className={`chrome-btn${permissionDropdownOpen ? " is-active" : ""}${permissionMode === "full" ? " is-danger" : ""}`}
-                onClick={(e) => {
-                  if (permissionBusy) return;
-                  openFixedMenu(e, permissionDropdownOpen, setPermissionDropdownOpen, setPermissionMenuRect);
-                }}
-                disabled={permissionBusy}
-                title={t("chat.changePermission", { mode: permissionLabel })}
-                aria-label={t("chat.changePermission", { mode: permissionLabel })}
-                style={{
-                  ...(isMobile ? { padding: "0 6px" } : null),
-                  cursor: permissionBusy ? "wait" : undefined,
-                  opacity: permissionBusy ? 0.6 : undefined,
-                }}
-              >
-                <Icon icon={permissionMode === "full" ? LockOpen : Lock} size={12} strokeWidth={2} />
-                {(!isMobile || controlsMenuOpen) && <span>{permissionLabel}</span>}
-              </button>
-              {permissionError && (() => {
-                const btn = permissionDropdownRef.current?.querySelector("button");
-                const r = btn?.getBoundingClientRect();
-                const anchor = r
-                  ? { top: r.top, right: r.right }
-                  : permissionMenuRect;
-                if (!anchor) return null;
-                const pos = fixedMenuStyle(anchor, 220);
-                return (
-                  <PermissionErrorToast
-                    bottom={pos.bottom}
-                    right={pos.right}
-                    permissionError={permissionError}
+            {onModeChange !== undefined && (
+              <div ref={modeDropdownRef} style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className={`chrome-btn${modeDropdownOpen ? " is-active" : ""}${activeMode === "yolo" ? " is-danger" : ""}${activeMode === "plan" ? " is-plan" : ""}`}
+                  onClick={(e) => {
+                    if (modeBusy || isStreaming) return;
+                    openFixedMenu(e, modeDropdownOpen, setModeDropdownOpen, setModeMenuRect);
+                  }}
+                  disabled={modeBusy || isStreaming}
+                  title={t("chat.changeMode")}
+                  aria-label={t("chat.changeMode")}
+                  style={{
+                    ...(isMobile ? { padding: "0 6px" } : null),
+                    cursor: modeBusy ? "wait" : undefined,
+                    opacity: modeBusy ? 0.6 : undefined,
+                  }}
+                >
+                  <Icon icon={agentModeIcon(activeMode)} size={12} strokeWidth={2} />
+                  {(!isMobile || controlsMenuOpen) && <span>{modeLabel}</span>}
+                </button>
+                {modeDropdownOpen && modeMenuRect && (
+                  <ChatInputModeMenu
+                    style={fixedMenuStyle(modeMenuRect, 240)}
+                    mode={activeMode}
+                    onModeChange={(next) => void applyMode(next)}
                   />
-                );
-              })()}
-              {permissionDropdownOpen && permissionMenuRect && (
-                <ChatInputPermissionMenu
-                  style={fixedMenuStyle(permissionMenuRect, 220)}
-                  permissionMode={permissionMode}
-                  applyPermissionMode={applyPermissionMode}
-                />
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {isStreaming && (
               <button

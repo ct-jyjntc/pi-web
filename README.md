@@ -60,6 +60,8 @@ Open a project, chat with the agent, review Git changes, browse files, and open 
 - **Models & auth** — providers, OAuth / API keys, `models.json` editor, model smoke tests
 - **Skills** — list, search, install, update, enable / disable
 - **Permissions** — ask / full mode from the input bar
+- **Agent modes** — one unified mode selector: **Ask** (confirm file changes), **Auto** (auto-edit), **Plan** (read-only, plan first), **Full access** (minimize confirmations); Plan strips edit/write tools, Ask/Plan run with confirmations, Auto/Full auto-approve
+- **Custom commands** — `/name` slash commands from `~/.pi/agent/commands/*.md` and `<cwd>/.pi/commands/*.md` with `$NAME` placeholders (`/review FOCUS=auth`)
 - **Settings** — theme, language, utility models (session title + commit message), update check
 - **i18n & polish** — English / 中文, light / dark, chat minimap, shortcuts, completion sound
 - **Desktop** — Electron shell with native window controls; macOS DMG & Windows NSIS builds
