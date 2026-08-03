@@ -79,7 +79,8 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   }
 
   // Prefer Pi Web role default for new sessions; fall back to settings.json default.
-  const roleDefault = readWebSettings().modelRoles.default;
+  const webSettings = readWebSettings();
+  const roleDefault = webSettings.modelRoles.default;
   const settingsDefault = (() => {
     const provider = settings.getDefaultProvider();
     const modelId = settings.getDefaultModel();
@@ -110,12 +111,19 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   ) {
     defaultModel = settingsDefault;
   }
+  const defaultThinkingLevel = roleDefault
+    && defaultModel
+    && defaultModel.provider === roleDefault.provider
+    && defaultModel.modelId === roleDefault.modelId
+    ? roleDefault.thinkingLevel ?? webSettings.defaultThinkingLevel
+    : webSettings.defaultThinkingLevel;
 
   return withModelRuntimeError(
     {
       models: Object.fromEntries(nameMap),
       modelList,
       defaultModel,
+      defaultThinkingLevel,
       thinkingLevels,
       thinkingLevelMaps: resolvedMaps,
       thinkingLevelPins,

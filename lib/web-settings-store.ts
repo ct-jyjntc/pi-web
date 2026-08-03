@@ -50,8 +50,12 @@ export type WebSettingsData =
   Record<string, unknown>
   & Partial<Pick<WebSettings, ScalarSettingKey>>
   & {
+    titleModel?: WebSettings["titleModel"];
+    commitModel?: WebSettings["commitModel"];
     titleModelRef?: string;
+    advisorModel?: WebSettings["advisorModel"];
     commitModelRef?: string;
+    modelRoles?: WebSettings["modelRoles"];
     modelRolesRefs?: { default?: string; smol?: string; plan?: string };
   };
 
@@ -60,6 +64,8 @@ export type WebSettingsModelOption = {
   provider: string;
   modelId: string;
   name: string;
+  supportsThinking: boolean;
+  thinkingLevels: string[];
 };
 
 export type WebSettingsWithModels = {

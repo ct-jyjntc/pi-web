@@ -83,9 +83,13 @@ export const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boo
   "grok":                   { Icon: GrokIcon,             hasColor: false },
 };
 
-/** Local monochrome brand marks (not lobehub). */
+/** Remote provider marks supplied by providers without a stable bundled icon. */
 export const PROVIDER_ICON_URLS: Record<string, string> = {
   [TOKENRHYTHM_PROVIDER_ID]: TOKENRHYTHM_ICON_URL,
+  qwen: "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+  "qwen-token-plan": "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+  "qwen-token-plan-cn": "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+  radius: "https://earendil.com/static/favicon/android-chrome-512x512.png",
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -155,5 +159,4 @@ export function ProviderIcon({ id, size, iconUrl }: { id: string; size: number; 
 }
 
 // ── Add provider picker ───────────────────────────────────────────────────────
-
 

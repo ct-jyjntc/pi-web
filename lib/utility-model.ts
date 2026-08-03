@@ -77,6 +77,8 @@ export type UtilityModelOption = {
   provider: string;
   modelId: string;
   name: string;
+  supportsThinking: boolean;
+  thinkingLevels: string[];
 };
 
 type ModelRuntimeLike = {
@@ -194,11 +196,16 @@ export async function listUtilityModels(cwd: string): Promise<UtilityModelOption
   const { modelRuntime, settings } = await loadModelRuntime(cwd);
   const visible = await applyModelVisibilityFilters(modelRuntime, settings.getEnabledModels());
   return visible
-    .map((m) => ({
-      provider: m.provider,
-      modelId: m.id,
-      name: m.name || m.id,
-    }))
+    .map((m) => {
+      const thinkingLevels = getSupportedThinkingLevels(m);
+      return {
+        provider: m.provider,
+        modelId: m.id,
+        name: m.name || m.id,
+        supportsThinking: m.reasoning === true && thinkingLevels.some((level) => level !== "off"),
+        thinkingLevels,
+      };
+    })
     .sort((a, b) => {
       const byName = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
       if (byName !== 0) return byName;
@@ -288,7 +295,16 @@ export async function completeWithUtilityModel(
 ): Promise<{ response: AssistantMessage; resolved: ResolvedUtilityModel }> {
   const resolved = await resolveUtilityModel(cwd, preferred);
   const completeSimple = bindUtilityComplete(resolved);
-  const reasoning = pickUtilityCompleteReasoning(resolved.model);
+  const supported = new Set(getSupportedThinkingLevels(resolved.model));
+  const configured = preferred?.thinkingLevel;
+  const explicit = configured && configured !== "auto" && configured !== "off"
+    ? configured as ThinkingLevel
+    : undefined;
+  const reasoning = explicit && supported.has(explicit)
+    ? explicit
+    : configured === "off"
+      ? undefined
+      : pickUtilityCompleteReasoning(resolved.model);
   const response = await completeSimple(resolved.model, context, {
     ...options,
     ...(reasoning ? { reasoning } : {}),

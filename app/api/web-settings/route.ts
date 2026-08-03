@@ -7,6 +7,7 @@ import {
   type CodeThemeId,
   type ThemeMode,
   type ThinkingLevelPref,
+  type ModelRef,
   type WebSettings,
 } from "@/lib/web-settings";
 import { formatModelRoles, parseModelRoles, type ModelRole } from "@/lib/model-roles";
@@ -48,6 +49,10 @@ function asOptionalString(value: unknown): string | undefined {
   if (value === null) return "";
   if (typeof value === "string") return value;
   return undefined;
+}
+function preserveThinkingPreference(next: ModelRef | null, current: ModelRef | null): ModelRef | null {
+  if (!next || next.thinkingLevel !== undefined || !current?.thinkingLevel) return next;
+  return { ...next, thinkingLevel: current.thinkingLevel };
 }
 
 function asOptionalBool(value: unknown): boolean | undefined {
@@ -107,17 +112,15 @@ export async function PUT(req: NextRequest) {
     const patch: Partial<WebSettings> = {};
 
     if ("titleModel" in body) {
-      patch.titleModel = body.titleModel === "" || body.titleModel == null
-        ? null
-        : parseModelRef(body.titleModel);
+      const parsed = body.titleModel === "" || body.titleModel == null ? null : parseModelRef(body.titleModel);
+      patch.titleModel = preserveThinkingPreference(parsed, readWebSettings().titleModel);
       if (body.titleModel && body.titleModel !== "" && !patch.titleModel) {
         return NextResponse.json({ error: "Invalid titleModel" }, { status: 400 });
       }
     }
     if ("commitModel" in body) {
-      patch.commitModel = body.commitModel === "" || body.commitModel == null
-        ? null
-        : parseModelRef(body.commitModel);
+      const parsed = body.commitModel === "" || body.commitModel == null ? null : parseModelRef(body.commitModel);
+      patch.commitModel = preserveThinkingPreference(parsed, readWebSettings().commitModel);
       if (body.commitModel && body.commitModel !== "" && !patch.commitModel) {
         return NextResponse.json({ error: "Invalid commitModel" }, { status: 400 });
       }
@@ -141,7 +144,7 @@ export async function PUT(req: NextRequest) {
           if (!parsed) {
             return NextResponse.json({ error: `Invalid modelRoles.${role}` }, { status: 400 });
           }
-          roles[role] = parsed;
+          roles[role] = preserveThinkingPreference(parsed, current[role]);
         }
         patch.modelRoles = roles;
       } else if (body.modelRoles == null) {
@@ -163,7 +166,38 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: `Invalid model for role ${role}` }, { status: 400 });
       }
       const current = readWebSettings().modelRoles;
-      patch.modelRoles = { ...current, [role]: parsed };
+      patch.modelRoles = { ...current, [role]: preserveThinkingPreference(parsed, current[role]) };
+    }
+    if ("modelRoleThinking" in body) {
+      const role = body.modelRole;
+      if (role !== "default" && role !== "smol" && role !== "plan") {
+        return NextResponse.json({ error: "Invalid modelRole" }, { status: 400 });
+      }
+      const value = body.modelRoleThinking;
+      if (typeof value !== "string" || !THINKING.includes(value as ThinkingLevelPref)) {
+        return NextResponse.json({ error: "Invalid modelRoleThinking" }, { status: 400 });
+      }
+      const current = readWebSettings().modelRoles;
+      const currentRole = current[role];
+      if (!currentRole) {
+        return NextResponse.json({ error: `No model configured for role ${role}` }, { status: 400 });
+      }
+      patch.modelRoles = { ...current, [role]: { ...currentRole, thinkingLevel: value as ThinkingLevelPref } };
+    }
+    if ("modelPrefThinking" in body) {
+      const key = body.modelPref;
+      if (key !== "titleModel" && key !== "commitModel" && key !== "advisorModel") {
+        return NextResponse.json({ error: "Invalid modelPref" }, { status: 400 });
+      }
+      const value = body.modelPrefThinking;
+      if (typeof value !== "string" || !THINKING.includes(value as ThinkingLevelPref)) {
+        return NextResponse.json({ error: "Invalid modelPrefThinking" }, { status: 400 });
+      }
+      const current = readWebSettings()[key];
+      if (!current) {
+        return NextResponse.json({ error: `No model configured for ${key}` }, { status: 400 });
+      }
+      patch[key] = { ...current, thinkingLevel: value as ThinkingLevelPref };
     }
 
     const strFields = [
@@ -250,9 +284,8 @@ export async function PUT(req: NextRequest) {
       patch.advisorEnabled = v;
     }
     if ("advisorModel" in body) {
-      patch.advisorModel = body.advisorModel === "" || body.advisorModel == null
-        ? null
-        : parseModelRef(body.advisorModel);
+      const parsed = body.advisorModel === "" || body.advisorModel == null ? null : parseModelRef(body.advisorModel);
+      patch.advisorModel = preserveThinkingPreference(parsed, readWebSettings().advisorModel);
       if (body.advisorModel && body.advisorModel !== "" && !patch.advisorModel) {
         return NextResponse.json({ error: "Invalid advisorModel" }, { status: 400 });
       }

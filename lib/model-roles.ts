@@ -51,5 +51,8 @@ export function formatRoleModelForAgent(role: ModelRole, settings: WebSettings):
   const ref = getRoleModelRef(role, settings);
   if (!ref) return null;
   const formatted = formatModelRef(ref);
-  return formatted || null;
+  if (!formatted) return null;
+  return ref.thinkingLevel && ref.thinkingLevel !== "auto" && ref.thinkingLevel !== "off"
+    ? `${formatted}:${ref.thinkingLevel}`
+    : formatted;
 }

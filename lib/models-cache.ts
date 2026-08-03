@@ -2,6 +2,8 @@ export interface ModelsData {
   models: Record<string, string>;
   modelList: { id: string; name: string; provider: string; supportsImage?: boolean }[];
   defaultModel: { provider: string; modelId: string } | null;
+  /** Explicit thinking level selected for the configured default role model. */
+  defaultThinkingLevel?: string;
   thinkingLevels: Record<string, string[]>;
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
   /** `provider/modelId` → thinking level pinned by enabledModels `:level` suffix. */

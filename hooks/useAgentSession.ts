@@ -14,7 +14,6 @@ import type {
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useLocale } from "@/hooks/useLocale";
 import { getFullToolNames } from "@/lib/tool-presets";
-import { ensureWebSettings } from "@/lib/web-settings-store";
 import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
 import type { AttachedImage, ChatInputHandle } from "@/lib/chat-input-types";
 import {
@@ -132,6 +131,7 @@ type ModelsResponse = {
   models: Record<string, string>;
   modelList?: ModelEntry[];
   defaultModel?: SelectedModel | null;
+  defaultThinkingLevel?: ThinkingLevelOption;
   thinkingLevels?: Record<string, string[]>;
   thinkingLevelMaps?: Record<string, Record<string, string | null>>;
   thinkingLevelPins?: Record<string, string>;
@@ -174,24 +174,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
-  // Apply default thinking level for brand-new sessions from web-settings.
-  useEffect(() => {
-    if (!isNew) return;
-    let cancelled = false;
-    void ensureWebSettings()
-      .then((settings) => {
-        const level = settings?.defaultThinkingLevel;
-        if (cancelled || !level) return;
-        const allowed: ThinkingLevelOption[] = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
-        if (allowed.includes(level as ThinkingLevelOption)) {
-          setThinkingLevel(level as ThinkingLevelOption);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [isNew]);
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
@@ -1092,6 +1074,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         : undefined;
       const displayModel = match ?? nextModelList[0];
       setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
+      if (d.defaultThinkingLevel && thinkingLevel === "auto") {
+        setThinkingLevel(d.defaultThinkingLevel);
+      }
       // Apply `:thinkingLevel` pin from enabledModels for the pre-selected model.
       if (displayModel && thinkingLevel === "auto") {
         const pin = thinkingLevelPinsRef.current[`${displayModel.provider}/${displayModel.id}`];

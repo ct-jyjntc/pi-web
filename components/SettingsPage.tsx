@@ -19,6 +19,7 @@ import {
   type WebSettingsModelOption,
 } from "@/lib/web-settings-store";
 import { defaultLeanModeSettings, type LeanModeSettings } from "@/lib/lean-mode-settings";
+import { useAgentModelThinkingSettings, type AgentModelSaveKey } from "@/hooks/use-agent-model-thinking-settings";
 import { Icon } from "./Icon";
 import { ChevronLeft } from "lucide-react";
 
@@ -44,6 +45,7 @@ import {
 import { ToolsSettingsPanel } from "./settings/ToolsSettingsPanel";
 import { NetworkSettingsPanel } from "./settings/NetworkSettingsPanel";
 import { AgentModelsSettingsPanel } from "./settings/AgentModelsSettingsPanel";
+import { ModelThinkingControl } from "./settings/ModelThinkingControl";
 import { MemorySettingsPanel } from "./settings/MemorySettingsPanel";
 import { AppearanceSettingsPanel } from "./settings/AppearanceSettingsPanel";
 
@@ -97,10 +99,19 @@ export function SettingsPage({
   const [roleSmolRef, setRoleSmolRef] = useState("");
   const [rolePlanRef, setRolePlanRef] = useState("");
   const [loadingModels, setLoadingModels] = useState(true);
-  const [savingKey, setSavingKey] = useState<
-    "titleModel" | "commitModel" | "roleDefault" | "roleSmol" | "rolePlan" | null
-  >(null);
+  const [savingKey, setSavingKey] = useState<AgentModelSaveKey | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const {
+    titleModelThinking,
+    commitModelThinking,
+    advisorModelThinking,
+    roleDefaultThinking,
+    roleSmolThinking,
+    rolePlanThinking,
+    applySettings: applyModelSettings,
+    saveModelThinking,
+    saveRoleThinking,
+  } = useAgentModelThinkingSettings({ setSavingKey, setSaveError });
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<
@@ -176,6 +187,7 @@ export function SettingsPage({
         setRoleDefaultRef(data.settings?.modelRolesRefs?.default ?? "");
         setRoleSmolRef(data.settings?.modelRolesRefs?.smol ?? "");
         setRolePlanRef(data.settings?.modelRolesRefs?.plan ?? "");
+        applyModelSettings(data.settings);
         const s = data.settings ?? {};
         setPrefs((prev) => ({
           ...prev,
@@ -271,7 +283,7 @@ export function SettingsPage({
     return () => {
       cancelled = true;
     };
-  }, [cwd]);
+  }, [applyModelSettings, cwd]);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,12 +310,13 @@ export function SettingsPage({
       const settings = await saveWebSettings({ [key]: value || null });
       setTitleModelRef(settings?.titleModelRef ?? (key === "titleModel" ? value : titleModelRef));
       setCommitModelRef(settings?.commitModelRef ?? (key === "commitModel" ? value : commitModelRef));
+      if (settings) applyModelSettings(settings);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingKey(null);
     }
-  }, [commitModelRef, titleModelRef]);
+  }, [applyModelSettings, commitModelRef, titleModelRef]);
 
   const saveRoleModel = useCallback(async (
     role: "default" | "smol" | "plan",
@@ -320,18 +333,20 @@ export function SettingsPage({
       setRoleDefaultRef(settings?.modelRolesRefs?.default ?? (role === "default" ? value : roleDefaultRef));
       setRoleSmolRef(settings?.modelRolesRefs?.smol ?? (role === "smol" ? value : roleSmolRef));
       setRolePlanRef(settings?.modelRolesRefs?.plan ?? (role === "plan" ? value : rolePlanRef));
+      if (settings) applyModelSettings(settings);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingKey(null);
     }
-  }, [roleDefaultRef, rolePlanRef, roleSmolRef]);
+  }, [applyModelSettings, roleDefaultRef, rolePlanRef, roleSmolRef]);
 
   const patchPref = useCallback(async (patch: Record<string, unknown>, opts?: { restart?: boolean }) => {
     setSaveError(null);
     setPrefs((prev) => ({ ...prev, ...patch } as typeof prev));
     try {
-      await saveWebSettings(patch);
+      const settings = await saveWebSettings(patch);
+      if (settings) applyModelSettings(settings);
       if (opts?.restart) setRestartHint(true);
       if (typeof patch.soundEnabled === "boolean") {
         try { localStorage.setItem("pi-sound-enabled", String(patch.soundEnabled)); } catch { /* ignore */ }
@@ -359,7 +374,7 @@ export function SettingsPage({
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
     }
-  }, [appearance]);
+  }, [appearance, applyModelSettings]);
 
   // Sync About panel with the shared store (AppShell owns background auto-check).
   useEffect(() => {
@@ -560,10 +575,17 @@ export function SettingsPage({
       roleDefaultRef={roleDefaultRef}
       roleSmolRef={roleSmolRef}
       rolePlanRef={rolePlanRef}
+      roleDefaultThinking={roleDefaultThinking}
+      roleSmolThinking={roleSmolThinking}
+      rolePlanThinking={rolePlanThinking}
       titleModelRef={titleModelRef}
       commitModelRef={commitModelRef}
+      titleModelThinking={titleModelThinking}
+      commitModelThinking={commitModelThinking}
       saveModelPref={saveModelPref}
+      saveModelThinking={saveModelThinking}
       saveRoleModel={saveRoleModel}
+      saveRoleThinking={saveRoleThinking}
       setSection={setSection}
       saveErrorBlock={saveErrorBlock}
     />
@@ -766,19 +788,31 @@ export function SettingsPage({
         title={t("settings.advisorModel")}
         description={t("settings.advisorModelDesc")}
         action={
-          <ModelSelect
-            value={advisorModelRef}
-            models={models}
-            loading={loadingModels}
-            disabled={!prefs.advisorEnabled}
-            placeholder={loadingModels ? t("common.loading") : t("settings.advisorModelDefault")}
-            ariaLabel={t("settings.advisorModel")}
-            unavailableLabel={t("settings.modelUnavailable")}
-            onChange={(value) => {
-              setAdvisorModelRef(value);
-              void patchPref({ advisorModel: value || null });
-            }}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minWidth: 0 }}>
+            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+              <ModelSelect
+                value={advisorModelRef}
+                models={models}
+                loading={loadingModels}
+                disabled={!prefs.advisorEnabled || savingKey === "advisorModel"}
+                placeholder={loadingModels ? t("common.loading") : t("settings.advisorModelDefault")}
+                ariaLabel={t("settings.advisorModel")}
+                unavailableLabel={t("settings.modelUnavailable")}
+                onChange={(value) => {
+                  setAdvisorModelRef(value);
+                  setSavingKey("advisorModel");
+                  void patchPref({ advisorModel: value || null }).finally(() => setSavingKey(null));
+                }}
+              />
+            </div>
+            <ModelThinkingControl
+              modelRef={advisorModelRef}
+              models={models}
+              level={advisorModelThinking}
+              disabled={!prefs.advisorEnabled || savingKey === "advisorModel"}
+              onChange={(level) => void saveModelThinking("advisorModel", level)}
+            />
+          </div>
         }
       />
 

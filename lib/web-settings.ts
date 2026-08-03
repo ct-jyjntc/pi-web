@@ -17,6 +17,8 @@ export { defaultLeanModeSettings, parseLeanModeSettings } from "./lean-mode-sett
 export type ModelRef = {
   provider: string;
   modelId: string;
+  /** Explicit thinking strength for this model role; absent means off/inherit. */
+  thinkingLevel?: ThinkingLevelPref;
 };
 
 /** Role models for main session / cheap subagents / planning. */
@@ -210,6 +212,10 @@ function asThinking(value: unknown, fallback: ThinkingLevelPref): ThinkingLevelP
   }
   return fallback;
 }
+function asOptionalThinking(value: unknown): ThinkingLevelPref | undefined {
+  if (typeof value !== "string" || !THINKING_LEVELS.has(value as ThinkingLevelPref)) return undefined;
+  return value as ThinkingLevelPref;
+}
 
 function asThemeMode(value: unknown, fallback: ThemeMode): ThemeMode {
   if (typeof value === "string" && THEME_MODES.has(value as ThemeMode)) return value as ThemeMode;
@@ -246,7 +252,12 @@ export function parseModelRef(value: unknown): ModelRef | null {
       ? value.id.trim()
       : "";
   if (!provider || !modelId) return null;
-  return { provider, modelId };
+  const thinkingLevel = asOptionalThinking(value.thinkingLevel);
+  return {
+    provider,
+    modelId,
+    ...(thinkingLevel ? { thinkingLevel } : {}),
+  };
 }
 
 export function formatModelRef(ref: ModelRef | null | undefined): string {

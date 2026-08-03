@@ -4,9 +4,10 @@ import {
   type AgentOptions,
   type AgentTool,
 } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, type Model, type ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { pickLowestThinkingLevel } from "./utility-model";
+import type { ThinkingLevelPref } from "./web-settings";
 
 const TITLE_TIMEOUT_MS = 90_000;
 const MAX_TITLE_LENGTH = 80;
@@ -47,16 +48,23 @@ function createShadowTools(tools: AgentTool[]): AgentTool[] {
  */
 export function buildSessionTitleAgentOptions(
   source: Agent,
-  overrides?: { model?: Model<string> },
+  overrides?: { model?: Model<string>; thinkingLevel?: ThinkingLevelPref },
 ): AgentOptions {
   const state = source.state;
   const model = overrides?.model ?? state.model;
+  const supported = new Set(getSupportedThinkingLevels(model as Model<string>));
+  const configuredThinking = overrides?.thinkingLevel;
+  const thinkingLevel = configuredThinking === "off"
+    ? "off"
+    : configuredThinking && configuredThinking !== "auto" && supported.has(configuredThinking as ModelThinkingLevel)
+      ? configuredThinking as ModelThinkingLevel
+      : pickLowestThinkingLevel(model as Model<string> | undefined);
   return {
     initialState: {
       systemPrompt: state.systemPrompt,
       model,
-      // Utility title gen always uses the cheapest supported thinking level (none/off first).
-      thinkingLevel: pickLowestThinkingLevel(model as Model<string> | undefined),
+      // Utility title gen uses the configured supported level, or the cheapest level by default.
+      thinkingLevel,
       tools: createShadowTools(state.tools),
       messages: state.messages,
     },
@@ -220,6 +228,8 @@ export async function generateSessionTitle(
   overrides?: {
     /** When set, title generation uses this model instead of the session model. */
     model?: Model<string>;
+    /** Optional role-specific thinking preference for the title model. */
+    thinkingLevel?: ThinkingLevelPref;
   },
 ): Promise<GeneratedSessionTitle> {
   const sourceAgent = source.agent;
@@ -233,6 +243,7 @@ export async function generateSessionTitle(
 
   const options = buildSessionTitleAgentOptions(sourceAgent, {
     model: overrides?.model,
+    thinkingLevel: overrides?.thinkingLevel,
   });
   options.initialState!.messages = sanitizedMessages;
   const continuesFromTrailingUser = sanitizedMessages.at(-1)?.role === "user";

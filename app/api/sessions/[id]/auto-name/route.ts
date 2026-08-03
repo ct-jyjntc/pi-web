@@ -50,6 +50,7 @@ export async function POST(
 
     const result = await generateSessionTitle(inner, {
       ...(modelOverride ? { model: modelOverride } : {}),
+      ...(prefs.titleModel?.thinkingLevel ? { thinkingLevel: prefs.titleModel.thinkingLevel } : {}),
     });
 
     if (!session.isAlive()) {
