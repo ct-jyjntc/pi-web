@@ -347,10 +347,7 @@ function cloneWebSettings(settings: WebSettings): WebSettings {
       plan: settings.modelRoles.plan ? { ...settings.modelRoles.plan } : null,
     },
     projectMemory: { ...settings.projectMemory },
-    leanMode: {
-      ...settings.leanMode,
-      hardGates: { ...settings.leanMode.hardGates },
-    },
+    leanMode: { ...settings.leanMode },
   };
 }
 

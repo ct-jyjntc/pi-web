@@ -164,19 +164,35 @@ type PatchSection = {
 const SECTION_RE = /^\[(.+?)#([0-9A-Fa-f]{4})\]\s*$/;
 // SWAP 3: / SWAP 3.=5: / SWAP.BLK 3: / SWAP.BLK 3.=8: (range on BLK is tolerated; resolve still from start)
 const SWAP_RE = /^SWAP(?:\.BLK\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?|\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)\s*:?\s*$/i;
-// DEL 3 / DEL 3.=5 / DEL.BLK 3 / DEL.BLK 3.=8
-const DEL_RE = /^DEL(?:\.BLK\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?|\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)\s*$/i;
+// DEL 3 / DEL 3.=5 / DEL.BLK 3 — trailing colon tolerated (models mirror SWAP  N.=M: style)
+const DEL_RE = /^DEL(?:\.BLK\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?|\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)\s*:?\s*$/i;
 const INS_RE = /^INS\.(PRE|POST|HEAD|TAIL|BLK\.POST)(?:\s+(\d+))?\s*:?\s*$/i;
 const REM_RE = /^REM\s*$/i;
 const MV_RE = /^MV\s+(.+?)\s*$/i;
 
-function parseRange(a: string, b: string | undefined): { start: number; end: number } {
+/**
+ * Parse inclusive 1-based range. Models often write `N.=K` meaning "start + count"
+ * (K lines) instead of end line; when end < start, reinterpret as count.
+ */
+function parseRange(
+  a: string,
+  b: string | undefined,
+  warnings?: string[],
+): { start: number; end: number } {
   const start = Number(a);
-  const end = b !== undefined && b !== "" ? Number(b) : start;
+  let end = b !== undefined && b !== "" ? Number(b) : start;
   if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < 1) {
     throw new Error(`Invalid line range: ${a}${b ? `.=${b}` : ""}`);
   }
-  if (end < start) throw new Error(`Invalid line range ${start}.=${end}: end < start`);
+  if (end < start) {
+    // Count-style: SWAP 349.=6 → lines 349..354 (6 lines). Always safer than fail.
+    const count = end;
+    end = start + count - 1;
+    warnings?.push(
+      `Interpreted ${start}.=${count} as count → lines ${start}.=${end} ` +
+        `(N.=M is inclusive end line, not line count; prefer SWAP ${start}.=${end}:)`,
+    );
+  }
   return { start, end };
 }
 
@@ -360,9 +376,19 @@ export function parseHashlinePatch(input: string): { sections: PatchSection[]; w
     }
     const hm = header.match(SECTION_RE);
     if (!hm) {
+      // Common model failure: invent placeholder tags (#XXXX / #TAG) without re-reading.
+      const placeholder = header.match(/^\[(.+?)#([A-Za-z0-9_-]{1,8})\]\s*$/);
+      if (placeholder && !/^[0-9A-Fa-f]{4}$/.test(placeholder[2]!)) {
+        throw new Error(
+          `Placeholder or invalid tag #${placeholder[2]} is not a real 4-hex fingerprint for ${placeholder[1]}.\n` +
+            `Re-read the file and copy the [path#TAG] header from the read output (e.g. #A1B2).\n` +
+            `Never invent tags or use #XXXX / #TAG placeholders.`,
+        );
+      }
       throw new Error(
         `Expected section header [path#TAG] (4-hex tag), got: ${header.slice(0, 80)}\n` +
-          `Example:\n[src/foo.ts#A1B2]\nSWAP 10.=10:\n+const x = 1`,
+          `Example:\n[src/foo.ts#A1B2]\nSWAP 10.=10:\n+const x = 1\n` +
+          `TAG must be the real 4-hex fingerprint from a fresh read — not #XXXX or #TAG.`,
       );
     }
     const section: PatchSection = {
@@ -418,7 +444,7 @@ export function parseHashlinePatch(input: string): { sections: PatchSection[]; w
           // Prefer structural resolve from opening line; optional end is ignored (model often guesses).
           section.ops.push({ kind: "swap_blk", line: Number(swap[1]), body });
         } else {
-          const { start, end } = parseRange(swap[3]!, swap[4]);
+          const { start, end } = parseRange(swap[3]!, swap[4], warnings);
           section.ops.push({ kind: "swap", start, end, body });
         }
         continue;
@@ -431,7 +457,7 @@ export function parseHashlinePatch(input: string): { sections: PatchSection[]; w
         if (isBlk) {
           section.ops.push({ kind: "del_blk", line: Number(del[1]) });
         } else {
-          const { start, end } = parseRange(del[3]!, del[4]);
+          const { start, end } = parseRange(del[3]!, del[4], warnings);
           section.ops.push({ kind: "del", start, end });
         }
         i++;

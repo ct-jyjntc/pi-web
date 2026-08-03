@@ -6,23 +6,9 @@ import {
 } from "@/lib/disabled-models";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
-import { projectBuiltinProviderModel } from "@/lib/builtin-provider-models";
+import { projectBuiltinProviderModel, refreshBuiltinProviderModels } from "@/lib/builtin-provider-models";
 
 export const dynamic = "force-dynamic";
-
-async function refreshProviderModels(
-  modelRuntime: Awaited<ReturnType<typeof createConfiguredModelRuntime>>,
-  provider: string,
-): Promise<boolean> {
-  try {
-    await modelRuntime.refresh({ allowNetwork: true });
-    return true;
-  } catch (error) {
-    // Keep the registered catalog/store available when live refresh fails.
-    console.warn(`[provider-models] refresh failed for ${provider}; using last store`, error);
-    return false;
-  }
-}
 
 /**
  * Built-in provider model list (read + enable/disable).
@@ -46,7 +32,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 404 });
     }
 
-    const live = await refreshProviderModels(modelRuntime, provider);
+    const live = await refreshBuiltinProviderModels(modelRuntime, provider);
 
     const disabled = getDisabledModelRefs();
     const models = modelRuntime.getModels(provider)
@@ -93,7 +79,7 @@ export async function PATCH(req: Request) {
     if (!modelRuntime.getProvider(provider)) {
       return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 404 });
     }
-    await refreshProviderModels(modelRuntime, provider);
+    await refreshBuiltinProviderModels(modelRuntime, provider);
     if (!modelRuntime.getModel(provider, modelId)) {
       return NextResponse.json({ error: `Unknown model: ${provider}/${modelId}` }, { status: 404 });
     }

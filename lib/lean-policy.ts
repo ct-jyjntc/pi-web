@@ -50,7 +50,6 @@ export function buildLeanPolicyText(intensity: LeanIntensity): string {
       "- You **MUST NOT** add a second recovery path for a failure that already has one.",
       "- You **MUST NOT** land dual implementations without a removal condition.",
       "- You **MUST** complete the self-check in the final reply when files changed.",
-      "- A stricter lean review will run after edit turns; treat high-signal findings as blocking quality bar unless the user explicitly accepts the tradeoff.",
     ].join("\n");
   }
 
@@ -59,7 +58,8 @@ export function buildLeanPolicyText(intensity: LeanIntensity): string {
     ...header,
     "",
     "### Review",
-    "After turns that edit files, a lean review may flag stacked recovery, swallowed errors, missing owners, dual-paths, and file bloat.",
-    "Write as if that review will run: keep diffs minimal and explain invariants when you fix failures.",
+    "After turns that edit files, apply these rules strictly: keep diffs minimal, name the invariant you fixed,",
+    "keep a single owner for each semantic, and extract a module before growing an already-large file.",
+    "When you fix a failure, state the invariant and the recovery path count in your reply.",
   ].join("\n");
 }

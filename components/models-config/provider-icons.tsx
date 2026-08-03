@@ -33,9 +33,17 @@ import OpenCodeIcon from "@lobehub/icons/es/OpenCode/components/Mono";
 import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
 
+import { ATOMGIT_ICON_URL, ATOMGIT_PROVIDER_ID } from "@/lib/atomgit-constants";
 import { TOKENRHYTHM_ICON_URL, TOKENRHYTHM_PROVIDER_ID } from "@/lib/tokenrhythm-constants";
 
 export type IconComponent = React.ComponentType<{ size?: number | string; style?: React.CSSProperties }>;
+
+/** Remote / static brand marks. `image` keeps color; `mask` paints with theme text color. */
+export type ProviderRemoteIcon = {
+  url: string;
+  /** default: mask (mono marks). Use image for multi-color PNGs. */
+  paint?: "mask" | "image";
+};
 
 // hasColor=true → Color icon (self-colored SVG, no wrapper)
 // hasColor=false → Mono icon (rendered with currentColor, inherits theme text color)
@@ -84,20 +92,69 @@ export const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boo
 };
 
 /** Remote provider marks supplied by providers without a stable bundled icon. */
-export const PROVIDER_ICON_URLS: Record<string, string> = {
+export const PROVIDER_ICON_URLS: Record<string, string | ProviderRemoteIcon> = {
   [TOKENRHYTHM_PROVIDER_ID]: TOKENRHYTHM_ICON_URL,
-  qwen: "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
-  "qwen-token-plan": "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
-  "qwen-token-plan-cn": "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
-  radius: "https://earendil.com/static/favicon/android-chrome-512x512.png",
+  [ATOMGIT_PROVIDER_ID]: { url: ATOMGIT_ICON_URL, paint: "image" },
+  // Color CDN marks — must use image paint (mask turns opaque PNGs into gray squares).
+  qwen: {
+    url: "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+    paint: "image",
+  },
+  "qwen-token-plan": {
+    url: "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+    paint: "image",
+  },
+  "qwen-token-plan-cn": {
+    url: "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+    paint: "image",
+  },
+  // Opaque android-chrome PNG was masking to a solid square; use local mono mark.
+  radius: "/providers/radius.svg",
 };
+
+function resolveRemoteIcon(
+  id: string,
+  iconUrl?: string,
+): { url: string; paint: "mask" | "image" } | null {
+  if (iconUrl) {
+    // Caller-supplied URLs: color raster → image; svg/local mono → mask.
+    const paint = /\.svg(\?|$)/i.test(iconUrl) || iconUrl.startsWith("data:image/svg")
+      ? "mask"
+      : "image";
+    return { url: iconUrl, paint };
+  }
+  const entry = PROVIDER_ICON_URLS[id];
+  if (!entry) return null;
+  if (typeof entry === "string") return { url: entry, paint: "mask" };
+  return { url: entry.url, paint: entry.paint ?? "mask" };
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 
 export function ProviderIcon({ id, size, iconUrl }: { id: string; size: number; iconUrl?: string }) {
-  const resolvedIconUrl = iconUrl ?? PROVIDER_ICON_URLS[id];
-  if (resolvedIconUrl) {
+  const remote = resolveRemoteIcon(id, iconUrl);
+  if (remote) {
+    if (remote.paint === "image") {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element -- external/static brand marks; no next/image domain config
+        <img
+          src={remote.url}
+          alt=""
+          width={size}
+          height={size}
+          aria-hidden="true"
+          style={{
+            width: size,
+            height: size,
+            flexShrink: 0,
+            display: "inline-block",
+            borderRadius: "var(--radius-xs)",
+            objectFit: "contain",
+          }}
+        />
+      );
+    }
     // Monochrome brand marks: paint with theme text color via CSS mask.
     return (
       <span
@@ -109,8 +166,8 @@ export function ProviderIcon({ id, size, iconUrl }: { id: string; size: number; 
           display: "inline-block",
           borderRadius: "var(--radius-xs)",
           backgroundColor: "var(--text-muted)",
-          WebkitMaskImage: `url(${resolvedIconUrl})`,
-          maskImage: `url(${resolvedIconUrl})`,
+          WebkitMaskImage: `url(${remote.url})`,
+          maskImage: `url(${remote.url})`,
           WebkitMaskSize: "contain",
           maskSize: "contain",
           WebkitMaskRepeat: "no-repeat",

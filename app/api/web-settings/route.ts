@@ -339,25 +339,6 @@ export async function PUT(req: NextRequest) {
         }
         next.intensity = raw.intensity;
       }
-      if ("reviewOnAgentEnd" in raw) {
-        if (typeof raw.reviewOnAgentEnd !== "boolean") {
-          return NextResponse.json({ error: "Invalid leanMode.reviewOnAgentEnd" }, { status: 400 });
-        }
-        next.reviewOnAgentEnd = raw.reviewOnAgentEnd;
-      }
-      if ("hardGates" in raw) {
-        if (!raw.hardGates || typeof raw.hardGates !== "object" || Array.isArray(raw.hardGates)) {
-          return NextResponse.json({ error: "Invalid leanMode.hardGates" }, { status: 400 });
-        }
-        const hg = raw.hardGates as Record<string, unknown>;
-        const thr = Number(hg.largeFileLineThreshold);
-        const maxNet = Number(hg.maxNetGrowthOnLargeFile);
-        next.hardGates = {
-          ...next.hardGates,
-          ...(Number.isFinite(thr) ? { largeFileLineThreshold: thr } : {}),
-          ...(Number.isFinite(maxNet) ? { maxNetGrowthOnLargeFile: maxNet } : {}),
-        };
-      }
       patch.leanMode = next;
     }
 

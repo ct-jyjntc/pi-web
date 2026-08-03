@@ -100,7 +100,7 @@ export async function startRpcSession(
     const memoryBlock = !toolsFullyDisabled ? buildMemoryInjectBlock(cwd) : null;
     // Lean Mode: portable anti-bloat policy (opt-in). Same appendSystemPromptOverride
     // as memory — do not add a second inject path.
-    const lean = !toolsFullyDisabled ? resolveLeanMode(cwd) : null;
+    const lean = !toolsFullyDisabled ? resolveLeanMode() : null;
     const leanBlock = lean?.enabled ? buildLeanPolicyText(lean.intensity) : null;
     const systemPromptExtras = [memoryBlock, leanBlock].filter(
       (block): block is string => Boolean(block),

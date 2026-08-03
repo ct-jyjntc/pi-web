@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
-import { writeBuiltinModelOverride } from "@/lib/builtin-provider-models";
+import { refreshBuiltinProviderModels, writeBuiltinModelOverride } from "@/lib/builtin-provider-models";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
@@ -32,6 +32,7 @@ export async function PUT(req: Request) {
     if (!modelRuntime.getProvider(provider)) {
       return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 404 });
     }
+    await refreshBuiltinProviderModels(modelRuntime, provider);
     const runtimeModel = modelRuntime.getModel(provider, modelId);
     if (!runtimeModel) {
       return NextResponse.json({ error: `Unknown model: ${provider}/${modelId}` }, { status: 404 });

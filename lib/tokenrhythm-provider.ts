@@ -15,6 +15,7 @@ import {
   type RefreshModelsContext,
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { withDeepSeekCompat } from "./deepseek-compat";
 
 // Keep constants inlined so this server module has no local relative imports
 // (node --test resolves extensionless paths poorly under moduleResolution bundler).
@@ -321,7 +322,7 @@ function toModel(entry: TokenRhythmCatalogEntry): Model<"openai-completions"> | 
   }
   const contextWindow = num(entry.contextWindow, 128_000) || 128_000;
   const maxTokens = num(entry.maxOutputTokens, 8_192) || 8_192;
-  return {
+  return withDeepSeekCompat({
     id,
     name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : id,
     api: "openai-completions",
@@ -337,16 +338,18 @@ function toModel(entry: TokenRhythmCatalogEntry): Model<"openai-completions"> | 
     },
     contextWindow,
     maxTokens,
-  };
+  } as Model<"openai-completions">);
 }
 
 function staticModels(): Model<"openai-completions">[] {
-  return TOKENRHYTHM_STATIC_MODELS.map((model) => ({
-    ...model,
-    provider: TOKENRHYTHM_PROVIDER_ID,
-    baseUrl: TOKENRHYTHM_BASE_URL,
-    api: "openai-completions" as const,
-  }));
+  return TOKENRHYTHM_STATIC_MODELS.map((model) =>
+    withDeepSeekCompat({
+      ...model,
+      provider: TOKENRHYTHM_PROVIDER_ID,
+      baseUrl: TOKENRHYTHM_BASE_URL,
+      api: "openai-completions" as const,
+    }),
+  );
 }
 
 async function fetchTokenRhythmModels(

@@ -9,6 +9,8 @@
 import type { ModelOverrideFields } from "./model-overrides";
 import { getModelOverride, setModelOverride } from "./model-overrides";
 
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+
 export type BuiltinProviderModelRow = {
   id: string;
   name: string;
@@ -45,6 +47,21 @@ type RuntimeModelLike = {
   };
   thinkingLevelMap?: unknown;
 };
+
+/** Refresh the runtime catalog used by every built-in model mutation route. */
+export async function refreshBuiltinProviderModels(
+  modelRuntime: ModelRuntime,
+  provider: string,
+): Promise<boolean> {
+  try {
+    await modelRuntime.refresh({ allowNetwork: true });
+    return true;
+  } catch (error) {
+    // Keep the registered catalog/store available when live refresh fails.
+    console.warn(`[provider-models] refresh failed for ${provider}; using last store`, error);
+    return false;
+  }
+}
 
 function asPositiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;

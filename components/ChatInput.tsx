@@ -45,7 +45,6 @@ import {
   ChatInputPermissionMenu,
   PermissionErrorToast,
 } from "./chat-input/ChatInputPermissionMenu";
-import { ComposerOverflowMenu } from "./chat-input/ComposerOverflowMenu";
 import {
   BUILTIN_SLASH_COMMANDS,
   COMPOSITION_END_ENTER_GRACE_MS,
@@ -112,10 +111,6 @@ interface Props {
   /** Host measures the toolbar strip for the composer underlay — handed over by
    *  ref so the host's ResizeObserver never has to querySelector on each tick. */
   toolbarRef?: React.RefObject<HTMLDivElement | null>;
-  /** Lean Mode: show Check leanness in the ⋯ overflow menu (not primary chrome). */
-  leanCheckEnabled?: boolean;
-  leanCheckBusy?: boolean;
-  onLeanCheck?: () => void;
 }
 
 
@@ -135,9 +130,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   draftKey,
   cwd,
   toolbarRef,
-  leanCheckEnabled = false,
-  leanCheckBusy = false,
-  onLeanCheck,
 
 }: Props, ref) {
   const { t } = useLocale();
@@ -1562,19 +1554,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 )}
               </button>
             )}
-            {leanCheckEnabled && onLeanCheck ? (
-              <ComposerOverflowMenu
-                title={t("chat.moreControls")}
-                items={[
-                  {
-                    id: "lean-check",
-                    label: leanCheckBusy ? t("lean.reviewRunning") : t("lean.reviewManual"),
-                    disabled: leanCheckBusy || isStreaming,
-                    onSelect: onLeanCheck,
-                  },
-                ]}
-              />
-            ) : null}
             {isMobile && controlsMenuOpen && (
               <button
                 type="button"

@@ -7,6 +7,7 @@
  * - Without official map, user thinkingLevelMap is kept across refresh.
  */
 
+import { DEEPSEEK_COMPAT, isDeepSeekModelId } from "./deepseek-compat";
 import { normalizeModelCost } from "./model-cost";
 import {
   recommendModelCatalogPreset,
@@ -46,6 +47,8 @@ export interface FreeModelEntry {
   thinkingLevelMap?: ThinkingLevelMap;
   /** True when thinkingLevelMap came from official catalog (not user-editable). */
   thinkingMapLocked?: boolean;
+  /** OpenAI-completions compat (e.g. DeepSeek reasoning_content replay). */
+  compat?: Record<string, unknown>;
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
@@ -97,6 +100,17 @@ export function filterFreeModelIds(
   return out;
 }
 
+function applyDeepSeekCompat(entry: FreeModelEntry): FreeModelEntry {
+  if (!isDeepSeekModelId(entry.id)) return entry;
+  return {
+    ...entry,
+    compat: {
+      ...(entry.compat ?? {}),
+      ...DEEPSEEK_COMPAT,
+    },
+  };
+}
+
 function applyCatalogPreset(id: string, preset: ModelCatalogPreset): FreeModelEntry {
   const entry: FreeModelEntry = {
     id,
@@ -111,7 +125,7 @@ function applyCatalogPreset(id: string, preset: ModelCatalogPreset): FreeModelEn
   if (preset.contextWindow !== undefined) entry.contextWindow = preset.contextWindow;
   if (preset.maxTokens !== undefined) entry.maxTokens = preset.maxTokens;
   if (preset.cost) entry.cost = normalizeModelCost(preset.cost);
-  return entry;
+  return applyDeepSeekCompat(entry);
 }
 
 /**
@@ -125,7 +139,7 @@ export function buildFreeModelEntries(
 ): FreeModelEntry[] {
   return filterFreeModelIds(def, modelIds).map((id) => {
     if (catalog.length === 0) {
-      return { id, name: id };
+      return applyDeepSeekCompat({ id, name: id });
     }
     const recommendation = recommendModelCatalogPreset(
       catalog,
@@ -171,6 +185,6 @@ export function mergeFreeModelEntries(
       delete next.thinkingLevelMap;
       delete next.thinkingMapLocked;
     }
-    return next;
+    return applyDeepSeekCompat(next);
   });
 }

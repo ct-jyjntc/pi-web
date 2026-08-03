@@ -11,6 +11,7 @@ import {
   applyOfficialCatalogFields,
   isCatalogExactMatch,
 } from "@/lib/model-catalog-apply";
+import { DEEPSEEK_COMPAT } from "@/lib/deepseek-compat";
 import {
   Field, TextInput, NumInput, Select, Check, SectionTitle, DetailStrip, ReadOnlyValue,
 } from "./form-fields";
@@ -33,6 +34,17 @@ export function ThinkingLevelMapEditor({
 }) {
   const { t } = useLocale();
   const map = value ?? {};
+  const [customLevel, setCustomLevel] = useState<ThinkingLevel | null>(null);
+  const customInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  useEffect(() => {
+    setCustomLevel(null);
+  }, [value]);
+  const focusCustomInput = (level: ThinkingLevel) => {
+    setCustomLevel(level);
+    const input = customInputRefs.current[level];
+    input?.focus();
+    input?.select();
+  };
 
   const setLevel = (level: ThinkingLevel, entry: string | null | "default") => {
     const next = { ...map };
@@ -50,9 +62,11 @@ export function ThinkingLevelMapEditor({
       {THINKING_LEVELS.map((level) => {
         const raw = map[level];
         const inMap = level in map;
-        const state: "unset" | "default" | "null" | "string" =
+        const baseState: "unset" | "default" | "null" | "string" =
           !inMap ? "unset" : raw === null ? "null" : raw === level ? "default" : "string";
-        const strVal = state === "string" && typeof raw === "string" ? raw : "";
+        const state: "unset" | "default" | "null" | "string" =
+          customLevel === level && baseState !== "string" ? "string" : baseState;
+        const strVal = state === "string" && typeof raw === "string" && baseState === "string" ? raw : "";
         const color = LEVEL_COLORS[level];
 
         return (
@@ -101,13 +115,14 @@ export function ThinkingLevelMapEditor({
             <div className="settings-segmented" style={{ minWidth: 0 }}>
               <button
                 type="button"
-                onClick={() => setLevel(level, strVal || level)}
+                onClick={() => focusCustomInput(level)}
                 className={`chrome-btn${state === "string" ? " is-active" : ""}`}
                 style={{ flexShrink: 0 }}
               >
                 {t("models.custom")}
               </button>
               <input
+                ref={(input) => { customInputRefs.current[level] = input; }}
                 value={state === "string" ? strVal : (state === "default" ? level : "")}
                 onChange={(e) => setLevel(level, e.target.value)}
                 onFocus={() => { if (state !== "string") setLevel(level, strVal || level); }}
@@ -208,10 +223,7 @@ function ThinkingBudgetControls({
   );
 }
 
-export const DEEPSEEK_COMPAT = {
-  thinkingFormat: "deepseek",
-  requiresReasoningContentOnAssistantMessages: true,
-} as const;
+export { DEEPSEEK_COMPAT };
 
 export function hasDeepseekCompat(model: ModelEntry): boolean {
   return model.compat?.thinkingFormat === "deepseek";

@@ -8,6 +8,7 @@ import {
   type CreateModelRuntimeOptions,
 } from "@earendil-works/pi-coding-agent";
 
+import { createAtomGitProvider } from "./atomgit-provider";
 import { createTokenRhythmProvider } from "./tokenrhythm-provider";
 
 export type { CreateModelRuntimeOptions };
@@ -19,5 +20,6 @@ export async function createConfiguredModelRuntime(
   const runtime = await ModelRuntime.create(options);
   // registerNativeProvider replaces any prior registration for the same id.
   runtime.registerNativeProvider(createTokenRhythmProvider());
+  runtime.registerNativeProvider(createAtomGitProvider());
   return runtime;
 }

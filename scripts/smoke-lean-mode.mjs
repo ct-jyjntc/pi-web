@@ -17,11 +17,18 @@ function mustExist(rel) {
   return p;
 }
 
-// --- files shipped ---
+// --- surviving files (prompt injection only) ---
 for (const rel of [
   "lib/lean-mode-settings.ts",
   "lib/lean-policy.ts",
   "lib/lean-settings.ts",
+  "components/settings/LeanModeSettingsSection.tsx",
+]) {
+  mustExist(rel);
+}
+
+// --- deleted: review machinery + hard gates are gone ---
+for (const rel of [
   "lib/lean-review.ts",
   "lib/lean-paths.ts",
   "lib/lean-hard-gate.ts",
@@ -29,40 +36,15 @@ for (const rel of [
   "app/api/lean-review/route.ts",
   "app/api/lean-project/route.ts",
   "components/LeanReviewCard.tsx",
-  "components/settings/LeanModeSettingsSection.tsx",
   "hooks/useLeanReviewOnAgentEnd.ts",
 ]) {
-  mustExist(rel);
+  assert.ok(!existsSync(join(root, rel)), `should have been deleted: ${rel}`);
 }
 
-// --- source contains turn-scoped diff (no silent full-tree auto) ---
-const reviewSrc = readFileSync(join(root, "lib/lean-review.ts"), "utf8");
-assert.match(reviewSrc, /collectTurnDiff/);
-assert.match(reviewSrc, /no-paths/);
-assert.match(reviewSrc, /allowFullWorktree/);
-
-// --- idle session reset on leanMode write ---
-const webSettingsRoute = readFileSync(join(root, "app/api/web-settings/route.ts"), "utf8");
-assert.match(webSettingsRoute, /destroyIdleRpcSessions/);
-
-// --- hard gate wired into edit tool ---
-const editTool = readFileSync(join(root, "lib/agent-edit-tool.ts"), "utf8");
-assert.match(editTool, /resolveHardGateForCwd/);
-assert.match(editTool, /checkLargeFileNetGrowth/);
-
-// --- path extraction logic (inline mirror of lean-paths) ---
-function pathsFromToolCall(toolName, input) {
-  const out = new Set();
-  if (input && typeof input === "object" && typeof input.path === "string") out.add(input.path);
-  if (input && typeof input === "object" && typeof input.input === "string") {
-    for (const m of input.input.matchAll(/\[(.+?)#[0-9A-Fa-f]{4}\]/g)) out.add(m[1]);
-  }
-  return [...out];
-}
-assert.deepEqual(
-  pathsFromToolCall("edit", { input: "[src/foo.ts#ab12]\nSWAP 1.=2:\n+x\n" }),
-  ["src/foo.ts"],
-);
+// --- policy text injected into system prompt at session start ---
+const sessionStart = readFileSync(join(root, "lib/rpc-session-start.ts"), "utf8");
+assert.match(sessionStart, /buildLeanPolicyText/);
+assert.match(sessionStart, /appendSystemPromptOverride/);
 
 // --- policy intensity markers present in source ---
 const policy = readFileSync(join(root, "lib/lean-policy.ts"), "utf8");
@@ -70,10 +52,17 @@ assert.match(policy, /Hard intensity/);
 assert.match(policy, /### Review/);
 assert.match(policy, /### Tone/);
 
+// --- settings model is slim: enabled + intensity only ---
+const settingsModel = readFileSync(join(root, "lib/lean-mode-settings.ts"), "utf8");
+assert.match(settingsModel, /export type LeanIntensity/);
+assert.ok(!/reviewOnAgentEnd/.test(settingsModel), "reviewOnAgentEnd must be gone from settings model");
+assert.ok(!/hardGates/.test(settingsModel), "hardGates must be gone from settings model");
+
+// --- idle session reset on leanMode write (next turn reloads prompt) ---
+const webSettingsRoute = readFileSync(join(root, "app/api/web-settings/route.ts"), "utf8");
+assert.match(webSettingsRoute, /destroyIdleRpcSessions/);
+
 console.log("smoke-lean-mode: ok (static checks)");
 console.log("Manual UI still recommended:");
-console.log("  1) soft: policy only, no auto review");
-console.log("  2) review + edit: card only for touched paths");
-console.log("  3) hard: large-file net growth rejected");
-console.log("  4) toggle lean: idle sessions reset note");
-console.log("  5) project .pi-web.json override");
+console.log("  1) soft/review/hard wording differences in system prompt");
+console.log("  2) toggle lean: idle sessions reset note");
