@@ -111,18 +111,31 @@ function escapeRegExp(s) {
 }
 
 /**
+ * Decode one path segment. Node's URL.pathname keeps %XX (e.g. C%3A for "C:"),
+ * while Next.js hands handlers decoded params. Must decode per-segment so that
+ * %2F inside a single segment cannot introduce extra path separators.
+ * @param {string} segment
+ */
+function decodeSegment(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/**
  * @param {string} raw
  * @returns {string[]}
  */
 function splitCatchAll(raw) {
   if (raw == null || raw === "") return [];
-  // URL path segments — keep empty filter minimal so Windows drive paths work:
-  // e.g. "C:/Users/foo" → ["C:", "Users", "foo"]
+  // URL path segments — Windows drive: "C%3A/Users/foo" or "C:/Users/foo"
+  // → ["C:", "Users", "foo"] after per-segment decode.
   return raw.split("/").filter((part, i, arr) => {
-    // drop only pure empty from leading/trailing slashes, not meaningful empties
     if (part === "" && (i === 0 || i === arr.length - 1)) return false;
     return true;
-  });
+  }).map(decodeSegment);
 }
 
 /**
@@ -148,7 +161,7 @@ export function matchRoute(routes, pathname) {
           }
           params[k] = parts;
         } else {
-          params[k] = v;
+          params[k] = decodeSegment(v);
         }
       }
     }
