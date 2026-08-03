@@ -479,6 +479,8 @@ function createSplashWindow(subtitle = "Starting local server…") {
     splashWindow = null;
   });
   splashWindow.loadURL(splashDataUrl(windowTheme, subtitle)).catch((err) => {
+    // ERR_ABORTED (-3) when subtitle reloads replace the first navigation — not a real failure.
+    if (err && (err.errno === -3 || err.code === "ERR_ABORTED")) return;
     console.error("Failed to load splash", err);
   });
   return splashWindow;
