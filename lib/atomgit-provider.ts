@@ -4,20 +4,11 @@
  * Single owner of the AtomGit "订阅" integration: OAuth login via the AtomGit
  * platform broker (acs.atomgit.com), CodingPlan claim + model catalog via
  * api.gitcode.com, and OpenAI-compatible model calls against the
- * llm-api.atomgit.com gateway with per-request HMAC signature headers.
- *
- * The signature algorithm mirrors atomcode's `atomcode-codingplan-crypto`
- * (v1, open-source compatible implementation — see atomcode-proxy `signing.ts`):
- * every gateway request carries `Authorization: Bearer <oauth token>` plus
- * X-CodingPlan-{Signature,Timestamp,Nonce,User-Id,Body-Hash,Algorithm} headers
- * derived from the exact request body. Because the body hash changes per
- * request, signing happens at the HTTP fetch boundary (wrapped api streams),
- * not in static `toAuth()` headers.
+ * llm-api.atomgit.com gateway with per-request AtomCode v1 signature headers
+ * (see lib/atomgit-signing.ts). Signing runs at the HTTP fetch boundary.
  *
  * Do not import from client components — use lib/atomgit-constants.ts.
  */
-
-import { createHash, createHmac, randomBytes } from "node:crypto";
 
 import {
   createProvider,
@@ -31,7 +22,6 @@ import {
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 
-import { withDeepSeekCompat } from "./deepseek-compat";
 import {
   ATOMGIT_API_BASE_URL,
   ATOMGIT_DISPLAY_NAME,
@@ -40,6 +30,8 @@ import {
   ATOMGIT_PLATFORM_BASE_URL,
   ATOMGIT_PROVIDER_ID,
 } from "./atomgit-constants";
+import { ATOMGIT_CLIENT_VERSION, signAtomGitRequest } from "./atomgit-signing";
+import { withDeepSeekCompat } from "./deepseek-compat";
 
 export {
   ATOMGIT_PROVIDER_ID,
@@ -49,7 +41,10 @@ export {
 
 // ── Wire constants (mirror atomcode's defaults) ───────────────────────────────
 
-/** The AtomGit gateway UA filter rejects capital-A "AtomCode" — use lowercase. */
+/**
+ * UA for CodingPlan REST (api.gitcode.com). Gateway chat calls use
+ * `atomcode/<ver>` via toAuth / withGatewaySigning instead.
+ */
 const USER_AGENT = "pi-web/atomgit";
 
 const PLATFORM_LOGIN_URL = `${ATOMGIT_PLATFORM_BASE_URL}/auth/login?provider=atomgit`;
@@ -342,50 +337,7 @@ async function fetchAtomGitModels(
   }
 }
 
-// ── Gateway request signing ───────────────────────────────────────────────────
-
-interface SignInput {
-  method: string;
-  path: string;
-  body: Buffer;
-  oauthToken: string;
-  userId: string;
-  timestampUnix: number;
-  nonce: Buffer;
-}
-
-function deriveSigningKey(oauthToken: string): Buffer {
-  // key = HMAC-SHA256("atomcode-codingplan-v1", token)
-  // signingKey = HMAC-SHA256(key, "signing-key-derivation")
-  const intermediate = createHmac("sha256", "atomcode-codingplan-v1").update(oauthToken).digest();
-  return createHmac("sha256", intermediate).update("signing-key-derivation").digest();
-}
-
-/** HMAC v1 signature headers for one request to the AtomGit LLM gateway. */
-function signRequest(input: SignInput): Record<string, string> {
-  const bodyHash = createHash("sha256").update(input.body).digest("hex");
-  const nonceHex = input.nonce.toString("hex");
-  const canonicalMessage = [
-    input.method,
-    input.path,
-    bodyHash,
-    input.oauthToken,
-    input.userId,
-    input.timestampUnix,
-    nonceHex,
-  ].join("\n");
-  const signature = createHmac("sha256", deriveSigningKey(input.oauthToken))
-    .update(canonicalMessage)
-    .digest("hex");
-  return {
-    "X-CodingPlan-Signature": signature,
-    "X-CodingPlan-Timestamp": String(input.timestampUnix),
-    "X-CodingPlan-Nonce": nonceHex,
-    "X-CodingPlan-User-Id": input.userId,
-    "X-CodingPlan-Body-Hash": bodyHash,
-    "X-CodingPlan-Algorithm": "v1",
-  };
-}
+// ── Gateway request signing (fetch boundary) ──────────────────────────────────
 
 function isGatewayUrl(input: RequestInfo | URL): boolean {
   try {
@@ -410,8 +362,8 @@ function bodyToBuffer(body: BodyInit | null | undefined): Buffer {
 let authSnapshot: { token: string; userId: string } | null = null;
 
 /**
- * Wrap a fetch so requests to the AtomGit LLM gateway carry the HMAC signature
- * headers over the exact bytes being sent. Other URLs pass through untouched.
+ * Wrap a fetch so requests to the AtomGit LLM gateway carry AtomCode v1
+ * signature headers over the exact bytes being sent. Other URLs pass through.
  */
 function withGatewaySigning(inner: typeof fetch): typeof fetch {
   return (input, init) => {
@@ -420,20 +372,21 @@ function withGatewaySigning(inner: typeof fetch): typeof fetch {
     const url = typeof input === "string" ? new URL(input) : input instanceof URL ? input : new URL(input.url);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = bodyToBuffer(init?.body);
-    const timestampUnix = Math.floor(Date.now() / 1000);
-    const nonce = randomBytes(16);
-    const headers = signRequest({
+    const headers = signAtomGitRequest({
       method,
       path: url.pathname,
       body,
       oauthToken: auth.token,
       userId: auth.userId,
-      timestampUnix,
-      nonce,
+      clientVersion: ATOMGIT_CLIENT_VERSION,
     });
     const merged = new Headers(init?.headers);
     for (const [key, value] of Object.entries(headers)) merged.set(key, value);
     merged.set("authorization", `Bearer ${auth.token}`);
+    // Gateway UA filter expects atomcode/<version>.
+    if (!merged.has("user-agent")) {
+      merged.set("user-agent", `atomcode/${ATOMGIT_CLIENT_VERSION}`);
+    }
     return inner(url, { ...init, headers: merged });
   };
 }
@@ -511,9 +464,11 @@ const atomGitOAuth: OAuthAuth = {
     authSnapshot = { token, userId };
     return {
       apiKey: token,
-      // Static userId header lets the gateway attribute requests; the body
-      // signature headers are added per request by the wrapped api streams.
-      ...(userId ? { headers: { "X-CodingPlan-User-Id": userId } } : {}),
+      headers: {
+        "user-agent": `atomcode/${ATOMGIT_CLIENT_VERSION}`,
+        // Static user id helps gateway attribution; body signature is per-request.
+        ...(userId ? { "x-atom-user-id": userId } : {}),
+      },
     };
   },
 };
