@@ -412,18 +412,29 @@ async function pollDomShellUntilReady(win, timeoutMs = 45_000) {
   }
 }
 
-/** Warm routes in the background so the first React fetch is cheaper. Never blocks boot. */
+/**
+ * Warm only cheap paths so first paint is not starved.
+ * Never warm /api/sessions here: on Windows, jiti-compiling that module can block
+ * the daemon event loop for tens of seconds and stall static JS delivery (45s UI timeout).
+ */
 function warmAppRoutes(port) {
   return Promise.all([
     probeServer(port, "/"),
     probeServer(port, "/api/home"),
-    // sessions can be slow on first import — don't let it stall reveal path
-    probeServer(port, "/api/sessions"),
   ]).then(() => {
-    console.log("[electron] Route warm complete");
+    console.log("[electron] Route warm complete (light only)");
   }).catch((err) => {
     console.warn("[electron] Route warm failed:", err?.message || err);
   });
+}
+
+/** After UI is up, optionally prime sessions in the background (may hitch once on Windows). */
+function warmHeavyRoutesLater(port) {
+  setTimeout(() => {
+    void probeServer(port, "/api/sessions").then((ok) => {
+      if (ok) console.log("[electron] Deferred sessions warm done");
+    });
+  }, 8_000);
 }
 
 function getWindowIconPath() {
@@ -927,9 +938,14 @@ async function bootstrap() {
   console.log(`[electron] Server ready on http://${HOST}:${activePort} in ${Date.now() - bootStarted}ms (runtime=${daemon ? "daemon" : "next"})`);
 
   setSplashSubtitle("Loading workspace…");
-  // Do NOT await warm — /api/sessions first import can take seconds and used to
-  // leave users staring at splash with no main window even loading.
+  // Light warm only — never await; never touch /api/sessions before first paint.
   void warmAppRoutes(activePort);
+
+  if (daemon && !hasDesktopUi()) {
+    console.warn(
+      "[electron] desktop-dist/index.html missing — run `npm run desktop:build` on this machine",
+    );
+  }
 
   const uiReady = waitForRendererUiReady(45_000);
   console.log(`[electron] Loading app UI at http://${HOST}:${activePort}`);
@@ -951,6 +967,8 @@ async function bootstrap() {
   const reason = await uiReady;
   console.log(`[electron] Renderer UI ready (${reason}) in ${Date.now() - bootStarted}ms`);
   revealMainWindow(reason);
+  // After shell is up, prime sessions off the critical path (Windows jiti can hitch once).
+  if (daemon) warmHeavyRoutesLater(activePort);
 }
 
 // Fired by AppShell after first paint — unblocks boot splash reveal.

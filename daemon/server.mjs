@@ -21,9 +21,9 @@ const require = createRequire(import.meta.url);
 
 const HOST = process.env.HOSTNAME || process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || process.env.PI_WEB_PORT || 30142);
-const desktopDist =
-  process.env.PI_WEB_DESKTOP_DIST ||
-  path.join(root, "desktop-dist");
+const desktopDist = path.resolve(
+  process.env.PI_WEB_DESKTOP_DIST || path.join(root, "desktop-dist"),
+);
 
 const bootStarted = Date.now();
 
@@ -148,6 +148,28 @@ function contentTypeFor(pathname) {
  * @param {import('node:http').ServerResponse} res
  * @param {string} pathname
  */
+/**
+ * Resolve a URL path under desktopDist without Windows path.join absolute-segment traps.
+ * @param {string} pathname
+ * @returns {string | null}
+ */
+function resolveDesktopFile(pathname) {
+  let rel = decodeURIComponent(pathname || "/");
+  if (rel === "/" || rel === "") rel = "index.html";
+  // Strip leading slashes so path.join/resolve never treats the segment as absolute.
+  rel = rel.replace(/^[/\\]+/, "");
+  const full = path.resolve(desktopDist, rel);
+  const relToRoot = path.relative(desktopDist, full);
+  if (
+    relToRoot.startsWith("..") ||
+    path.isAbsolute(relToRoot) ||
+    relToRoot.includes(`..${path.sep}`)
+  ) {
+    return null;
+  }
+  return full;
+}
+
 function serveStatic(req, res, pathname) {
   if (!fs.existsSync(desktopDist)) {
     res.writeHead(503, { "content-type": "text/html; charset=utf-8" });
@@ -160,16 +182,14 @@ function serveStatic(req, res, pathname) {
     return;
   }
 
-  let rel = decodeURIComponent(pathname);
-  if (rel === "/" || rel === "") rel = "/index.html";
-  const candidate = path.normalize(path.join(desktopDist, rel));
-  if (!candidate.startsWith(desktopDist)) {
+  let filePath = resolveDesktopFile(pathname);
+  if (!filePath) {
     res.writeHead(403).end("Forbidden");
     return;
   }
 
-  let filePath = candidate;
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    // SPA fallback
     filePath = path.join(desktopDist, "index.html");
   }
   if (!fs.existsSync(filePath)) {
@@ -312,9 +332,13 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
+  const uiOk = fs.existsSync(path.join(desktopDist, "index.html"));
   console.log(
-    `[daemon] listening on http://${HOST}:${PORT} (listen ${Date.now() - bootStarted}ms, routes=${routes.length}, runtime=daemon, no Next.js)`,
+    `[daemon] listening on http://${HOST}:${PORT} (listen ${Date.now() - bootStarted}ms, routes=${routes.length}, runtime=daemon, no Next.js, ui=${uiOk ? "desktop-dist" : "MISSING"})`,
   );
+  if (!uiOk) {
+    console.warn(`[daemon] desktop UI missing at ${desktopDist} — run npm run desktop:build`);
+  }
 });
 
 // Deferred boot — never blocks listen (mirrors instrumentation.ts intent).
