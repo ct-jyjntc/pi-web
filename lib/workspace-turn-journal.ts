@@ -401,6 +401,79 @@ export function redoWorkspaceTurn(sessionId: string): JournalApplyResult {
   return { ok: true, turn, restored, skipped };
 }
 
+export type UndoThroughLeafResult = {
+  ok: boolean;
+  error?: string;
+  /** How many sealed turns were undone. */
+  undone: number;
+  /** True when a turn with userEntryId === leafId was found (else undid all as fallback). */
+  matchedLeaf: boolean;
+  restored: string[];
+  skipped: Array<{ path: string; reason: string }>;
+};
+
+/**
+ * Undo sealed turns from newest back through the turn that started at `leafId`
+ * (userEntryId recorded at prompt start = leaf before that user message).
+ *
+ * Used by "Edit from here → edit and revert": navigate to leafId, and drop all
+ * agent file turns that happened on/after that prompt.
+ *
+ * If no turn matches leafId, falls back to undoing the entire undo stack so
+ * "revert files" still cleans agent edits when entry ids were not recorded.
+ */
+export function undoWorkspaceTurnsThroughLeaf(
+  sessionId: string,
+  leafId: string,
+): UndoThroughLeafResult {
+  if (!sessionId) {
+    return { ok: false, error: "sessionId required", undone: 0, matchedLeaf: false, restored: [], skipped: [] };
+  }
+  if (!leafId) {
+    return { ok: false, error: "leafId required", undone: 0, matchedLeaf: false, restored: [], skipped: [] };
+  }
+
+  const j = getJournal(sessionId);
+  if (j.open?.files.length) sealAgentTurn(sessionId);
+
+  const stack = j.undo;
+  let startIdx = -1;
+  for (let i = 0; i < stack.length; i++) {
+    if (stack[i]!.userEntryId === leafId) {
+      startIdx = i;
+      break;
+    }
+  }
+  const matchedLeaf = startIdx >= 0;
+  // Matched: undo from top down through startIdx inclusive → count = length - startIdx
+  // No match: undo everything (fallback)
+  const toUndo = matchedLeaf ? stack.length - startIdx : stack.length;
+  if (toUndo <= 0) {
+    return { ok: true, undone: 0, matchedLeaf, restored: [], skipped: [] };
+  }
+
+  const restored: string[] = [];
+  const skipped: Array<{ path: string; reason: string }> = [];
+  let undone = 0;
+  for (let n = 0; n < toUndo; n++) {
+    const result = undoWorkspaceTurn(sessionId);
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? "Undo failed",
+        undone,
+        matchedLeaf,
+        restored,
+        skipped: [...skipped, ...result.skipped],
+      };
+    }
+    undone += 1;
+    restored.push(...result.restored);
+    skipped.push(...result.skipped);
+  }
+  return { ok: true, undone, matchedLeaf, restored, skipped };
+}
+
 /** Test helper — drop in-memory journals and on-disk store under agent dir. */
 export function clearWorkspaceJournalsForTests(): void {
   journals.clear();

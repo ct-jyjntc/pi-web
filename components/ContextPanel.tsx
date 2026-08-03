@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AlignLeft, Check, Copy, FileText, Redo2, Square, Undo2 } from "lucide-react";
+import { AlignLeft, Check, Copy, FileText, Redo2, RefreshCw, Square, Undo2 } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import { copyText } from "@/lib/clipboard";
@@ -112,9 +112,18 @@ export function ContextPanel() {
       .catch(() => {
         if (!cancelled) setCheckpoints([]);
       });
+    // Re-fetch journal when message/tool counts change — agent turns seal after
+    // toolCalls/totalMessages update, not only when sessionId flips.
     void refreshJournal(sid);
     return () => { cancelled = true; };
-  }, [sessionStats?.sessionId, refreshJournal]);
+  }, [
+    sessionStats?.sessionId,
+    sessionStats?.toolCalls,
+    sessionStats?.toolResults,
+    sessionStats?.totalMessages,
+    sessionStats?.assistantMessages,
+    refreshJournal,
+  ]);
 
   const runJournalAction = useCallback(async (action: "undo" | "redo") => {
     const sid = sessionStats?.sessionId;
@@ -645,7 +654,7 @@ export function ContextPanel() {
                       {journal.canRedo ? ` · redo×${journal.redoCount}` : ""}
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 6 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button
                       type="button"
                       className="btn-ghost btn-compact"
@@ -665,6 +674,19 @@ export function ContextPanel() {
                     >
                       <Icon icon={Redo2} size="sm" />
                       {t("shell.redo")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-compact"
+                      disabled={journalBusy || !sessionStats?.sessionId}
+                      onClick={() => {
+                        const sid = sessionStats?.sessionId;
+                        if (sid) void refreshJournal(sid);
+                      }}
+                      title={t("shell.workspaceUndoRefresh")}
+                    >
+                      <Icon icon={RefreshCw} size="sm" />
+                      {t("shell.workspaceUndoRefresh")}
                     </button>
                   </div>
                   {journalMessage && (

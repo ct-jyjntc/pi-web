@@ -45,7 +45,20 @@ interface Props {
 
 export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, variant }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
+    return (
+      <UserMessageView
+        message={message as UserMessage}
+        cwd={cwd}
+        onOpenFile={onOpenFile}
+        entryId={entryId}
+        onFork={onFork}
+        forking={forking}
+        onNavigate={onNavigate}
+        prevAssistantEntryId={prevAssistantEntryId}
+        onEditContent={onEditContent}
+        sessionId={sessionId}
+      />
+    );
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} variant={variant} />;
