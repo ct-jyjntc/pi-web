@@ -29,6 +29,7 @@ type ScalarSettingKey =
   | "desktopNotifications"
   | "notificationSound"
   | "defaultThinkingLevel"
+  | "agentMode"
   | "showThinking"
   | "showTodos"
   | "themeMode"

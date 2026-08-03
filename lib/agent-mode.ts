@@ -1,7 +1,7 @@
 /**
  * Unified agent mode shared by the RPC wrapper (server) and the chat UI
  * (client). Combines the tool set (plan strips edit/write) with the global
- * ask/full permission into one session-level mode.
+ * ask/full permission into one global preference (persisted in pi-web.json).
  */
 export type AgentMode = "ask" | "auto" | "plan" | "yolo";
 

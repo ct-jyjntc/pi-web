@@ -12,6 +12,7 @@ import type {
   SessionTreeNode,
 } from "@/lib/types";
 import { parseAgentMode, type AgentMode } from "@/lib/agent-mode";
+import { getWebSettings, saveWebSettings, useWebSettings } from "@/lib/web-settings-store";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useLocale } from "@/hooks/useLocale";
 import { getFullToolNames } from "@/lib/tool-presets";
@@ -175,9 +176,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
-  /** opencode-style Plan/Build mode for the active session. */
-  /** Unified agent mode: ask / auto / plan / yolo for the active session. */
-  const [sessionMode, setSessionMode] = useState<AgentMode>("ask");
+  /** Global agent mode (ask/auto/plan/yolo) — shared across sessions via pi-web.json. */
+  const [sessionMode, setSessionMode] = useState<AgentMode>(() =>
+    parseAgentMode(getWebSettings()?.agentMode),
+  );
+  const globalAgentMode = useWebSettings()?.agentMode;
+
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
@@ -434,12 +438,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const realId = result.sessionId;
       sessionIdRef.current = realId;
       // Mode may have been chosen before the archive existed — apply now.
-      if (sessionMode !== "ask") {
-        try {
-          await sendAgentCommand(realId, { type: "set_mode", mode: sessionMode });
-        } catch (e) {
-          console.error("Failed to apply deferred agent mode:", e);
-        }
+      // Always re-apply: wrapper starts from disk, but the user may have toggled
+      // again while ensure_session was in flight.
+      try {
+        await sendAgentCommand(realId, { type: "set_mode", mode: sessionMode });
+      } catch (e) {
+        console.error("Failed to apply deferred agent mode:", e);
       }
       return realId;
     })();
@@ -732,7 +736,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       applyLiveAgentStateFields(state, {
         setContextUsage,
         setSystemPrompt,
-        setSessionMode,
+        // Mode is a global preference (web-settings), not per-session live state.
         setExtensionStatuses,
         setExtensionWidgets,
       });
@@ -1398,7 +1402,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setContextUsage,
             setSystemPrompt,
             setThinkingLevel,
-            setSessionMode,
+            // Mode is a global preference (web-settings), not per-session live state.
             setExtensionStatuses,
             setExtensionWidgets,
             setQueuedMessages,
@@ -1471,22 +1475,34 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setSessionStatsOverride(null);
   }, [messages.length, contextUsage?.tokens, contextUsage?.percent, contextUsage?.contextWindow]);
 
+  // Adopt global preference when the shared store hydrates or another surface updates it.
+  useEffect(() => {
+    if (globalAgentMode === undefined) return;
+    const next = parseAgentMode(globalAgentMode);
+    setSessionMode((prev) => (prev === next ? prev : next));
+  }, [globalAgentMode]);
+
   const setAgentMode = useCallback(async (mode: AgentMode) => {
+    const next = parseAgentMode(mode);
+    // Optimistic UI + shared store so other windows/new sessions see it immediately.
+    setSessionMode(next);
+    void saveWebSettings(
+      { agentMode: next },
+      { optimistic: { agentMode: next } },
+    ).catch(() => {});
+
     const sid = sessionIdRef.current;
     if (!sid) {
-      // Defer until first prompt/ensure — do not create an empty session file
-      // just because the user toggled ask/auto/plan/yolo on a blank composer.
-      setSessionMode(mode);
-      return { ok: true as const, mode };
+      // Defer server set_mode until first prompt/ensure — no empty session file.
+      // Preference is already on disk via saveWebSettings above.
+      return { ok: true as const, mode: next };
     }
     try {
-      const result = await sendAgentCommand<{ mode?: string }>(sid, { type: "set_mode", mode });
-      const next = parseAgentMode(result?.mode);
-      setSessionMode(next);
-      // No client reload: set_mode applies tools immediately; permission
-      // extension hot-reads yoloMode on the next before_agent_start.
-      // (Avoids "已重新加载会话资源" and a second recovery path.)
-      return { ok: true as const, mode: next };
+      const result = await sendAgentCommand<{ mode?: string }>(sid, { type: "set_mode", mode: next });
+      const applied = parseAgentMode(result?.mode);
+      setSessionMode(applied);
+      // set_mode also persists agentMode + yoloMode on the server.
+      return { ok: true as const, mode: applied };
     } catch (e) {
       return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
     }

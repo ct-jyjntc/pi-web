@@ -246,6 +246,13 @@ export async function PUT(req: NextRequest) {
       }
       patch.defaultThinkingLevel = v as ThinkingLevelPref;
     }
+    if ("agentMode" in body) {
+      const v = body.agentMode;
+      if (v !== "ask" && v !== "auto" && v !== "plan" && v !== "yolo") {
+        return NextResponse.json({ error: "Invalid agentMode" }, { status: 400 });
+      }
+      patch.agentMode = v;
+    }
     if ("themeMode" in body) {
       const v = body.themeMode;
       if (typeof v !== "string" || !THEME_MODES.includes(v as ThemeMode)) {
@@ -344,6 +351,16 @@ export async function PUT(req: NextRequest) {
 
     const settings = writeWebSettings(patch);
     let idleSessionsReset = 0;
+    if (patch.agentMode) {
+      // Keep permission yoloMode + live wrappers aligned when agentMode is saved
+      // without going through set_mode (e.g. blank composer before a session exists).
+      try {
+        const { syncGlobalAgentModeEffects } = await import("@/lib/global-agent-mode");
+        syncGlobalAgentModeEffects(settings.agentMode);
+      } catch (error) {
+        console.error("[pi-web] syncGlobalAgentModeEffects failed:", error);
+      }
+    }
     if (patch.leanMode) {
       try {
         const { destroyIdleRpcSessions } = await import("@/lib/rpc-manager");

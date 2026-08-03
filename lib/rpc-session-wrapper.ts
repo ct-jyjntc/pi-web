@@ -14,7 +14,7 @@ import { invalidateModelsCache } from "./models-cache";
 import { invalidateUtilityModelRuntimes } from "./utility-model";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus } from "./project-trust";
-import { getPermissionMode, setPermissionMode } from "./permission-mode";
+
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike } from "./pi-types";
 import { MEMORY_CONTEXT_CUSTOM_TYPE, type ExtensionUiRequest, type ExtensionUiResponse, type ExtensionWidgetItem } from "./types";
@@ -71,7 +71,8 @@ type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
 
-import { agentModeStripsWriteTools, agentModeWantsFullPermission, parseAgentMode, type AgentMode } from "./agent-mode";
+import { agentModeStripsWriteTools, parseAgentMode, type AgentMode } from "./agent-mode";
+import { persistGlobalAgentMode, readGlobalAgentMode } from "./global-agent-mode";
 export type { AgentMode } from "./agent-mode";
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -150,11 +151,11 @@ export class AgentSessionWrapper {
   /** Full tool allow-list as last set via set_tools (incl. extension tools). */
   private baseToolNames: string[] | null = null;
   /**
-   * Unified agent mode: ask (confirm before changes) / auto (auto-edit) /
-   * plan (read-only, plan first) / yolo (full access). Combines tool set
-   * (plan strips edit/write) with the global ask/full permission setting.
+   * Unified agent mode: ask / auto / plan / yolo. Loaded from the global
+   * preference so a new wrapper matches the last user selection.
    */
-  private mode: AgentMode = "ask";
+  private mode: AgentMode = readGlobalAgentMode();
+
 
   constructor(
     public readonly inner: AgentSessionLike,
@@ -672,25 +673,11 @@ export class AgentSessionWrapper {
       }
 
       case "set_mode": {
-        const next = parseAgentMode(command.mode);
-        this.mode = next;
-        if (this.baseToolNames) {
-          this.inner.setActiveToolsByName(this.applyModeToTools(this.baseToolNames));
-        }
-        // Sync global ask/full permission on disk. The permission-system
-        // extension re-reads yoloMode in before_agent_start (refreshConfig) —
-        // no session reload required for the next prompt. Tool allow-list is
-        // applied immediately above.
-        try {
-          const current = getPermissionMode();
-          const wantsFull = agentModeWantsFullPermission(next);
-          if (wantsFull && !current.yoloMode) setPermissionMode("full");
-          if (!wantsFull && current.yoloMode) setPermissionMode("ask");
-        } catch {
-          // ignore — permission write must never fail set_mode
-        }
-        return { mode: this.mode };
+        // Writes pi-web.json + yoloMode and applies to all live wrappers.
+        const next = persistGlobalAgentMode(parseAgentMode(command.mode));
+        return { mode: next };
       }
+
 
       case "reload": {
         await this.waitForExtensionsBound();
@@ -762,6 +749,14 @@ export class AgentSessionWrapper {
       return names.filter((name) => name !== "edit" && name !== "write");
     }
     return names;
+  }
+
+  /** Apply mode + tool filter without re-persisting (init / peer sync). */
+  applyModeLocally(mode: AgentMode): void {
+    this.mode = parseAgentMode(mode);
+    if (this.baseToolNames) {
+      this.inner.setActiveToolsByName(this.applyModeToTools(this.baseToolNames));
+    }
   }
 
   get currentMode(): AgentMode {

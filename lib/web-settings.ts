@@ -7,6 +7,8 @@ import {
   type LeanModeSettings,
 } from "./lean-mode-settings";
 import { isRecord } from "./type-guards";
+import { parseAgentMode, type AgentMode } from "./agent-mode";
+
 
 export type {
   LeanIntensity,
@@ -111,6 +113,12 @@ export type WebSettings = {
   notificationSound: boolean;
   /** Default thinking for new sessions. */
   defaultThinkingLevel: ThinkingLevelPref;
+  /**
+   * Global agent permission mode (ask/auto/plan/yolo). Shared across sessions
+   * and restored after restart; not per-session.
+   */
+  agentMode: AgentMode;
+
   /** Show thinking blocks expanded by default in the transcript. */
   showThinking: boolean;
   /** Show todo extension widgets by default (client preference). */
@@ -163,7 +171,9 @@ const DEFAULT_SETTINGS: WebSettings = {
   desktopNotifications: true,
   notificationSound: true,
   defaultThinkingLevel: "auto",
+  agentMode: "ask",
   showThinking: true,
+
   showTodos: true,
   themeMode: "system",
   uiFontSize: 14,
@@ -294,6 +304,7 @@ function normalizeWebSettings(raw: unknown): WebSettings {
     desktopNotifications: asBool(raw.desktopNotifications, DEFAULT_SETTINGS.desktopNotifications),
     notificationSound: asBool(raw.notificationSound, DEFAULT_SETTINGS.notificationSound),
     defaultThinkingLevel: asThinking(raw.defaultThinkingLevel, DEFAULT_SETTINGS.defaultThinkingLevel),
+    agentMode: parseAgentMode(raw.agentMode),
     showThinking: asBool(raw.showThinking, DEFAULT_SETTINGS.showThinking),
     showTodos: asBool(raw.showTodos, DEFAULT_SETTINGS.showTodos),
     themeMode: asThemeMode(raw.themeMode, DEFAULT_SETTINGS.themeMode),
