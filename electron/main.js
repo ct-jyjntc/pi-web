@@ -11,6 +11,32 @@ const { isTraySupported, ensureTray, destroyTray } = require("./tray");
 
 const HOST = "127.0.0.1";
 const isPackaged = app.isPackaged;
+/**
+ * Must match package.json build.appId / electron-builder Start Menu shortcut.
+ * A mismatch on Windows makes toast clicks launch a bare electron.exe
+ * (default "To run a local app…" window) and taskbar may show the stock atom icon.
+ */
+const APP_USER_MODEL_ID = "com.ct-jyjntc.pi-web";
+
+// Windows identity must be set before ready (and before any BrowserWindow / Notification).
+if (process.platform === "win32") {
+  try {
+    app.setAppUserModelId(APP_USER_MODEL_ID);
+  } catch {
+    // ignore
+  }
+}
+try {
+  app.setName("Pi Web");
+} catch {
+  // ignore
+}
+
+// One running desktop app; second launches (toast activation, shortcut double-click) focus the first.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
 
 /** Read ~/.pi/agent/pi-web.json (same file as lib/web-settings.ts). */
 function readPiWebSettingsFile() {
@@ -875,6 +901,15 @@ function createWindow(opts = {}) {
     },
   });
 
+  // Windows taskbar sometimes keeps the host exe icon until setIcon runs explicitly.
+  if (process.platform === "win32" && fs.existsSync(iconPath)) {
+    try {
+      mainWindow.setIcon(iconPath);
+    } catch {
+      // ignore
+    }
+  }
+
   mainWindow.once("ready-to-show", () => {
     // During boot the splash stays in front until AppShell notifies ui-ready.
     if (showWhenReady && mainWindow && !mainWindow.isDestroyed() && !bootRevealPending) {
@@ -1021,12 +1056,28 @@ ipcMain.handle("pi-desktop:notify", (_event, payload = {}) => {
       ? payload.title.trim()
       : "Pi Web";
     const body = typeof payload.body === "string" ? payload.body : "";
+    // Settings "probe" passes force; normal agent-end toasts skip when the user is already looking.
+    const force = payload.force === true;
+    if (!force && mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        if (mainWindow.isVisible() && mainWindow.isFocused() && !mainWindow.isMinimized()) {
+          return { ok: true, skipped: "focused" };
+        }
+      } catch {
+        // fall through and show
+      }
+    }
+    if (!force && !body.trim() && title === "Pi Web") {
+      return { ok: false, reason: "empty" };
+    }
+    const iconPath = getWindowIconPath();
     // Focus window when user clicks the notification.
     const n = new Notification({
       title,
       body,
       silent: Boolean(payload.silent),
       timeoutType: "default",
+      ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
     });
     n.on("click", () => {
       showMainWindow();
@@ -1052,11 +1103,22 @@ ipcMain.handle("pi-desktop:get-web-settings-path", () => {
   return path.join(agentDir, "pi-web.json");
 });
 
+// second-instance can fire before whenReady finishes; showMainWindow is safe either way.
+app.on("second-instance", () => {
+  showMainWindow();
+});
+
 app.whenReady().then(() => {
+  // Loser of the single-instance race must not boot another Next server / window.
+  if (!gotSingleInstanceLock) {
+    app.quit();
+    return;
+  }
+  // AUMID + name are set at process start (see APP_USER_MODEL_ID). Re-assert on ready
+  // in case a platform resets identity during startup.
   try {
-    // Helps macOS / Windows associate notifications with the app.
     if (process.platform === "win32") {
-      app.setAppUserModelId("com.pi.web");
+      app.setAppUserModelId(APP_USER_MODEL_ID);
     }
     app.setName("Pi Web");
   } catch {

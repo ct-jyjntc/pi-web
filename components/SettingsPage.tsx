@@ -639,10 +639,12 @@ export function SettingsPage({
                   const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
                   if (desktop?.isDesktop && typeof desktop.notify === "function") {
                     // Probe Electron notification path with a short sample.
+                    // force: show even while Settings is focused (normal agent-end skips focused).
                     void desktop.notify({
                       title: "Pi Web",
                       body: t("notify.taskComplete"),
                       silent: !prefs.notificationSound,
+                      force: true,
                     });
                   } else if (typeof Notification !== "undefined") {
                     if (Notification.permission === "default") {
