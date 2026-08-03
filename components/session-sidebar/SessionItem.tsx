@@ -1,19 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, memo } from "react";
+/**
+ * One session row in the sidebar list — click to open, ⋮ / right-click for actions.
+ */
+import { useCallback, useRef, useState, memo } from "react";
 import {
   ChevronDown,
   EllipsisVertical,
   GitBranch,
-  Loader2,
-  Pencil,
-  Sparkles,
-  Trash2,
 } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
+import { copyText } from "@/lib/clipboard";
 import { useLocale } from "@/hooks/useLocale";
 import { Icon } from "../Icon";
 import { RunningSessionIndicator, UnreadSessionIndicator } from "./SessionIndicators";
+import { SessionItemMenu, type SessionMenuAction } from "./SessionItemMenu";
 
 export const SessionItem = memo(function SessionItem({
   session,
@@ -50,7 +51,6 @@ export const SessionItem = memo(function SessionItem({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
   const canGenerateTitle = session.messageCount > 0;
@@ -110,48 +110,69 @@ export const SessionItem = memo(function SessionItem({
     }
   }, [canGenerateTitle, naming, session.id, onRenamed]);
 
-  const openMenu = useCallback((e: React.MouseEvent) => {
+  const openMenuAt = useCallback((top: number, left: number) => {
+    setMenuPos({ top, left });
+    setMenuOpen(true);
+  }, []);
+
+  const openMenuFromButton = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    if (menuOpen) {
+      setMenuOpen(false);
+      return;
+    }
     const btn = menuBtnRef.current;
     if (!btn) {
-      setMenuOpen((v) => !v);
+      openMenuAt(e.clientY, e.clientX);
       return;
     }
     const rect = btn.getBoundingClientRect();
-    // Open to the right of the ⋯ button (more natural for a trailing control).
-    const width = 168;
-    const height = 120;
+    const width = 196;
     let left = rect.right + 4;
     if (left + width > window.innerWidth - 8) {
-      // Not enough room on the right — flip to the left of the button.
       left = Math.max(8, rect.left - width - 4);
     }
-    let top = rect.top;
-    if (top + height > window.innerHeight - 8) {
-      top = Math.max(8, window.innerHeight - height - 8);
-    }
-    setMenuPos({ top, left });
-    setMenuOpen((v) => !v);
-  }, []);
+    openMenuAt(rect.top, left);
+  }, [menuOpen, openMenuAt]);
 
-  // Close the ⋯ menu on outside click / Escape.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (menuRef.current?.contains(target) || menuBtnRef.current?.contains(target)) return;
-      setMenuOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen]);
+  const openMenuFromContext = useCallback((e: React.MouseEvent) => {
+    // Don't steal browser menu from interactive controls inside the row.
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button, input, a, [role='menuitem']")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openMenuAt(e.clientY, e.clientX);
+  }, [openMenuAt]);
+
+  const handleMenuAction = useCallback((id: SessionMenuAction) => {
+    switch (id) {
+      case "rename":
+        startRename();
+        break;
+      case "generateTitle":
+        void handleGenerateTitle();
+        break;
+      case "copyTitle":
+        setMenuOpen(false);
+        void copyText(title);
+        break;
+      case "copyId":
+        setMenuOpen(false);
+        void copyText(session.id);
+        break;
+      case "copyPath":
+        setMenuOpen(false);
+        void copyText(session.path);
+        break;
+      case "copyCwd":
+        setMenuOpen(false);
+        void copyText(session.cwd);
+        break;
+      case "delete":
+        void performDelete();
+        break;
+    }
+  }, [startRename, handleGenerateTitle, title, session.id, session.path, session.cwd, performDelete]);
 
   // Fixed-height single-line row — content swaps in place so the list never reflows
   const ITEM_HEIGHT = 32;
@@ -160,8 +181,9 @@ export const SessionItem = memo(function SessionItem({
 
   return (
     <div
-      className={`sidebar-session-item${isSelected ? " is-active" : ""}${hovered ? " is-hover" : ""}`}
+      className={`sidebar-session-item${isSelected ? " is-active" : ""}${hovered || menuOpen ? " is-hover" : ""}`}
       onClick={renaming ? undefined : onClick}
+      onContextMenu={renaming ? undefined : openMenuFromContext}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
@@ -171,7 +193,7 @@ export const SessionItem = memo(function SessionItem({
         paddingLeft: padLeft,
         paddingRight: 6,
         cursor: renaming ? "default" : "pointer",
-        background: isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
+        background: isSelected ? "var(--bg-selected)" : (hovered || menuOpen) ? "var(--bg-hover)" : "transparent",
         transition: "background 0.1s, color 0.1s",
         opacity: deleting ? 0.5 : 1,
         gap: 6,
@@ -179,15 +201,14 @@ export const SessionItem = memo(function SessionItem({
       }}
     >
       {renaming ? (
-        /* ── Rename: input fills the same row ── */
         <input
           ref={inputRef}
           className="input-base"
           value={renameValue}
           onChange={(e) => setRenameValue(e.target.value)}
-          onBlur={commitRename}
+          onBlur={() => { void commitRename(); }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commitRename();
+            if (e.key === "Enter") void commitRename();
             if (e.key === "Escape") setRenaming(false);
           }}
           autoFocus
@@ -200,9 +221,7 @@ export const SessionItem = memo(function SessionItem({
           }}
         />
       ) : (
-        /* ── Normal view: single-line title row ── */
         <>
-          {/* Fork indicator for child sessions */}
           {depth > 0 && (
             <Icon icon={GitBranch} size={10} strokeWidth={1.8} style={{ color: "var(--text-dim)", flexShrink: 0 }} />
           )}
@@ -249,7 +268,6 @@ export const SessionItem = memo(function SessionItem({
             )}
           </div>
 
-          {/* Collapse toggle — always visible when has children */}
           {hasChildren && (
             <button
               className="icon-btn"
@@ -265,14 +283,13 @@ export const SessionItem = memo(function SessionItem({
             </button>
           )}
 
-          {/* ⋮ icon-only menu — rename / generate title / delete */}
           {(hovered || menuOpen) && (
-            <div style={{ display: "flex", alignItems: "center", flexShrink: 0, position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
               <button
                 ref={menuBtnRef}
                 type="button"
                 className="icon-btn"
-                onClick={openMenu}
+                onClick={openMenuFromButton}
                 title={t("sidebar.moreActions")}
                 aria-label={t("sidebar.moreActions")}
                 aria-haspopup="menu"
@@ -287,66 +304,21 @@ export const SessionItem = memo(function SessionItem({
               >
                 <Icon icon={EllipsisVertical} size={14} strokeWidth={2} />
               </button>
-              {menuOpen && menuPos && (
-                <div
-                  ref={menuRef}
-                  className="menu-card"
-                  role="menu"
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    position: "fixed",
-                    top: menuPos.top,
-                    left: menuPos.left,
-                    width: 168,
-                    zIndex: 80,
-                    padding: 4,
-                  }}
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="sidebar-menu-item"
-                    onClick={startRename}
-                  >
-                    <Icon icon={Pencil} size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-                    {t("common.rename")}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="sidebar-menu-item"
-                    disabled={!canGenerateTitle || naming}
-                    onClick={() => void handleGenerateTitle()}
-                    title={
-                      !canGenerateTitle
-                        ? t("shell.titleNeedMessage")
-                        : t("shell.titleGenerate")
-                    }
-                  >
-                    {naming ? (
-                      <Icon icon={Loader2} size={13} strokeWidth={2} className="animate-spin" style={{ flexShrink: 0 }} />
-                    ) : (
-                      <Icon icon={Sparkles} size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-                    )}
-                    {naming ? t("shell.generating") : t("shell.generateTitle")}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="sidebar-menu-item"
-                    onClick={() => void performDelete()}
-                    style={{ color: "var(--destructive)" }}
-                  >
-                    <Icon icon={Trash2} size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-                    {t("common.delete")}
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </>
       )}
+
+      {menuOpen && menuPos && !renaming && (
+        <SessionItemMenu
+          x={menuPos.left}
+          y={menuPos.top}
+          canGenerateTitle={canGenerateTitle}
+          naming={naming}
+          onAction={handleMenuAction}
+          onClose={() => setMenuOpen(false)}
+        />
+      )}
     </div>
   );
 });
-

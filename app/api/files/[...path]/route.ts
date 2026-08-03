@@ -37,6 +37,7 @@ import {
 } from "@/lib/file-upload";
 import { isIgnoredDirentName } from "@/lib/file-ignore";
 import { formatFileWithProjectFormatter } from "@/lib/format-file";
+import { tryHandleFileOp } from "@/lib/file-ops-handler";
 const textEncoder = new TextEncoder();
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
@@ -130,6 +131,11 @@ export async function POST(
     const { path: segments } = await params;
     const filePath = filePathFromSegments(segments);
     const type = request.nextUrl.searchParams.get("type") ?? "upload";
+
+    // Explorer mutations (mkdir/create/rename/delete/copy/move) — single owner
+    // in lib/file-ops-handler.ts. Returns null for non-mutation types.
+    const fileOpResponse = await tryHandleFileOp(request, filePath, type);
+    if (fileOpResponse) return fileOpResponse;
 
     // Save a text file (Monaco editor). Shares the GET allow-list so only
     // browsable project files can be written, with a realpath check so a

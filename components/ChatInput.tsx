@@ -40,6 +40,7 @@ import { ChatInputModelMenu } from "./chat-input/ChatInputModelMenu";
 import { ComposerAutocompleteMenus } from "./chat-input/ComposerAutocompleteMenus";
 import { ChatInputThinkingMenu } from "./chat-input/ChatInputThinkingMenu";
 import { ChatInputModeMenu, agentModeIcon, AGENT_MODE_KEYS } from "./chat-input/ChatInputModeMenu";
+import { ComposerContextMenu } from "./chat-input/ComposerContextMenu";
 import {
   BUILTIN_SLASH_COMMANDS,
   COMPOSITION_END_ENTER_GRACE_MS,
@@ -159,6 +160,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [atActiveIndex, setAtActiveIndex] = useState(0);
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
+  const [composerMenu, setComposerMenu] = useState<{ x: number; y: number } | null>(null);
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
@@ -1187,6 +1189,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }}
             onInput={handleInput}
             onPaste={handlePaste}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setHistoryMenuOpen(false);
+              setComposerMenu({ x: e.clientX, y: e.clientY });
+            }}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
                 ? t("chat.placeholderQueue")
@@ -1216,6 +1223,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               overflowY: "auto",
             }}
           />
+          {composerMenu && (
+            <ComposerContextMenu
+              x={composerMenu.x}
+              y={composerMenu.y}
+              textarea={textareaRef.current}
+              value={value}
+              setValue={setValue}
+              onAfterEdit={(next, cursor) => {
+                setHistoryMenuOpen(false);
+                updateAtQuery(next, cursor);
+              }}
+              onClose={() => setComposerMenu(null)}
+            />
+          )}
 
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
             {/* Context ring — opens right-panel Context workspace */}
