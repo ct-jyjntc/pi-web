@@ -20,6 +20,10 @@ import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, relative, resolve } from "path";
 import { checkSourceSyntax, formatSyntaxGuardFailure } from "./edit-syntax-guard";
+import {
+  getHashlineSnapshot,
+  recordHashlineSnapshot,
+} from "./hashline-snapshots";
 
 export type HashlineHunk = {
   /** Optional explicit hash of the old block (sha1 first 12 hex of normalized oldText). */
@@ -662,8 +666,140 @@ function applyOpsToLines(lines: string[], ops: PatchOp[]): string[] {
   return next;
 }
 
+/** Split normalized LF text into editor lines (drop trailing empty from final newline). */
+export function splitNumberedLines(lf: string): { numbered: string[]; hadTrailingNl: boolean } {
+  const lines = lf.length === 0 ? [] : lf.split("\n");
+  const hadTrailingNl = lf.endsWith("\n");
+  const numbered =
+    hadTrailingNl && lines.length > 0 && lines[lines.length - 1] === ""
+      ? lines.slice(0, -1)
+      : lines;
+  return { numbered, hadTrailingNl };
+}
+
+/** First unique 0-based start of needle in haystack, or null if missing/ambiguous. */
+function findUniqueBlock(haystack: string[], needle: string[]): number | null {
+  if (needle.length === 0 || needle.length > haystack.length) return null;
+  let found: number | null = null;
+  const first = needle[0]!;
+  const max = haystack.length - needle.length;
+  for (let i = 0; i <= max; i++) {
+    if (haystack[i] !== first) continue;
+    let ok = true;
+    for (let j = 1; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    if (found !== null) return null;
+    found = i;
+  }
+  return found;
+}
+
+function findUniqueLineIndexes(haystack: string[], line: string): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < haystack.length; i++) {
+    if (haystack[i] === line) out.push(i);
+  }
+  return out;
+}
+
+/**
+ * Remap concrete ops from a tagged snapshot onto live lines by unique content
+ * anchors (Hermes-style). Returns null when any anchor is missing/ambiguous.
+ */
+export function remapOpsFromSnapshot(
+  snapshotLines: string[],
+  liveLines: string[],
+  ops: PatchOp[],
+): { ops: PatchOp[]; notes: string[] } | null {
+  const { concrete } = materializeOps(snapshotLines, ops);
+  const remapped: PatchOp[] = [];
+  const notes: string[] = [];
+
+  for (const op of concrete) {
+    if (op.kind === "rem") {
+      remapped.push(op);
+      continue;
+    }
+    if (op.kind === "mv" || op.kind === "swap_blk" || op.kind === "del_blk" || op.kind === "ins_blk_post") {
+      continue;
+    }
+    if (op.kind === "swap" || op.kind === "del") {
+      if (op.start < 1 || op.end > snapshotLines.length || op.end < op.start) return null;
+      const block = snapshotLines.slice(op.start - 1, op.end);
+      const idx = findUniqueBlock(liveLines, block);
+      if (idx === null) return null;
+      const newStart = idx + 1;
+      const newEnd = idx + block.length;
+      if (op.kind === "swap") {
+        remapped.push({ kind: "swap", start: newStart, end: newEnd, body: op.body });
+      } else {
+        remapped.push({ kind: "del", start: newStart, end: newEnd });
+      }
+      if (newStart !== op.start || newEnd !== op.end) {
+        notes.push(`Remapped ${op.kind.toUpperCase()} ${op.start}.=${op.end} → ${newStart}.=${newEnd}`);
+      }
+      continue;
+    }
+    if (op.kind === "ins") {
+      if (op.at === "head" || op.at === "tail") {
+        remapped.push(op);
+        continue;
+      }
+      const line = op.line ?? 1;
+      if (line < 1 || line > snapshotLines.length) return null;
+      const anchor = snapshotLines[line - 1]!;
+      const matches = findUniqueLineIndexes(liveLines, anchor);
+      let mappedLine: number | null = null;
+      if (matches.length === 1) {
+        mappedLine = matches[0]! + 1;
+      } else {
+        const ctxStart = Math.max(0, line - 2);
+        const ctxEnd = Math.min(snapshotLines.length, line + 1);
+        const ctx = snapshotLines.slice(ctxStart, ctxEnd);
+        const idx = findUniqueBlock(liveLines, ctx);
+        if (idx === null) return null;
+        mappedLine = idx + (line - 1 - ctxStart) + 1;
+      }
+      remapped.push({ ...op, line: mappedLine });
+      if (mappedLine !== line) {
+        notes.push(`Remapped INS.${op.at.toUpperCase()} ${line} → ${mappedLine}`);
+      }
+    }
+  }
+
+  notes.unshift(
+    "Recovered from stale tag via snapshot content anchors (prior read/edit advanced the file).",
+  );
+  return { ops: remapped, notes };
+}
+
+function formatStaleTagError(
+  pathLabel: string,
+  sectionTag: string,
+  liveTag: string,
+  rel: string,
+  numbered: string[],
+): string {
+  const preview = numbered
+    .slice(0, 12)
+    .map((l, idx) => `${idx + 1}:${l}`)
+    .join("\n");
+  return (
+    `Stale or wrong tag for ${pathLabel}: patch has #${sectionTag}, file is #${liveTag}.\n` +
+    `Re-read the file and use the fresh tag.\n` +
+    `Current head:\n[${rel}#${liveTag}]\n` +
+    `${preview}${numbered.length > 12 ? "\n…" : ""}`
+  );
+}
+
 /**
  * Apply a full hashline patch language string. Validates file tags against on-disk content.
+ * On stale tags, recovers via recorded read/edit snapshots when anchors still match uniquely.
  */
 export function applyHashlinePatch(cwd: string, input: string): HashlineResult[] {
   const { sections, warnings } = parseHashlinePatch(input);
@@ -693,35 +829,54 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
 
     const original = readFileSync(abs, "utf8");
     const lf = normalize(original);
-    // Keep trailing empty line behavior: split like most editors
-    const lines = lf.length === 0 ? [] : lf.split("\n");
-    // If file ends with newline, last split element is ""; keep it as a blank line only if
-    // there was content — actually split("a\n") => ["a", ""] which is wrong for line counts.
-    // Use: lines without final empty from trailing newline for numbering, re-add on write.
-    const hadTrailingNl = lf.endsWith("\n");
-    const numbered = hadTrailingNl && lines.length > 0 && lines[lines.length - 1] === ""
-      ? lines.slice(0, -1)
-      : lines;
+    const { numbered, hadTrailingNl } = splitNumberedLines(lf);
 
     const liveTag = computeFileTag(lf);
-    if (section.tag !== liveTag) {
-      const preview = numbered
-        .slice(0, 12)
-        .map((l, idx) => `${idx + 1}:${l}`)
-        .join("\n");
-      throw new Error(
-        `Stale or wrong tag for ${section.path}: patch has #${section.tag}, file is #${liveTag}.\n` +
-          `Re-read the file and use the fresh tag.\n` +
-          `Current head:\n[${displayPath(cwd, abs)}#${liveTag}]\n${preview}${numbered.length > 12 ? "\n…" : ""}`,
-      );
-    }
+    // Always retain the live view so a concurrent sibling edit can recover.
+    recordHashlineSnapshot(abs, lf, liveTag);
 
     const contentOps = section.ops.filter((o) => o.kind !== "mv");
-    const { concrete, resolved } = materializeOps(numbered, contentOps);
+    let concrete: PatchOp[];
+    let resolved: string[] = [];
+    let recoveryNotes: string[] = [];
+
+    if (section.tag === liveTag) {
+      const materialized = materializeOps(numbered, contentOps);
+      concrete = materialized.concrete;
+      resolved = materialized.resolved;
+    } else {
+      // Head/tail inserts are content-independent — apply despite drift.
+      const onlyHeadTail = contentOps.every(
+        (o) => o.kind === "ins" && (o.at === "head" || o.at === "tail"),
+      );
+      if (onlyHeadTail) {
+        const materialized = materializeOps(numbered, contentOps);
+        concrete = materialized.concrete;
+        resolved = materialized.resolved;
+        recoveryNotes = [
+          "Applied INS.HEAD/INS.TAIL despite stale tag (position is content-independent).",
+        ];
+      } else {
+        const snapText = getHashlineSnapshot(abs, section.tag);
+        if (!snapText) {
+          throw new Error(formatStaleTagError(section.path, section.tag, liveTag, displayPath(cwd, abs), numbered));
+        }
+        const snapLines = splitNumberedLines(normalize(snapText)).numbered;
+        const remapped = remapOpsFromSnapshot(snapLines, numbered, contentOps);
+        if (!remapped) {
+          throw new Error(
+            formatStaleTagError(section.path, section.tag, liveTag, displayPath(cwd, abs), numbered) +
+              `\nSnapshot for #${section.tag} was found but anchors could not be remapped uniquely — re-read and retry.`,
+          );
+        }
+        concrete = remapped.ops;
+        recoveryNotes = remapped.notes;
+      }
+    }
+
     const nextLines = concrete.length ? applyOpsToLines(numbered, concrete) : numbered;
     let nextLf = nextLines.join("\n");
     if (hadTrailingNl || nextLines.length > 0) {
-      // Prefer trailing newline for text files
       if (!nextLf.endsWith("\n") && nextLines.length > 0) nextLf += "\n";
     }
 
@@ -743,10 +898,19 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
     }
 
     const newTag = computeFileTag(nextLf);
+    // Retain both pre- and post-edit tags for the next parallel call.
+    recordHashlineSnapshot(abs, lf, liveTag);
+    recordHashlineSnapshot(outAbs, nextLf, newTag);
+
     const rel = displayPath(cwd, outAbs);
-    const diff = buildUnifiedDiff(rel, lf.endsWith("\n") ? lf : `${lf}\n`, nextLf.endsWith("\n") ? nextLf : `${nextLf}\n`);
+    const diff = buildUnifiedDiff(
+      rel,
+      lf.endsWith("\n") ? lf : `${lf}\n`,
+      nextLf.endsWith("\n") ? nextLf : `${nextLf}\n`,
+    );
     const largeFileWarning = largeFileEditWarning(rel, nextLf);
     const notes = [
+      ...recoveryNotes,
       ...resolved,
       ...(warnings.length ? [`Warnings: ${warnings.join("; ")}`] : []),
       ...(largeFileWarning ? [largeFileWarning] : []),
@@ -764,9 +928,7 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
       summary:
         `Edited ${rel} (${concrete.length} op(s)) #${section.tag} → #${newTag}` +
         (mvOp ? ` (moved from ${displayPath(cwd, abs)})` : "") +
-        (resolved.length ? `\n${resolved.join("\n")}` : "") +
-        (warnings.length ? `\nWarnings: ${warnings.join("; ")}` : "") +
-        (largeFileWarning ? `\n${largeFileWarning}` : ""),
+        (notes.length ? `\n${notes.join("\n")}` : ""),
     });
   }
 
@@ -790,4 +952,3 @@ export function isClassicEditArgs(args: Record<string, unknown>): boolean {
 export function isHashlineHunkArgs(args: Record<string, unknown>): boolean {
   return typeof args.path === "string" && Array.isArray(args.hunks) && args.hunks.length > 0;
 }
-

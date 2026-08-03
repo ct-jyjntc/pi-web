@@ -2,9 +2,16 @@
  * Single owner for post-edit parse checks on JS/TS sources.
  * Cheap syntax only (not full tsc typecheck). Hashline/edit call this
  * before treating a write as success so "applied" never means "unparsable".
+ *
+ * Invariant: only hard-reject when a real parser (typescript) confirms the
+ * source is unparsable. Heuristic bracket balancing is not a second recovery
+ * path — it false-positives on regex character classes and nested templates
+ * (e.g. `/^[}\\])]/` and `` `${start}.=${end}:)` ``) and blocked valid edits.
  */
+import { existsSync } from "fs";
 import { createRequire } from "module";
-import { extname, join } from "path";
+import { dirname, extname, join } from "path";
+import { fileURLToPath } from "url";
 
 const GUARDED_EXTS = new Set([
   ".ts",
@@ -51,34 +58,98 @@ type TypescriptModule = {
   flattenDiagnosticMessageText: (message: unknown, newLine: string) => string;
 };
 
-const tsCache = new Map<string, TypescriptModule | null>();
+/** Process-wide cache: one successful load is enough for the whole agent runtime. */
+let cachedTypescript: TypescriptModule | null | undefined;
 
-function loadTypescript(cwd: string): TypescriptModule | null {
-  const key = cwd || process.cwd();
-  if (tsCache.has(key)) return tsCache.get(key) ?? null;
+function tryLoadFromPackageRoot(root: string): TypescriptModule | null {
+  const pkgJson = join(root, "package.json");
+  if (!existsSync(pkgJson)) return null;
+  try {
+    const requireFrom = createRequire(pkgJson);
+    const ts = requireFrom(".") as TypescriptModule;
+    if (ts && typeof ts.createSourceFile === "function") return ts;
+  } catch {
+    // try named export path
+  }
+  try {
+    const requireFrom = createRequire(pkgJson);
+    const ts = requireFrom("typescript") as TypescriptModule;
+    if (ts && typeof ts.createSourceFile === "function") return ts;
+  } catch {
+    // not here
+  }
+  return null;
+}
 
-  const bases = [key, process.cwd()].filter(Boolean);
-  for (const base of bases) {
-    try {
-      const requireFrom = createRequire(join(base, "package.json"));
-      const ts = requireFrom("typescript") as TypescriptModule;
-      tsCache.set(key, ts);
+/**
+ * Resolve the typescript package once. Prefer the app-installed copy (from this
+ * module / cwd) so Next/Electron agent processes do not depend on the session
+ * cwd having its own node_modules/typescript.
+ */
+export function loadTypescript(): TypescriptModule | null {
+  if (cachedTypescript !== undefined) return cachedTypescript;
+
+  // 1) Same resolution graph as this file (pi-web's dependency).
+  try {
+    const requireFromHere = createRequire(import.meta.url);
+    const ts = requireFromHere("typescript") as TypescriptModule;
+    if (ts && typeof ts.createSourceFile === "function") {
+      cachedTypescript = ts;
       return ts;
-    } catch {
-      // try next
     }
-    try {
-      const requireFrom = createRequire(join(base, "node_modules", "typescript", "package.json"));
-      const ts = requireFrom(".") as TypescriptModule;
-      tsCache.set(key, ts);
-      return ts;
-    } catch {
-      // try next
-    }
+  } catch {
+    // walk filesystem next
   }
 
-  tsCache.set(key, null);
+  // 2) Walk up from this module looking for node_modules/typescript.
+  try {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    for (let i = 0; i < 12; i++) {
+      const loaded = tryLoadFromPackageRoot(join(dir, "node_modules", "typescript"));
+      if (loaded) {
+        cachedTypescript = loaded;
+        return loaded;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // import.meta.url may be unavailable in some bundles — fall through
+  }
+
+  // 3) process.cwd() project install.
+  const fromCwd = tryLoadFromPackageRoot(join(process.cwd(), "node_modules", "typescript"));
+  if (fromCwd) {
+    cachedTypescript = fromCwd;
+    return fromCwd;
+  }
+  try {
+    const requireFromCwd = createRequire(join(process.cwd(), "package.json"));
+    const ts = requireFromCwd("typescript") as TypescriptModule;
+    if (ts && typeof ts.createSourceFile === "function") {
+      cachedTypescript = ts;
+      return ts;
+    }
+  } catch {
+    // give up
+  }
+
+  cachedTypescript = null;
   return null;
+}
+
+/** Test helper — drop the process-wide typescript cache. */
+export function clearTypescriptCache(): void {
+  cachedTypescript = undefined;
+}
+
+/**
+ * Test helper — force the cached loader result (including `null` fail-open).
+ * Production code must not call this.
+ */
+export function setTypescriptForTests(ts: TypescriptModule | null | undefined): void {
+  cachedTypescript = ts;
 }
 
 export function isSyntaxGuardedPath(filePath: string): boolean {
@@ -91,111 +162,6 @@ function scriptKindFor(ts: TypescriptModule, filePath: string): number {
   if (ext === ".jsx") return ts.ScriptKind.JSX;
   if (ext === ".js" || ext === ".mjs" || ext === ".cjs") return ts.ScriptKind.JS;
   return ts.ScriptKind.TS;
-}
-
-/**
- * Strip strings/comments roughly so a brace balancer is not fooled by `{` in strings.
- * Not a full lexer — only used when typescript is unavailable.
- */
-function stripNoise(content: string): string {
-  let out = "";
-  let i = 0;
-  while (i < content.length) {
-    const c = content[i]!;
-    const n = content[i + 1];
-    if (c === "/" && n === "/") {
-      i += 2;
-      while (i < content.length && content[i] !== "\n") i++;
-      continue;
-    }
-    if (c === "/" && n === "*") {
-      i += 2;
-      while (i < content.length && !(content[i] === "*" && content[i + 1] === "/")) i++;
-      i += 2;
-      continue;
-    }
-    if (c === "'" || c === "\"" || c === "`") {
-      const q = c;
-      out += " ";
-      i++;
-      while (i < content.length) {
-        if (content[i] === "\\") {
-          i += 2;
-          continue;
-        }
-        if (content[i] === q) {
-          i++;
-          break;
-        }
-        if (q === "`" && content[i] === "$" && content[i + 1] === "{") {
-          // template expression — keep braces for balance by emitting placeholder
-          out += " ";
-          i += 2;
-          let depth = 1;
-          while (i < content.length && depth > 0) {
-            if (content[i] === "{") depth++;
-            else if (content[i] === "}") depth--;
-            i++;
-          }
-          continue;
-        }
-        i++;
-      }
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
-
-function checkBracketBalance(content: string): SyntaxCheckResult {
-  const cleaned = stripNoise(content);
-  const stack: Array<{ ch: string; line: number; column: number }> = [];
-  const pairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
-  let line = 1;
-  let column = 0;
-  for (let i = 0; i < cleaned.length; i++) {
-    const ch = cleaned[i]!;
-    if (ch === "\n") {
-      line++;
-      column = 0;
-      continue;
-    }
-    column++;
-    if (ch === "(" || ch === "[" || ch === "{") {
-      stack.push({ ch, line, column });
-      continue;
-    }
-    if (ch === ")" || ch === "]" || ch === "}") {
-      const want = pairs[ch]!;
-      const top = stack.pop();
-      if (!top || top.ch !== want) {
-        return {
-          ok: false,
-          errors: [{
-            line,
-            column,
-            message: top
-              ? `Unmatched '${ch}' (opened '${top.ch}' at ${top.line}:${top.column})`
-              : `Unmatched '${ch}'`,
-          }],
-        };
-      }
-    }
-  }
-  if (stack.length) {
-    const top = stack[stack.length - 1]!;
-    return {
-      ok: false,
-      errors: [{
-        line: top.line,
-        column: top.column,
-        message: `Unclosed '${top.ch}'`,
-      }],
-    };
-  }
-  return { ok: true };
 }
 
 function checkWithTypescript(
@@ -227,17 +193,22 @@ function checkWithTypescript(
 /**
  * @param filePath absolute or relative path (extension decides language)
  * @param content full file text after the proposed edit
- * @param cwd project root used to resolve local `typescript`
+ * @param _cwd kept for call-site compatibility; typescript is resolved from the app install
  */
 export function checkSourceSyntax(
   filePath: string,
   content: string,
-  cwd: string = process.cwd(),
+  _cwd: string = process.cwd(),
 ): SyntaxCheckResult {
   if (!isSyntaxGuardedPath(filePath)) return { ok: true };
-  const ts = loadTypescript(cwd);
-  if (ts) return checkWithTypescript(ts, filePath, content);
-  return checkBracketBalance(content);
+  const ts = loadTypescript();
+  if (!ts) {
+    // Fail open: without a real parser we must not block edits. The old
+    // bracket-balance fallback false-rejected valid files (regex classes,
+    // nested template literals) and is intentionally not used as a hard gate.
+    return { ok: true };
+  }
+  return checkWithTypescript(ts, filePath, content);
 }
 
 export function formatSyntaxGuardFailure(

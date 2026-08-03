@@ -91,21 +91,21 @@ export const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boo
   "grok":                   { Icon: GrokIcon,             hasColor: false },
 };
 
-/** Remote provider marks supplied by providers without a stable bundled icon. */
+/** Local static brand marks for providers without a lobehub icon (or that need a specific raster mark). */
 export const PROVIDER_ICON_URLS: Record<string, string | ProviderRemoteIcon> = {
   [TOKENRHYTHM_PROVIDER_ID]: TOKENRHYTHM_ICON_URL,
   [ATOMGIT_PROVIDER_ID]: { url: ATOMGIT_ICON_URL, paint: "image" },
-  // Color CDN marks — must use image paint (mask turns opaque PNGs into gray squares).
+  // Official Qwen/DashScope color mark — image paint (mask turns opaque PNGs into gray squares).
   qwen: {
-    url: "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+    url: "/providers/qwen.png",
     paint: "image",
   },
   "qwen-token-plan": {
-    url: "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+    url: "/providers/qwen.png",
     paint: "image",
   },
   "qwen-token-plan-cn": {
-    url: "https://img.alicdn.com/imgextra/i1/O1CN01OwlzsC1cRTnZrFfXa_!!6000000003597-2-tps-150-150.png",
+    url: "/providers/qwen.png",
     paint: "image",
   },
   // Opaque android-chrome PNG was masking to a solid square; use local mono mark.
@@ -216,4 +216,3 @@ export function ProviderIcon({ id, size, iconUrl }: { id: string; size: number; 
 }
 
 // ── Add provider picker ───────────────────────────────────────────────────────
-

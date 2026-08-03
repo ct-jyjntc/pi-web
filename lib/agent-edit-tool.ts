@@ -36,6 +36,10 @@ import {
   largeFileEditWarning,
   type HashlineHunk,
 } from "./hashline-edit";
+import {
+  canonicalHashlinePath,
+  withHashlinePathLock,
+} from "./hashline-snapshots";
 type EditToolDefinitionLike = {
   name: string;
   label?: string;
@@ -162,7 +166,7 @@ const HASHLINE_GUIDELINES = [
   "Body rows under SWAP/INS MUST start with '+'. Bare code lines are rejected (not ops).",
   "N.=M means inclusive start..end line numbers from the read output (e.g. lines 10-12 → SWAP 10.=12:). M is NOT a line count.",
   "Line numbers refer to the ORIGINAL file snapshot for that tag; do not renumber mid-patch.",
-  "On stale-tag rejection: STOP and re-read that path before further edits. Do not chain edits on a path with a stale TAG.",
+  "On stale-tag rejection: prefer re-read. Parallel same-file edits often auto-recover via snapshot anchors when the target block is still unique; if recovery fails, re-read and retry.",
   "JS/TS edits that would leave unparsable source are rejected and not written — fix the patch, do not paper over with another file.",
   "Keep one file green: after a syntax rejection, re-read and repair that file before editing others.",
   "On already-large files (~800+ lines), extract a module first; prefer small single-hunk patches over multi-range rewrites of hot files.",
@@ -219,25 +223,53 @@ export function createPiWebEditToolDefinition(
     },
     execute: async (toolCallId, args, signal, onUpdate, ctx) => {
       try {
-        // Best-effort post-edit formatting (opencode parity): agent edits land
-        // formatted. Fire-and-forget so a slow formatter never blocks the turn;
-        // the file watcher reflects the change in the UI.
-        const formatEditedFiles = (paths: Array<string | undefined>) => {
+        // Await formatting so the returned #TAG matches on-disk content after prettier/biome.
+        const formatEditedFiles = async (paths: Array<string | undefined>) => {
           for (const p of paths) {
             if (!p) continue;
             const abs = isAbsolute(p) ? p : resolve(cwd, p);
-            void formatFileOnDisk(cwd, abs).catch(() => {});
+            try {
+              await formatFileOnDisk(cwd, abs);
+            } catch {
+              // best-effort
+            }
           }
         };
+
+        // Collect absolute paths from a hashline input for per-path serialization.
+        const hashlinePaths = (input: string): string[] => {
+          const paths: string[] = [];
+          const seen = new Set<string>();
+          for (const m of input.matchAll(/^\[(.+?)#[0-9A-Fa-f]{4}\]/gm)) {
+            const abs = canonicalHashlinePath(cwd, m[1]!.trim());
+            if (!seen.has(abs)) {
+              seen.add(abs);
+              paths.push(abs);
+            }
+          }
+          return paths;
+        };
+
+        const withPathsLocked = async <T,>(paths: string[], fn: () => Promise<T> | T): Promise<T> => {
+          const unique = [...new Set(paths)].sort();
+          let i = 0;
+          const run = async (): Promise<T> => {
+            if (i >= unique.length) return await fn();
+            const p = unique[i++]!;
+            return withHashlinePathLock(p, run);
+          };
+          return run();
+        };
+
         // 1) Preferred: hashline patch language
         if (isHashlineInputArgs(args)) {
           const input = String(args.input);
-          const results = applyHashlinePatch(cwd, input);
+          const results = await withPathsLocked(hashlinePaths(input), () => applyHashlinePatch(cwd, input));
+          await formatEditedFiles(results.map((r) => r.path));
           const text = results.map((r) => r.summary ?? `Applied ${r.applied} op(s) to ${r.path}`).join("\n");
           // Prefer first file's patch for the chat SplitPatchView; multi-file still in results.
           const patch = results.map((r) => r.patch).filter(Boolean).join("\n") || undefined;
           const tag = results.map((r) => r.tag).filter(Boolean).join(",");
-          formatEditedFiles(results.map((r) => r.path));
           return {
             content: [{ type: "text", text }],
             details: {
@@ -257,7 +289,7 @@ export function createPiWebEditToolDefinition(
             hash: h.hash || hashBlock(h.oldText),
           }));
           const result = applyHashlineEdits(cwd, String(args.path), hunks);
-          formatEditedFiles([result.path]);
+          await formatEditedFiles([result.path]);
           return {
             content: [{
               type: "text",
@@ -284,7 +316,7 @@ export function createPiWebEditToolDefinition(
               newText: e.newText,
             }));
             const result = applyHashlineEdits(cwd, path, hunks);
-            formatEditedFiles([result.path]);
+            await formatEditedFiles([result.path]);
             return {
               content: [{
                 type: "text",
@@ -326,7 +358,7 @@ export function createPiWebEditToolDefinition(
                 }
               }
               if (classicResult && typeof classicResult === "object") {
-                formatEditedFiles([abs]);
+                await formatEditedFiles([abs]);
                 if (sizeNote && Array.isArray(classicResult.content)) {
                   const content = classicResult.content as Array<{ type?: string; text?: string }>;
                   const first = content[0];
@@ -343,7 +375,7 @@ export function createPiWebEditToolDefinition(
                   },
                 };
               }
-              formatEditedFiles([abs]);
+              await formatEditedFiles([abs]);
               return classicResult;
             } catch (classicError) {
               const strictNote = strictError instanceof Error

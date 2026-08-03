@@ -9,6 +9,7 @@ import { isAbsolute, relative, resolve } from "path";
 import { createReadToolDefinition } from "@earendil-works/pi-coding-agent";
 import { fetchGithubRef, parseGithubRef } from "./github";
 import { computeFileTag } from "./hashline-edit";
+import { recordHashlineSnapshot } from "./hashline-snapshots";
 
 type ContentBlock = { type: string; text?: string; data?: string; mimeType?: string };
 
@@ -47,7 +48,10 @@ export function formatReadWithHashline(
   let tag = "0000";
   try {
     const abs = isAbsolute(pathValue) ? pathValue : resolve(cwd, pathValue);
-    tag = computeFileTag(readFileSync(abs, "utf8"));
+    const full = readFileSync(abs, "utf8");
+    tag = computeFileTag(full);
+    // Snapshot enables stale-tag recovery on later parallel edits.
+    recordHashlineSnapshot(abs, full.replace(/\r\n/g, "\n").replace(/\r/g, "\n"), tag);
   } catch {
     tag = computeFileTag(text);
   }
@@ -86,7 +90,7 @@ export function createPiWebReadToolDefinition(
   def.promptGuidelines = [
     ...(def.promptGuidelines ?? []),
     "Text reads include a [path#TAG] header and N:line rows — use that TAG and those line numbers with edit({ input }) hashline patches.",
-    "After any successful edit, re-read before further hashline edits (TAG changes).",
+    "After any successful edit the TAG changes. Prefer one multi-op edit per file; parallel same-file edits recover via snapshots when anchors still match.",
     "For GitHub PRs/issues use read path pr://N or issue://N (or the github tool).",
   ];
 
