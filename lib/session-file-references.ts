@@ -1,4 +1,5 @@
-import { getSessionEntries, resolveSessionPath } from "./session-reader";
+import { resolveSessionPath } from "./session-reader";
+import { getSessionEntries } from "./session-entries";
 export { isFilePathReferencedByEntries } from "./session-file-references-core";
 import {
   isBashOutputPathReferencedByEntries,

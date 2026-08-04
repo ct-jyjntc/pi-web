@@ -7,12 +7,14 @@ import {
   resolveSessionIdByPath,
   invalidateSessionPathCache,
   invalidateSessionListCache,
-  buildSessionContext,
   readSessionHeader,
+} from "@/lib/session-reader";
+import {
+  buildSessionContext,
   getSessionManager,
   getSessionEntries,
   restoreDeferredMessages,
-} from "@/lib/session-reader";
+} from "@/lib/session-entries";
 import { estimateSessionContextUsage } from "@/lib/context-usage";
 import { getRpcSession } from "@/lib/rpc-manager";
 

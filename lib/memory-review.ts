@@ -21,7 +21,8 @@ import {
   type ProjectMemorySettings,
 } from "./project-memory";
 import { assistantText as getText, contentText as messageText } from "./message-text";
-import { buildSessionContext, getSessionEntries, resolveSessionPath } from "./session-reader";
+import { resolveSessionPath } from "./session-reader";
+import { buildSessionContext, getSessionEntries } from "./session-entries";
 import { readWebSettings, type ModelRef, type WebSettings } from "./web-settings";
 
 export type MemoryReviewResult = {

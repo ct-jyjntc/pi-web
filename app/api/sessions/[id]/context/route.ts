@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { estimateSessionContextUsage } from "@/lib/context-usage";
 import {
   resolveSessionPath,
+  readSessionHeader,
+} from "@/lib/session-reader";
+import {
   buildSessionContext,
   getSessionEntries,
-  readSessionHeader,
   restoreDeferredMessages,
-} from "@/lib/session-reader";
+} from "@/lib/session-entries";
 
 export async function GET(
   req: Request,

@@ -11,7 +11,7 @@
  *   PI_WEB_TARGET_PLATFORM=darwin|win32|linux
  *   PI_WEB_TARGET_ARCH=arm64|x64
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "fs";
 import { spawnSync } from "child_process";
 import { join, basename } from "path";
 
@@ -289,6 +289,60 @@ for (const name of builtinExtensionPackages) {
   if (overlayPackageTree(name)) builtinCopied += 1;
 }
 console.log(`Overlaid ${builtinCopied}/${builtinExtensionPackages.length} builtin extension packages`);
+
+// The .pi-web-bundle files are built with esbuild `packages: "external"`, so every
+// runtime dependency has to really exist under standalone/node_modules. Next's
+// tracing cannot see through the dynamic `import(href)` that loads a bundle, which
+// left `zod` as a package.json-only stub and `@sinclair/typebox` absent entirely —
+// the packaged app then booted with no permission system, no subagents and no MCP.
+// Re-copy from the project tree rather than trusting whatever tracing produced.
+function stageExtensionRuntimeDeps(rootPackages) {
+  const roots = new Set(rootPackages);
+  const seen = new Set(rootPackages);
+  const queue = [...rootPackages];
+  const staged = [];
+  const missing = [];
+
+  while (queue.length > 0) {
+    const name = queue.shift();
+    const src = join(root, "node_modules", ...name.split("/"));
+    const manifest = join(src, "package.json");
+    if (!existsSync(manifest)) {
+      if (!roots.has(name)) missing.push(name);
+      continue;
+    }
+
+    if (!roots.has(name)) {
+      const dest = join(standaloneNm, ...name.split("/"));
+      rmSync(dest, { recursive: true, force: true });
+      copyFiltered(src, dest);
+      staged.push(name);
+    }
+
+    let deps = {};
+    try {
+      deps = JSON.parse(readFileSync(manifest, "utf8")).dependencies ?? {};
+    } catch {
+      // An unreadable manifest just ends this branch of the walk.
+    }
+    for (const dep of Object.keys(deps)) {
+      if (seen.has(dep)) continue;
+      seen.add(dep);
+      queue.push(dep);
+    }
+  }
+  return { staged, missing };
+}
+
+{
+  const { staged, missing } = stageExtensionRuntimeDeps(builtinExtensionPackages);
+  console.log(`Staged ${staged.length} builtin extension runtime deps`);
+  if (missing.length > 0) {
+    // Optional peers resolve to nothing; a real miss shows up as an extension
+    // failing to load at runtime, so surface the list either way.
+    console.warn(`Warning: unresolved extension deps: ${missing.join(", ")}`);
+  }
+}
 
 // permission-system loads bash grammar via web-tree-sitter + .wasm only.
 slimTreeSitterBash(join(standaloneNm, "tree-sitter-bash"));
