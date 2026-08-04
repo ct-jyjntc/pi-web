@@ -27,8 +27,9 @@ const cliJs = join(
 );
 const nodeBin = join(binDir, isWin ? "node.exe" : "node");
 
-if (!existsSync(join(standalone, "server.js"))) {
-  console.error("Missing standalone server — run next build first.");
+// Same as bundle-runtime-node.mjs: the Next entry is pruned for daemon builds.
+if (!existsSync(join(standalone, "daemon", "server.mjs")) && !existsSync(join(standalone, "server.js"))) {
+  console.error("Missing prepared standalone tree — run scripts/prepare-electron-standalone.mjs first.");
   process.exit(1);
 }
 if (!existsSync(cliJs)) {

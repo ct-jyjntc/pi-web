@@ -38,8 +38,10 @@ const outDir = join(standalone, "bin");
 const outNode = join(outDir, isWin ? "node.exe" : "node");
 const nodeVersion = process.versions.node;
 
-if (!existsSync(join(standalone, "server.js"))) {
-  console.error("Missing .next/standalone/server.js — run next build first.");
+// The desktop runtime is daemon/server.mjs; prepare-electron-standalone.mjs
+// prunes the Next entry unless PI_WEB_KEEP_NEXT=1. Accept either shape.
+if (!existsSync(join(standalone, "daemon", "server.mjs")) && !existsSync(join(standalone, "server.js"))) {
+  console.error("Missing prepared standalone tree — run scripts/prepare-electron-standalone.mjs first.");
   process.exit(1);
 }
 
