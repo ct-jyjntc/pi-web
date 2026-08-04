@@ -8,6 +8,7 @@
  */
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -33,7 +34,23 @@ const routes = discoverApiRoutes(root);
 // ── jiti (created once; modules still lazy) ─────────────────────────────────
 const { createJiti } = require("jiti");
 const nextShim = path.join(__dirname, "shims", "next-server.mjs");
+
+// Pin the transpile cache somewhere stable and always writable. jiti defaults to
+// node_modules/.cache and falls back to the OS temp dir — in a packaged app the
+// first is read-only under a per-machine install, and the second gets purged by
+// Windows Storage Sense. Either way every cold start would re-transpile all
+// route sources, which is exactly the stall this runtime exists to avoid.
+const agentDir =
+  process.env.PI_CODING_AGENT_DIR?.trim() || path.join(os.homedir(), ".pi", "agent");
+const jitiCacheDir = path.join(agentDir, "cache", "jiti");
+try {
+  fs.mkdirSync(jitiCacheDir, { recursive: true });
+} catch {
+  // Fall back to jiti's own default rather than failing boot.
+}
+
 const jiti = createJiti(import.meta.url, {
+  fsCache: jitiCacheDir,
   interopDefault: true,
   alias: {
     "@": root,

@@ -50,14 +50,47 @@ Agent SDK still loads on first session (unchanged product cost). The **framework
 | SPA entry / Next client shims | `desktop/*` |
 | Business handlers | existing `app/api/**/route.ts` + `lib/**` (no Next runtime) |
 
-## Packaging (follow-up)
+## Packaging
 
-`build:electron` must stop requiring Next standalone as the desktop server. Ship:
+`build:electron` builds the SPA, then `prepare-electron-standalone.mjs` stages the
+daemon payload into `.next/standalone` and prunes the Next server:
 
-- `daemon/`
-- `desktop-dist/`
-- pruned `node_modules` needed by `lib/**` + pi SDK (not `next`)
-- bundled Node + pi CLI (existing)
+| Staged | Note |
+|--------|------|
+| `daemon/` | server + route matcher + `next/server` shim |
+| `desktop-dist/` | SPA, source maps stripped (~61MB) |
+| `app/api/**` | TypeScript sources — the daemon jiti-loads them |
+| `lib/**` | TypeScript sources, tests excluded |
+| `node_modules/jiti` | devDependency, staged explicitly |
+
+| Pruned | Why |
+|--------|-----|
+| `node_modules/next` | only `next/server` is imported, and it is shimmed |
+| `.next/` | server bundles + static are Next-only |
+| `server.js` | the Next standalone entry |
+
+`electron-after-pack.mjs` asserts the payload landed, because a missing piece
+makes `useDaemonRuntime()` fall through to Next silently rather than failing.
+
+`PI_WEB_KEEP_NEXT=1` keeps the Next server for a fallback build.
+**Removal condition:** delete that switch once a daemon-only release has shipped.
+
+### jiti transpile cache
+
+Pinned to `<agentDir>/cache/jiti` (`daemon/server.mjs`). jiti's own default is
+`node_modules/.cache` falling back to the OS temp dir — the first is read-only
+under a per-machine Windows install, and the second is purged by Storage Sense.
+Either fallback makes every cold start re-transpile every route it touches.
+
+Measured on a staged package layout (79 routes, first three routes hit):
+
+| | listen | first 3 route loads |
+|---|---|---|
+| cold cache | 15ms | 5405ms |
+| warm cache | 12ms | 749ms |
+
+`listen` is what the Electron health probe waits on, so the splash clears in
+milliseconds either way; transpile cost is lazy and per-route.
 
 ## Dev commands
 

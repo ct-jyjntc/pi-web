@@ -34,7 +34,7 @@
     "dev": "node scripts/fix-node-pty-perms.mjs && next dev -H 127.0.0.1 -p 30141",
     "dev:lan": "node scripts/fix-node-pty-perms.mjs && next dev -H 0.0.0.0 -p 30141",
     "build": "node scripts/fix-node-pty-perms.mjs && next build --webpack",
-    "build:electron": "npm run bundle:extensions && npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
+    "build:electron": "npm run bundle:extensions && npm run desktop:build && npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
     "desktop:dev": "vite",
     "desktop:build": "vite build",
     "daemon": "node daemon/server.mjs",

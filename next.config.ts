@@ -20,6 +20,11 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   experimental: {
+    // Next preloads every route entry before it starts listening. With 80 API
+    // routes whose transitive graph includes the agent SDK, that is the bulk of
+    // the packaged cold start — and it delays the /api/health probe Electron
+    // waits on. Load entries on first request instead.
+    preloadEntriesOnStart: false,
     // Tree-shake icon barrels so first-load JS does not pull every glyph.
     optimizePackageImports: ["@lobehub/icons", "lucide-react"],
     // Default is 10MB; uploads allow up to ~101MB wire body before our 413 checks run.

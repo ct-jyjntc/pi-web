@@ -80,10 +80,20 @@ export default async function afterPack(context) {
   rmSync(destNm, { recursive: true, force: true });
   cpSync(srcNm, destNm, { recursive: true });
 
-  if (!existsSync(join(destNm, "next", "package.json"))) {
-    throw new Error("afterPack: next package still missing after copy");
+  // The desktop runtime is the daemon (docs/phase-b-desktop-daemon.md); `next` is
+  // pruned unless PI_WEB_KEEP_NEXT=1. jiti is what loads the route sources, so it
+  // is the dependency worth asserting on.
+  if (!existsSync(join(destNm, "jiti", "package.json"))) {
+    throw new Error("afterPack: jiti missing after copy — daemon cannot load app/api routes");
   }
-  console.log("[afterPack] standalone/node_modules/next OK");
+  for (const rel of [["daemon", "server.mjs"], ["desktop-dist", "index.html"], ["app", "api"], ["lib"]]) {
+    if (!existsSync(join(destStandalone, ...rel))) {
+      throw new Error(
+        `afterPack: standalone/${rel.join("/")} missing — electron/main.js would fall back to Next`,
+      );
+    }
+  }
+  console.log("[afterPack] daemon payload OK (daemon, desktop-dist, app/api, lib, jiti)");
 
   // Self-contained runtime: Node + npm + pi shim (no system installs required).
   if (existsSync(srcBin)) {
@@ -103,11 +113,13 @@ export default async function afterPack(context) {
     console.warn("[afterPack] Warning: standalone/bin missing — app will require system Node/pi");
   }
 
-  // npm lives under standalone/lib/node_modules/npm in the official Node layout.
+  // standalone/lib holds both the daemon's TypeScript sources and npm (official
+  // Node layout puts npm at lib/node_modules/npm). extraResources filters out
+  // node_modules, so copy the whole tree back.
   const srcLib = join(srcStandalone, "lib");
   if (existsSync(srcLib)) {
     const destLib = join(destStandalone, "lib");
-    console.log(`[afterPack] Copying bundled lib (npm) → ${destLib}`);
+    console.log(`[afterPack] Copying standalone/lib (daemon sources + npm) → ${destLib}`);
     rmSync(destLib, { recursive: true, force: true });
     cpSync(srcLib, destLib, { recursive: true });
   }

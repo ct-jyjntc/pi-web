@@ -32,6 +32,74 @@ try {
   // ignore
 }
 
+// ── File logging ────────────────────────────────────────────────────────────
+// A packaged GUI build has nowhere for stdout to go, which makes cold-start
+// regressions unmeasurable — the boot timings below would vanish. Mirror main
+// process logs (and the spawned server's output) into app logs/main.log.
+/** @type {import('fs').WriteStream | null} */
+let logStream = null;
+let logFilePath = null;
+
+function formatLogArg(value) {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.stack || value.message;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** Raw passthrough for child-process chunks (already formatted lines). */
+function appendServerLog(chunk) {
+  if (!logStream) return;
+  try {
+    logStream.write(chunk);
+  } catch {
+    // Logging must never break the app.
+  }
+}
+
+function initFileLogging() {
+  if (logStream) return logFilePath;
+  try {
+    const dir = app.getPath("logs");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "main.log");
+    // Keep it readable across runs instead of growing without bound.
+    try {
+      if (fs.existsSync(file) && fs.statSync(file).size > 2 * 1024 * 1024) {
+        fs.rmSync(file);
+      }
+    } catch {
+      // ignore
+    }
+    logStream = fs.createWriteStream(file, { flags: "a" });
+    logFilePath = file;
+    logStream.write(`\n=== ${new Date().toISOString()} Pi Web start (packaged=${isPackaged}) ===\n`);
+    for (const level of ["log", "warn", "error"]) {
+      const original = console[level].bind(console);
+      console[level] = (...args) => {
+        original(...args);
+        if (!logStream) return;
+        try {
+          logStream.write(
+            `${new Date().toISOString()} [${level}] ${args.map(formatLogArg).join(" ")}\n`,
+          );
+        } catch {
+          // ignore
+        }
+      };
+    }
+    return file;
+  } catch {
+    // No writable log dir (portable install, locked profile) — stay silent.
+    return null;
+  }
+}
+
+initFileLogging();
+
 // One running desktop app; second launches (toast activation, shortcut double-click) focus the first.
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -711,8 +779,8 @@ function startDaemonServer(port) {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout?.on("data", (chunk) => process.stdout.write(chunk));
-  child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+  child.stdout?.on("data", (chunk) => { process.stdout.write(chunk); appendServerLog(chunk); });
+  child.stderr?.on("data", (chunk) => { process.stderr.write(chunk); appendServerLog(chunk); });
   attachServerExitHandler(child);
   serverProcess = child;
   return child;
@@ -722,7 +790,9 @@ function startNextServer(port) {
   if (!hasProductionBuild()) {
     throw new Error(
       isPackaged
-        ? "Packaged server bundle missing (resources/standalone/server.js)."
+        ? "Packaged server bundle missing (resources/standalone/server.js).\n\n"
+          + "Desktop builds ship the daemon runtime and prune Next.js.\n"
+          + "For a build that can still run PI_WEB_RUNTIME=next, rebuild with PI_WEB_KEEP_NEXT=1."
         : "No production build found.\n\nRun this first:\n  npm run build\n\nThen start Electron again:\n  npm run electron",
     );
   }
@@ -817,8 +887,8 @@ function startNextServer(port) {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout?.on("data", (chunk) => process.stdout.write(chunk));
-  child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+  child.stdout?.on("data", (chunk) => { process.stdout.write(chunk); appendServerLog(chunk); });
+  child.stderr?.on("data", (chunk) => { process.stderr.write(chunk); appendServerLog(chunk); });
   attachServerExitHandler(child);
   serverProcess = child;
   return child;
@@ -1114,6 +1184,9 @@ app.whenReady().then(() => {
     app.quit();
     return;
   }
+  // Retry in case the pre-ready attempt had no resolvable log dir yet.
+  const logPath = initFileLogging();
+  if (logPath) console.log(`[electron] Logging to ${logPath}`);
   // AUMID + name are set at process start (see APP_USER_MODEL_ID). Re-assert on ready
   // in case a platform resets identity during startup.
   try {

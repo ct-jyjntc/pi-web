@@ -397,5 +397,106 @@ if (!existsSync(oauthJs)) {
   process.exit(1);
 }
 
+// ── Desktop daemon runtime (Phase B) ────────────────────────────────────────
+// electron/main.js `useDaemonRuntime()` prefers daemon/server.mjs + desktop-dist
+// over the Next standalone server, but neither was ever staged here — so every
+// packaged build silently fell back to booting Next, which preloads all ~80 route
+// entries before it can answer /api/health. That fallback is the packaged cold
+// start. Ship the daemon payload so the packaged app takes the same path
+// `npm run electron` already takes. See docs/phase-b-desktop-daemon.md.
+//
+// The daemon jiti-loads TypeScript at runtime, so app/api and lib ship as sources.
+const SOURCE_EXTS = new Set([".ts", ".tsx", ".mjs", ".cjs", ".js", ".json"]);
+
+function copySources(src, dest) {
+  if (!existsSync(src)) return 0;
+  let count = 0;
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const from = join(src, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name === "__tests__") continue;
+      count += copySources(from, join(dest, entry.name));
+      continue;
+    }
+    // Tests never run from the package and would drag in dev-only imports.
+    if (entry.name.includes(".test.")) continue;
+    const dot = entry.name.lastIndexOf(".");
+    if (dot < 0 || !SOURCE_EXTS.has(entry.name.slice(dot))) continue;
+    ensureDir(dest);
+    cpSync(from, join(dest, entry.name));
+    count += 1;
+  }
+  return count;
+}
+
+const daemonSrc = join(root, "daemon");
+const desktopDistSrc = join(root, "desktop-dist");
+
+if (!existsSync(join(daemonSrc, "server.mjs"))) {
+  console.error("Missing daemon/server.mjs — cannot package the desktop runtime.");
+  process.exit(1);
+}
+if (!existsSync(join(desktopDistSrc, "index.html"))) {
+  console.error("Missing desktop-dist/index.html — run `npm run desktop:build` first.");
+  process.exit(1);
+}
+
+rmSync(join(standalone, "daemon"), { recursive: true, force: true });
+const daemonFiles = copySources(daemonSrc, join(standalone, "daemon"));
+console.log(`Copied daemon → standalone/daemon (${daemonFiles} files)`);
+
+// Source maps are 3/4 of desktop-dist and are dead weight in an installer.
+const desktopDest = join(standalone, "desktop-dist");
+rmSync(desktopDest, { recursive: true, force: true });
+let skippedMaps = 0;
+cpSync(desktopDistSrc, desktopDest, {
+  recursive: true,
+  filter: (src) => {
+    if (src.endsWith(".map")) {
+      skippedMaps += 1;
+      return false;
+    }
+    return true;
+  },
+});
+console.log(`Copied desktop-dist → standalone/desktop-dist (skipped ${skippedMaps} source maps)`);
+
+rmSync(join(standalone, "app", "api"), { recursive: true, force: true });
+const apiFiles = copySources(join(root, "app", "api"), join(standalone, "app", "api"));
+console.log(`Copied app/api sources → standalone/app/api (${apiFiles} files)`);
+
+// NOTE: bundle-runtime-node.mjs later writes npm into standalone/lib/node_modules.
+// It runs after this script and only removes its own subtree, so the two coexist.
+rmSync(join(standalone, "lib"), { recursive: true, force: true });
+const libFiles = copySources(join(root, "lib"), join(standalone, "lib"));
+console.log(`Copied lib sources → standalone/lib (${libFiles} files)`);
+
+// jiti stays a devDependency (the published npm package ships .next, not daemon/),
+// so it is staged here rather than traced in by Next.
+const jitiSrc = join(root, "node_modules", "jiti");
+if (!existsSync(jitiSrc)) {
+  console.error("Missing node_modules/jiti — the daemon cannot load route sources.");
+  process.exit(1);
+}
+rmSync(join(standaloneNm, "jiti"), { recursive: true, force: true });
+copyFiltered(jitiSrc, join(standaloneNm, "jiti"));
+console.log("Copied jiti → standalone/node_modules/jiti");
+
+// ── Drop the Next server ────────────────────────────────────────────────────
+// Nothing under app/api or lib imports anything but `next/server`, which
+// daemon/shims/next-server.mjs replaces. Keeping the framework would ship ~1.9k
+// files / ~80MB that only exist to be scanned by Defender on first launch.
+// PI_WEB_KEEP_NEXT=1 produces a fallback build that can still run PI_WEB_RUNTIME=next.
+// Removal condition: delete this switch once a daemon-only release has shipped.
+if (process.env.PI_WEB_KEEP_NEXT === "1") {
+  console.log("PI_WEB_KEEP_NEXT=1 — keeping the Next standalone server as a fallback");
+} else {
+  for (const rel of [["node_modules", "next"], [".next"], ["server.js"]]) {
+    rmSync(join(standalone, ...rel), { recursive: true, force: true });
+  }
+  console.log("Pruned Next standalone server (node_modules/next, .next, server.js)");
+}
+
+
 console.log("Standalone bundle ready — next: bundle-runtime-node.mjs (ships Node so users need no system Node).");
 console.log("Standalone package tree prepared for electron-builder.");
