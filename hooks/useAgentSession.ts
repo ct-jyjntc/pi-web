@@ -1554,24 +1554,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const next = parseAgentMode(mode);
     // Optimistic UI + shared store so other windows/new sessions see it immediately.
     setSessionMode(next);
-    void saveWebSettings(
+    // Both writes land on the same server-side owner (persistGlobalAgentMode),
+    // so either one succeeding means the mode is in force. Only report failure
+    // when both miss — otherwise a dead session id raised a false alarm on a
+    // switch that had already taken effect globally.
+    const savedGlobally = await saveWebSettings(
       { agentMode: next },
       { optimistic: { agentMode: next } },
-    ).catch(() => {});
+    ).then(() => true).catch(() => false);
 
     const sid = sessionIdRef.current;
     if (!sid) {
-      // Defer server set_mode until first prompt/ensure — no empty session file.
-      // Preference is already on disk via saveWebSettings above.
-      return { ok: true as const, mode: next };
+      // Deferred until first prompt/ensure — the preference above is what applies.
+      return savedGlobally
+        ? { ok: true as const, mode: next }
+        : { ok: false as const, error: "Failed to save agent mode" };
     }
     try {
       const result = await sendAgentCommand<{ mode?: string }>(sid, { type: "set_mode", mode: next });
       const applied = parseAgentMode(result?.mode);
       setSessionMode(applied);
-      // set_mode also persists agentMode + yoloMode on the server.
       return { ok: true as const, mode: applied };
     } catch (e) {
+      if (savedGlobally) return { ok: true as const, mode: next };
+      // saveWebSettings already invalidated the store on its own failure, so the
+      // globalAgentMode effect above snaps sessionMode back to the server value.
       return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
     }
   }, []);

@@ -4,7 +4,7 @@
  * Role dispatcher for a single chat message. Block renderers live under ./blocks.
  */
 import { memo } from "react";
-import { isMemoryContextMessage } from "@/lib/message-display";
+import { isHiddenContextMessage } from "@/lib/message-display";
 import type {
   AgentMessage,
   AssistantMessage,
@@ -68,8 +68,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     return null;
   }
   if (message.role === "custom") {
-    // Hidden per-prompt memory recall never renders (model-only context).
-    if (isMemoryContextMessage(message)) return null;
+    // Hidden model-only context (memory recall, mode brief) never renders.
+    if (isHiddenContextMessage(message)) return null;
     if ((message as CustomMessage).customType === "compaction") {
       return <CompactionMessageView message={message as CustomMessage} />;
     }

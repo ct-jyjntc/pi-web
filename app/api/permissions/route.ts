@@ -59,11 +59,7 @@ export async function POST(req: Request) {
     }
 
     if (body.action === "reset-defaults") {
-      const yolo = getPermissionMode().yoloMode;
-      const policy = writePermissionPolicy({
-        ...defaultPermissionPolicy(),
-        yoloMode: yolo,
-      }).policy;
+      const policy = writePermissionPolicy(defaultPermissionPolicy()).policy;
       return NextResponse.json({ ok: true, policy, ...getPermissionMode() });
     }
 
@@ -71,18 +67,12 @@ export async function POST(req: Request) {
       if (!body.policy || typeof body.policy !== "object" || Array.isArray(body.policy)) {
         return NextResponse.json({ error: "policy object required" }, { status: 400 });
       }
-      // Preserve yoloMode from current mode if omitted.
-      const current = getPermissionMode();
-      const next: PermissionPolicyDocument = {
-        ...body.policy,
-        yoloMode: typeof body.policy.yoloMode === "boolean"
-          ? body.policy.yoloMode
-          : current.yoloMode,
-      };
-      if (!next.permission || typeof next.permission !== "object") {
+      if (!body.policy.permission || typeof body.policy.permission !== "object") {
         return NextResponse.json({ error: "policy.permission object required" }, { status: 400 });
       }
-      const { path, policy } = writePermissionPolicy(next);
+      // yoloMode in the body is ignored — it is derived from the agent mode, and
+      // the dedicated `{ mode }` toggle below is the way to change it.
+      const { path, policy } = writePermissionPolicy(body.policy);
       return NextResponse.json({ ok: true, path, policy, ...getPermissionMode() });
     }
 

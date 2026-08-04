@@ -1,13 +1,9 @@
 /**
- * Global agent mode preference (pi-web.json agentMode) + permission yoloMode sync.
+ * Global agent mode preference (pi-web.json agentMode) + permission policy sync.
  * Single owner for the cross-session / restart-stable mode; sessions and UI call this.
  */
-import {
-  agentModeWantsFullPermission,
-  parseAgentMode,
-  type AgentMode,
-} from "./agent-mode";
-import { getPermissionMode, setPermissionMode } from "./permission-mode";
+import { parseAgentMode, type AgentMode } from "./agent-mode";
+import { applyAgentModeToPermissionPolicy } from "./permission-policy";
 import { getRegistry } from "./rpc-registry";
 import { readWebSettings, writeWebSettings } from "./web-settings";
 
@@ -20,14 +16,11 @@ export function readGlobalAgentMode(): AgentMode {
   }
 }
 
-/** Keep permission yoloMode + live session wrappers aligned with agentMode. */
+/** Keep the enforced permission policy + live session wrappers aligned with agentMode. */
 export function syncGlobalAgentModeEffects(mode: AgentMode): void {
   const next = parseAgentMode(mode);
   try {
-    const current = getPermissionMode();
-    const wantsFull = agentModeWantsFullPermission(next);
-    if (wantsFull && !current.yoloMode) setPermissionMode("full");
-    if (!wantsFull && current.yoloMode) setPermissionMode("ask");
+    applyAgentModeToPermissionPolicy(next);
   } catch {
     // Permission write must never fail the caller's mode switch.
   }
@@ -42,7 +35,7 @@ export function syncGlobalAgentModeEffects(mode: AgentMode): void {
 
 /**
  * Persist agent mode to pi-web.json and keep permission + live wrappers in lockstep.
- * Permission-system extension hot-reads yoloMode on the next before_agent_start.
+ * Permission-system extension hot-reads the config on the next before_agent_start.
  */
 export function persistGlobalAgentMode(mode: AgentMode): AgentMode {
   const next = parseAgentMode(mode);

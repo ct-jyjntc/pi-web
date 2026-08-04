@@ -25,6 +25,21 @@ export async function register(): Promise<void> {
   const { ensureSubagentSpawnEnv } = await import("@/lib/resolve-pi-cli");
   ensureSubagentSpawnEnv();
 
+  // Re-derive the enforced permission config if it was composed for a different
+  // agent mode (upgrade from the layout where "auto" meant full yolo, or a hand
+  // edit). Cheap: fs + path only, no pi SDK. Must never crash boot.
+  try {
+    const { readWebSettings } = await import("@/lib/web-settings");
+    const { parseAgentMode } = await import("@/lib/agent-mode");
+    const { reconcilePermissionPolicyMode } = await import("@/lib/permission-policy");
+    const mode = parseAgentMode(readWebSettings().agentMode);
+    if (reconcilePermissionPolicyMode(mode)) {
+      console.log(`[pi-web] recomposed permission policy for agent mode "${mode}"`);
+    }
+  } catch (error) {
+    console.error("[pi-web] permission policy reconcile failed:", error);
+  }
+
   // Subagent delegation assets (managed AGENTS.md block + agent overrides).
   // Synchronous, idempotent, never throws — deploy before any session starts so
   // the subagent tool description picks up the proactive trigger language.

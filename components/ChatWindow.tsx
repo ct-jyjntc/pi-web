@@ -3,7 +3,7 @@ import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
 import { Fragment, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { AgentMessage, AssistantMessage, BashExecutionMessage, ToolResultMessage } from "@/lib/types";
-import { isMemoryContextMessage } from "@/lib/message-display";
+import { isHiddenContextMessage } from "@/lib/message-display";
 import { ArrowDown } from "lucide-react";
 import { MessageView } from "./MessageView";
 import { ChatInput } from "./ChatInput";
@@ -499,8 +499,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     const plan: RenderPlanItem[] = [];
     for (let idx = 0; idx < messages.length;) {
       const msg = messages[idx];
-      // Hidden per-prompt memory recall messages never get a render item.
-      if (isMemoryContextMessage(msg)) {
+      // Hidden model-only context messages never get a render item.
+      if (isHiddenContextMessage(msg)) {
         idx += 1;
         continue;
       }
@@ -520,7 +520,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastUserIdx;
       if (finalAssistantIdx === -1 || isLiveTail) {
         for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-          if (renderIdx !== userIdx && isMemoryContextMessage(messages[renderIdx])) continue;
+          if (renderIdx !== userIdx && isHiddenContextMessage(messages[renderIdx])) continue;
           plan.push({ kind: "message", idx: renderIdx });
         }
         idx = endIdx;
@@ -552,7 +552,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         plan.push({ kind: "answer", idx: finalAssistantIdx, message: finalAnswerMessage });
       }
       for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
-        if (isMemoryContextMessage(messages[renderIdx])) continue;
+        if (isHiddenContextMessage(messages[renderIdx])) continue;
         plan.push({ kind: "message", idx: renderIdx });
       }
       idx = endIdx;

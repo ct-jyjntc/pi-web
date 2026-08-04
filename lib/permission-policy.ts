@@ -5,12 +5,27 @@
  * the flat config file the extension already loads:
  *   ~/.pi/agent/extensions/pi-permission-system/config.json
  *
- * AgentMode still toggles yoloMode via permission-mode.ts; both write the same
- * on-disk document (policy merges, never a second gate).
+ * Two documents, one direction of flow:
+ *   - **base policy** — what the user authors in the settings editor. Lives in
+ *     the Pi Web sidecar (`~/.pi/agent/pi-permissions.jsonc`) because the
+ *     extension's config schema is a `strictObject`: any Pi Web-specific key
+ *     added to config.json would make the whole scope fail closed.
+ *   - **effective policy** — base + the current AgentMode overlay, written to
+ *     config.json. Derived, never hand-edited.
+ *
+ * AgentMode therefore composes rather than gating twice: `auto` layers
+ * `edit/write: allow` over the base, `plan` layers `edit/write: deny`, and only
+ * `yolo` sets the extension's global `yoloMode` ask→allow rewrite.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { getAgentDir } from "./agent-dir";
+import {
+  agentModePermissionOverlay,
+  agentModeWantsYolo,
+  parseAgentMode,
+  type AgentMode,
+} from "./agent-mode";
 
 export type PermissionAction = "allow" | "ask" | "deny";
 
@@ -63,10 +78,18 @@ export function getPermissionPolicyPath(): string {
   return join(getAgentDir(), "extensions", "pi-permission-system", "config.json");
 }
 
-/** Legacy yolo-only file still written by permission-mode.ts. */
+/** Pi Web sidecar: the user's base policy + the mode knobs mirrored for it. */
 export function getLegacyPermissionModePath(): string {
   return join(getAgentDir(), "pi-permissions.jsonc");
 }
+
+/** Shape of the Pi Web-owned sidecar (never read by the extension). */
+type SidecarDocument = {
+  yoloMode?: boolean;
+  agentMode?: string;
+  basePermission?: Record<string, PermissionSurface>;
+  [key: string]: unknown;
+};
 
 function readJsonObject(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
@@ -90,9 +113,34 @@ function writeJsonAtomic(path: string, value: unknown): void {
   renameSync(tmp, path);
 }
 
+function readSidecar(): SidecarDocument {
+  return readJsonObject(getLegacyPermissionModePath()) as SidecarDocument;
+}
+
+/** The mode the enforced config was last composed for. */
+export function readPolicyAgentMode(): AgentMode {
+  return parseAgentMode(readSidecar().agentMode);
+}
+
 /**
- * Read effective policy. Prefer extension config.json; fall back to defaults
- * merged with legacy yoloMode from pi-permissions.jsonc.
+ * Layer the mode's surface overrides over the user's base policy.
+ * A listed surface replaces the base surface wholesale — see
+ * AGENT_MODE_PERMISSION_OVERLAY for why that coarseness is intended.
+ */
+export function composeEffectivePermission(
+  base: Record<string, PermissionSurface>,
+  mode: AgentMode,
+): Record<string, PermissionSurface> {
+  return { ...base, ...agentModePermissionOverlay(mode) };
+}
+
+/**
+ * Read the *base* policy — what the settings editor shows and saves.
+ *
+ * Prefers the sidecar. Falls back to whatever is in config.json (the pre-split
+ * layout, where config.json held the user's policy directly) and finally to the
+ * safe defaults. `yoloMode` is reported from the enforced config so callers see
+ * the value actually in force.
  */
 export function readPermissionPolicy(): {
   path: string;
@@ -101,41 +149,82 @@ export function readPermissionPolicy(): {
 } {
   const path = getPermissionPolicyPath();
   const exists = existsSync(path);
-  if (exists) {
-    const obj = readJsonObject(path);
-    return { path, exists: true, policy: obj as PermissionPolicyDocument };
-  }
+  const enforced = exists ? (readJsonObject(path) as PermissionPolicyDocument) : null;
+  const sidecar = readSidecar();
 
-  const legacy = readJsonObject(getLegacyPermissionModePath());
-  const base = defaultPermissionPolicy();
-  if (legacy.yoloMode === true) base.yoloMode = true;
-  return { path, exists: false, policy: base };
+  const base =
+    sidecar.basePermission ??
+    // Migration: before the base/effective split the enforced file *was* the
+    // base, and no overlay had ever been written into it.
+    enforced?.permission ??
+    defaultPermissionPolicy().permission!;
+
+  return {
+    path,
+    exists,
+    policy: {
+      ...(enforced ?? defaultPermissionPolicy()),
+      permission: base,
+      yoloMode: (enforced?.yoloMode ?? sidecar.yoloMode) === true,
+    },
+  };
 }
 
 /**
- * Write full policy document to the extension config path (enforcement source of truth).
- * Also mirrors yoloMode into legacy pi-permissions.jsonc so AgentMode stays in sync.
+ * Persist a user-authored policy: the base goes to the sidecar, the composed
+ * effective document to the extension config the enforcement layer reads.
  */
 export function writePermissionPolicy(
   policy: PermissionPolicyDocument,
+  modeOverride?: AgentMode,
 ): { path: string; policy: PermissionPolicyDocument } {
   const path = getPermissionPolicyPath();
+  const sidecar = readSidecar();
+  const mode = modeOverride ?? parseAgentMode(sidecar.agentMode);
+  const base = policy.permission ?? sidecar.basePermission ?? defaultPermissionPolicy().permission!;
+  // yoloMode is derived, never authored: AgentMode is its single owner, so a
+  // stale value echoed back by the settings editor cannot desync the two.
+  const yoloMode = agentModeWantsYolo(mode);
+
   const next: PermissionPolicyDocument = {
     ...policy,
-    // Ensure permission object is present when callers only toggle knobs.
-    permission: policy.permission ?? defaultPermissionPolicy().permission,
+    yoloMode,
+    permission: composeEffectivePermission(base, mode),
   };
   writeJsonAtomic(path, next);
 
-  // Mirror yoloMode for permission-mode / AgentMode readers.
-  const legacyPath = getLegacyPermissionModePath();
-  const legacy = readJsonObject(legacyPath);
-  writeJsonAtomic(legacyPath, {
-    ...legacy,
-    yoloMode: next.yoloMode === true,
-  });
+  // Sidecar keeps the un-overlaid policy so switching modes is reversible.
+  writeJsonAtomic(getLegacyPermissionModePath(), {
+    ...sidecar,
+    yoloMode,
+    agentMode: mode,
+    basePermission: base,
+  } satisfies SidecarDocument);
 
-  return { path, policy: next };
+  // Callers edit the base, so hand it back rather than the derived document.
+  return { path, policy: { ...next, permission: base } };
+}
+
+/** Recompose the enforced config for `mode` without touching the base policy. */
+export function applyAgentModeToPermissionPolicy(mode: AgentMode): PermissionPolicyDocument {
+  return writePermissionPolicy(readPermissionPolicy().policy, mode).policy;
+}
+
+/**
+ * Re-derive the enforced config when it was composed for a different mode.
+ *
+ * Covers upgrades from the layout where `auto` set `yoloMode: true`: without
+ * this, someone who never re-picks a mode keeps running the old, fully
+ * permissive config while the composer chip reads "auto". Returns whether a
+ * rewrite happened. No-ops on a fresh install that has no policy state yet.
+ */
+export function reconcilePermissionPolicyMode(mode: AgentMode): boolean {
+  const sidecar = readSidecar();
+  const hasBase = sidecar.basePermission !== undefined;
+  if (!hasBase && !existsSync(getPermissionPolicyPath())) return false;
+  if (hasBase && parseAgentMode(sidecar.agentMode) === mode) return false;
+  applyAgentModeToPermissionPolicy(mode);
+  return true;
 }
 
 /** Ensure a real config file exists (install default template once). */
@@ -145,27 +234,17 @@ export function ensurePermissionPolicyFile(): {
   policy: PermissionPolicyDocument;
 } {
   const path = getPermissionPolicyPath();
-  if (existsSync(path)) {
-    return { path, created: false, policy: readJsonObject(path) as PermissionPolicyDocument };
+  const sidecar = readSidecar();
+  if (existsSync(path) && sidecar.basePermission) {
+    return { path, created: false, policy: readPermissionPolicy().policy };
   }
-  const { policy } = writePermissionPolicy(defaultPermissionPolicy());
-  // Re-apply legacy yolo if user already had full mode.
-  const legacy = readJsonObject(getLegacyPermissionModePath());
-  if (legacy.yoloMode === true) {
-    return {
-      path,
-      created: true,
-      policy: writePermissionPolicy({ ...policy, yoloMode: true }).policy,
-    };
-  }
-  return { path, created: true, policy };
-}
-
-/**
- * Update only yoloMode on the extension config (AgentMode bridge).
- * Creates the file with defaults if missing.
- */
-export function setPermissionPolicyYoloMode(yoloMode: boolean): PermissionPolicyDocument {
+  // Missing config, or a pre-split install with no sidecar base yet: seed the
+  // base from whatever the user already had and recompose for the live mode.
   const { policy } = readPermissionPolicy();
-  return writePermissionPolicy({ ...policy, yoloMode }).policy;
+  const created = !existsSync(path);
+  return {
+    path,
+    created,
+    policy: writePermissionPolicy(policy, parseAgentMode(sidecar.agentMode)).policy,
+  };
 }

@@ -1,9 +1,15 @@
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent } from "./types";
-import { MEMORY_CONTEXT_CUSTOM_TYPE } from "./types";
+import { AGENT_MODE_BRIEF_CUSTOM_TYPE, MEMORY_CONTEXT_CUSTOM_TYPE } from "./types";
 
-/** Hidden per-prompt memory recall messages never render in the transcript. */
-export function isMemoryContextMessage(message: AgentMessage): boolean {
-  return message.role === "custom" && message.customType === MEMORY_CONTEXT_CUSTOM_TYPE;
+/** customTypes that exist for the model only and never render in the transcript. */
+const HIDDEN_CONTEXT_CUSTOM_TYPES = new Set<string>([
+  MEMORY_CONTEXT_CUSTOM_TYPE,
+  AGENT_MODE_BRIEF_CUSTOM_TYPE,
+]);
+
+/** Hidden model-only context (memory recall, mode briefing) never renders. */
+export function isHiddenContextMessage(message: AgentMessage): boolean {
+  return message.role === "custom" && HIDDEN_CONTEXT_CUSTOM_TYPES.has(message.customType ?? "");
 }
 
 interface DisplayOptions {

@@ -3,6 +3,9 @@
 /** customType of the hidden per-prompt memory recall message (see lib/memory-context.ts). */
 export const MEMORY_CONTEXT_CUSTOM_TYPE = "memory-context";
 
+/** customType of the hidden agent-mode briefing (see lib/agent-mode-brief.ts). */
+export const AGENT_MODE_BRIEF_CUSTOM_TYPE = "agent-mode-brief";
+
 export interface SessionHeader {
   type: "session";
   version?: number;

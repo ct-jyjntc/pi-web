@@ -30,7 +30,7 @@ import {
   ensureHeavyExtensionFactories,
   getBuiltinResourceLoaderOptions,
 } from "./builtin-extensions";
-import { AgentSessionWrapper, withExtensionTools } from "./rpc-session-wrapper";
+import { AgentSessionWrapper } from "./rpc-session-wrapper";
 import {
   getLocks,
   getRegistry,
@@ -190,14 +190,14 @@ export async function startRpcSession(
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 
+    wrapper = new AgentSessionWrapper(inner, cwd);
     // If specific tool names were requested (non-empty), set the active tools to the
     // requested builtin coding tools PLUS all extension/package tools, so installed
-    // extensions stay usable in Pi Web just like in the `pi` CLI.
+    // extensions stay usable in Pi Web just like in the `pi` CLI. Routed through the
+    // wrapper so the agent mode's filter (plan drops edit/write) applies from turn one.
     if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+      wrapper.adoptBaseToolNames(toolNames);
     }
-
-    wrapper = new AgentSessionWrapper(inner, cwd);
     try {
       const status = getProjectTrustStatus(cwd, agentDir);
       inner.settingsManager.setProjectTrusted?.(status.trusted);

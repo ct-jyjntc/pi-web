@@ -6,7 +6,7 @@ import {
   countToolCallBlocks,
   getAssistantErrorMessage,
   getDisplayableAssistantBlocks,
-  isMemoryContextMessage,
+  isHiddenContextMessage,
   splitFinalAssistantBlocks,
 } from "@/lib/message-display";
 import type { AgentPhase } from "@/hooks/useAgentSession";
@@ -122,7 +122,7 @@ export function hasDisplayableProcessMessage(message: AgentMessage): boolean {
   if (message.role === "assistant") {
     return getCachedDisplayableBlocks(message as AssistantMessage).length > 0;
   }
-  return message.role === "custom" && !isMemoryContextMessage(message);
+  return message.role === "custom" && !isHiddenContextMessage(message);
 }
 
 export function withAssistantBlocks(

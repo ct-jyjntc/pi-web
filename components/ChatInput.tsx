@@ -929,14 +929,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       setModeDropdownOpen(false);
       return;
     }
-    setModeBusy(true);
     setModeDropdownOpen(false);
+    // Full access auto-approves shell commands and access outside the project,
+    // so make it a deliberate choice rather than a one-click slip.
+    if (next === "yolo" && activeMode !== "yolo") {
+      const ok = window.confirm(`${t("chat.modeYoloConfirmTitle")}\n\n${t("chat.modeYoloConfirmBody")}`);
+      if (!ok) return;
+    }
+    setModeBusy(true);
     try {
       await onModeChange(next);
     } finally {
       setModeBusy(false);
     }
-  }, [modeBusy, onModeChange]);
+  }, [modeBusy, onModeChange, activeMode, t]);
 
   // Close dropdowns on outside click
   // Close dropdowns on outside click
@@ -1485,8 +1491,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     openFixedMenu(e, modeDropdownOpen, setModeDropdownOpen, setModeMenuRect);
                   }}
                   disabled={modeBusy || isStreaming}
-                  title={t("chat.changeMode")}
-                  aria-label={t("chat.changeMode")}
+                  title={t("chat.changeMode", { mode: modeLabel })}
+                  aria-label={t("chat.changeMode", { mode: modeLabel })}
                   style={{
                     ...(isMobile ? { padding: "0 6px" } : null),
                     cursor: modeBusy ? "wait" : undefined,

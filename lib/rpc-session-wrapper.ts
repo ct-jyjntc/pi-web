@@ -17,7 +17,7 @@ import { getProjectTrustStatus } from "./project-trust";
 
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike } from "./pi-types";
-import { MEMORY_CONTEXT_CUSTOM_TYPE, type ExtensionUiRequest, type ExtensionUiResponse, type ExtensionWidgetItem } from "./types";
+import { MEMORY_CONTEXT_CUSTOM_TYPE, AGENT_MODE_BRIEF_CUSTOM_TYPE, type ExtensionUiRequest, type ExtensionUiResponse, type ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 import { buildQueryMemoryContext } from "./memory-context";
 import { resolveContextUsageForUi } from "./context-usage";
@@ -73,6 +73,7 @@ type ExtensionBindingOptions = {
 };
 
 import { agentModeStripsWriteTools, parseAgentMode, type AgentMode } from "./agent-mode";
+import { agentModeBrief } from "./agent-mode-brief";
 import { persistGlobalAgentMode, readGlobalAgentMode } from "./global-agent-mode";
 export type { AgentMode } from "./agent-mode";
 
@@ -156,6 +157,8 @@ export class AgentSessionWrapper {
    * preference so a new wrapper matches the last user selection.
    */
   private mode: AgentMode = readGlobalAgentMode();
+  /** Mode whose brief the model has already been given (re-sent on each switch). */
+  private briefedMode: AgentMode | null = null;
 
 
   constructor(
@@ -452,6 +455,23 @@ export class AgentSessionWrapper {
             console.error("[pi-web] memory context injection failed:", error instanceof Error ? error.message : error);
           }
         }
+        // Tell the model what the mode expects of it. Delivered once per switch
+        // into the mode rather than per turn, so a long plan session doesn't
+        // accumulate copies of the same brief in context.
+        if (!this.forceEmptySystemPrompt) {
+          const brief = agentModeBrief(this.mode);
+          if (brief && this.briefedMode !== this.mode) {
+            try {
+              this.briefedMode = this.mode;
+              await this.inner.sendCustomMessage(
+                { customType: AGENT_MODE_BRIEF_CUSTOM_TYPE, content: brief, display: false },
+                { deliverAs: "nextTurn" },
+              );
+            } catch (error) {
+              console.error("[pi-web] agent mode brief injection failed:", error instanceof Error ? error.message : error);
+            }
+          }
+        }
         this.promptRunning = true;
         try {
           // Capture the pre-prompt leaf so /undo can navigate_tree back here
@@ -700,9 +720,8 @@ export class AgentSessionWrapper {
 
       case "set_tools": {
         const toolNames = command.toolNames as string[];
-        this.baseToolNames = withExtensionTools(this.inner, toolNames);
         this.setForceEmptySystemPrompt(toolNames.length === 0);
-        this.inner.setActiveToolsByName(this.applyModeToTools(this.baseToolNames));
+        this.adoptBaseToolNames(toolNames);
         this.applyForcedEmptySystemPrompt();
         return null;
       }
@@ -786,9 +805,24 @@ export class AgentSessionWrapper {
     return names;
   }
 
+  /**
+   * Seed the allow-list (session start or set_tools) through the mode filter.
+   *
+   * Session start used to call `setActiveToolsByName` directly, which left
+   * `baseToolNames` null — and `applyModeLocally` no-ops without it. Plan mode
+   * then kept edit/write until the client's first set_tools landed.
+   */
+  adoptBaseToolNames(toolNames: string[]): void {
+    this.baseToolNames = withExtensionTools(this.inner, toolNames);
+    this.inner.setActiveToolsByName(this.applyModeToTools(this.baseToolNames));
+  }
+
   /** Apply mode + tool filter without re-persisting (init / peer sync). */
   applyModeLocally(mode: AgentMode): void {
-    this.mode = parseAgentMode(mode);
+    const next = parseAgentMode(mode);
+    // Re-brief on the next prompt whenever the mode actually moves.
+    if (next !== this.mode) this.briefedMode = null;
+    this.mode = next;
     if (this.baseToolNames) {
       this.inner.setActiveToolsByName(this.applyModeToTools(this.baseToolNames));
     }
