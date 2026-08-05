@@ -464,21 +464,32 @@ export function ModelsConfig({
 
 
   const toggleBuiltinModel = useCallback(async (providerId: string, modelId: string, disabled: boolean) => {
-    const res = await apiFetch("/api/models-config/provider-models", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider: providerId, modelId, disabled }),
-    });
-    const data = await res.json() as { success?: boolean; error?: string };
-    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-    setBuiltinModelsByProvider((prev) => ({
-      ...prev,
-      [providerId]: (prev[providerId] ?? []).map((m) => (
-        m.id === modelId ? { ...m, disabled } : m
-      )),
-    }));
-    onModelsChanged?.();
-  }, [onModelsChanged]);
+      // Optimistic: free/custom toggles are pure local state. Built-in toggles used
+      // to await a heavy ModelRuntime refresh before flipping the switch — felt laggy.
+      const previous = builtinModelsByProvider[providerId] ?? [];
+      setBuiltinModelsByProvider((prev) => ({
+        ...prev,
+        [providerId]: (prev[providerId] ?? []).map((m) => (
+          m.id === modelId ? { ...m, disabled } : m
+        )),
+      }));
+      try {
+        const res = await apiFetch("/api/models-config/disabled-models", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: providerId, modelId, disabled }),
+        });
+        const data = await res.json() as { success?: boolean; error?: string };
+        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+        onModelsChanged?.();
+      } catch (error) {
+        setBuiltinModelsByProvider((prev) => ({
+          ...prev,
+          [providerId]: previous,
+        }));
+        throw error;
+      }
+    }, [builtinModelsByProvider, onModelsChanged]);
 
   // Resolve current detail
   const detailContent = (() => {

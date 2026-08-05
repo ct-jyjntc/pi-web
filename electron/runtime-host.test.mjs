@@ -23,6 +23,7 @@ test("light routes never touch the agent SDK graph", () => {
     "/api/models-config",
     "/api/models-config/free-models?provider=x",
     "/api/models-config/catalog?q=gpt",
+    "/api/models-config/disabled-models",
     "/api/default-cwd",
     "/api/github?cwd=x",
     "/api/checkpoints?sessionId=1",

@@ -1,20 +1,15 @@
 import { NextResponse } from "next/server";
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
-import {
-  getDisabledModelRefs,
-  setBuiltinModelDisabled,
-} from "@/lib/disabled-models";
-import { invalidateModelsCache } from "@/lib/models-cache";
-import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
+import { getDisabledModelRefs } from "@/lib/disabled-models";
 import { projectBuiltinProviderModel, refreshBuiltinProviderModels } from "@/lib/builtin-provider-models";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Built-in provider model list (read + enable/disable).
+ * Built-in provider model list (read only).
  *
- * Owns: listing + disabled flags + live refresh status.
- * Does not own field overrides — see /api/models-config/model-overrides.
+ * Enable/disable is owned by `/api/models-config/disabled-models` (light, fs-only)
+ * so toggles never wait on ModelRuntime / remote catalog refresh.
  *
  * Invariant: one refresh path; response always includes `live` (true if network
  * refresh succeeded). Soft-fail continues with static/last store when live=false.
@@ -55,44 +50,8 @@ export async function GET(req: Request) {
   }
 }
 
-/**
- * PATCH { provider, modelId, disabled }
- * Persist built-in model enable/disable without rewriting models.json catalogs.
- */
+/** @deprecated Prefer PATCH /api/models-config/disabled-models (light). Kept for old clients. */
 export async function PATCH(req: Request) {
-  try {
-    const body = await req.json() as {
-      provider?: unknown;
-      modelId?: unknown;
-      disabled?: unknown;
-    };
-    const provider = typeof body.provider === "string" ? body.provider.trim() : "";
-    const modelId = typeof body.modelId === "string" ? body.modelId.trim() : "";
-    if (!provider || !modelId) {
-      return NextResponse.json({ error: "provider and modelId are required" }, { status: 400 });
-    }
-    if (typeof body.disabled !== "boolean") {
-      return NextResponse.json({ error: "disabled boolean is required" }, { status: 400 });
-    }
-
-    const modelRuntime = await createConfiguredModelRuntime();
-    if (!modelRuntime.getProvider(provider)) {
-      return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 404 });
-    }
-    await refreshBuiltinProviderModels(modelRuntime, provider);
-    if (!modelRuntime.getModel(provider, modelId)) {
-      return NextResponse.json({ error: `Unknown model: ${provider}/${modelId}` }, { status: 404 });
-    }
-
-    const result = setBuiltinModelDisabled(provider, modelId, body.disabled);
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
-    }
-
-    invalidateModelsCache();
-    invalidateUtilityModelRuntimes();
-    return NextResponse.json({ success: true, ...result });
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
-  }
+  const { PATCH: disabledPatch } = await import("../disabled-models/route");
+  return disabledPatch(req);
 }

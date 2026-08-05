@@ -68,6 +68,7 @@ const LIGHT_PREFIXES = [
   // models-config subpaths verified free of ModelRuntime / SDK:
   "/api/models-config/free-models",
   "/api/models-config/catalog",
+  "/api/models-config/disabled-models",
   // NOT light: /provider-models, /model-overrides, /test, /discover (ModelRuntime)
 ];
 
