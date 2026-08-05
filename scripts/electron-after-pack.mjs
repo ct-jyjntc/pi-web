@@ -4,7 +4,7 @@
 // macOS signing: package.json sets mac.identity to "-" (ad-hoc). electron-builder
 // runs @electron/osx-sign AFTER this hook, so resource copies are included in the
 // final seal. That real ad-hoc signature is what Electron 42+ UNNotification needs.
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { join } from "path";
 
 function ensureElectronLocales(projectDir, appOutDir, electronPlatformName, productFilename) {
@@ -112,6 +112,24 @@ export default async function afterPack(context) {
     );
   }
   console.log(`[afterPack] daemon payload OK (daemon, desktop-dist, app/api ${routes.mjs} ESM routes, lib, jiti)`);
+
+  // Agent SDK must be collapsed to single-file entries (bundle-pi-sdk.mjs). A
+  // tree that silently ships the multi-file package still boots — just pays the
+  // install-once Defender stall the collapse exists to remove.
+  const sdkStamp = join(destNm, "@earendil-works", ".pi-sdk-bundle.json");
+  const agentIndex = join(destNm, "@earendil-works", "pi-coding-agent", "dist", "index.js");
+  if (!existsSync(sdkStamp) || !existsSync(agentIndex)) {
+    throw new Error(
+      "afterPack: agent SDK bundle missing — prepare-electron-standalone did not run bundle-pi-sdk.mjs",
+    );
+  }
+  const agentIndexBytes = statSync(agentIndex).size;
+  if (agentIndexBytes < 1_000_000) {
+    throw new Error(
+      `afterPack: pi-coding-agent dist/index.js is only ${agentIndexBytes} bytes — expected a multi-MB single-file bundle`,
+    );
+  }
+  console.log(`[afterPack] agent SDK bundle OK (${(agentIndexBytes / 1e6).toFixed(1)} MB index)`);
 
   // Self-contained runtime: Node + npm + pi shim (no system installs required).
   if (existsSync(srcBin)) {

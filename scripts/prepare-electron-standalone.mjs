@@ -454,6 +454,33 @@ if (!existsSync(oauthJs)) {
   process.exit(1);
 }
 
+// Collapse the agent SDK graph to single-file ESM entries. Cold Windows installs
+// otherwise pay one Defender/filesystem hit per source file (~thousands) on the
+// first heavy-runtime request. See scripts/bundle-pi-sdk.mjs and
+// docs/desktop-architecture.md.
+{
+  console.log("Bundling agent SDK entry points…");
+  const r = spawnSync(process.execPath, [join(root, "scripts", "bundle-pi-sdk.mjs"), "--target", standalone], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: "inherit",
+  });
+  if (r.status !== 0) {
+    console.error("bundle-pi-sdk.mjs failed — aborting.");
+    process.exit(1);
+  }
+  // Assets must still resolve next to the bundled index (getPackageDir walks up
+  // from import.meta.url to the package root, then into dist/modes/…).
+  if (!existsSync(darkTheme)) {
+    console.error("dark.json missing after SDK bundle — aborting.");
+    process.exit(1);
+  }
+  if (!existsSync(join(agentDest, "dist", "index.js"))) {
+    console.error("pi-coding-agent dist/index.js missing after SDK bundle — aborting.");
+    process.exit(1);
+  }
+}
+
 // ── Desktop daemon runtime (Phase B) ────────────────────────────────────────
 // electron/main.js requires daemon/ipc-host.mjs + desktop-dist
 // over the Next standalone server, but neither was ever staged here — so every

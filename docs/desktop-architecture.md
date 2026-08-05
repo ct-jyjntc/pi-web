@@ -88,6 +88,7 @@ the payload and prunes the Next server:
 | `app/api/**` | esbuild-transpiled to ESM `route.mjs` |
 | `lib/**` | esbuild-transpiled to ESM, tests excluded |
 | `node_modules/jiti` | devDependency, staged explicitly |
+| `@earendil-works/*` | overlaid, then collapsed by `bundle-pi-sdk.mjs` |
 
 `electron-after-pack.mjs` asserts the payload landed and that routes are
 `route.mjs`, not `route.ts` — a tree that silently shipped sources still boots,
@@ -124,6 +125,34 @@ under a per-machine Windows install, and the second is purged by Storage Sense.
 the heavy runtime, and only once `prewarmDelayMs` has passed with no request in
 flight. If the client never goes quiet it never runs — the extensions still load
 lazily on first session start, so there is no fallback to add.
+
+### Agent SDK single-file entries
+
+`scripts/bundle-pi-sdk.mjs` (invoked from `prepare-electron-standalone.mjs`)
+collapses the `@earendil-works` packages the heavy runtime loads into single-file
+ESM entries:
+
+| Package entry | Why |
+|---|---|
+| `pi-coding-agent/dist/index.js` | Cold-start hot path — fully inlines pi-ai / agent-core / tui |
+| `pi-coding-agent/dist/cli.js` | Subagent `pi` shim |
+| `pi-ai` index / compat / oauth / openai-completions.lazy | Direct app imports |
+| `pi-agent-core` index + node | Direct app imports |
+| `pi-tui` index | Keybindings |
+
+The multi-file coding-agent `dist/**/*.js` tree is pruned after the bundle; theme
+JSON and export-html assets stay so `getPackageDir()` resolution still works.
+Nested `pi-coding-agent/node_modules` (thousands of AWS SDK files etc.) is dropped
+because it is inlined.
+
+Measured warm load of `pi-coding-agent` on this machine: **~1.8s multi-file →
+~0.4s bundled**. Cold (Defender scanning thousands of first-touch files) is where
+the gap is largest — that is the install-once stall the dual-runtime split
+cannot remove by itself.
+
+Do not reintroduce a static import of the multi-file package tree on the heavy
+path. Dev continues to use stock `node_modules` (unbundled); only the packaged
+standalone tree is collapsed.
 
 ## Still on HTTP: the build only
 

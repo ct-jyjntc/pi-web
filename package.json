@@ -50,8 +50,10 @@
     "dist:win": "npm run build:electron && electron-builder --win nsis",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
     "bundle:extensions": "node scripts/bundle-builtin-extensions.mjs",
+    "bundle:sdk": "node scripts/bundle-pi-sdk.mjs",
     "smoke:ipc": "node scripts/smoke-ipc-runtime.mjs",
-    "smoke:flows": "node scripts/smoke-ipc-flows.mjs"
+    "smoke:flows": "node scripts/smoke-ipc-flows.mjs",
+    "smoke:sdk-bundle": "node scripts/sdk-bundle-compare.mjs --target .next/standalone"
   },
   "build": {
     "appId": "com.ct-jyjntc.pi-web",
