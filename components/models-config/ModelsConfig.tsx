@@ -178,10 +178,14 @@ export function ModelsConfig({
 
   // Dual-auth providers (e.g. Anthropic) appear in both lists; any auth change
   // must refresh both so the API-key row and OAuth row stay consistent.
+  // Also bump modelsRefreshKey so the chat model picker drops credentials that
+  // just logged out (or gains ones that just logged in) without waiting on the
+  // heavy 60s models cache via a blind reload.
   const refreshAuthProviders = useCallback(() => {
     loadOAuthProviders();
     loadApiKeyProviders();
-  }, [loadOAuthProviders, loadApiKeyProviders]);
+    onModelsChanged?.();
+  }, [loadOAuthProviders, loadApiKeyProviders, onModelsChanged]);
 
   useEffect(() => {
     apiFetch("/api/models-config")

@@ -430,7 +430,8 @@ export function AppShell() {
   // handleCwdChange relies on. Hydrate it from the session list so switching
   // worktrees right after creating a session doesn't close the chat.
   const hydrateSelectedSession = useCallback((sessionId: string) => {
-    void apiFetch("/api/sessions")
+    // fresh=1: session was just created/forked on heavy; light list cache is stale.
+    void apiFetch("/api/sessions?fresh=1")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then((d) => {
         const full = d?.sessions.find((s) => s.id === sessionId);

@@ -159,7 +159,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   useEffect(() => {
     const isFirst = !initialLoadDone.current;
     initialLoadDone.current = true;
-    loadSessions(isFirst);
+    // refreshKey bumps after create/delete/fork/agent-end from the shell. Those
+    // mutations run on heavy; light's 30s list cache must be bypassed or the
+    // sidebar lags until TTL expires.
+    void loadSessions(isFirst, { force: !isFirst });
   }, [loadSessions, refreshKey]);
 
   // Persist unread markers so they survive a browser refresh before the user
@@ -789,7 +792,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
             className={`sidebar-strip-btn sidebar-strip-icon titlebar-no-drag${sessionRefreshDone ? " is-success" : ""}`}
             onClick={() => {
               setDropdownOpen(false);
-              loadSessions(false);
+              void loadSessions(false, { force: true });
             }}
             title={t("common.refresh")}
             aria-label={t("common.refresh")}

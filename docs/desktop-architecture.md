@@ -89,6 +89,34 @@ registry does not exist, so it always returns `[]`. That is the documented
 contract: `SessionSidebar` treats it as an initial fallback and `/api/agent/running`
 (heavy, polled every 2.5s) is authoritative.
 
+## Dual-runtime caches (stale UI trap)
+
+Light and heavy are **separate Node processes**. Any `globalThis` cache
+invalidation only hits the process that ran the mutation. The classic bug:
+
+| Write | Read | Symptom |
+|-------|------|---------|
+| `DELETE /api/sessions/[id]` (heavy) | `GET /api/sessions` (light, 30s TTL) | deleted row lingers |
+| `PATCH disabled-models` / `PUT models-config` (light) | `GET /api/models` (heavy, 60s TTL) | disabled model stays in picker |
+| `POST /api/agent/new` (heavy) | light session list / hydrate | new session missing until TTL |
+
+**Rules when adding mutations:**
+
+1. Prefer **optimistic UI** for list remove/rename/toggle (don't wait for refetch).
+2. After a cross-runtime mutation, the reader must force-bypass its cache:
+   - sessions → `GET /api/sessions?fresh=1` (`listAllSessions({ force: true })`)
+   - models picker → `GET /api/models?fresh=1` (calls `invalidateModelsCache` then reload)
+3. `invalidateSessionListCache()` / `invalidateModelsCache()` on the writer is still
+   useful for same-process readers, but **never sufficient alone** for the other runtime.
+4. `web-settings` is safe cross-process: it revalidates via `stat` mtime/size, not a soft TTL.
+5. Git / file-index / lsp-health live only on light and invalidate in the same process — OK.
+
+Frontend wiring already covered:
+
+- Session delete/rename → optimistic + `loadSessions(false, { force: true })`
+- `refreshKey` bumps (create/fork/agent-end) → force list reload
+- Settings model/auth changes → `onModelsChanged` → `modelsRefreshKey` → `/api/models?fresh=1`
+
 ## Transport
 
 `lib/api-transport.ts` is the single owner of renderer → runtime calls. Nothing
