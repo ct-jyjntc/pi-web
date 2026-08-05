@@ -214,54 +214,67 @@ export function ModelsConfig({
   // models.dev and can gain new keys over time. Re-sync once per settings open;
   // persist only when the merged models actually change.
   const freeMetadataBackfillRef = useRef(false);
-  useEffect(() => {
-    if (loading || freeMetadataBackfillRef.current) return;
-    const providers = config.providers ?? {};
-    const freeEntries = Object.entries(providers).filter(([, provider]) => isFreeManagedProvider(provider));
-    freeMetadataBackfillRef.current = true;
-    if (freeEntries.length === 0) return;
+    useEffect(() => {
+      if (loading || freeMetadataBackfillRef.current) return;
+      const providers = config.providers ?? {};
+      const freeEntries = Object.entries(providers).filter(([, provider]) => isFreeManagedProvider(provider));
+      freeMetadataBackfillRef.current = true;
+      if (freeEntries.length === 0) return;
 
-    void (async () => {
-      const updates = new Map<string, { def: FreeProviderDefinition; models: FreeModelEntry[] }>();
-      let changed = false;
-      for (const [key, provider] of freeEntries) {
-        const def = getFreeProvider(typeof provider.managed === "string" ? provider.managed : undefined);
-        if (!def) continue;
-        try {
-          const models = await fetchFreeModels(def);
-          const merged = buildFreeProviderEntry(def, provider, models);
-          if (JSON.stringify(merged.models) === JSON.stringify(provider.models ?? [])) continue;
-          updates.set(key, { def, models });
-          changed = true;
-        } catch (e) {
-          setFreeRefreshError(e instanceof Error ? e.message : String(e));
+      void (async () => {
+        const updates = new Map<string, { def: FreeProviderDefinition; models: FreeModelEntry[] }>();
+        let firstError: string | null = null;
+
+        // Parallel: each free provider hits an external /models (up to 15s). Sequential
+        // backfill made opening Models settings feel multi-second with several free rows.
+        const results = await Promise.all(
+          freeEntries.map(async ([key, provider]) => {
+            const def = getFreeProvider(typeof provider.managed === "string" ? provider.managed : undefined);
+            if (!def) return null;
+            try {
+              const models = await fetchFreeModels(def);
+              const merged = buildFreeProviderEntry(def, provider, models);
+              if (JSON.stringify(merged.models) === JSON.stringify(provider.models ?? [])) return null;
+              return { key, def, models } as const;
+            } catch (e) {
+              const message = e instanceof Error ? e.message : String(e);
+              if (!firstError) firstError = message;
+              return null;
+            }
+          }),
+        );
+
+        for (const row of results) {
+          if (!row) continue;
+          updates.set(row.key, { def: row.def, models: row.models });
         }
-      }
-      if (!changed) return;
-      const latestProviders = { ...(configRef.current.providers ?? {}) };
-      for (const [key, update] of updates) {
-        const current = latestProviders[key];
-        if (!current || !isFreeManagedProvider(current)) continue;
-        latestProviders[key] = buildFreeProviderEntry(update.def, current, update.models);
-      }
-      const payload = { ...configRef.current, providers: latestProviders };
-      setConfig(payload);
-      try {
-        const res = await apiFetch("/api/models-config", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) return;
-        savedConfigJsonRef.current = JSON.stringify(payload);
-        onModelsChanged?.();
-      } catch {
-        // Keep enriched editor state; user can save manually.
-      }
-    })();
-  }, [loading, config, buildFreeProviderEntry, fetchFreeModels, onModelsChanged]);
+        if (firstError) setFreeRefreshError(firstError);
+        if (updates.size === 0) return;
 
-  const addCustomProvider = useCallback(() => {
+        const latestProviders = { ...(configRef.current.providers ?? {}) };
+        for (const [key, update] of updates) {
+          const current = latestProviders[key];
+          if (!current || !isFreeManagedProvider(current)) continue;
+          latestProviders[key] = buildFreeProviderEntry(update.def, current, update.models);
+        }
+        const payload = { ...configRef.current, providers: latestProviders };
+        setConfig(payload);
+        try {
+          const res = await apiFetch("/api/models-config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) return;
+          savedConfigJsonRef.current = JSON.stringify(payload);
+          onModelsChanged?.();
+        } catch {
+          // Keep enriched editor state; user can save manually.
+        }
+      })();
+    }, [loading, config, buildFreeProviderEntry, fetchFreeModels, onModelsChanged]);
+
+    const addCustomProvider = useCallback(() => {
     let finalName = "new-provider";
     let n = 1;
     while (config.providers?.[finalName]) finalName = `new-provider-${n++}`;
