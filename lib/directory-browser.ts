@@ -18,9 +18,12 @@ export function normalizeDirectory(directory: string): string {
 }
 
 export function getParentDirectory(directory: string): string | null {
+  // Pick the dialect from the path's own syntax, never from the host: bare
+  // `path` is win32 on Windows, which turned "/Users/alex/project" into
+  // "\Users\alex" for any POSIX-style path this ever sees.
   const pathApi = /^[a-zA-Z]:[\\/]/.test(directory) || directory.startsWith("\\\\")
     ? path.win32
-    : path;
+    : path.posix;
   const normalized = pathApi.normalize(directory);
   const parent = pathApi.dirname(normalized);
   return parent === normalized ? null : parent;

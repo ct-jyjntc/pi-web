@@ -36,6 +36,7 @@ import { BuiltinModelDetail } from "./BuiltinModelDetail";
 import { OAuthDetail } from "./OAuthDetail";
 import { ApiKeyDetail } from "./ApiKeyDetail";
 import { AddProviderPicker } from "./AddProviderPicker";
+import { apiFetch } from "@/lib/api-transport";
 
 export function ModelsConfig({
   onClose,
@@ -91,7 +92,7 @@ export function ModelsConfig({
   }), [mergeFreeModels]);
 
   const fetchFreeModels = useCallback(async (def: FreeProviderDefinition) => {
-    const res = await fetch(`/api/models-config/free-models?provider=${encodeURIComponent(def.id)}`);
+    const res = await apiFetch(`/api/models-config/free-models?provider=${encodeURIComponent(def.id)}`);
     const d = await res.json() as {
       models?: FreeModelEntry[];
       error?: string;
@@ -162,14 +163,14 @@ export function ModelsConfig({
   }, [config.providers, buildFreeProviderEntry, fetchFreeModels]);
 
   const loadOAuthProviders = useCallback(() => {
-    fetch("/api/auth/providers")
+    apiFetch("/api/auth/providers")
       .then((r) => r.json())
       .then((d: { providers: OAuthProvider[] }) => setOauthProviders(d.providers))
       .catch(() => {});
   }, []);
 
   const loadApiKeyProviders = useCallback(() => {
-    fetch("/api/auth/all-providers")
+    apiFetch("/api/auth/all-providers")
       .then((r) => r.json())
       .then((d: { providers: ApiKeyProvider[] }) => setApiKeyProviders(d.providers))
       .catch(() => {});
@@ -183,7 +184,7 @@ export function ModelsConfig({
   }, [loadOAuthProviders, loadApiKeyProviders]);
 
   useEffect(() => {
-    fetch("/api/models-config")
+    apiFetch("/api/models-config")
       .then(async (r) => {
         const d = await r.json() as ModelsJson & { error?: string; corrupt?: boolean };
         if (!r.ok) {
@@ -246,7 +247,7 @@ export function ModelsConfig({
       const payload = { ...configRef.current, providers: latestProviders };
       setConfig(payload);
       try {
-        const res = await fetch("/api/models-config", {
+        const res = await apiFetch("/api/models-config", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -352,7 +353,7 @@ export function ModelsConfig({
     }
     const payload = { ...config, providers };
     try {
-      const res = await fetch("/api/models-config", {
+      const res = await apiFetch("/api/models-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -430,7 +431,7 @@ export function ModelsConfig({
       const nextErrors: Record<string, string | null> = {};
       await Promise.all(ids.map(async (id) => {
         try {
-          const res = await fetch(`/api/models-config/provider-models?provider=${encodeURIComponent(id)}`);
+          const res = await apiFetch(`/api/models-config/provider-models?provider=${encodeURIComponent(id)}`);
           const data = await res.json() as { models?: ProviderModelRow[]; error?: string };
           if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
           next[id] = Array.isArray(data.models) ? data.models : [];
@@ -450,7 +451,7 @@ export function ModelsConfig({
 
 
   const toggleBuiltinModel = useCallback(async (providerId: string, modelId: string, disabled: boolean) => {
-    const res = await fetch("/api/models-config/provider-models", {
+    const res = await apiFetch("/api/models-config/provider-models", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ provider: providerId, modelId, disabled }),
@@ -508,7 +509,7 @@ export function ModelsConfig({
           key={`${selection.providerId}/${selection.modelId}`}
           model={model}
           onModelPatch={async (patch) => {
-            const res = await fetch("/api/models-config/model-overrides", {
+            const res = await apiFetch("/api/models-config/model-overrides", {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

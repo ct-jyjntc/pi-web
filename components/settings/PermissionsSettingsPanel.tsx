@@ -18,6 +18,7 @@ import {
 import type { PermissionAction } from "@/lib/permission-policy";
 import { Icon } from "../Icon";
 import { sectionTitle } from "./settings-ui";
+import { apiFetch } from "@/lib/api-transport";
 
 type PolicyDoc = {
   yoloMode?: boolean;
@@ -54,7 +55,7 @@ export function PermissionsSettingsPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/permissions");
+      const res = await apiFetch("/api/permissions");
       const data = await res.json() as {
         error?: string;
         yoloMode?: boolean;
@@ -117,7 +118,7 @@ export function PermissionsSettingsPanel() {
     setNotice(null);
     try {
       const permission = permissionFromEditor();
-      const res = await fetch("/api/permissions", {
+      const res = await apiFetch("/api/permissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -148,7 +149,7 @@ export function PermissionsSettingsPanel() {
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/permissions", {
+      const res = await apiFetch("/api/permissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reset-defaults" }),
@@ -175,7 +176,7 @@ export function PermissionsSettingsPanel() {
     setYoloMode(next);
     setError(null);
     try {
-      const res = await fetch("/api/permissions", {
+      const res = await apiFetch("/api/permissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: next ? "full" : "ask" }),

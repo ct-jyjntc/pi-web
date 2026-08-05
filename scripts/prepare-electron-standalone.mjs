@@ -14,6 +14,9 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "fs";
 import { spawnSync } from "child_process";
 import { join, basename } from "path";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
 
 const root = process.cwd();
 const standalone = join(root, ".next", "standalone");
@@ -452,42 +455,91 @@ if (!existsSync(oauthJs)) {
 }
 
 // ── Desktop daemon runtime (Phase B) ────────────────────────────────────────
-// electron/main.js `useDaemonRuntime()` prefers daemon/server.mjs + desktop-dist
+// electron/main.js requires daemon/ipc-host.mjs + desktop-dist
 // over the Next standalone server, but neither was ever staged here — so every
 // packaged build silently fell back to booting Next, which preloads all ~80 route
 // entries before it can answer /api/health. That fallback is the packaged cold
 // start. Ship the daemon payload so the packaged app takes the same path
-// `npm run electron` already takes. See docs/phase-b-desktop-daemon.md.
+// `npm run electron` already takes. See docs/desktop-architecture.md.
 //
-// The daemon jiti-loads TypeScript at runtime, so app/api and lib ship as sources.
+// app/api and lib used to ship as TypeScript for the daemon to jiti-transpile at
+// runtime. On a cold Windows install that cost ~25s of blocked event loop for the
+// first route that pulled the model stack — the SDK module graph itself is only
+// ~2s of it. Transpiling here instead leaves jiti doing plain module resolution.
+//
+// ESM output specifically: CJS output makes jiti `require()` the ESM-only agent
+// SDK, which drags all of node_modules through babel and measured ~2x SLOWER than
+// shipping TypeScript. Keep the emitted format ESM.
 const SOURCE_EXTS = new Set([".ts", ".tsx", ".mjs", ".cjs", ".js", ".json"]);
+const TRANSPILE_EXTS = new Set([".ts", ".tsx"]);
 
-function copySources(src, dest) {
-  if (!existsSync(src)) return 0;
-  let count = 0;
+function collectSources(src, dest, out = { transpile: [], copy: [] }) {
+  if (!existsSync(src)) return out;
   for (const entry of readdirSync(src, { withFileTypes: true })) {
     const from = join(src, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "node_modules" || entry.name === "__tests__") continue;
-      count += copySources(from, join(dest, entry.name));
+      collectSources(from, join(dest, entry.name), out);
       continue;
     }
     // Tests never run from the package and would drag in dev-only imports.
     if (entry.name.includes(".test.")) continue;
     const dot = entry.name.lastIndexOf(".");
     if (dot < 0 || !SOURCE_EXTS.has(entry.name.slice(dot))) continue;
-    ensureDir(dest);
-    cpSync(from, join(dest, entry.name));
-    count += 1;
+    if (TRANSPILE_EXTS.has(entry.name.slice(dot))) out.transpile.push(from);
+    else out.copy.push({ from, to: join(dest, entry.name) });
   }
-  return count;
+  return out;
+}
+
+/** Verbatim copy — used for daemon/, which is already plain ESM. */
+function copySources(src, dest) {
+  const { transpile, copy } = collectSources(src, dest);
+  const files = [
+    ...copy,
+    ...transpile.map((from) => ({ from, to: join(dest, from.slice(src.length + 1)) })),
+  ];
+  for (const file of files) {
+    ensureDir(join(file.to, ".."));
+    cpSync(file.from, file.to);
+  }
+  return files.length;
+}
+
+/**
+ * Transpile a source tree to ESM the daemon can load without a TypeScript pass.
+ * Emits .mjs so daemon/routes.mjs picks route.mjs over any stale route.ts.
+ */
+function transpileSources(src, dest, label) {
+  const { transpile, copy } = collectSources(src, dest);
+  if (transpile.length > 0) {
+    const esbuild = require("esbuild");
+    esbuild.buildSync({
+      entryPoints: transpile,
+      outdir: dest,
+      outbase: src,
+      bundle: false,
+      format: "esm",
+      platform: "node",
+      target: "node22",
+      sourcemap: false,
+      outExtension: { ".js": ".mjs" },
+      logLevel: "warning",
+    });
+  }
+  for (const file of copy) {
+    ensureDir(join(file.to, ".."));
+    cpSync(file.from, file.to);
+  }
+  console.log(`Transpiled ${label} → ESM (${transpile.length} modules, ${copy.length} copied)`);
+  return transpile.length + copy.length;
 }
 
 const daemonSrc = join(root, "daemon");
 const desktopDistSrc = join(root, "desktop-dist");
 
-if (!existsSync(join(daemonSrc, "server.mjs"))) {
-  console.error("Missing daemon/server.mjs — cannot package the desktop runtime.");
+if (!existsSync(join(daemonSrc, "ipc-host.mjs"))) {
+  console.error("Missing daemon/ipc-host.mjs — cannot package the desktop runtime.");
   process.exit(1);
 }
 if (!existsSync(join(desktopDistSrc, "index.html"))) {
@@ -516,14 +568,12 @@ cpSync(desktopDistSrc, desktopDest, {
 console.log(`Copied desktop-dist → standalone/desktop-dist (skipped ${skippedMaps} source maps)`);
 
 rmSync(join(standalone, "app", "api"), { recursive: true, force: true });
-const apiFiles = copySources(join(root, "app", "api"), join(standalone, "app", "api"));
-console.log(`Copied app/api sources → standalone/app/api (${apiFiles} files)`);
+transpileSources(join(root, "app", "api"), join(standalone, "app", "api"), "app/api");
 
 // NOTE: bundle-runtime-node.mjs later writes npm into standalone/lib/node_modules.
 // It runs after this script and only removes its own subtree, so the two coexist.
 rmSync(join(standalone, "lib"), { recursive: true, force: true });
-const libFiles = copySources(join(root, "lib"), join(standalone, "lib"));
-console.log(`Copied lib sources → standalone/lib (${libFiles} files)`);
+transpileSources(join(root, "lib"), join(standalone, "lib"), "lib");
 
 // jiti stays a devDependency (the published npm package ships .next, not daemon/),
 // so it is staged here rather than traced in by Next.

@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { SettingsRow, sectionTitle } from "./settings-ui";
+import { apiFetch } from "@/lib/api-transport";
 
 type Prefs = {
   httpProxy: string;
@@ -100,7 +101,7 @@ export function NetworkSettingsPanel({
               onClick={() => {
                 setNetworkTesting(true);
                 setNetworkReport(null);
-                void fetch("/api/network/test", {
+                void apiFetch("/api/network/test", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({}),

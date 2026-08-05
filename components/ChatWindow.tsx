@@ -50,6 +50,7 @@ import {
   ExtensionCustomPanel,
   ExtensionDialog,
 } from "./chat-window/ExtensionPanels";
+import { apiFetch } from "@/lib/api-transport";
 
 type Props = Pick<
   UseAgentSessionOptions,
@@ -166,7 +167,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       }
       const cwd = session?.cwd ?? newSessionCwd;
       if (cwd && (userText || assistantText)) {
-        void fetch("/api/advisor", {
+        void apiFetch("/api/advisor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -191,7 +192,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     const memoryCwd = session?.cwd ?? newSessionCwd;
     const memorySessionId = session?.id ?? sessionIdForReviewRef.current;
     if (memoryCwd && memorySessionId) {
-      void fetch("/api/memory-review", {
+      void apiFetch("/api/memory-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: memoryCwd, sessionId: memorySessionId }),

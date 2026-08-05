@@ -27,8 +27,8 @@ const cliJs = join(
 );
 const nodeBin = join(binDir, isWin ? "node.exe" : "node");
 
-// Same as bundle-runtime-node.mjs: the Next entry is pruned for daemon builds.
-if (!existsSync(join(standalone, "daemon", "server.mjs")) && !existsSync(join(standalone, "server.js"))) {
+// Same as bundle-runtime-node.mjs: the Next entry is pruned for desktop builds.
+if (!existsSync(join(standalone, "daemon", "ipc-host.mjs")) && !existsSync(join(standalone, "server.js"))) {
   console.error("Missing prepared standalone tree — run scripts/prepare-electron-standalone.mjs first.");
   process.exit(1);
 }

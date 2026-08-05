@@ -80,20 +80,38 @@ export default async function afterPack(context) {
   rmSync(destNm, { recursive: true, force: true });
   cpSync(srcNm, destNm, { recursive: true });
 
-  // The desktop runtime is the daemon (docs/phase-b-desktop-daemon.md); `next` is
+  // The desktop runtime is the daemon (docs/desktop-architecture.md); `next` is
   // pruned unless PI_WEB_KEEP_NEXT=1. jiti is what loads the route sources, so it
   // is the dependency worth asserting on.
   if (!existsSync(join(destNm, "jiti", "package.json"))) {
     throw new Error("afterPack: jiti missing after copy — daemon cannot load app/api routes");
   }
-  for (const rel of [["daemon", "server.mjs"], ["desktop-dist", "index.html"], ["app", "api"], ["lib"]]) {
+  for (const rel of [["daemon", "ipc-host.mjs"], ["daemon", "dispatch.mjs"], ["desktop-dist", "index.html"], ["app", "api"], ["lib"]]) {
     if (!existsSync(join(destStandalone, ...rel))) {
       throw new Error(
         `afterPack: standalone/${rel.join("/")} missing — electron/main.js would fall back to Next`,
       );
     }
   }
-  console.log("[afterPack] daemon payload OK (daemon, desktop-dist, app/api, lib, jiti)");
+
+  // Shipping TypeScript costs ~25s of blocked event loop on a cold Windows start
+  // (jiti transpiles it on first hit). A tree that silently falls back to sources
+  // still boots, so the shape has to be asserted rather than trusted.
+  const routes = { mjs: 0, ts: 0 };
+  (function countRoutes(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) countRoutes(join(dir, entry.name));
+      else if (entry.name === "route.mjs") routes.mjs += 1;
+      else if (entry.name === "route.ts") routes.ts += 1;
+    }
+  })(join(destStandalone, "app", "api"));
+  if (routes.mjs === 0 || routes.ts > 0) {
+    throw new Error(
+      `afterPack: expected precompiled routes, found ${routes.mjs} route.mjs / ${routes.ts} route.ts — ` +
+        "prepare-electron-standalone.mjs did not transpile app/api",
+    );
+  }
+  console.log(`[afterPack] daemon payload OK (daemon, desktop-dist, app/api ${routes.mjs} ESM routes, lib, jiti)`);
 
   // Self-contained runtime: Node + npm + pi shim (no system installs required).
   if (existsSync(srcBin)) {

@@ -7,6 +7,7 @@ import { Check as CheckIcon } from "lucide-react";
 import { Field, SecretTextInput, DetailStrip } from "./form-fields";
 import { ConfigModelsEnablePanel } from "./ConfigModelsEnablePanel";
 import type { ApiKeyProvider, ProviderModelRow } from "./models-config-types";
+import { apiFetch } from "@/lib/api-transport";
 
 export function ApiKeyDetail({
   provider,
@@ -43,7 +44,7 @@ export function ApiKeyDetail({
     setError(null);
     setSavedOk(false);
     try {
-      const res = await fetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, {
+      const res = await apiFetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey: apiKey.trim() }),
@@ -68,7 +69,7 @@ export function ApiKeyDetail({
     setRemoving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, { method: "DELETE" });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) setError(d.error ?? `HTTP ${res.status}`);
       else onRefresh();

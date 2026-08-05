@@ -4,6 +4,7 @@
  */
 
 import { ensureWebSettings } from "@/lib/web-settings-store";
+import { apiFetch } from "@/lib/api-transport";
 
 export type AppUpdateInfo = {
   currentVersion: string;
@@ -85,7 +86,7 @@ export async function checkAppUpdate(options?: { force?: boolean }): Promise<App
   checking = true;
   emit();
   try {
-    const res = await fetch("/api/app-update", { method: "POST" });
+    const res = await apiFetch("/api/app-update", { method: "POST" });
     const data = await res.json() as {
       currentVersion?: string;
       latestVersion?: string | null;

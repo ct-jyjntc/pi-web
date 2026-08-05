@@ -3,6 +3,7 @@
  */
 
 import type { AgentMessage } from "@/lib/types";
+import { type ApiStream } from "@/lib/api-transport";
 
 export interface StreamingState {
   isStreaming: boolean;
@@ -33,7 +34,7 @@ export type EventStreamConnectionStatus = "connected" | "timeout" | "closed";
 
 export type EventStreamConnectionResult = {
   status: EventStreamConnectionStatus;
-  source: EventSource;
+  source: ApiStream;
 };
 
 export class EventStreamConnectionError extends Error {

@@ -13,6 +13,7 @@ import { useLocale } from "@/hooks/useLocale";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { Icon } from "./Icon";
 import type { editor } from "monaco-editor";
+import { apiFetch } from "@/lib/api-transport";
 
 // Static worker URLs (no template strings) so Vite/Rollup can resolve workers;
 // Next/webpack also accept these relative import.meta.url forms.
@@ -102,7 +103,7 @@ export function FileEditor({ filePath, cwd, initialContent, language, isDark, co
     if (!model || !cwd) return;
     try {
       const params = new URLSearchParams({ cwd, path: filePath });
-      const res = await fetch(`/api/diagnostics?${params.toString()}`);
+      const res = await apiFetch(`/api/diagnostics?${params.toString()}`);
       if (!res.ok) return;
       const data = await res.json() as { items?: Array<{ line?: number; column?: number; severity?: string; message?: string; code?: string }> };
       const markers: editor.IMarkerData[] = (data.items ?? []).map((item) => ({
@@ -129,7 +130,7 @@ export function FileEditor({ filePath, cwd, initialContent, language, isDark, co
     if (!model || !filePath) return;
     setStatus({ kind: "saving" });
     try {
-      const res = await fetch(`/api/files/${fileApiUrl}?type=save`, {
+      const res = await apiFetch(`/api/files/${fileApiUrl}?type=save`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: model.getValue(), format: true }),
@@ -149,7 +150,7 @@ export function FileEditor({ filePath, cwd, initialContent, language, isDark, co
     const model = modelRef.current;
     if (!model || !filePath) return;
     try {
-      const res = await fetch(`/api/files/${fileApiUrl}?type=format`, {
+      const res = await apiFetch(`/api/files/${fileApiUrl}?type=format`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: model.getValue() }),
@@ -203,7 +204,7 @@ export function FileEditor({ filePath, cwd, initialContent, language, isDark, co
       provideHover: async (m, position) => {
         if (m.uri.toString() !== myUri) return null;
         try {
-          const res = await fetch("/api/lsp/query", {
+          const res = await apiFetch("/api/lsp/query", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -232,7 +233,7 @@ export function FileEditor({ filePath, cwd, initialContent, language, isDark, co
       provideDefinition: async (m, position) => {
         if (m.uri.toString() !== myUri) return null;
         try {
-          const res = await fetch("/api/lsp/query", {
+          const res = await apiFetch("/api/lsp/query", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -268,7 +269,7 @@ export function FileEditor({ filePath, cwd, initialContent, language, isDark, co
       const editorInstanceRef = editorInstance;
       try {
         const params = new URLSearchParams({ cwd, path: filePath });
-        const res = await fetch(`/api/git/diff?${params.toString()}`);
+        const res = await apiFetch(`/api/git/diff?${params.toString()}`);
         if (!res.ok) return;
         const data = await res.json() as { patch?: string };
         if (typeof data.patch !== "string" || !data.patch) return;

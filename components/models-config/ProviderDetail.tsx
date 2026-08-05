@@ -20,6 +20,7 @@ import {
   type ModelEntry,
   type ProviderEntry,
 } from "./models-config-types";
+import { apiFetch } from "@/lib/api-transport";
 
 export function ProviderDetail({
   name, provider, onChange, onRename, onDelete, onRefreshModels, refreshingModels, refreshError,
@@ -56,7 +57,7 @@ export function ProviderDetail({
     setRemoteLoading(true);
     setRemoteError(null);
     try {
-      const res = await fetch("/api/models-config/discover", {
+      const res = await apiFetch("/api/models-config/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

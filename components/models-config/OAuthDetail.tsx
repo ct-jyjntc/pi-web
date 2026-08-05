@@ -5,6 +5,7 @@ import { useLocale } from "@/hooks/useLocale";
 import { DetailStrip } from "./form-fields";
 import { ConfigModelsEnablePanel } from "./ConfigModelsEnablePanel";
 import type { OAuthProvider, OAuthLoginState, ProviderModelRow } from "./models-config-types";
+import { apiFetch, apiStream, type ApiStream } from "@/lib/api-transport";
 
 export function OAuthDetail({
   provider,
@@ -24,7 +25,7 @@ export function OAuthDetail({
   const { t } = useLocale();
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
   const [inputValue, setInputValue] = useState("");
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourceRef = useRef<ApiStream | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -50,7 +51,7 @@ export function OAuthDetail({
     setLoginState({ phase: "connecting" });
     setInputValue("");
 
-    const es = new EventSource(`/api/auth/login/${encodeURIComponent(provider.id)}`);
+    const es = apiStream(`/api/auth/login/${encodeURIComponent(provider.id)}`);
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {
@@ -97,7 +98,7 @@ export function OAuthDetail({
   }, [provider.id, onRefresh, t]);
 
   const handleLogout = useCallback(async () => {
-    await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
+    await apiFetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
     setLoginState({ phase: "idle" });
     onRefresh();
   }, [provider.id, onRefresh]);
@@ -106,7 +107,7 @@ export function OAuthDetail({
     if (!code.trim()) return;
     setLoginState({ phase: "progress", message: t("models.verifying") });
     try {
-      const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
+      const res = await apiFetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, code: code.trim() }),
@@ -126,7 +127,7 @@ export function OAuthDetail({
   const submitSelection = useCallback(async (token: string, value: string) => {
     setLoginState({ phase: "progress", message: t("models.continuing") });
     try {
-      const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
+      const res = await apiFetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, code: value }),

@@ -14,9 +14,6 @@
   "engines": {
     "node": ">=22.19.0"
   },
-  "bin": {
-    "pi-web": "bin/pi-web.js"
-  },
   "main": "electron/main.js",
   "author": "ct-jyjntc",
   "files": [
@@ -37,12 +34,10 @@
     "build:electron": "npm run bundle:extensions && npm run desktop:build && npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
     "desktop:dev": "vite",
     "desktop:build": "vite build",
-    "daemon": "node daemon/server.mjs",
-    "smoke:daemon": "node scripts/smoke-daemon.mjs",
+    "daemon": "node daemon/ipc-host.mjs",
     "start": "node scripts/fix-node-pty-perms.mjs && next start -H 127.0.0.1 -p 30141",
     "start:lan": "node scripts/fix-node-pty-perms.mjs && next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
-    "verify": "node scripts/verify.mjs",
     "smoke:electron": "node scripts/smoke-electron.mjs",
     "smoke:electron-notify": "node scripts/smoke-electron-notify.mjs",
     "electron": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs && electron .",
@@ -54,7 +49,9 @@
     "dist:mac": "npm run build:electron && electron-builder --mac dmg zip",
     "dist:win": "npm run build:electron && electron-builder --win nsis",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
-    "bundle:extensions": "node scripts/bundle-builtin-extensions.mjs"
+    "bundle:extensions": "node scripts/bundle-builtin-extensions.mjs",
+    "smoke:ipc": "node scripts/smoke-ipc-runtime.mjs",
+    "smoke:flows": "node scripts/smoke-ipc-flows.mjs"
   },
   "build": {
     "appId": "com.ct-jyjntc.pi-web",
@@ -65,9 +62,7 @@
       "buildResources": "electron/icons"
     },
     "files": [
-      "electron/main.js",
-      "electron/preload.js",
-      "electron/tray.js",
+      "electron/*.js",
       "electron/icons/icon.icns",
       "electron/icons/icon.png",
       "electron/icons/icon.ico",

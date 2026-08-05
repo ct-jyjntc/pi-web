@@ -3,12 +3,20 @@
 ## Quick Start
 
 ```bash
-npm run dev   # port 30141
+npm run desktop:build && npm run electron   # the product: Electron desktop client
 ```
 
 Typecheck: `node_modules/.bin/tsc --noEmit`  
 Lint: `npm run lint`  
-**Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
+Runtime protocol regression: `npm run smoke:ipc`
+
+There is no web server. The renderer is served by the Electron main process over
+`app://` and talks to two agent runtime child processes over IPC — see
+`docs/desktop-architecture.md` before changing anything about transport,
+packaging, or which process a route runs in.
+
+`next build` survives only as a dependency-tracing step for packaging (removal
+condition in that doc). **Never run it during dev** — it pollutes `.next/`.
 
 ---
 
@@ -24,6 +32,8 @@ These govern **how you change code**. `Key Design Decisions & Traps` describes *
 3. **MUST NOT** duplicate the same semantic across UI + hook + API + rpc. One owner module; others call it.
 4. **MUST** prefer deleting or merging code over adding guards when both would silence the symptom.
 5. **MUST NOT** introduce `as any`, `@ts-ignore`, or lint disables to silence a type error caused by the change.
+6. **Transport has one owner.** Renderer code **MUST** call `apiFetch` / `apiStream` from `lib/api-transport.ts`. A raw `fetch("/api/…")` or `new EventSource(…)` has no origin to resolve against in the desktop client and will not work.
+7. **MUST NOT** add a static import that reaches `@earendil-works/*` to a route listed as light in `electron/runtime-host.js`. That pulls the agent SDK into the process whose whole purpose is to never load it — measure with the classification rule in `docs/desktop-architecture.md`.
 
 ### Hot-path rules
 
@@ -73,23 +83,27 @@ If (1)–(3) cannot be answered, **MUST NOT** land a patch-style fix.
 ## Architecture
 
 ```
-Browser                Next.js Server              AgentSession (in-process)
+Renderer (app://)      Electron main            Agent runtimes (child procs, IPC)
   │                        │                               │
-  ├─ GET /api/sessions ────▶ reads ~/.pi/agent/sessions/   │
-  ├─ GET /api/sessions/[id] reads .jsonl file directly     │
-  ├─ GET /api/agent/running ──────────▶ running id poll    │
+  ├─ apiFetch("/api/…") ──▶ runtime-host routes by path    │
+  │                        ├──────────▶ light  ─ reads ~/.pi/agent/sessions/,
+  │                        │                     files, git — never loads the SDK
+  │                        └──────────▶ heavy  ─ SDK + AgentSession registry
   │                        │                               │
-  ├─ send message ─────────▶ POST /api/agent/[id]          │
-  │                        │   startRpcSession() ─────────▶│ createAgentSession()
-  │                        │   session.send(cmd) ─────────▶│ session.prompt()
+  ├─ send message ─────────▶ POST /api/agent/[id] ────────▶│ startRpcSession()
+  │                        │                               │ session.prompt()
   │                        │                               │
-  ├─ SSE connect ──────────▶ GET /api/agent/[id]/events    │
-  │                        │   session.onEvent() ◀─────────│ session.subscribe()
-  │◀── data: {...} ─────────│                               │
+  ├─ apiStream(…/events) ──▶ chunks relayed over IPC ◀─────│ session.subscribe()
 ```
 
-**Session browsing** (read-only): reads `.jsonl` files through SDK `SessionManager` helpers and `lib/session-reader.ts` — no AgentSession created.  
-**Sending a message**: `startRpcSession()` in `lib/rpc-manager.ts` creates an AgentSession in-process.
+All renderer → runtime traffic goes through `lib/api-transport.ts`; route
+handlers under `app/api/**` are unchanged `Request`/`Response` functions.
+
+**Session browsing** (read-only): the list comes from `lib/session-reader.ts`
+(SDK-free, light runtime); transcripts come from `lib/session-entries.ts` (SDK,
+heavy runtime).  
+**Sending a message**: `startRpcSession()` in `lib/rpc-manager.ts` creates an
+AgentSession inside the heavy runtime.
 
 ---
 

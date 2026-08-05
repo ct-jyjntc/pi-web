@@ -6,6 +6,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useLocale } from "@/hooks/useLocale";
 import { ensureWebSettings } from "@/lib/web-settings-store";
+import { apiFetch, apiStream, type ApiStream } from "@/lib/api-transport";
 // xterm.css is vendored into app/globals.css — avoid PostCSS/lightningcss on the package CSS.
 
 interface Props {
@@ -59,7 +60,7 @@ export function TerminalPanel({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<ApiStream | null>(null);
   const disposedRef = useRef(false);
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [status, setStatus] = useState<string | null>(null);
@@ -135,7 +136,7 @@ export function TerminalPanel({
     termRef.current = term;
     fitRef.current = fit;
 
-    let es: EventSource | null = null;
+    let es: ApiStream | null = null;
     let sessionId: string | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -148,7 +149,7 @@ export function TerminalPanel({
       writeQueueRef.current = writeQueueRef.current
         .then(async () => {
           if (disposedRef.current || !sessionId || cleanExit) return;
-          await fetch(`/api/cwd/pty/${sessionId}/input`, {
+          await apiFetch(`/api/cwd/pty/${sessionId}/input`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ data }),
@@ -169,7 +170,7 @@ export function TerminalPanel({
       }
       const cols = termRef.current.cols;
       const rows = termRef.current.rows;
-      void fetch(`/api/cwd/pty/${sessionId}/resize`, {
+      void apiFetch(`/api/cwd/pty/${sessionId}/resize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cols, rows }),
@@ -188,7 +189,7 @@ export function TerminalPanel({
         esRef.current = null;
       }
       if (id && (forceKill || killOnDispose)) {
-        void fetch(`/api/cwd/pty/${id}`, { method: "DELETE", keepalive: true }).catch(() => {});
+        void apiFetch(`/api/cwd/pty/${id}`, { method: "DELETE", keepalive: true }).catch(() => {});
       }
     };
 
@@ -206,7 +207,7 @@ export function TerminalPanel({
         term.writeln(`\x1b[90m${meta?.shell ?? "shell"} · ${meta?.cwd ?? cwd ?? ""}\x1b[0m`);
       }
 
-      es = new EventSource(`/api/cwd/pty/${id}/events`);
+      es = apiStream(`/api/cwd/pty/${id}/events`);
       esRef.current = es;
 
       es.addEventListener("data", (evt) => {
@@ -273,7 +274,7 @@ export function TerminalPanel({
         if (!cwd) throw new Error(t("git.terminalNoCwd"));
         const cols = Math.max(term.cols || 80, 40);
         const rows = Math.max(term.rows || 24, 12);
-        const res = await fetch("/api/cwd/pty", {
+        const res = await apiFetch("/api/cwd/pty", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cwd, cols, rows, source: "user" }),
@@ -288,7 +289,7 @@ export function TerminalPanel({
           throw new Error(data.error ?? `HTTP ${res.status}`);
         }
         if (disposedRef.current) {
-          void fetch(`/api/cwd/pty/${data.id}`, { method: "DELETE", keepalive: true }).catch(() => {});
+          void apiFetch(`/api/cwd/pty/${data.id}`, { method: "DELETE", keepalive: true }).catch(() => {});
           return;
         }
         attachToSession(data.id, { shell: data.shell, cwd: data.cwd });

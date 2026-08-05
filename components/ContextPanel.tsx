@@ -10,6 +10,7 @@ import { getCompactHandlers, requestCompact, subscribeCompactHandlers } from "@/
 import { requestNavigateToLeaf } from "@/lib/session-nav-store";
 import type { ExtensionStatusItem } from "@/lib/types";
 import { Icon } from "./Icon";
+import { apiFetch } from "@/lib/api-transport";
 
 function isPermissionStatus(status: { key: string; text: string }): boolean {
   const k = status.key.toLowerCase();
@@ -75,7 +76,7 @@ export function ContextPanel() {
 
   const refreshJournal = useCallback(async (sid: string) => {
     try {
-      const res = await fetch(`/api/workspace-journal?sessionId=${encodeURIComponent(sid)}`);
+      const res = await apiFetch(`/api/workspace-journal?sessionId=${encodeURIComponent(sid)}`);
       const data = await res.json() as {
         canUndo?: boolean;
         canRedo?: boolean;
@@ -104,7 +105,7 @@ export function ContextPanel() {
       return;
     }
     let cancelled = false;
-    void fetch(`/api/checkpoints?sessionId=${encodeURIComponent(sid)}`)
+    void apiFetch(`/api/checkpoints?sessionId=${encodeURIComponent(sid)}`)
       .then(async (res) => {
         const data = await res.json() as { checkpoints?: typeof checkpoints };
         if (!cancelled && Array.isArray(data.checkpoints)) setCheckpoints(data.checkpoints);
@@ -131,7 +132,7 @@ export function ContextPanel() {
     setJournalBusy(true);
     setJournalMessage(null);
     try {
-      const res = await fetch("/api/workspace-journal", {
+      const res = await apiFetch("/api/workspace-journal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId: sid, action }),
@@ -164,7 +165,7 @@ export function ContextPanel() {
         try {
           const navigated = await requestNavigateToLeaf(sid, data.userEntryId);
           if (!navigated) {
-            await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
+            await apiFetch(`/api/agent/${encodeURIComponent(sid)}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ type: "navigate_tree", targetId: data.userEntryId }),
@@ -190,7 +191,7 @@ export function ContextPanel() {
     if (!sid) return;
     setCollabBusy(true);
     try {
-      const res = await fetch("/api/collab", {
+      const res = await apiFetch("/api/collab", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -228,7 +229,7 @@ export function ContextPanel() {
       // Prefer live chat navigation so the transcript reloads for the leaf.
       const navigated = await requestNavigateToLeaf(sid, entryId);
       if (navigated) return;
-      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
+      const res = await apiFetch(`/api/agent/${encodeURIComponent(sid)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "navigate_tree", targetId: entryId }),

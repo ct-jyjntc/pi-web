@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { ConfigPanelBackdrop, ConfigPanelShell } from "./ConfigPanelShell";
 import { SettingsToggle } from "./SettingsToggle";
+import { apiFetch } from "@/lib/api-transport";
 
 type McpServerItem = {
   name: string;
@@ -79,7 +80,7 @@ export function McpConfig({
     setError(null);
     try {
       const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
-      const res = await fetch(`/api/mcp${qs}`);
+      const res = await apiFetch(`/api/mcp${qs}`);
       const data = await res.json() as {
         servers?: McpServerItem[];
         adapter?: AdapterStatus;
@@ -105,7 +106,7 @@ export function McpConfig({
     setBusyName(server.name);
     setError(null);
     try {
-      const res = await fetch("/api/mcp", {
+      const res = await apiFetch("/api/mcp", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -129,7 +130,7 @@ export function McpConfig({
     setBusyName(server.name);
     setError(null);
     try {
-      const res = await fetch("/api/mcp", {
+      const res = await apiFetch("/api/mcp", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: server.name }),
@@ -148,7 +149,7 @@ export function McpConfig({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/mcp", {
+      const res = await apiFetch("/api/mcp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

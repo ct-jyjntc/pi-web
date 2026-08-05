@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { Icon } from "./Icon";
 import { RefreshCw } from "lucide-react";
+import { apiFetch } from "@/lib/api-transport";
 
 type DebugSession = {
   id: string;
@@ -55,7 +56,7 @@ export function DebugPanel({
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/debug/sessions");
+      const res = await apiFetch("/api/debug/sessions");
       const data = await res.json() as { sessions?: DebugSession[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       const list = data.sessions ?? [];
@@ -80,7 +81,7 @@ export function DebugPanel({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/debug/sessions", {
+      const res = await apiFetch("/api/debug/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

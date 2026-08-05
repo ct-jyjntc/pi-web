@@ -16,6 +16,7 @@ import {
 } from "./message-view-utils";
 import { MessageHoverShell } from "./MessageHoverShell";
 import { EditFromHereDialog, type EditFromHereMode } from "./EditFromHereDialog";
+import { apiFetch } from "@/lib/api-transport";
 
 export function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, sessionId }: {
   message: UserMessage;
@@ -95,7 +96,7 @@ export function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, for
 
     setEditBusy(true);
     try {
-      const res = await fetch("/api/workspace-journal", {
+      const res = await apiFetch("/api/workspace-journal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

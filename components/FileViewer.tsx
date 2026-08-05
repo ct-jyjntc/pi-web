@@ -30,6 +30,7 @@ import { FileEditor } from "./FileEditor";
 import { AtSign, Download, Pencil, WrapText, X } from "lucide-react";
 import type { CodeThemeId } from "@/lib/web-settings";
 import type { GitFileDiffResponse } from "@/lib/git-types";
+import { apiFetch, apiStream, type ApiStream } from "@/lib/api-transport";
 
 interface Props {
   filePath: string;
@@ -517,7 +518,7 @@ function DocumentViewer({
 
   useEffect(() => {
     setError(null);
-    fetch(getFileApiUrl(filePath, "meta", sourceSessionId))
+    apiFetch(getFileApiUrl(filePath, "meta", sourceSessionId))
       .then((r) => r.json())
       .then((d: { size?: number; error?: string }) => {
         if (d.error) setError(d.error);
@@ -626,7 +627,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   const [diagPanelOpen, setDiagPanelOpen] = useState(false);
   const [diagSummary, setDiagSummary] = useState<{ errors: number; warnings: number } | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<ApiStream | null>(null);
   const gitDiffRequestRef = useRef(0);
   const contentRequestRef = useRef(0);
   const contentPathRef = useRef(filePath);
@@ -634,7 +635,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   const contentRef = useRef<HTMLDivElement | null>(null);
   const fetchContent = useCallback((targetPath: string) => {
     const requestId = ++contentRequestRef.current;
-    return fetch(getFileApiUrl(targetPath, "read", sourceSessionId))
+    return apiFetch(getFileApiUrl(targetPath, "read", sourceSessionId))
       .then((r) => r.json())
       .then((d: FileData & { error?: string }) => {
         if (requestId !== contentRequestRef.current || contentPathRef.current !== targetPath) {
@@ -666,7 +667,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
 
     try {
       const params = new URLSearchParams({ cwd, path: targetPath });
-      const response = await fetch(`/api/git/diff?${params.toString()}`);
+      const response = await apiFetch(`/api/git/diff?${params.toString()}`);
       const next = await response.json() as GitFileDiffResponse & { error?: string };
       if (requestId !== gitDiffRequestRef.current) return;
       setGitDiff(response.ok && next.supported && typeof next.patch === "string" ? next : null);
@@ -684,7 +685,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
     }
     try {
       const params = new URLSearchParams({ cwd, path: targetPath });
-      const response = await fetch(`/api/diagnostics?${params.toString()}`);
+      const response = await apiFetch(`/api/diagnostics?${params.toString()}`);
       const next = await response.json() as {
         items?: Array<{ line?: number; column?: number; severity?: string; message?: string; code?: string; filePath?: string }>;
       };
@@ -755,7 +756,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
     void fetchDiagnostics(filePath);
 
     // Set up SSE watch
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = apiStream(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     es.addEventListener("connected", () => {

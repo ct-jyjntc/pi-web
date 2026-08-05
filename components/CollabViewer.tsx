@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { parseCollabChat, type CollabChatMessage } from "@/lib/collab-messages";
 import { Icon } from "./Icon";
+import { apiFetch, apiStream, type ApiStream } from "@/lib/api-transport";
 
 export function CollabViewer({ token }: { token: string }) {
   const [status, setStatus] = useState<"connecting" | "live" | "error">("connecting");
@@ -27,11 +28,11 @@ export function CollabViewer({ token }: { token: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    let es: EventSource | null = null;
+    let es: ApiStream | null = null;
 
     const loadMeta = async () => {
       try {
-        const res = await fetch(`/api/collab/${encodeURIComponent(token)}`);
+        const res = await apiFetch(`/api/collab/${encodeURIComponent(token)}`);
         const data = await res.json() as {
           error?: string;
           share?: { sessionId?: string; note?: string; createdAt?: string };
@@ -69,7 +70,7 @@ export function CollabViewer({ token }: { token: string }) {
 
     void loadMeta();
 
-    es = new EventSource(`/api/collab/${encodeURIComponent(token)}/events`);
+    es = apiStream(`/api/collab/${encodeURIComponent(token)}/events`);
     es.addEventListener("ready", () => {
       if (!cancelled) setStatus("live");
     });

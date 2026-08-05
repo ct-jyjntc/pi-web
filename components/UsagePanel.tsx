@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { Icon } from "./Icon";
+import { apiFetch } from "@/lib/api-transport";
 
 type UsageData = {
   generatedAt: string;
@@ -107,7 +108,7 @@ const USAGE_CLIENT_TTL_MS = 5 * 60 * 1000;
 export function prefetchUsage(days: number = 30): void {
   const hit = usageClientCache.get(days);
   if (hit && Date.now() - hit.at < USAGE_CLIENT_TTL_MS) return;
-  void fetch(`/api/usage?days=${days}`)
+  void apiFetch(`/api/usage?days=${days}`)
     .then(async (res) => {
       const json = await res.json() as UsageData & { error?: string };
       if (!res.ok || json.error) return;
@@ -154,7 +155,7 @@ export function UsagePanel() {
     }
 
     try {
-      const res = await fetch(`/api/usage?days=${rangeDays}${forceRefresh ? "&refresh=1" : ""}`);
+      const res = await apiFetch(`/api/usage?days=${rangeDays}${forceRefresh ? "&refresh=1" : ""}`);
       const json = await res.json() as UsageData & { error?: string };
       if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
       usageClientCache.set(rangeDays, { data: json, at: Date.now() });

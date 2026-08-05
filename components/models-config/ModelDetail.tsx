@@ -24,6 +24,7 @@ import {
   type ProviderEntry,
   type ThinkingLevel,
 } from "./models-config-types";
+import { apiFetch } from "@/lib/api-transport";
 
 export function ThinkingLevelMapEditor({
   value,
@@ -325,7 +326,7 @@ export function ModelDetail({
         try {
           const params = new URLSearchParams({ q: query, provider: providerName, limit: "50" });
           if (provider.baseUrl?.trim()) params.set("baseUrl", provider.baseUrl.trim());
-          const res = await fetch(`/api/models-config/catalog?${params}`);
+          const res = await apiFetch(`/api/models-config/catalog?${params}`);
           const data = await res.json() as { recommendation?: ModelCatalogRecommendation; error?: string };
           if (requestId !== catalogRequestIdRef.current) return;
           if (!res.ok || data.error || !data.recommendation) {
@@ -365,7 +366,7 @@ export function ModelDetail({
     if (!model.id.trim() || testState.phase === "testing") return;
     setTestState({ phase: "testing" });
     try {
-      const res = await fetch("/api/models-config/test", {
+      const res = await apiFetch("/api/models-config/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ providerName, provider, model }),

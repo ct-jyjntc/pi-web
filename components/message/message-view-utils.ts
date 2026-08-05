@@ -14,6 +14,7 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@/lib/types";
+import { apiFetch } from "@/lib/api-transport";
 
 export const USER_MSG_COLLAPSE_CHARS = 420;
 export const USER_MSG_COLLAPSE_LINES = 8;
@@ -32,7 +33,7 @@ export function loadThinkingContent(sessionId: string, entryId: string, blockInd
     return cached;
   }
 
-  const request = fetch(
+  const request = apiFetch(
     `/api/sessions/${encodeURIComponent(sessionId)}/entries/${encodeURIComponent(entryId)}/thinking?blockIndex=${blockIndex}`,
   ).then(async (response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

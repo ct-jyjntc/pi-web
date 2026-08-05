@@ -8,6 +8,7 @@ import {
   renumberTerminalLabels,
   type TerminalSessionTab,
 } from "@/components/app-shell/terminal-tabs";
+import { apiFetch, apiStream, type ApiStream } from "@/lib/api-transport";
 
 export type UseAppShellTerminalOptions = {
   // App locale `t` is MessageKey-typed; accept a wide callable.
@@ -61,7 +62,7 @@ export function useAppShellTerminal({
     if (closing?.source === "agent" && closing.attachSessionId) {
       knownAgentPtyIdsRef.current.delete(closing.attachSessionId);
       if (kill) {
-        void fetch(`/api/cwd/pty/${closing.attachSessionId}`, { method: "DELETE", keepalive: true }).catch(() => {});
+        void apiFetch(`/api/cwd/pty/${closing.attachSessionId}`, { method: "DELETE", keepalive: true }).catch(() => {});
       }
     }
     setTerminalTabs((prev) => {
@@ -133,7 +134,7 @@ export function useAppShellTerminal({
   // Discover AI-started PTY sessions and surface them in the Terminal workspace.
   useEffect(() => {
     if (!terminalWatchCwd) return;
-    let es: EventSource | null = null;
+    let es: ApiStream | null = null;
     let cancelled = false;
 
     const ingest = (session: {
@@ -160,7 +161,7 @@ export function useAppShellTerminal({
     };
 
     try {
-      es = new EventSource(`/api/cwd/pty/events?cwd=${encodeURIComponent(terminalWatchCwd)}`);
+      es = apiStream(`/api/cwd/pty/events?cwd=${encodeURIComponent(terminalWatchCwd)}`);
       es.addEventListener("snapshot", (evt) => {
         if (cancelled) return;
         try {

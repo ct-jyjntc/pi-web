@@ -10,10 +10,11 @@ import type {
   UploadConflictStrategy,
   UploadResponse,
 } from "./types";
+import { apiFetch } from "@/lib/api-transport";
 
 export async function fetchEntries(dirPath: string): Promise<FileNode[]> {
   const encoded = encodeFilePathForApi(dirPath);
-  const res = await fetch(`/api/files/${encoded}?type=list`);
+  const res = await apiFetch(`/api/files/${encoded}?type=list`);
   if (!res.ok) {
     let message = `Failed to load files (HTTP ${res.status})`;
     try {
@@ -37,7 +38,7 @@ export async function fetchEntries(dirPath: string): Promise<FileNode[]> {
 
 export async function fetchGitStatus(cwd: string): Promise<GitStatusResponse> {
   const params = new URLSearchParams({ cwd });
-  const res = await fetch(`/api/git/status?${params.toString()}`);
+  const res = await apiFetch(`/api/git/status?${params.toString()}`);
   if (!res.ok) throw new Error(`Failed to load Git status (HTTP ${res.status})`);
   return res.json() as Promise<GitStatusResponse>;
 }
@@ -83,7 +84,7 @@ async function postFileOp(
   type: string,
   body?: Record<string, unknown>,
 ): Promise<{ path?: string; name?: string }> {
-  const res = await fetch(`/api/files/${encodeFilePathForApi(targetPath)}?type=${type}`, {
+  const res = await apiFetch(`/api/files/${encodeFilePathForApi(targetPath)}?type=${type}`, {
     method: "POST",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,

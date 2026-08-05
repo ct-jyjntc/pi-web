@@ -50,6 +50,7 @@ import { ModelThinkingControl } from "./settings/ModelThinkingControl";
 import { MemorySettingsPanel } from "./settings/MemorySettingsPanel";
 import { AppearanceSettingsPanel } from "./settings/AppearanceSettingsPanel";
 import { PermissionsSettingsPanel } from "./settings/PermissionsSettingsPanel";
+import { apiFetch } from "@/lib/api-transport";
 
 export function SettingsPage({
   onClose,
@@ -248,7 +249,7 @@ export function SettingsPage({
         }
 
         if (cwd) {
-          void fetch(`/api/project-memory?cwd=${encodeURIComponent(cwd)}`)
+          void apiFetch(`/api/project-memory?cwd=${encodeURIComponent(cwd)}`)
             .then(async (r) => {
               const mem = await r.json() as { facts?: Array<{ id: string; text: string }> };
               if (!cancelled && Array.isArray(mem.facts)) {
@@ -279,7 +280,7 @@ export function SettingsPage({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/app-update");
+        const res = await apiFetch("/api/app-update");
         const data = await res.json() as { currentVersion?: string };
         if (!cancelled && data.currentVersion) setCurrentVersion(data.currentVersion);
       } catch {
@@ -394,7 +395,7 @@ export function SettingsPage({
     setUpdateChecking(true);
     setUpdateStatus({ kind: "idle" });
     try {
-      const res = await fetch("/api/app-update", { method: "POST" });
+      const res = await apiFetch("/api/app-update", { method: "POST" });
       const data = await res.json() as {
         currentVersion?: string;
         latestVersion?: string | null;
@@ -486,7 +487,7 @@ export function SettingsPage({
     try {
       const params = new URLSearchParams();
       if (cwd) params.set("cwd", cwd);
-      const res = await fetch(`/api/lsp?${params.toString()}`);
+      const res = await apiFetch(`/api/lsp?${params.toString()}`);
       const data = await res.json() as {
         ok?: boolean;
         error?: string;

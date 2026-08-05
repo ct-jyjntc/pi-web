@@ -15,6 +15,7 @@ import { useLocale } from "@/hooks/useLocale";
 import { Icon } from "../Icon";
 import { RunningSessionIndicator, UnreadSessionIndicator } from "./SessionIndicators";
 import { SessionItemMenu, type SessionMenuAction } from "./SessionItemMenu";
+import { apiFetch } from "@/lib/api-transport";
 
 export const SessionItem = memo(function SessionItem({
   session,
@@ -67,7 +68,7 @@ export const SessionItem = memo(function SessionItem({
     setRenaming(false);
     if (name === (session.name ?? "")) return;
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+      await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -82,7 +83,7 @@ export const SessionItem = memo(function SessionItem({
     setMenuOpen(false);
     setDeleting(true);
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
       onDeleted?.(session.id);
     } catch {
       setDeleting(false);
@@ -93,7 +94,7 @@ export const SessionItem = memo(function SessionItem({
     if (!canGenerateTitle || naming) return;
     setNaming(true);
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/auto-name`, {
+      const response = await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}/auto-name`, {
         method: "POST",
       });
       const body = (await response.json().catch(() => ({}))) as { title?: string; error?: string };

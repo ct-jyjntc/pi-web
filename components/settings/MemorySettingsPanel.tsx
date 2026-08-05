@@ -8,6 +8,7 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { SettingsToggle } from "../SettingsToggle";
 import { SettingsRow, sectionTitle } from "./settings-ui";
+import { apiFetch } from "@/lib/api-transport";
 
 export type MemorySettingsPanelProps = {
   prefs: any;
@@ -128,7 +129,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
                     disabled={memoryBusy}
                     onClick={() => {
                       setMemoryBusy(true);
-                      void fetch("/api/project-memory", {
+                      void apiFetch("/api/project-memory", {
                         method: "DELETE",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ cwd, id: f.id }),
@@ -163,7 +164,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
               disabled={memoryBusy || !newMemoryText.trim()}
               onClick={() => {
                 setMemoryBusy(true);
-                void fetch("/api/project-memory", {
+                void apiFetch("/api/project-memory", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ cwd, text: newMemoryText.trim() }),
@@ -191,7 +192,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
                 setMemoryReflectBusy(true);
                 setMemoryReflectText(null);
                 setMemoryReflectMeta(null);
-                void fetch("/api/project-memory", {
+                void apiFetch("/api/project-memory", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ cwd, action: "reflect", useModel: true, limit: 40 }),
@@ -224,7 +225,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
                 setMemoryReflectBusy(true);
                 setMemoryReflectText(null);
                 setMemoryReflectMeta(null);
-                void fetch("/api/project-memory", {
+                void apiFetch("/api/project-memory", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ cwd, action: "reflect", heuristicOnly: true, limit: 40 }),
@@ -280,7 +281,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
                     const text = pick.replace(/^[-*\d.\s]+/, "").trim().slice(0, 360);
                     if (!text) return;
                     setMemoryBusy(true);
-                    void fetch("/api/project-memory", {
+                    void apiFetch("/api/project-memory", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({

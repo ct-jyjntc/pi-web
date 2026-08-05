@@ -9,6 +9,7 @@
  */
 import { useEffect, useSyncExternalStore } from "react";
 import type { WebSettings } from "@/lib/web-settings";
+import { apiFetch } from "@/lib/api-transport";
 
 /** Floor between two lightweight reads (matches ChatWindow's own throttle). */
 const REFRESH_MIN_MS = 30_000;
@@ -138,7 +139,7 @@ export async function saveWebSettings(
     commit({ ...settings, ...options.optimistic }, false);
   }
   try {
-    const res = await fetch("/api/web-settings", {
+    const res = await apiFetch("/api/web-settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
@@ -224,7 +225,7 @@ export function fetchWebSettingsWithModels(cwd?: string | null): Promise<WebSett
   if (modelsInFlight && modelsInFlight.key === key) return modelsInFlight.promise;
 
   const promise: Promise<WebSettingsWithModels> = (async () => {
-    const res = await fetch(`/api/web-settings?${key}`);
+    const res = await apiFetch(`/api/web-settings?${key}`);
     const data = await res.json() as {
       settings?: WebSettingsData;
       models?: WebSettingsModelOption[];

@@ -29,7 +29,6 @@ import {
   getImageMime,
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
-import { isFilePathReferencedBySession } from "@/lib/session-file-references";
 import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
@@ -553,10 +552,14 @@ export async function GET(
 
     const allowedRoots = await getAllowedFileRoots();
     const allowedByRoot = isFilePathAllowed(filePath, allowedRoots);
-    const allowedBySessionReference =
-      !allowedByRoot &&
-      type !== "list" &&
-      await isFilePathReferencedBySession(filePath, sessionId);
+    let allowedBySessionReference = false;
+    if (!allowedByRoot && type !== "list") {
+      // Value-imported, this reaches the agent SDK through session-entries and
+      // costs ~6s of blocked event loop at route load — on the boot path, since
+      // the file explorer lists an allowed root. Only out-of-root paths need it.
+      const { isFilePathReferencedBySession } = await import("@/lib/session-file-references");
+      allowedBySessionReference = await isFilePathReferencedBySession(filePath, sessionId);
+    }
     if (!allowedByRoot && !allowedBySessionReference) {
       return NextResponse.json(fileAccessDenied(filePath, allowedRoots, "not_in_roots"), { status: 403 });
     }

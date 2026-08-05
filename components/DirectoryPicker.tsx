@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronUp, Folder, X } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { Icon } from "./Icon";
+import { apiFetch } from "@/lib/api-transport";
 
 interface DirectoryEntry {
   name: string;
@@ -20,7 +21,7 @@ interface BrowseResponse {
 
 async function loadDirectories(directory?: string): Promise<BrowseResponse> {
   const query = directory ? `?path=${encodeURIComponent(directory)}` : "";
-  const response = await fetch(`/api/cwd/browse${query}`);
+  const response = await apiFetch(`/api/cwd/browse${query}`);
   const data = await response.json() as BrowseResponse;
   if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
   return data;

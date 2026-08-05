@@ -18,9 +18,10 @@ import {
   EVENT_STREAM_RECONNECT_MAX_MS,
   PROMPT_SETTLE_POLL_MS,
 } from "@/lib/agent-run-lifecycle";
+import { API_STREAM_CLOSED, apiFetch, apiStream, type ApiStream } from "@/lib/api-transport";
 
 export type AgentEventSourceContext = {
-  eventSourceRef: { current: EventSource | null };
+  eventSourceRef: { current: ApiStream | null };
   sessionIdRef: { current: string | null };
   agentRunningRef: { current: boolean };
   mountedRef: { current: boolean };
@@ -87,7 +88,7 @@ export function scheduleEventStreamClose(ctx: AgentEventSourceContext, sid: stri
     ) return;
 
     try {
-      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+      const res = await apiFetch(`/api/agent/${encodeURIComponent(sid)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
       if (
@@ -138,7 +139,7 @@ export function connectEventSource(
   }
   ctx.eventSourceRef.current?.close();
   ctx.eventSourceRef.current = null;
-  const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
+  const es = apiStream(`/api/agent/${encodeURIComponent(sid)}/events`);
   ctx.eventSourceRef.current = es;
 
   return new Promise((resolve) => {
@@ -164,7 +165,7 @@ export function connectEventSource(
       }
     };
     es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
+      if (es.readyState === API_STREAM_CLOSED) {
         // Fatal error (404/500/content-type mismatch): browser won't
         // auto-reconnect. Settle the Promise and manually reconnect for
         // already-running sessions with exponential backoff.

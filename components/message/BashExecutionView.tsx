@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import type { BashExecutionMessage, ToolCallContent, ToolResultMessage } from "@/lib/types";
 import { ToolCallBlock } from "./blocks/ToolCallBlock";
+import { apiFetch } from "@/lib/api-transport";
 
 export function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {
   const { t } = useLocale();
@@ -24,7 +25,7 @@ export function BashExecutionView({ message, sessionId }: { message: BashExecuti
     setLoadingFull(true);
     setFullError(null);
     try {
-      const res = await fetch(fullOutputUrl);
+      const res = await apiFetch(fullOutputUrl);
       const d = await res.json() as { success?: boolean; data?: { output?: string }; error?: string };
       if (d.success) {
         setFullOutput(d.data?.output ?? "");

@@ -31,6 +31,7 @@ import {
 } from "./session-sidebar-helpers";
 import { AnimatedDropdown, PathLabel } from "./sidebar-ui";
 import { SessionTreeItem } from "./SessionTreeItem";
+import { apiFetch } from "@/lib/api-transport";
 
 declare global {
   interface Window {
@@ -120,7 +121,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const loadSessions = useCallback(async (showLoading = false) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch("/api/sessions");
+      const res = await apiFetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
@@ -189,7 +190,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
       controller?.abort();
       controller = current;
       try {
-        const res = await fetch("/api/agent/running", {
+        const res = await apiFetch("/api/agent/running", {
           cache: "no-store",
           signal: current.signal,
         });
@@ -274,7 +275,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   }, [explorerRefreshKey]);
 
   useEffect(() => {
-    fetch("/api/home").then((r) => r.json()).then((d: { home?: string }) => {
+    apiFetch("/api/home").then((r) => r.json()).then((d: { home?: string }) => {
       if (d.home) setHomeDir(d.home);
     }).catch(() => {});
   }, []);
@@ -323,7 +324,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     }
     let cancelled = false;
     setWorktreeLoadingCwd(selectedCwd);
-    fetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
+    apiFetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
       .then((r) => r.json())
       .then((d: { projectRoot?: string; isGit?: boolean; isTopLevel?: boolean; worktrees?: WorktreeEntry[]; error?: string }) => {
         if (cancelled) return;
@@ -378,7 +379,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     setCustomPathValidating(true);
     setCustomPathError(null);
     try {
-      const res = await fetch("/api/cwd/validate", {
+      const res = await apiFetch("/api/cwd/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: path }),
@@ -424,7 +425,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
 
   const handleDefaultCwd = useCallback(async () => {
     try {
-      const res = await fetch("/api/default-cwd", { method: "POST" });
+      const res = await apiFetch("/api/default-cwd", { method: "POST" });
       const data = await res.json() as { cwd?: string; error?: string };
       if (data.cwd) {
         setSelectedCwd(data.cwd);
@@ -443,7 +444,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     setWtBusy(true);
     setWtError(null);
     try {
-      const res = await fetch("/api/worktrees", {
+      const res = await apiFetch("/api/worktrees", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: worktreeState.projectRoot, branch }),
@@ -478,7 +479,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     setWtBusy(true);
     setWtError(null);
     try {
-      const res = await fetch("/api/worktrees", {
+      const res = await apiFetch("/api/worktrees", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: worktreeState.projectRoot, path, force }),

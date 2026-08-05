@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { encodeFilePathForApi } from "@/lib/file-paths";
+import { apiStream, type ApiStream } from "@/lib/api-transport";
 
 function getWatchUrl(filePath: string, sourceSessionId?: string | null): string {
   const encoded = encodeFilePathForApi(filePath);
@@ -18,7 +19,7 @@ export function useFileWatch(filePath: string, sourceSessionId?: string | null) 
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
-  const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<ApiStream | null>(null);
 
   useEffect(() => {
     setBust(0);
@@ -30,7 +31,7 @@ export function useFileWatch(filePath: string, sourceSessionId?: string | null) 
       esRef.current = null;
     }
 
-    const es = new EventSource(getWatchUrl(filePath, sourceSessionId));
+    const es = apiStream(getWatchUrl(filePath, sourceSessionId));
     esRef.current = es;
 
     es.addEventListener("connected", () => setWatching(true));

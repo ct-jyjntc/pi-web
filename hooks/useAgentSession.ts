@@ -64,6 +64,7 @@ import {
   scheduleEventStreamClose as scheduleEventStreamCloseImpl,
   type AgentEventSourceContext,
 } from "@/lib/agent-session-event-source";
+import { apiFetch, type ApiStream } from "@/lib/api-transport";
 
 // Re-export public types so existing `@/hooks/useAgentSession` importers stay stable.
 export type { QueuedMessages, ThinkingLevelOption } from "@/lib/agent-session-live-apply";
@@ -202,7 +203,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
 
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourceRef = useRef<ApiStream | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const agentRunningRef = useRef(false);
   const bashRunningRef = useRef(false);
@@ -297,7 +298,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       if (showLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      const res = await apiFetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -330,7 +331,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
       try {
         // Same live snapshot as settlement/reconcile — one endpoint for all readers.
-        const stateRes = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+        const stateRes = await apiFetch(`/api/agent/${encodeURIComponent(sid)}`);
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
         if (sessionIdRef.current !== sid) return null;
@@ -368,7 +369,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as {
         context: { messages: AgentMessage[]; entryIds: string[] };
@@ -422,7 +423,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const promise = (async () => {
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
-      const res = await fetch("/api/agent/new", {
+      const res = await apiFetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -459,7 +460,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadCustomSlashCommands = useCallback(async (cwdValue: string | null | undefined): Promise<SlashCommandInfo[]> => {
     if (!cwdValue) return [];
     try {
-      const res = await fetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
+      const res = await apiFetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
       if (!res.ok) return [];
       const body = await res.json() as { commands?: Array<{ name: string; description?: string; args: string[]; source: "user" | "project" }> };
       return (body.commands ?? []).map((c) => ({
@@ -648,7 +649,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       ) {
         if (runId !== undefined && promptRunIdRef.current !== runId) return;
         try {
-          const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+          const res = await apiFetch(`/api/agent/${encodeURIComponent(sid)}`);
           if (res.ok) {
             const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
             const state = data.state;
@@ -688,7 +689,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ) {
       await delay(BASH_STATE_RECONCILE_MS);
       try {
-        const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+        const res = await apiFetch(`/api/agent/${encodeURIComponent(sid)}`);
         if (!res.ok) continue;
         const data = await res.json() as { state?: AgentStateResponse };
         if (data.state?.isBashRunning) continue;
@@ -714,7 +715,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!agentRunningRef.current) return;
     const runId = promptRunIdRef.current;
     try {
-      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+      const res = await apiFetch(`/api/agent/${encodeURIComponent(sid)}`);
       if (!res.ok) return;
       const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
       // A slow response can straddle a run boundary (previous run finished
@@ -1104,7 +1105,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
     const modelsUrl = modelCwd ? `/api/models?cwd=${encodeURIComponent(modelCwd)}` : "/api/models";
-    const res = await fetch(modelsUrl, signal ? { signal } : undefined);
+    const res = await apiFetch(modelsUrl, signal ? { signal } : undefined);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json() as ModelsResponse;
     setModelNames(d.models);
@@ -1228,7 +1229,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (streamState.isStreaming) {
             return complete({ handled: true, error: t("agent.commandFailed") });
           }
-          const res = await fetch("/api/workspace-journal", {
+          const res = await apiFetch("/api/workspace-journal", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sessionId: sid, action: commandName }),
@@ -1262,7 +1263,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const cwdValue = session?.cwd ?? newSessionCwd;
           if (!cwdValue) return complete({ handled: true, error: t("agent.initNeedCwd") });
           const focus = args.trim() || undefined;
-          const res = await fetch("/api/project-init", {
+          const res = await apiFetch("/api/project-init", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ cwd: cwdValue, focus }),
@@ -1296,7 +1297,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const cwdValue = session?.cwd ?? newSessionCwd;
           if (cwdValue) {
             try {
-              const res = await fetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
+              const res = await apiFetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
               if (res.ok) {
                 const body = await res.json() as { commands?: Array<{ name: string; args: string[] }> };
                 const command = (body.commands ?? []).find((c) => c.name === commandName);
@@ -1306,7 +1307,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
                     const eq = pair.indexOf("=");
                     if (eq > 0) values[pair.slice(0, eq)] = pair.slice(eq + 1);
                   }
-                  const renderRes = await fetch("/api/commands", {
+                  const renderRes = await apiFetch("/api/commands", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ cwd: cwdValue, name: commandName, args: values }),

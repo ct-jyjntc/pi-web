@@ -62,6 +62,7 @@ import {
 import { ShellStyles } from "./app-shell/ShellStyles";
 import { WORKSPACE_TABS } from "./app-shell/terminal-tabs";
 import { useAppShellTerminal } from "@/hooks/useAppShellTerminal";
+import { apiFetch } from "@/lib/api-transport";
 
 
 export function AppShell() {
@@ -306,7 +307,7 @@ export function AppShell() {
     setInitialCwdStatus("validating");
     setInitialCwdError(null);
 
-    void fetch("/api/cwd/validate", {
+    void apiFetch("/api/cwd/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cwd: requestedCwd }),
@@ -429,7 +430,7 @@ export function AppShell() {
   // handleCwdChange relies on. Hydrate it from the session list so switching
   // worktrees right after creating a session doesn't close the chat.
   const hydrateSelectedSession = useCallback((sessionId: string) => {
-    void fetch("/api/sessions")
+    void apiFetch("/api/sessions")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then((d) => {
         const full = d?.sessions.find((s) => s.id === sessionId);
@@ -688,19 +689,38 @@ export function AppShell() {
     if (!projectTrustCwd) return;
 
     const controller = new AbortController();
-    fetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const data = await response.json() as ProjectTrustStatus & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-        setProjectTrust(data);
+    // Wait for the shell to go idle before asking. The daemon serves this app's
+    // code-split chunks on the same event loop that /api/project-trust blocks
+    // for ~14s while it loads the SDK, so firing it during boot starves the
+    // chunks that render the session list. Trust is enforced server-side at
+    // session start (projectTrustReloadOptions), so the dialog may arrive late.
+    const load = () => {
+      apiFetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
+        signal: controller.signal,
       })
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        console.error("Failed to load project trust:", error);
-      });
-    return () => controller.abort();
+        .then(async (response) => {
+          const data = await response.json() as ProjectTrustStatus & { error?: string };
+          if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+          setProjectTrust(data);
+        })
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          console.error("Failed to load project trust:", error);
+        });
+    };
+
+    if (typeof requestIdleCallback === "function") {
+      const idleId = requestIdleCallback(load, { timeout: 5000 });
+      return () => {
+        cancelIdleCallback(idleId);
+        controller.abort();
+      };
+    }
+    const timer = window.setTimeout(load, 3000);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [projectTrustCwd]);
 
   const handleTrustProject = useCallback(async () => {
@@ -708,7 +728,7 @@ export function AppShell() {
     setProjectTrustBusy(true);
     setProjectTrustError(null);
     try {
-      const response = await fetch("/api/project-trust", {
+      const response = await apiFetch("/api/project-trust", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: projectTrustCwd }),

@@ -12,7 +12,10 @@ import {
 } from "@/lib/web-settings";
 import { formatModelRoles, parseModelRoles, type ModelRole } from "@/lib/model-roles";
 import { syncAgentModelsFromRoles } from "@/lib/ensure-subagent-delegation";
-import { listUtilityModels } from "@/lib/utility-model";
+// Value-imported, this pulls the whole agent SDK into route load — which defeats
+// the `utilityModels=0` skip below, since module load happens before the handler
+// ever runs. web-settings-store fetches the light URL on boot, so keep it lazy.
+import type { UtilityModelOption } from "@/lib/utility-model";
 import { isWindowsAbsolutePath } from "@/lib/file-access";
 import { resolve } from "path";
 import { stat } from "fs/promises";
@@ -84,9 +87,10 @@ export async function GET(req: NextRequest) {
     }
 
     const settings = readWebSettings();
-    let models: Awaited<ReturnType<typeof listUtilityModels>> = [];
+    let models: UtilityModelOption[] = [];
     if (wantsUtilityModels(req.nextUrl.searchParams.get("utilityModels"))) {
       try {
+        const { listUtilityModels } = await import("@/lib/utility-model");
         models = await listUtilityModels(cwd);
       } catch {
         models = [];

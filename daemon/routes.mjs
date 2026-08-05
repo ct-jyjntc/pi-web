@@ -1,5 +1,5 @@
 /**
- * Discover App Router handlers under app/api (route.ts files) and match URLs.
+ * Discover App Router handlers under app/api (route.ts / route.mjs) and match URLs.
  * Modules are loaded lazily on first hit (jiti) so listen stays cheap.
  *
  * Param shape matches Next.js App Router:
@@ -32,6 +32,13 @@ export function discoverApiRoutes(root) {
   const routes = [];
 
   /**
+   * One route module per directory. The dev tree has TypeScript; packaged trees
+   * ship precompiled ESM instead (jiti transpiling `.ts` at runtime cost ~25s on
+   * a cold Windows install). Ordering only settles a stale-artifact tie.
+   */
+  const ROUTE_FILENAMES = ["route.mjs", "route.js", "route.ts"];
+
+  /**
    * @param {string} dir
    * @param {string[]} segments
    */
@@ -39,63 +46,62 @@ export function discoverApiRoutes(root) {
     if (!fs.existsSync(dir)) return;
     for (const name of fs.readdirSync(dir)) {
       const full = path.join(dir, name);
-      const st = fs.statSync(full);
-      if (st.isDirectory()) {
-        walk(full, [...segments, name]);
-        continue;
-      }
-      if (name !== "route.ts" && name !== "route.js") continue;
-
-      /** @type {string[]} */
-      const paramNames = [];
-      /** @type {Set<string>} */
-      const catchAllParams = new Set();
-      /** @type {Set<string>} */
-      const optionalCatchAllParams = new Set();
-      /** @type {string[]} */
-      const regexParts = ["api"];
-      let dynamics = 0;
-      let catchAll = 0;
-
-      for (const seg of segments) {
-        if (seg.startsWith("[[...") && seg.endsWith("]]")) {
-          const n = seg.slice(5, -2);
-          paramNames.push(n);
-          optionalCatchAllParams.add(n);
-          catchAllParams.add(n);
-          regexParts.push(`(?<${n}>.*)`);
-          catchAll += 1;
-          dynamics += 1;
-        } else if (seg.startsWith("[...") && seg.endsWith("]")) {
-          const n = seg.slice(4, -1);
-          paramNames.push(n);
-          catchAllParams.add(n);
-          regexParts.push(`(?<${n}>.+)`);
-          catchAll += 1;
-          dynamics += 1;
-        } else if (seg.startsWith("[") && seg.endsWith("]")) {
-          const n = seg.slice(1, -1);
-          paramNames.push(n);
-          regexParts.push(`(?<${n}>[^/]+)`);
-          dynamics += 1;
-        } else {
-          regexParts.push(escapeRegExp(seg));
-        }
-      }
-
-      const pattern = `^/${regexParts.join("/")}/?$`;
-      // Prefer static, then deeper, then non-catch-all.
-      const score = segments.length * 100 - dynamics * 10 - catchAll * 50;
-
-      routes.push({
-        file: full,
-        regex: new RegExp(pattern),
-        paramNames,
-        catchAllParams,
-        optionalCatchAllParams,
-        score,
-      });
+      if (fs.statSync(full).isDirectory()) walk(full, [...segments, name]);
     }
+
+    const routeName = ROUTE_FILENAMES.find((n) => fs.existsSync(path.join(dir, n)));
+    if (!routeName) return;
+    const full = path.join(dir, routeName);
+
+    /** @type {string[]} */
+    const paramNames = [];
+    /** @type {Set<string>} */
+    const catchAllParams = new Set();
+    /** @type {Set<string>} */
+    const optionalCatchAllParams = new Set();
+    /** @type {string[]} */
+    const regexParts = ["api"];
+    let dynamics = 0;
+    let catchAll = 0;
+
+    for (const seg of segments) {
+      if (seg.startsWith("[[...") && seg.endsWith("]]")) {
+        const n = seg.slice(5, -2);
+        paramNames.push(n);
+        optionalCatchAllParams.add(n);
+        catchAllParams.add(n);
+        regexParts.push(`(?<${n}>.*)`);
+        catchAll += 1;
+        dynamics += 1;
+      } else if (seg.startsWith("[...") && seg.endsWith("]")) {
+        const n = seg.slice(4, -1);
+        paramNames.push(n);
+        catchAllParams.add(n);
+        regexParts.push(`(?<${n}>.+)`);
+        catchAll += 1;
+        dynamics += 1;
+      } else if (seg.startsWith("[") && seg.endsWith("]")) {
+        const n = seg.slice(1, -1);
+        paramNames.push(n);
+        regexParts.push(`(?<${n}>[^/]+)`);
+        dynamics += 1;
+      } else {
+        regexParts.push(escapeRegExp(seg));
+      }
+    }
+
+    const pattern = `^/${regexParts.join("/")}/?$`;
+    // Prefer static, then deeper, then non-catch-all.
+    const score = segments.length * 100 - dynamics * 10 - catchAll * 50;
+
+    routes.push({
+      file: full,
+      regex: new RegExp(pattern),
+      paramNames,
+      catchAllParams,
+      optionalCatchAllParams,
+      score,
+    });
   }
 
   walk(apiRoot, []);

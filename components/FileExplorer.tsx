@@ -52,6 +52,7 @@ import type {
   UploadResponse,
   UploadSummary,
 } from "./file-explorer/types";
+import { apiFetch } from "@/lib/api-transport";
 
 interface Props {
   cwd: string;
@@ -186,7 +187,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setUploadPhase("checking");
 
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/files/${encodeFilePathForApi(cwd)}?type=upload-check`,
         {
           method: "POST",

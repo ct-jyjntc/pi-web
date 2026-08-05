@@ -22,6 +22,7 @@ import {
   Split,
   Trash2,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api-transport";
 
 interface Props {
   cwd: string | null;
@@ -46,7 +47,7 @@ const STATUS_COLORS: Record<GitFileStatusKind, string> = {
 
 async function fetchStatus(cwd: string): Promise<GitStatusResponse> {
   const params = new URLSearchParams({ cwd });
-  const res = await fetch(`/api/git/status?${params.toString()}`);
+  const res = await apiFetch(`/api/git/status?${params.toString()}`);
   const data = await res.json() as GitStatusResponse & { error?: string };
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
   return {
@@ -142,7 +143,7 @@ export function GitPanel({
       setStatus(next);
       onStatusChange?.(next);
       try {
-        const mres = await fetch(`/api/git/merge?cwd=${encodeURIComponent(cwd)}`);
+        const mres = await apiFetch(`/api/git/merge?cwd=${encodeURIComponent(cwd)}`);
         const mdata = await mres.json() as { merging?: boolean };
         setMerging(Boolean(mdata.merging));
       } catch {
@@ -173,7 +174,7 @@ export function GitPanel({
     void (async () => {
       try {
         // Prefer view for current branch
-        const res = await fetch("/api/github", {
+        const res = await apiFetch("/api/github", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cwd, action: "list_prs", limit: 20, state: "open" }),
@@ -263,7 +264,7 @@ export function GitPanel({
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch(path, {
+      const res = await apiFetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -328,7 +329,7 @@ export function GitPanel({
     setGenerating(true);
     setError(null);
     try {
-      const res = await fetch("/api/git/commit-message", {
+      const res = await apiFetch("/api/git/commit-message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -363,7 +364,7 @@ export function GitPanel({
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/git/review", {
+      const res = await apiFetch("/api/git/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd, includeUnstaged: true }),
@@ -379,7 +380,7 @@ export function GitPanel({
       }
 
       const { getFullToolNames } = await import("@/lib/tool-presets");
-      const createRes = await fetch("/api/agent/new", {
+      const createRes = await apiFetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -400,7 +401,7 @@ export function GitPanel({
       // Best-effort session rename for sidebar clarity.
       if (data.sessionName) {
         try {
-          await fetch(`/api/sessions/${encodeURIComponent(created.sessionId)}`, {
+          await apiFetch(`/api/sessions/${encodeURIComponent(created.sessionId)}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: data.sessionName }),
@@ -429,7 +430,7 @@ export function GitPanel({
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/git/merge", {
+      const res = await apiFetch("/api/git/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd }),
@@ -465,7 +466,7 @@ export function GitPanel({
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/git/conflict", {
+      const res = await apiFetch("/api/git/conflict", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd, path: filePath, action }),
@@ -497,7 +498,7 @@ export function GitPanel({
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/git/commit-split", {
+      const res = await apiFetch("/api/git/commit-split", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -532,7 +533,7 @@ export function GitPanel({
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/git/commit-split", {
+      const res = await apiFetch("/api/git/commit-split", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -608,7 +609,7 @@ export function GitPanel({
     if (branchOpen) return;
     try {
       const params = new URLSearchParams({ cwd });
-      const res = await fetch(`/api/git/branches?${params.toString()}`);
+      const res = await apiFetch(`/api/git/branches?${params.toString()}`);
       const data = await res.json() as { branches?: string[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       setBranches(data.branches ?? []);
@@ -965,7 +966,7 @@ export function GitPanel({
                     if (prDiffText) return;
                     setPrDiffBusy(true);
                     setPrDiffError(null);
-                    void fetch("/api/github", {
+                    void apiFetch("/api/github", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ cwd, action: "diff", number: linkedPr.number }),
@@ -1285,7 +1286,7 @@ function FileRow({
     setDiffLoading(true);
     setDiffError(null);
     const params = new URLSearchParams({ cwd, path: file.filePath });
-    fetch(`/api/git/diff?${params.toString()}`)
+    apiFetch(`/api/git/diff?${params.toString()}`)
       .then(async (res) => {
         const data = await res.json() as { supported?: boolean; patch?: string; error?: string };
         if (cancelled) return;

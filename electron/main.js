@@ -1,15 +1,17 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, shell, utilityProcess } = require("electron");
-const { spawn } = require("child_process");
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, shell } = require("electron");
 const path = require("path");
-const http = require("http");
-const net = require("net");
 const fs = require("fs");
 const os = require("os");
 const { isTraySupported, ensureTray, destroyTray } = require("./tray");
+const { registerAppScheme, serveAppProtocol, APP_ORIGIN } = require("./app-protocol");
+const { startRuntime, registerApiBridge, getRuntimeProcess } = require("./runtime-host");
 
-const HOST = "127.0.0.1";
+// The renderer is served locally over app://; the agent runtime is a private
+// child process reached over IPC. Must be called before app.whenReady().
+registerAppScheme();
+
 const isPackaged = app.isPackaged;
 /**
  * Must match package.json build.appId / electron-builder Start Menu shortcut.
@@ -168,7 +170,6 @@ function applyNetworkEnvFromSettings(targetEnv, settings) {
   }
 }
 // Prefer a dedicated Electron port so we don't fight the browser `next dev` instance.
-const PREFERRED_PORT = Number(process.env.PI_WEB_ELECTRON_PORT || process.env.PI_WEB_PORT || 30142);
 
 /**
  * Dev (unpackaged): project root.
@@ -192,7 +193,6 @@ let pendingUiReady = null;
 /** @type {import('electron').UtilityProcess | import('child_process').ChildProcess | null} */
 let serverProcess = null;
 let quitting = false;
-let activePort = PREFERRED_PORT;
 /** @type {'light' | 'dark'} */
 let windowTheme = "light";
 
@@ -240,7 +240,7 @@ function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (serverProcess) {
       bootRevealPending = false;
-      createWindow({ port: activePort, showWhenReady: true });
+      createWindow({ showWhenReady: true });
     }
     return;
   }
@@ -337,77 +337,10 @@ function resolveNodeBinary() {
   return process.platform === "win32" ? "node.exe" : "node";
 }
 
-function findFreePort(startPort) {
-  return new Promise((resolve, reject) => {
-    const tryPort = (port, attemptsLeft) => {
-      const server = net.createServer();
-      server.unref();
-      server.on("error", () => {
-        if (attemptsLeft <= 0) {
-          reject(new Error(`No free port near ${startPort}`));
-          return;
-        }
-        tryPort(port + 1, attemptsLeft - 1);
-      });
-      server.listen(port, HOST, () => {
-        server.close(() => resolve(port));
-      });
-    };
-    tryPort(startPort, 30);
-  });
-}
 
 /** Lightweight readiness path — avoids rendering the full AppShell on probe. */
-const HEALTH_PATH = "/api/health";
 
-function probeServer(port, path = HEALTH_PATH) {
-  return new Promise((resolve) => {
-    const req = http.get(
-      { host: HOST, port, path, timeout: 800 },
-      (res) => {
-        res.resume();
-        // Any HTTP response means the Node listener is up.
-        resolve(res.statusCode != null && res.statusCode < 500);
-      },
-    );
-    req.on("error", () => resolve(false));
-    req.on("timeout", () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
 
-/**
- * Poll until the standalone server answers. Interval starts tight so Windows
- * cold start surfaces the UI as soon as Node accepts connections, then backs
- * off slightly to avoid spinning the event loop while Next is still booting.
- */
-function waitForServer(port, timeoutMs = 120_000) {
-  const started = Date.now();
-  let attempt = 0;
-  return new Promise((resolve, reject) => {
-    const tryOnce = async () => {
-      if (await probeServer(port, HEALTH_PATH)) {
-        resolve();
-        return;
-      }
-      // Fallback: older builds without /api/health still answer on /
-      if (attempt > 0 && attempt % 8 === 0 && (await probeServer(port, "/"))) {
-        resolve();
-        return;
-      }
-      if (Date.now() - started > timeoutMs) {
-        reject(new Error(`Timed out waiting for pi-web on http://${HOST}:${port}`));
-        return;
-      }
-      attempt += 1;
-      const delay = attempt < 20 ? 80 : attempt < 60 ? 150 : 300;
-      setTimeout(tryOnce, delay);
-    };
-    tryOnce();
-  });
-}
 
 function splashDataUrl(theme, subtitle = "Starting local server…") {
   const bg = themeBackground(theme);
@@ -506,30 +439,7 @@ async function pollDomShellUntilReady(win, timeoutMs = 45_000) {
   }
 }
 
-/**
- * Warm only cheap paths so first paint is not starved.
- * Never warm /api/sessions here: on Windows, jiti-compiling that module can block
- * the daemon event loop for tens of seconds and stall static JS delivery (45s UI timeout).
- */
-function warmAppRoutes(port) {
-  return Promise.all([
-    probeServer(port, "/"),
-    probeServer(port, "/api/home"),
-  ]).then(() => {
-    console.log("[electron] Route warm complete (light only)");
-  }).catch((err) => {
-    console.warn("[electron] Route warm failed:", err?.message || err);
-  });
-}
 
-/** After UI is up, optionally prime sessions in the background (may hitch once on Windows). */
-function warmHeavyRoutesLater(port) {
-  setTimeout(() => {
-    void probeServer(port, "/api/sessions").then((ok) => {
-      if (ok) console.log("[electron] Deferred sessions warm done");
-    });
-  }, 8_000);
-}
 
 function getWindowIconPath() {
   return path.join(
@@ -627,32 +537,16 @@ function revealMainWindow(reason) {
   console.log(`[electron] Revealed main window (${reason})`);
 }
 
-function hasProductionBuild() {
-  if (isPackaged) {
-    return fs.existsSync(path.join(appRoot, "server.js"));
-  }
-  return fs.existsSync(path.join(appRoot, ".next", "BUILD_ID"));
-}
 
-/** Phase B: lightweight daemon (no Next.js). See docs/phase-b-desktop-daemon.md */
+/** Phase B: lightweight daemon (no Next.js). See docs/desktop-architecture.md */
 function hasDaemonEntry() {
-  return fs.existsSync(path.join(appRoot, "daemon", "server.mjs"));
+  return fs.existsSync(path.join(appRoot, "daemon", "ipc-host.mjs"));
 }
 
 function hasDesktopUi() {
   return fs.existsSync(path.join(appRoot, "desktop-dist", "index.html"));
 }
 
-/**
- * Prefer daemon when desktop SPA is built (or forced).
- * PI_WEB_RUNTIME=next forces the legacy Next path.
- * PI_WEB_RUNTIME=daemon forces daemon even without desktop-dist (API-only shell).
- */
-function useDaemonRuntime() {
-  if (process.env.PI_WEB_RUNTIME === "next") return false;
-  if (process.env.PI_WEB_RUNTIME === "daemon") return hasDaemonEntry();
-  return hasDaemonEntry() && hasDesktopUi();
-}
 
 function attachServerExitHandler(child) {
   child.on("exit", (code) => {
@@ -724,17 +618,17 @@ function augmentPathForNodeTools(baseEnv) {
 }
 
 /**
- * Phase B desktop server: node daemon/server.mjs (static SPA + API via jiti).
+ * Desktop agent runtime: node daemon/ipc-host.mjs (API over IPC, no HTTP).
  * Does not start Next.js.
  */
-function startDaemonServer(port) {
+function startAgentRuntime() {
   if (!hasDaemonEntry()) {
     throw new Error(
-      "Daemon entry missing (daemon/server.mjs).\n\nThis build expects the Phase B desktop runtime.",
+      "Runtime entry missing (daemon/ipc-host.mjs).\n\nThis build expects the desktop agent runtime.",
     );
   }
 
-  const daemonEntry = path.join(appRoot, "daemon", "server.mjs");
+  const daemonEntry = path.join(appRoot, "daemon", "ipc-host.mjs");
   const bundledNode = resolveBundledNodeBinary();
   const bundledBinDir = bundledNode ? path.dirname(bundledNode) : null;
   const bundledPi = bundledBinDir
@@ -744,8 +638,6 @@ function startDaemonServer(port) {
   const webSettings = readPiWebSettingsFile();
   const env = augmentPathForNodeTools({
     ...process.env,
-    PORT: String(port),
-    HOSTNAME: HOST,
     PI_WEB_NO_OPEN: "1",
     BROWSER: "none",
     NODE_ENV: "production",
@@ -771,128 +663,18 @@ function startDaemonServer(port) {
   }
 
   const runtimeNode = resolveBundledNodeBinary() || resolveNodeBinary();
-  console.log(
-    `[electron] Starting desktop daemon via ${runtimeNode} (${daemonEntry}) on http://${HOST}:${port}`,
-  );
-  const child = spawn(runtimeNode, [daemonEntry], {
+  const child = startRuntime({
+    entry: daemonEntry,
     cwd: appRoot,
     env,
-    stdio: ["ignore", "pipe", "pipe"],
+    nodeBinary: runtimeNode,
+    onLog: appendServerLog,
+    onExit: attachServerExitHandler,
   });
-  child.stdout?.on("data", (chunk) => { process.stdout.write(chunk); appendServerLog(chunk); });
-  child.stderr?.on("data", (chunk) => { process.stderr.write(chunk); appendServerLog(chunk); });
-  attachServerExitHandler(child);
   serverProcess = child;
   return child;
 }
 
-function startNextServer(port) {
-  if (!hasProductionBuild()) {
-    throw new Error(
-      isPackaged
-        ? "Packaged server bundle missing (resources/standalone/server.js).\n\n"
-          + "Desktop builds ship the daemon runtime and prune Next.js.\n"
-          + "For a build that can still run PI_WEB_RUNTIME=next, rebuild with PI_WEB_KEEP_NEXT=1."
-        : "No production build found.\n\nRun this first:\n  npm run build\n\nThen start Electron again:\n  npm run electron",
-    );
-  }
-
-  const bundledNode = resolveBundledNodeBinary();
-  const bundledBinDir = bundledNode ? path.dirname(bundledNode) : null;
-  const bundledPi = bundledBinDir
-    ? path.join(bundledBinDir, process.platform === "win32" ? "pi.cmd" : "pi")
-    : null;
-
-  const webSettings = readPiWebSettingsFile();
-  const env = augmentPathForNodeTools({
-    ...process.env,
-    PORT: String(port),
-    HOSTNAME: HOST,
-    PI_WEB_NO_OPEN: "1",
-    BROWSER: "none",
-    NODE_ENV: "production",
-    // Point child tools at the runtime we ship (Node / pi). Git always uses the system install
-    // so macOS Keychain / credential helpers work for https remotes.
-    ...(bundledNode ? { PI_WEB_NODE: bundledNode, PI_WEB_BUNDLE_NODE_BINARY: bundledNode } : {}),
-    ...(bundledPi && fs.existsSync(bundledPi)
-      ? { PI_WEB_PI_BINARY: bundledPi, PI_SUBAGENT_PI_BINARY: bundledPi }
-      : {}),
-    // Never set ELECTRON_RUN_AS_NODE on a spawn of process.execPath — that
-    // creates a second Dock icon labeled "exec" on macOS.
-  });
-  applyNetworkEnvFromSettings(env, webSettings);
-  delete env.ELECTRON_RUN_AS_NODE;
-  // Ensure we never inherit a packaged portable-git override.
-  delete env.PI_WEB_GIT_BINARY;
-  delete env.GIT_EXEC_PATH;
-  delete env.GIT_TEMPLATE_DIR;
-
-  // Prefer app-local bin/ on PATH so `pi`, `node`, `npm` resolve to bundled tools.
-  // System `git` stays on PATH after that (not overridden).
-  if (bundledBinDir) {
-    const pathKey = process.platform === "win32" ? "Path" : "PATH";
-    const sep = process.platform === "win32" ? ";" : ":";
-    const parts = String(env[pathKey] || "").split(sep).filter(Boolean);
-    if (!parts.includes(bundledBinDir)) parts.unshift(bundledBinDir);
-    env[pathKey] = parts.join(sep);
-  }
-
-  if (isPackaged) {
-    const serverEntry = path.join(appRoot, "server.js");
-    // Self-contained runtime: always prefer the Node binary we ship inside the
-    // app (bundled at package time). End users should only need Pi Web + pi CLI.
-    const runtimeNode = resolveBundledNodeBinary() || resolveNodeBinary();
-    const useBundledNode =
-      runtimeNode &&
-      runtimeNode !== process.execPath &&
-      !/Electron\.app/i.test(runtimeNode) &&
-      (path.isAbsolute(runtimeNode) ? fs.existsSync(runtimeNode) : true);
-
-    if (useBundledNode) {
-      console.log(`[electron] Starting standalone via bundled Node (${runtimeNode}) on http://${HOST}:${port}`);
-      const child = spawn(runtimeNode, [serverEntry], {
-        cwd: appRoot,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      child.stdout?.on("data", (chunk) => process.stdout.write(chunk));
-      child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
-      attachServerExitHandler(child);
-      serverProcess = child;
-      return child;
-    }
-
-    // Last resort: Electron utilityProcess (no system Node). Native modules like
-    // node-pty may fail under Electron's ABI — terminal features degrade.
-    console.warn("[electron] Bundled Node missing; falling back to utilityProcess (terminal may not work)");
-    const child = utilityProcess.fork(serverEntry, [], {
-      cwd: appRoot,
-      env,
-      stdio: "pipe",
-      serviceName: "pi-web-server",
-    });
-    child.stdout?.on("data", (chunk) => process.stdout.write(chunk));
-    child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
-    attachServerExitHandler(child);
-    serverProcess = child;
-    return child;
-  }
-
-  // Unpackaged: use system Node + next start (dev workflow).
-  const nextBin = resolveNextBin();
-  const nodeBin = resolveNodeBinary();
-  console.log(`[electron] Starting Next.js production server on http://${HOST}:${port}`);
-  const child = spawn(nodeBin, [nextBin, "start", "-p", String(port), "-H", HOST], {
-    cwd: appRoot,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child.stdout?.on("data", (chunk) => { process.stdout.write(chunk); appendServerLog(chunk); });
-  child.stderr?.on("data", (chunk) => { process.stderr.write(chunk); appendServerLog(chunk); });
-  attachServerExitHandler(child);
-  serverProcess = child;
-  return child;
-}
 
 function stopNextServer() {
   if (!serverProcess) return;
@@ -923,17 +705,10 @@ function stopNextServer() {
  */
 function createWindow(opts = {}) {
   const isMac = process.platform === "darwin";
-  const port = typeof opts.port === "number" ? opts.port : activePort;
   // Only auto-show on ready-to-show when we are NOT mid first-boot reveal.
   const showWhenReady = opts.showWhenReady === true || !bootRevealPending;
 
   if (mainWindow && !mainWindow.isDestroyed()) {
-    if (typeof opts.port === "number") {
-      const url = `http://${HOST}:${opts.port}`;
-      mainWindow.loadURL(url).catch((err) => {
-        console.error("Failed to load", url, err);
-      });
-    }
     if (showWhenReady && !mainWindow.isVisible()) mainWindow.show();
     return mainWindow;
   }
@@ -1014,49 +789,41 @@ function createWindow(opts = {}) {
     mainWindow = null;
   });
 
-  if (port != null && Number.isFinite(port)) {
-    const url = `http://${HOST}:${port}`;
-    mainWindow.loadURL(url).catch((err) => {
-      console.error("Failed to load", url, err);
-    });
-  }
+  // Always the local bundle; there is no server to point at.
+  mainWindow.loadURL(APP_ORIGIN).catch((err) => {
+    console.error("Failed to load", APP_ORIGIN, err);
+  });
 
   return mainWindow;
 }
 
 async function bootstrap() {
   // 1) Immediate splash (visible).
-  // 2) Hidden main window loads React as soon as the server accepts connections.
-  // 3) Reveal when IPC/DOM says the shell painted (never wait on slow warm routes).
+  // 2) Hidden main window loads React from app:// — no server involved.
+  // 3) Reveal when IPC/DOM says the shell painted.
+  //
+  // The renderer no longer waits on the agent runtime to boot: its assets come
+  // from the main process, so the runtime's multi-second SDK load can only delay
+  // data, never rendering.
   bootRevealPending = true;
-  const daemon = useDaemonRuntime();
-  createSplashWindow(daemon ? "Starting desktop daemon…" : "Starting local server…");
+  createSplashWindow("Starting Pi…");
 
-  activePort = await findFreePort(PREFERRED_PORT);
   const bootStarted = Date.now();
-  if (daemon) {
-    console.log("[electron] Runtime: daemon (Phase B, no Next.js)");
-    startDaemonServer(activePort);
-  } else {
-    console.log("[electron] Runtime: next (legacy)");
-    startNextServer(activePort);
-  }
-  await waitForServer(activePort);
-  console.log(`[electron] Server ready on http://${HOST}:${activePort} in ${Date.now() - bootStarted}ms (runtime=${daemon ? "daemon" : "next"})`);
+  serveAppProtocol(path.join(appRoot, "desktop-dist"));
+  startAgentRuntime();
+  console.log(`[electron] Agent runtime spawned in ${Date.now() - bootStarted}ms`);
 
   setSplashSubtitle("Loading workspace…");
-  // Light warm only — never await; never touch /api/sessions before first paint.
-  void warmAppRoutes(activePort);
 
-  if (daemon && !hasDesktopUi()) {
+  if (!hasDesktopUi()) {
     console.warn(
       "[electron] desktop-dist/index.html missing — run `npm run desktop:build` on this machine",
     );
   }
 
   const uiReady = waitForRendererUiReady(45_000);
-  console.log(`[electron] Loading app UI at http://${HOST}:${activePort}`);
-  createWindow({ port: activePort, showWhenReady: false });
+  console.log(`[electron] Loading app UI at ${APP_ORIGIN}`);
+  createWindow({ showWhenReady: false });
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.once("did-finish-load", () => {
@@ -1074,8 +841,6 @@ async function bootstrap() {
   const reason = await uiReady;
   console.log(`[electron] Renderer UI ready (${reason}) in ${Date.now() - bootStarted}ms`);
   revealMainWindow(reason);
-  // After shell is up, prime sessions off the critical path (Windows jiti can hitch once).
-  if (daemon) warmHeavyRoutesLater(activePort);
 }
 
 // Fired by AppShell after first paint — unblocks boot splash reveal.
@@ -1187,6 +952,7 @@ app.whenReady().then(() => {
   // Retry in case the pre-ready attempt had no resolvable log dir yet.
   const logPath = initFileLogging();
   if (logPath) console.log(`[electron] Logging to ${logPath}`);
+  registerApiBridge(ipcMain);
   // AUMID + name are set at process start (see APP_USER_MODEL_ID). Re-assert on ready
   // in case a platform resets identity during startup.
   try {
@@ -1220,7 +986,7 @@ app.whenReady().then(() => {
       } else {
         // Server already up — open main directly (no cold-start white gap).
         bootRevealPending = false;
-        createWindow({ port: activePort, showWhenReady: true });
+        createWindow({ showWhenReady: true });
       }
     } else {
       showMainWindow();

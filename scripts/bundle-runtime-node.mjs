@@ -38,9 +38,9 @@ const outDir = join(standalone, "bin");
 const outNode = join(outDir, isWin ? "node.exe" : "node");
 const nodeVersion = process.versions.node;
 
-// The desktop runtime is daemon/server.mjs; prepare-electron-standalone.mjs
+// The desktop runtime is daemon/ipc-host.mjs; prepare-electron-standalone.mjs
 // prunes the Next entry unless PI_WEB_KEEP_NEXT=1. Accept either shape.
-if (!existsSync(join(standalone, "daemon", "server.mjs")) && !existsSync(join(standalone, "server.js"))) {
+if (!existsSync(join(standalone, "daemon", "ipc-host.mjs")) && !existsSync(join(standalone, "server.js"))) {
   console.error("Missing prepared standalone tree — run scripts/prepare-electron-standalone.mjs first.");
   process.exit(1);
 }

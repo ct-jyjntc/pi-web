@@ -2,6 +2,23 @@
 
 const { contextBridge, ipcRenderer } = require("electron");
 
+/**
+ * `/api` transport for the renderer. The UI is served locally by the main
+ * process, so it has no HTTP origin to fetch from — lib/api-transport.ts calls
+ * through here instead.
+ */
+contextBridge.exposeInMainWorld("piApi", {
+  request: (payload) => ipcRenderer.invoke("pi-api:request", payload),
+  abort: (requestId) => ipcRenderer.send("pi-api:abort", { requestId }),
+  streamOpen: (payload) => ipcRenderer.send("pi-api:stream-open", payload),
+  streamClose: (streamId) => ipcRenderer.send("pi-api:stream-close", { streamId }),
+  onStreamEvent: (callback) => {
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on("pi-api:stream", handler);
+    return () => ipcRenderer.removeListener("pi-api:stream", handler);
+  },
+});
+
 contextBridge.exposeInMainWorld("piDesktop", {
   selectDirectory: () => ipcRenderer.invoke("pi-desktop:select-directory"),
   setTheme: (theme) => ipcRenderer.invoke("pi-desktop:set-theme", theme),
