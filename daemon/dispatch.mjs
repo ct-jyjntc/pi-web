@@ -191,8 +191,30 @@ async function runDeferredBoot() {
 
     const { ensureBuiltinPackages } = await loadModule(libModule("ensure-builtin-packages"));
     void ensureBuiltinPackages()
-      .then((r) => {
+      .then(async (r) => {
         for (const note of r.notes) console.log(`[runtime] ${note}`);
+        // Warm the two graphs that first-click / first-send still pay for once:
+        // models list (createConfiguredModelRuntime) and session start (tools).
+        // Fire-and-forget so a slow warm cannot block later deferred work.
+        const t0 = Date.now();
+        try {
+          await loadModule(libModule("rpc-session-start"));
+          console.log(`[runtime:heavy] tool graph warm in ${Date.now() - t0}ms`);
+        } catch (error) {
+          console.error("[runtime] tool graph warm failed:", error);
+        }
+        try {
+          const modelsRoute = path.join(root, "app", "api", "models", "route.mjs");
+          const modelsTs = path.join(root, "app", "api", "models", "route.ts");
+          const modelsFile = fs.existsSync(modelsRoute) ? modelsRoute : modelsTs;
+          if (fs.existsSync(modelsFile)) {
+            const t1 = Date.now();
+            await loadModule(modelsFile);
+            console.log(`[runtime:heavy] models route warm in ${Date.now() - t1}ms`);
+          }
+        } catch (error) {
+          console.error("[runtime] models route warm failed:", error);
+        }
       })
       .catch((e) => console.error("[runtime] prewarm error:", e));
   } catch (e) {

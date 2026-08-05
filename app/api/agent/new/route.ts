@@ -3,11 +3,13 @@ import { existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
-import { startRpcSession } from "@/lib/rpc-manager";
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }
 // Spawns a brand-new pi session. Most calls immediately send the first command;
 // type:"ensure_session" only creates the runtime so clients can query commands.
 // Returns { sessionId, data } where sessionId is pi's real session id.
+//
+// startRpcSession is loaded lazily: the tool graph is ~0.7–1.5s on first import
+// and must not sit on every heavy-runtime module that only re-exports it.
 export async function POST(req: Request) {
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
@@ -28,6 +30,7 @@ export async function POST(req: Request) {
     // requests in the same millisecond, merging two new sessions into one.
     const tempKey = `__new__${randomUUID()}`;
 
+    const { startRpcSession } = await import("@/lib/rpc-session-start");
     const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, toolNames);
 
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)

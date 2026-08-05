@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import { readSessionHeader, resolveSessionPath } from "@/lib/session-reader";
-import { getRpcSession, startRpcSession, type AgentEvent, type AgentSessionWrapper } from "@/lib/rpc-manager";
+import { getRpcSession } from "@/lib/rpc-registry";
+import type { AgentEvent, AgentSessionWrapper } from "@/lib/rpc-session-wrapper";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  // Fast path: already-running session
+  // Fast path: already-running session (registry only — no tool graph).
   let session: AgentSessionWrapper | undefined = getRpcSession(id);
   if (!session || !session.isAlive()) {
     const filePath = await resolveSessionPath(id);
@@ -44,6 +45,8 @@ export async function GET(
     // synchronously just to read the header cwd.
     const cwd = readSessionHeader(filePath)?.cwd ?? process.cwd();
     try {
+      // Lazy: startRpcSession pulls the full tool graph.
+      const { startRpcSession } = await import("@/lib/rpc-session-start");
       ({ session } = await startRpcSession(id, filePath, cwd));
     } catch (error) {
       return new Response(`Failed to start agent: ${error}`, { status: 500 });
