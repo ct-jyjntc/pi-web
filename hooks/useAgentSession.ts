@@ -1102,9 +1102,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isCompacting, loadSession]);
 
-  const loadModels = useCallback(async (signal?: AbortSignal) => {
+  const loadModels = useCallback(async (signal?: AbortSignal, options?: { force?: boolean }) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
-    const modelsUrl = modelCwd ? `/api/models?cwd=${encodeURIComponent(modelCwd)}` : "/api/models";
+    const params = new URLSearchParams();
+    if (modelCwd) params.set("cwd", modelCwd);
+    // After settings disable/enable, force-bypass heavy's 60s models cache
+    // (disable writes run on light and cannot invalidate heavy process memory).
+    if (options?.force) params.set("fresh", "1");
+    const q = params.toString();
+    const modelsUrl = q ? `/api/models?${q}` : "/api/models";
     const res = await apiFetch(modelsUrl, signal ? { signal } : undefined);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json() as ModelsResponse;
@@ -1509,7 +1515,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load model list
   useEffect(() => {
     const controller = new AbortController();
-    loadModels(controller.signal).catch((e) => {
+    // modelsRefreshKey bumps after settings toggles — force fresh catalog.
+    loadModels(controller.signal, { force: modelsRefreshKey > 0 }).catch((e) => {
       if (e instanceof DOMException && e.name === "AbortError") return;
     });
     return () => controller.abort();

@@ -272,26 +272,40 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
     .filter((s) => s.messageCount > 0);
 }
 
-export async function listAllSessions(): Promise<SessionInfo[]> {
+export async function listAllSessions(options?: { force?: boolean }): Promise<SessionInfo[]> {
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
   // Return cached result if still fresh (avoids re-scanning session files
   // and re-spawning git processes on every page load).
-  if (globalThis.__piSessionListCache && Date.now() - globalThis.__piSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS) {
+  // `force` is for post-mutation reloads (delete/rename) where the light runtime
+  // may never have seen invalidateSessionListCache() — that runs on heavy.
+  if (
+    !options?.force
+    && globalThis.__piSessionListCache
+    && Date.now() - globalThis.__piSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS
+  ) {
     return globalThis.__piSessionListCache.data;
   }
 
   // Coalescing dedup: concurrent callers share the same in-flight promise
   // only while it belongs to the current cache generation.
-  if (globalThis.__piSessionListPromise && globalThis.__piSessionListPromiseGeneration === generation) {
+  // Force reloads do not join a non-force in-flight scan (would return stale).
+  if (
+    !options?.force
+    && globalThis.__piSessionListPromise
+    && globalThis.__piSessionListPromiseGeneration === generation
+  ) {
     return globalThis.__piSessionListPromise;
   }
 
   const loadPromise = loadAllSessions().then((data) => {
     // An invalidation may happen while the scan is in flight. Do not let that
     // older result repopulate the cache after a session mutation.
-    if ((globalThis.__piSessionListGeneration ?? 0) === generation) {
+    if ((globalThis.__piSessionListGeneration ?? 0) === generation || options?.force) {
       globalThis.__piSessionListCache = { data, ts: Date.now() };
+      if (options?.force) {
+        globalThis.__piSessionListGeneration = (globalThis.__piSessionListGeneration ?? 0) + 1;
+      }
     }
     return data;
   });
@@ -302,8 +316,10 @@ export async function listAllSessions(): Promise<SessionInfo[]> {
     }
   });
 
-  globalThis.__piSessionListPromise = trackedPromise;
-  globalThis.__piSessionListPromiseGeneration = generation;
+  if (!options?.force) {
+    globalThis.__piSessionListPromise = trackedPromise;
+    globalThis.__piSessionListPromiseGeneration = generation;
+  }
   return trackedPromise;
 }
 

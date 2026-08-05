@@ -5,7 +5,7 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { filterDisabledModels, getDisabledModelRefs } from "@/lib/disabled-models";
 import { applyThinkingMapOverrides } from "@/lib/model-overrides";
 import { availableThinkingLevelsFromMap } from "@/lib/thinking-level-map";
-import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
+import { loadModelsWithCache, invalidateModelsCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { readWebSettings } from "@/lib/web-settings";
 import { createConfiguredModelRuntime } from "@/lib/model-runtime";
@@ -145,8 +145,12 @@ const EMPTY_MODELS: ModelsData = {
 };
 
 export async function GET(req: Request) {
-  const requestedCwd = new URL(req.url).searchParams.get("cwd") || process.cwd();
+  const url = new URL(req.url);
+  const requestedCwd = url.searchParams.get("cwd") || process.cwd();
   const cwd = resolve(requestedCwd);
+  // `?fresh=1` after settings toggles: disable-models writes on light, this
+  // catalog lives on heavy with a 60s in-process cache that light cannot clear.
+  const force = url.searchParams.get("fresh") === "1";
 
   let cwdStat;
   try {
@@ -159,6 +163,7 @@ export async function GET(req: Request) {
   }
 
   try {
+    if (force) invalidateModelsCache();
     return Response.json(await loadModelsWithCache(cwd, () => loadModels(cwd)));
   } catch {
     return Response.json(EMPTY_MODELS);

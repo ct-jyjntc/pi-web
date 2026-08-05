@@ -118,10 +118,12 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
-  const loadSessions = useCallback(async (showLoading = false) => {
+  const loadSessions = useCallback(async (showLoading = false, options?: { force?: boolean }) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await apiFetch("/api/sessions");
+      // After delete/rename, force a disk rescan on the light runtime (its
+      // 30s list cache is not invalidated by heavy-side DELETE).
+      const res = await apiFetch(options?.force ? "/api/sessions?fresh=1" : "/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
@@ -603,13 +605,25 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const sessionGroups = useMemo(() => groupSessionTreeByTime(sessionTree), [sessionTree]);
 
   const handleSessionRenamed = useCallback((sessionId?: string, name?: string) => {
-    void loadSessions();
-    if (sessionId && name) onSessionRenamed?.(sessionId, name);
+    // Optimistic rename in the list so the title updates before the rescan.
+    if (sessionId && name) {
+      setAllSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, name } : s)));
+      onSessionRenamed?.(sessionId, name);
+    }
+    void loadSessions(false, { force: true });
   }, [loadSessions, onSessionRenamed]);
 
   const handleSessionDeletedFromList = useCallback((id: string) => {
+    // Optimistic remove — do not wait for light list cache / heavy DELETE round-trip.
+    setAllSessions((prev) => prev.filter((s) => s.id !== id));
+    setUnreadSessionIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     onSessionDeleted?.(id);
-    void loadSessions();
+    void loadSessions(false, { force: true });
   }, [onSessionDeleted, loadSessions]);
 
   return (

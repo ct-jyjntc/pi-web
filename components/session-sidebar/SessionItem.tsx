@@ -82,10 +82,13 @@ export const SessionItem = memo(function SessionItem({
   const performDelete = useCallback(async () => {
     setMenuOpen(false);
     setDeleting(true);
+    // Optimistic: remove from the list immediately. Parent also force-refreshes
+    // with ?fresh=1 because light/heavy caches are not shared.
+    onDeleted?.(session.id);
     try {
       await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
-      onDeleted?.(session.id);
     } catch {
+      // Parent force-reload will restore the row if the file is still on disk.
       setDeleting(false);
     }
   }, [session.id, onDeleted]);
