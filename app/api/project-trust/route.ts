@@ -3,10 +3,7 @@ import { resolve } from "path";
 import { NextResponse } from "next/server";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-import { invalidateModelsCache } from "@/lib/models-cache";
 import { getProjectTrustStatus, trustProject } from "@/lib/project-trust";
-import { destroyRpcSessionsForCwd, hasBusyRpcSessionForCwd } from "@/lib/rpc-manager";
-import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +30,7 @@ async function validateCwd(value: unknown): Promise<
   return { cwd };
 }
 
+/** GET is on the session-select path — keep it free of rpc-manager / tool graph. */
 export async function GET(req: Request) {
   const result = await validateCwd(new URL(req.url).searchParams.get("cwd"));
   if ("response" in result) return result.response;
@@ -44,6 +42,17 @@ export async function POST(req: Request) {
     const body = await req.json() as { cwd?: unknown };
     const result = await validateCwd(body.cwd);
     if ("response" in result) return result.response;
+
+    // POST-only: registry + cache invalidation. Dynamic so GET never pays for them.
+    const [
+      { hasBusyRpcSessionForCwd, destroyRpcSessionsForCwd },
+      { invalidateModelsCache },
+      { invalidateUtilityModelRuntimes },
+    ] = await Promise.all([
+      import("@/lib/rpc-registry"),
+      import("@/lib/models-cache"),
+      import("@/lib/utility-model"),
+    ]);
 
     const agentDir = getAgentDir();
     const current = getProjectTrustStatus(result.cwd, agentDir);

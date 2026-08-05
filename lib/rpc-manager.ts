@@ -1,18 +1,12 @@
 /**
  * Public façade for in-process AgentSession RPC.
  * Implementation is split: rpc-session-wrapper, rpc-registry, rpc-session-start.
+ *
+ * Importing this module must stay side-effect free. Bootstrapping (env, builtin
+ * packages) runs once from startRpcSession / deferred boot — otherwise a light
+ * GET that only needs getRpcSession() would pull ensureBuiltinPackages and stall
+ * the heavy runtime for seconds on first click.
  */
-
-import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
-import { ensureBuiltinPackages, migrateBuiltinPackageSettings } from "./ensure-builtin-packages";
-import { ensureSubagentDelegation } from "./ensure-subagent-delegation";
-
-// If packages spawn the Pi CLI, never use Electron as process.execPath.
-ensureSubagentSpawnEnv();
-ensureSubagentDelegation();
-// Strip legacy settings.packages entries before any session can start.
-for (const note of migrateBuiltinPackageSettings()) console.log(`[pi-web] ${note}`);
-void ensureBuiltinPackages();
 
 export type { AgentEvent } from "./rpc-session-wrapper";
 export { AgentSessionWrapper } from "./rpc-session-wrapper";

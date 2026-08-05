@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { readSessionHeader, resolveSessionPath } from "@/lib/session-reader";
-import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { getRpcSession } from "@/lib/rpc-registry";
 import { readLiveAgentState } from "@/lib/agent-live-state";
 import { jsonError } from "@/lib/api-response";
 
@@ -15,7 +15,7 @@ export async function POST(
   try {
     const body = await req.json() as { type: string; [key: string]: unknown };
 
-    // Fast path: already-running session
+    // Fast path: already-running session (registry only — no tool graph).
     const existing = getRpcSession(id);
     if (existing?.isAlive()) {
       const result = await existing.send(body);
@@ -31,6 +31,8 @@ export async function POST(
     // whole archive synchronously (~60ms on a 26MB session) just for this field.
     const cwd = readSessionHeader(filePath)?.cwd ?? process.cwd();
 
+    // Lazy: startRpcSession pulls the tool graph; keep it off the GET path.
+    const { startRpcSession } = await import("@/lib/rpc-session-start");
     const { session } = await startRpcSession(id, filePath, cwd);
     if (!session.isAlive()) {
       return NextResponse.json({ error: "Session destroyed" }, { status: 409 });
@@ -45,7 +47,7 @@ export async function POST(
   }
 }
 
-// GET /api/agent/[id] - Get current agent state
+// GET /api/agent/[id] - Get current agent state (no start, no tool graph)
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }

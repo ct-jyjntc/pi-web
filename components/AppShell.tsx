@@ -683,47 +683,44 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
 
   useEffect(() => {
-    setProjectTrust(null);
-    setProjectTrustDialogOpen(false);
-    setProjectTrustError(null);
-    if (!projectTrustCwd) return;
+      setProjectTrust(null);
+      setProjectTrustDialogOpen(false);
+      setProjectTrustError(null);
+      if (!projectTrustCwd) return;
 
-    const controller = new AbortController();
-    // Wait for the shell to go idle before asking. The daemon serves this app's
-    // code-split chunks on the same event loop that /api/project-trust blocks
-    // for ~14s while it loads the SDK, so firing it during boot starves the
-    // chunks that render the session list. Trust is enforced server-side at
-    // session start (projectTrustReloadOptions), so the dialog may arrive late.
-    const load = () => {
-      apiFetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          const data = await response.json() as ProjectTrustStatus & { error?: string };
-          if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-          setProjectTrust(data);
+      const controller = new AbortController();
+      // Trust is enforced server-side at session start; the dialog may arrive late.
+      // Prefer idle so the first paint of chat content is not racing this request.
+      const load = () => {
+        apiFetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
+          signal: controller.signal,
         })
-        .catch((error) => {
-          if (error instanceof DOMException && error.name === "AbortError") return;
-          console.error("Failed to load project trust:", error);
-        });
-    };
+          .then(async (response) => {
+            const data = await response.json() as ProjectTrustStatus & { error?: string };
+            if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+            setProjectTrust(data);
+          })
+          .catch((error) => {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+            console.error("Failed to load project trust:", error);
+          });
+      };
 
-    if (typeof requestIdleCallback === "function") {
-      const idleId = requestIdleCallback(load, { timeout: 5000 });
+      if (typeof requestIdleCallback === "function") {
+        const idleId = requestIdleCallback(load, { timeout: 1500 });
+        return () => {
+          cancelIdleCallback(idleId);
+          controller.abort();
+        };
+      }
+      const timer = window.setTimeout(load, 100);
       return () => {
-        cancelIdleCallback(idleId);
+        window.clearTimeout(timer);
         controller.abort();
       };
-    }
-    const timer = window.setTimeout(load, 3000);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [projectTrustCwd]);
+    }, [projectTrustCwd]);
 
-  const handleTrustProject = useCallback(async () => {
+    const handleTrustProject = useCallback(async () => {
     if (!projectTrustCwd || projectTrustBusy) return;
     setProjectTrustBusy(true);
     setProjectTrustError(null);

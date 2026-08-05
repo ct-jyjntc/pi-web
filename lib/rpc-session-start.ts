@@ -30,6 +30,9 @@ import {
   ensureHeavyExtensionFactories,
   getBuiltinResourceLoaderOptions,
 } from "./builtin-extensions";
+import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
+import { ensureBuiltinPackages, migrateBuiltinPackageSettings } from "./ensure-builtin-packages";
+import { ensureSubagentDelegation } from "./ensure-subagent-delegation";
 import { AgentSessionWrapper } from "./rpc-session-wrapper";
 import {
   getLocks,
@@ -37,6 +40,22 @@ import {
   getStartingSessionCwds,
   normalizeRpcCwd,
 } from "./rpc-registry";
+
+/**
+ * One-shot env / package migration / prewarm. Used to live as rpc-manager.ts
+ * top-level imports so any getRpcSession import paid ~seconds of ensureBuiltinPackages.
+ * Deferred boot also runs these; this gate keeps startRpcSession self-contained
+ * if deferred boot has not finished yet.
+ */
+let rpcRuntimeBooted = false;
+function ensureRpcRuntimeBoot(): void {
+  if (rpcRuntimeBooted) return;
+  rpcRuntimeBooted = true;
+  ensureSubagentSpawnEnv();
+  ensureSubagentDelegation();
+  for (const note of migrateBuiltinPackageSettings()) console.log(`[pi-web] ${note}`);
+  void ensureBuiltinPackages();
+}
 
 /**
  * Get or create an AgentSession for the given session.
@@ -49,6 +68,8 @@ export async function startRpcSession(
   cwd: string,
   toolNames?: string[]
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
+  ensureRpcRuntimeBoot();
+
   const registry = getRegistry();
   const locks = getLocks();
 

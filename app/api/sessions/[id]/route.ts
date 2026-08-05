@@ -16,7 +16,7 @@ import {
   restoreDeferredMessages,
 } from "@/lib/session-entries";
 import { estimateSessionContextUsage } from "@/lib/context-usage";
-import { getRpcSession } from "@/lib/rpc-manager";
+import { getRpcSession } from "@/lib/rpc-registry";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
 const MAX_PROJECTED_TREE_DEPTH = 200;
