@@ -213,27 +213,80 @@ export function ensureWebSettings(): Promise<WebSettingsData | null> {
 }
 
 /**
- * Full read including the utility-model catalog — only the Settings page needs
- * `models`. The catalog is handed to the caller instead of being cached, so a
- * lightweight refresh can never clobber it; `settings` does not depend on `cwd`
- * and still feeds the shared snapshot. Rejects on error so the panel can show it.
+ * Full settings read for the Settings page.
+ *
+ * 1. Settings object from light runtime with `utilityModels=0` (never pull the
+ *    agent SDK / createAgentSessionServices into light).
+ * 2. Model catalog from `/api/models` (heavy) in parallel — optional for most
+ *    panels; agent-model dropdowns fill when it arrives.
+ *
+ * `onSettings` fires as soon as the light settings payload is applied so the UI
+ * can clear its loading spinner without waiting on the heavy model catalog.
  */
-export function fetchWebSettingsWithModels(cwd?: string | null): Promise<WebSettingsWithModels> {
-  const params = new URLSearchParams();
-  if (cwd) params.set("cwd", cwd);
-  const key = params.toString();
-  if (modelsInFlight && modelsInFlight.key === key) return modelsInFlight.promise;
+export function fetchWebSettingsWithModels(
+  cwd?: string | null,
+  options?: { onSettings?: (settings: WebSettingsData | null) => void },
+): Promise<WebSettingsWithModels> {
+  const settingsParams = new URLSearchParams({ utilityModels: "0" });
+  if (cwd) settingsParams.set("cwd", cwd);
+  const modelsParams = new URLSearchParams();
+  if (cwd) modelsParams.set("cwd", cwd);
+  const key = `${settingsParams}|${modelsParams}`;
+    if (modelsInFlight && modelsInFlight.key === key) {
+      // Shared flight: still deliver onSettings when the cached result resolves.
+      return modelsInFlight.promise.then((result) => {
+        options?.onSettings?.(result.settings);
+        return result;
+      });
+    }
 
   const promise: Promise<WebSettingsWithModels> = (async () => {
-    const res = await apiFetch(`/api/web-settings?${key}`);
-    const data = await res.json() as {
+    const settingsRes = await apiFetch(`/api/web-settings?${settingsParams.toString()}`);
+    const settingsData = await settingsRes.json() as {
       settings?: WebSettingsData;
-      models?: WebSettingsModelOption[];
       error?: string;
     };
-    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-    if (data.settings) applyWebSettings(data.settings);
-    return { settings: data.settings ?? null, models: data.models ?? [] };
+    if (!settingsRes.ok || settingsData.error) {
+      throw new Error(settingsData.error ?? `HTTP ${settingsRes.status}`);
+    }
+    if (settingsData.settings) applyWebSettings(settingsData.settings);
+    options?.onSettings?.(settingsData.settings ?? null);
+
+    let models: WebSettingsModelOption[] = [];
+    try {
+      const modelsUrl = modelsParams.toString()
+        ? `/api/models?${modelsParams.toString()}`
+        : "/api/models";
+      const modelsRes = await apiFetch(modelsUrl);
+      const modelsBody = await modelsRes.json() as {
+        modelList?: Array<{
+          id: string;
+          name?: string;
+          provider: string;
+        }>;
+        thinkingLevels?: Record<string, string[]>;
+        error?: string;
+      };
+      if (modelsRes.ok && !modelsBody.error) {
+        const levels = modelsBody.thinkingLevels ?? {};
+        models = (modelsBody.modelList ?? []).map((m) => {
+          const keyRef = `${m.provider}/${m.id}`;
+          const thinkingLevels = levels[keyRef] ?? levels[`${m.provider}:${m.id}`] ?? [];
+          return {
+            provider: m.provider,
+            modelId: m.id,
+            name: m.name || m.id,
+            supportsThinking: thinkingLevels.some((level) => level && level !== "off"),
+            thinkingLevels,
+          };
+        });
+      }
+    } catch {
+      // Model catalog is optional for most settings sections.
+      models = [];
+    }
+
+    return { settings: settingsData.settings ?? null, models };
   })();
   modelsInFlight = { key, promise };
   void promise

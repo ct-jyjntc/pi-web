@@ -176,15 +176,17 @@ export function SettingsPage({
   }, [onClose, visible]);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoadingModels(true);
-    setSaveError(null);
-    // Full read (this panel is the only consumer of the utility-model catalog);
-    // it also refreshes the shared settings cache for everyone else.
-    fetchWebSettingsWithModels(cwd)
-      .then((data) => {
+      let cancelled = false;
+      setLoadingModels(true);
+      setSaveError(null);
+      // Settings object is light/fast. Model catalog is heavy — apply prefs as soon
+      // as settings arrive so panels stop spinning while models still load.
+      const applySettingsPayload = (data: {
+        settings: import("@/lib/web-settings-store").WebSettingsData | null;
+        models?: import("@/lib/web-settings-store").WebSettingsModelOption[];
+      }) => {
         if (cancelled) return;
-        setModels(data.models);
+        if (data.models) setModels(data.models);
         setTitleModelRef(data.settings?.titleModelRef ?? "");
         setCommitModelRef(data.settings?.commitModelRef ?? "");
         setRoleDefaultRef(data.settings?.modelRolesRefs?.default ?? "");
@@ -262,19 +264,30 @@ export function SettingsPage({
         } else if (!cancelled) {
           setMemoryFacts([]);
         }
+      };
+
+      fetchWebSettingsWithModels(cwd, {
+        onSettings: (settings) => {
+          applySettingsPayload({ settings });
+          if (!cancelled) setLoadingModels(false);
+        },
       })
-      .catch((error) => {
-        if (cancelled) return;
-        setSaveError(error instanceof Error ? error.message : String(error));
-        setModels([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingModels(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [applyModelSettings, cwd]);
+        .then((data) => {
+          if (cancelled) return;
+          setModels(data.models);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setSaveError(error instanceof Error ? error.message : String(error));
+          setModels([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingModels(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [applyModelSettings, cwd]);
 
   useEffect(() => {
     let cancelled = false;

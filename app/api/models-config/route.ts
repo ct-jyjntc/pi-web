@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { readFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@/lib/agent-dir";
 import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { normalizeModelCost } from "@/lib/model-cost";
-import { invalidateUtilityModelRuntimes } from "@/lib/utility-model";
 
 export const dynamic = "force-dynamic";
 
@@ -79,8 +78,15 @@ export async function PUT(req: Request) {
   try {
     const body = await req.json() as Record<string, unknown>;
     writeModelsJson(normalizeProvidersCost(body));
+    // Local process caches only. Utility runtime is SDK-backed — load lazily so
+    // GET /api/models-config stays free of the agent package (light runtime).
     invalidateModelsCache();
-    invalidateUtilityModelRuntimes();
+    try {
+      const { invalidateUtilityModelRuntimes } = await import("@/lib/utility-model");
+      invalidateUtilityModelRuntimes();
+    } catch {
+      // Light runtime has no utility-model graph; heavy will rebuild on next use.
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

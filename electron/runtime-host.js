@@ -39,6 +39,13 @@ const LIGHT_PREFIXES = [
   "/api/file-index",
   "/api/diagnostics",
   "/api/commands",
+  // Settings panels that only touch on-disk config / PATH discovery. Keeping
+  // them on heavy meant opening Models/MCP/Permissions while the agent SDK was
+  // still preloading left the UI stuck on "Loading…" until SDK ready.
+  "/api/permissions",
+  "/api/models-config",
+  "/api/mcp",
+  "/api/lsp",
 ];
 
 /** @param {string} rawPath */
