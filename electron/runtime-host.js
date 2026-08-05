@@ -26,9 +26,32 @@ const ABORT_CHANNEL = "pi-api:abort";
  * Misclassifying is safe in one direction only: the heavy runtime can serve
  * anything, so an unlisted path is merely as slow as before. A path listed here
  * that *does* reach the SDK would drag it into the light runtime — only add
- * routes verified free of it.
+ * routes verified free of it (no static `@earendil-works/*`, no ModelRuntime,
+ * no SessionManager / session-entries / utility-model).
+ *
+ * Prefer EXACT matches for single routes. PREFIX matches must not cover sibling
+ * subpaths that need the SDK (e.g. `/api/models-config` must NOT prefix-match
+ * `/api/models-config/provider-models`).
  */
-const LIGHT_EXACT = new Set(["/api/home", "/api/sessions", "/api/web-settings", "/api/health"]);
+const LIGHT_EXACT = new Set([
+  "/api/home",
+  "/api/sessions",
+  "/api/web-settings",
+  "/api/health",
+  "/api/default-cwd",
+  "/api/github",
+  "/api/checkpoints",
+  "/api/workspace-journal",
+  "/api/permissions",
+  "/api/mcp",
+  // models.json CRUD only — subpaths that touch ModelRuntime stay heavy.
+  "/api/models-config",
+  "/api/network/test",
+  "/api/debug/sessions",
+  "/api/skills/install",
+  "/api/skills/search",
+]);
+
 const LIGHT_PREFIXES = [
   "/api/files/",
   "/api/git/",
@@ -39,13 +62,13 @@ const LIGHT_PREFIXES = [
   "/api/file-index",
   "/api/diagnostics",
   "/api/commands",
-  // Settings panels that only touch on-disk config / PATH discovery. Keeping
-  // them on heavy meant opening Models/MCP/Permissions while the agent SDK was
-  // still preloading left the UI stuck on "Loading…" until SDK ready.
   "/api/permissions",
-  "/api/models-config",
   "/api/mcp",
   "/api/lsp",
+  // models-config subpaths verified free of ModelRuntime / SDK:
+  "/api/models-config/free-models",
+  "/api/models-config/catalog",
+  // NOT light: /provider-models, /model-overrides, /test, /discover (ModelRuntime)
 ];
 
 /** @param {string} rawPath */
@@ -242,4 +265,11 @@ function getRuntimeProcess() {
   return children.heavy;
 }
 
-module.exports = { startRuntime, registerApiBridge, getRuntimeProcess };
+module.exports = {
+  startRuntime,
+  registerApiBridge,
+  getRuntimeProcess,
+  roleForPath,
+  LIGHT_EXACT,
+  LIGHT_PREFIXES,
+};

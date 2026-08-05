@@ -46,11 +46,43 @@ one direction only: the heavy runtime can serve anything, so an unlisted path is
 merely as slow as before — but a path listed as light that *does* reach the SDK
 drags it into the process that exists to stay clear of it.
 
-A route is heavy if it reaches `@earendil-works/*` or the `globalThis.__piSessions`
-registry through static imports. Chat content (`/api/sessions/[id]`) is heavy:
-transcripts are parsed with the SDK's `SessionManager` (`lib/session-entries.ts`).
-The session *list* is light — `lib/session-reader.ts` reads `.jsonl` off disk and
-is deliberately kept SDK-free.
+A route is **heavy** if it reaches `@earendil-works/*`, `ModelRuntime`,
+`SessionManager` / `session-entries`, the live RPC registry (except the
+structural `rpc-running` reader), or utility-model completion. Chat content
+(`/api/sessions/[id]`) is heavy: transcripts are parsed with the SDK's
+`SessionManager` (`lib/session-entries.ts`). The session *list* is light —
+`lib/session-reader.ts` reads `.jsonl` off disk and is deliberately kept SDK-free.
+
+### Light (verified SDK-free)
+
+| Path | Notes |
+|------|--------|
+| `/api/home`, `/api/health`, `/api/sessions` | boot / list |
+| `/api/web-settings` | use `?utilityModels=0` from UI; full catalog is deferred |
+| `/api/files/*`, `/api/git/*`, `/api/cwd/*`, `/api/worktrees` | workspace chrome |
+| `/api/usage`, `/api/app-update`, `/api/commands`, `/api/diagnostics`, `/api/file-index` | chrome |
+| `/api/permissions`, `/api/mcp`, `/api/lsp` | settings panels (on-disk / PATH) |
+| `/api/models-config` (exact) | models.json CRUD only |
+| `/api/models-config/free-models`, `/catalog` | external HTTP + models.dev, no SDK |
+| `/api/default-cwd`, `/api/github`, `/api/checkpoints`, `/api/workspace-journal` | fs / gh |
+| `/api/network/test`, `/api/debug/sessions` | network / inspector |
+| `/api/skills/install`, `/api/skills/search` | npx wrappers only |
+
+### Heavy (needs agent package or live session)
+
+| Path | Why |
+|------|-----|
+| `/api/models`, `/api/auth/*` | `ModelRuntime` |
+| `/api/models-config/provider-models`, `/model-overrides`, `/test`, `/discover` | `ModelRuntime` / auth |
+| `/api/skills`, `/content`, `/check`, `/update` | `DefaultResourceLoader` / frontmatter |
+| `/api/project-trust`, `/project-memory`, `/project-init` | SDK trust store / utility model |
+| `/api/sessions/[id]*`, `/api/agent/*` | session entries + RPC |
+| `/api/advisor`, `/api/memory-review`, `/api/collab*` | utility model / SDK collab |
+
+Covered by `electron/runtime-host.test.mjs`. When adding a route: if it can run
+with only `lib/agent-dir` + fs/network, put it on light; if it imports
+`@earendil-works/*` or `model-runtime` / `utility-model` / `session-entries`,
+leave it heavy.
 
 `/api/sessions` returns `runningSessionIds` from the light runtime, where the
 registry does not exist, so it always returns `[]`. That is the documented
