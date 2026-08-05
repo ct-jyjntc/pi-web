@@ -88,6 +88,9 @@ export function AppShell() {
   const [settingsWarm, setSettingsWarm] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+  const handleModelsChanged = useCallback(() => {
+    setModelsRefreshKey((k) => k + 1);
+  }, []);
   const appUpdate = useSyncExternalStore(subscribeAppUpdate, getAppUpdateInfo, () => null);
 
   // Background update check when Settings → auto-check is enabled.
@@ -1409,7 +1412,7 @@ export function AppShell() {
         onClose={() => setSettingsOpen(false)}
         cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd}
         skillsDisabled={!activeCwd && !selectedSession?.cwd && !newSessionCwd}
-        onModelsChanged={() => setModelsRefreshKey((k) => k + 1)}
+        onModelsChanged={handleModelsChanged}
       />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (

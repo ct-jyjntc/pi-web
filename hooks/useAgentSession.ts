@@ -153,6 +153,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   } = opts;
   const { t } = useLocale();
+  // Tracks last modelsRefreshKey we already force-fetched for (edge-trigger).
+  const lastForcedModelsKeyRef = useRef(0);
 
   const isNew = session === null && newSessionCwd !== null;
 
@@ -1515,9 +1517,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load model list
   useEffect(() => {
     const controller = new AbortController();
-    // modelsRefreshKey bumps after settings toggles — force fresh catalog.
-    // Prop is optional; treat missing as 0 so the initial load stays cached.
-    loadModels(controller.signal, { force: (modelsRefreshKey ?? 0) > 0 }).catch((e) => {
+    // Force only when modelsRefreshKey *increases* (a real settings mutation).
+    // Using `key > 0` forever-forced every loadModels after the first settings
+    // visit — that re-ran ModelRuntime on every session open and felt multi-second.
+    const key = modelsRefreshKey ?? 0;
+    const force = key > lastForcedModelsKeyRef.current;
+    if (force) lastForcedModelsKeyRef.current = key;
+    loadModels(controller.signal, { force }).catch((e) => {
       if (e instanceof DOMException && e.name === "AbortError") return;
     });
     return () => controller.abort();

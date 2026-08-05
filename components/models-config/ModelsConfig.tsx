@@ -178,14 +178,19 @@ export function ModelsConfig({
 
   // Dual-auth providers (e.g. Anthropic) appear in both lists; any auth change
   // must refresh both so the API-key row and OAuth row stay consistent.
-  // Also bump modelsRefreshKey so the chat model picker drops credentials that
-  // just logged out (or gains ones that just logged in) without waiting on the
-  // heavy 60s models cache via a blind reload.
+  // Do NOT call onModelsChanged here — this runs on mount and any parent re-render
+  // if onModelsChanged is unstable; that remounts the picker load loop and used
+  // to reset selection to the first provider.
   const refreshAuthProviders = useCallback(() => {
     loadOAuthProviders();
     loadApiKeyProviders();
+  }, [loadOAuthProviders, loadApiKeyProviders]);
+
+  // After real auth mutations (login/logout/api-key), refresh lists + chat catalog.
+  const handleAuthMutation = useCallback(() => {
+    refreshAuthProviders();
     onModelsChanged?.();
-  }, [loadOAuthProviders, loadApiKeyProviders, onModelsChanged]);
+  }, [refreshAuthProviders, onModelsChanged]);
 
   useEffect(() => {
     apiFetch("/api/models-config")
@@ -203,7 +208,11 @@ export function ModelsConfig({
         setConfig(normalized);
         savedConfigJsonRef.current = JSON.stringify(normalized);
         const keys = Object.keys(normalized.providers ?? {});
-        if (keys.length > 0) setSelection({ type: "provider", name: keys[0] });
+        // Only seed selection on first load — never stomp a user click mid-edit.
+        setSelection((prev) => {
+          if (prev) return prev;
+          return keys.length > 0 ? { type: "provider", name: keys[0] } : null;
+        });
       })
       .catch((e) => {
         console.error("Failed to load models.json:", e);
@@ -505,7 +514,7 @@ export function ModelsConfig({
         <OAuthDetail
           key={p.id}
           provider={p}
-          onRefresh={refreshAuthProviders}
+          onRefresh={handleAuthMutation}
           models={builtinModelsByProvider[p.id] ?? []}
           modelsLoading={builtinModelsLoading[p.id] ?? false}
           modelsError={builtinModelsError[p.id] ?? null}
@@ -520,7 +529,7 @@ export function ModelsConfig({
         <ApiKeyDetail
           key={p.id}
           provider={p}
-          onRefresh={refreshAuthProviders}
+          onRefresh={handleAuthMutation}
           models={builtinModelsByProvider[p.id] ?? []}
           modelsLoading={builtinModelsLoading[p.id] ?? false}
           modelsError={builtinModelsError[p.id] ?? null}
