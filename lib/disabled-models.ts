@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
-import { getAgentDir } from "./agent-dir.ts";
+import { getAgentDir } from "./agent-dir";
 
 /**
  * Models marked disabled stay configured in runtime catalogs / models.json but

@@ -1516,7 +1516,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => {
     const controller = new AbortController();
     // modelsRefreshKey bumps after settings toggles — force fresh catalog.
-    loadModels(controller.signal, { force: modelsRefreshKey > 0 }).catch((e) => {
+    // Prop is optional; treat missing as 0 so the initial load stays cached.
+    loadModels(controller.signal, { force: (modelsRefreshKey ?? 0) > 0 }).catch((e) => {
       if (e instanceof DOMException && e.name === "AbortError") return;
     });
     return () => controller.abort();
