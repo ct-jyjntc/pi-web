@@ -2,18 +2,24 @@
 /**
  * Transport-agnostic request dispatch for the agent runtime.
  *
- * Owns route discovery, the jiti loader and the deferred boot; takes a `Request`
+ * Owns route discovery, module loading and the deferred boot; takes a `Request`
  * and returns the handler's `Response`. Both the legacy HTTP server and the IPC
  * host are thin adapters over this, so moving the desktop client off HTTP does
  * not fork the handler contract.
  *
  * Handlers are unmodified `app/api/**` modules: `next/server` is shimmed to
  * plain `Request`/`Response` subclasses, so nothing here is Next-specific.
+ *
+ * Packaged trees ship precompiled ESM (`.mjs`) with rewritten relative/`@/`
+ * imports (see prepare-electron-standalone). Those load through native
+ * `import()` so the agent SDK is not dragged through jiti — jiti re-walks the
+ * whole graph and measured ~20s for a 14MB single-file bundle that native
+ * import loads in ~0.5s. Dev trees still have TypeScript and use jiti.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { discoverApiRoutes, matchRoute } from "./routes.mjs";
 
@@ -24,7 +30,7 @@ const require = createRequire(import.meta.url);
 /** @type {import('./routes.mjs').RouteEntry[]} */
 export const routes = discoverApiRoutes(root);
 
-// ── jiti (created once; modules still lazy) ─────────────────────────────────
+// ── jiti (dev / fallback only) ──────────────────────────────────────────────
 const { createJiti } = require("jiti");
 const nextShim = path.join(__dirname, "shims", "next-server.mjs");
 
@@ -63,6 +69,47 @@ export function libModule(name) {
   throw new Error(`runtime: lib/${name} missing from ${root}`);
 }
 
+/** @type {Map<string, Promise<any> | any>} */
+const moduleCache = new Map();
+
+/**
+ * Load a route or lib module. Prefer native ESM for packaged `.mjs` so the
+ * agent SDK (and everything else under node_modules) goes through Node's
+ * loader instead of jiti's.
+ * @param {string} file absolute path
+ */
+export async function loadModule(file) {
+  const cached = moduleCache.get(file);
+  if (cached) return cached;
+
+  const pending = (async () => {
+    const preferNative = file.endsWith(".mjs") || file.endsWith(".js");
+    if (preferNative) {
+      try {
+        return await import(pathToFileURL(file).href);
+      } catch (error) {
+        // Incomplete import rewrites or a mixed tree — fall back rather than
+        // crash the runtime. Log once so packaging bugs stay visible.
+        console.warn(
+          `[runtime] native import failed for ${path.relative(root, file)}; falling back to jiti:`,
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+    return jiti(file);
+  })();
+
+  moduleCache.set(file, pending);
+  try {
+    const mod = await pending;
+    moduleCache.set(file, mod);
+    return mod;
+  } catch (error) {
+    moduleCache.delete(file);
+    throw error;
+  }
+}
+
 /**
  * Match a URL to a handler and run it.
  * @param {Request} request
@@ -79,8 +126,10 @@ export async function dispatch(request) {
   const { route, params } = matched;
   if (!route.mod) {
     const t0 = Date.now();
-    route.mod = jiti(route.file);
-    console.log(`[runtime:${process.env.PI_WEB_RUNTIME_ROLE || "heavy"}] loaded ${path.relative(root, route.file)} in ${Date.now() - t0}ms`);
+    route.mod = await loadModule(route.file);
+    console.log(
+      `[runtime:${process.env.PI_WEB_RUNTIME_ROLE || "heavy"}] loaded ${path.relative(root, route.file)} in ${Date.now() - t0}ms`,
+    );
   }
 
   const method = request.method.toUpperCase();
@@ -116,11 +165,11 @@ export function noteClientActivity() {
   lastClientActivityAt = Date.now();
 }
 
-function runDeferredBoot() {
+async function runDeferredBoot() {
   try {
-    const { configureHttpDispatcher } = jiti(libModule("http-dispatcher"));
+    const { configureHttpDispatcher } = await loadModule(libModule("http-dispatcher"));
     try {
-      const { readWebSettings } = jiti(libModule("web-settings"));
+      const { readWebSettings } = await loadModule(libModule("web-settings"));
       const prefs = readWebSettings();
       if (prefs.httpProxy) {
         process.env.HTTP_PROXY = prefs.httpProxy;
@@ -132,16 +181,16 @@ function runDeferredBoot() {
     }
     configureHttpDispatcher();
 
-    const { ensureSubagentSpawnEnv } = jiti(libModule("resolve-pi-cli"));
+    const { ensureSubagentSpawnEnv } = await loadModule(libModule("resolve-pi-cli"));
     ensureSubagentSpawnEnv();
 
-    const { ensureSubagentDelegation } = jiti(libModule("ensure-subagent-delegation"));
+    const { ensureSubagentDelegation } = await loadModule(libModule("ensure-subagent-delegation"));
     for (const note of ensureSubagentDelegation()) {
       console.log(`[runtime] ${note}`);
     }
 
-    void jiti(libModule("ensure-builtin-packages"))
-      .ensureBuiltinPackages()
+    const { ensureBuiltinPackages } = await loadModule(libModule("ensure-builtin-packages"));
+    void ensureBuiltinPackages()
       .then((r) => {
         for (const note of r.notes) console.log(`[runtime] ${note}`);
       })
@@ -157,5 +206,5 @@ export function scheduleDeferredBoot() {
     setTimeout(scheduleDeferredBoot, prewarmDelayMs - quietFor).unref?.();
     return;
   }
-  runDeferredBoot();
+  void runDeferredBoot();
 }

@@ -22,7 +22,7 @@
  * clone would be denser, but Electron's V8 and the bundled Node's disagree on
  * its format and the channel dies on the first message.
  */
-import { dispatch, jiti, libModule, noteClientActivity, scheduleDeferredBoot } from "./dispatch.mjs";
+import { dispatch, libModule, loadModule, noteClientActivity, scheduleDeferredBoot } from "./dispatch.mjs";
 import { NextRequest } from "./shims/next-server.mjs";
 
 // Handlers build URLs with `new URL(request.url)`, so they need an absolute
@@ -131,15 +131,14 @@ console.log(`[runtime:${role}] ipc host ready (no HTTP)`);
 if (role !== "light") {
   // Pull the agent SDK in now rather than on the first request that needs it.
   //
-  // It is ~2400 files and on a freshly installed app every one of them is a cold
-  // read that Windows Defender inspects — 20s the first time, seconds after. That
-  // cost is unavoidable, but it does not have to be spent while the user is
-  // waiting on a click: nothing this process serves can proceed without the SDK
-  // anyway, and the light runtime keeps answering meanwhile. Doing it here
-  // overlaps the load with the user reading their session list.
+  // Packaged builds ship a single-file SDK bundle; native import loads it in
+  // ~0.5s warm. jiti re-walks that graph through its own loader and measured
+  // ~20s for the same file — so preload MUST go through loadModule (native
+  // .mjs path), never jiti() directly. The light runtime keeps answering the
+  // session list while this runs.
   const t0 = Date.now();
   try {
-    jiti(libModule("session-entries"));
+    await loadModule(libModule("session-entries"));
     console.log(`[runtime:heavy] agent SDK ready in ${Date.now() - t0}ms`);
   } catch (error) {
     console.error("[runtime:heavy] SDK preload failed:", error);

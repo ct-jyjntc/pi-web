@@ -154,6 +154,17 @@ Do not reintroduce a static import of the multi-file package tree on the heavy
 path. Dev continues to use stock `node_modules` (unbundled); only the packaged
 standalone tree is collapsed.
 
+### Packaged module loading (native ESM, not jiti)
+
+`prepare-electron-standalone.mjs` rewrites local import specifiers in the staged
+`lib/**/*.mjs` and `app/api/**/*.mjs` trees (extensionless relatives and `@/` →
+concrete `.mjs` paths; `next/server` → the daemon shim). `daemon/dispatch.mjs`
+then loads those files with native `import()`.
+
+jiti remains only as a **dev / fallback** path for TypeScript sources. Do not
+preload the agent SDK through `jiti()` in packaged builds — it re-walks the
+bundled graph and measured ~20s for a file native import loads in ~0.5s.
+
 ## Still on HTTP: the build only
 
 `next build` remains in the pipeline purely because `prepare-electron-standalone.mjs`

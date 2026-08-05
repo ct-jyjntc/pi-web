@@ -11,9 +11,9 @@
  *   PI_WEB_TARGET_PLATFORM=darwin|win32|linux
  *   PI_WEB_TARGET_ARCH=arm64|x64
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
-import { join, basename } from "path";
+import { basename, dirname, join, relative, sep } from "path";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
@@ -562,6 +562,99 @@ function transpileSources(src, dest, label) {
   return transpile.length + copy.length;
 }
 
+/**
+ * esbuild `bundle: false` keeps TypeScript's extensionless relative imports and
+ * `@/` aliases. Native Node ESM cannot resolve those, so the runtime used to
+ * load every packaged module through jiti — which re-walks the agent SDK graph
+ * (~20s for a file native import loads in ~0.5s).
+ *
+ * Rewrite local specifiers to concrete `.mjs` relative paths so packaged trees
+ * load with `import()`. Package imports (`@earendil-works/…`, `fs`, …) are left
+ * alone; `next/server` becomes a relative path to the daemon shim.
+ *
+ * @param {string} dir tree of .mjs files
+ * @param {{ packageRoot: string, nextShim: string }} opts
+ */
+function rewritePackagedEsmImports(dir, opts) {
+  const { packageRoot, nextShim } = opts;
+  let files = 0;
+  let rewrites = 0;
+
+  function resolveLocal(fromFile, spec) {
+    if (spec === "next/server") {
+      return toRelativeSpecifier(fromFile, nextShim);
+    }
+    if (!spec.startsWith(".") && !spec.startsWith("@/")) return null;
+
+    let abs;
+    if (spec.startsWith("@/")) {
+      abs = join(packageRoot, spec.slice(2));
+    } else {
+      abs = join(dirname(fromFile), spec);
+    }
+
+    const candidates = [];
+    if (/\.(mjs|js|cjs|json|node)$/.test(abs)) {
+      candidates.push(abs);
+    } else {
+      candidates.push(
+        abs + ".mjs",
+        abs + ".js",
+        join(abs, "index.mjs"),
+        join(abs, "index.js"),
+        abs,
+      );
+    }
+    for (const candidate of candidates) {
+      if (existsSync(candidate) && statSync(candidate).isFile()) {
+        return toRelativeSpecifier(fromFile, candidate);
+      }
+    }
+    return null;
+  }
+
+  function toRelativeSpecifier(fromFile, targetAbs) {
+    let rel = relative(dirname(fromFile), targetAbs).split(sep).join("/");
+    if (!rel.startsWith(".")) rel = "./" + rel;
+    return rel;
+  }
+
+  function rewriteFile(file) {
+    const src = readFileSync(file, "utf8");
+    // import/export … from "…"  and  import("…")  and  export … from "…"
+    const next = src.replace(
+      /(\bfrom\s*|\bimport\s*\(\s*)(['"])([^'"]+)\2/g,
+      (match, prefix, quote, spec) => {
+        const resolved = resolveLocal(file, spec);
+        if (!resolved || resolved === spec) return match;
+        rewrites += 1;
+        return `${prefix}${quote}${resolved}${quote}`;
+      },
+    );
+    if (next !== src) {
+      writeFileSync(file, next, "utf8");
+      files += 1;
+    }
+  }
+
+  function walk(current) {
+    if (!existsSync(current)) return;
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules") continue;
+        walk(full);
+      } else if (entry.name.endsWith(".mjs")) {
+        rewriteFile(full);
+      }
+    }
+  }
+
+  walk(dir);
+  console.log(`Rewrote ESM imports under ${relative(root, dir) || "."} (${files} files, ${rewrites} specifiers)`);
+  return { files, rewrites };
+}
+
 const daemonSrc = join(root, "daemon");
 const desktopDistSrc = join(root, "desktop-dist");
 
@@ -601,6 +694,12 @@ transpileSources(join(root, "app", "api"), join(standalone, "app", "api"), "app/
 // It runs after this script and only removes its own subtree, so the two coexist.
 rmSync(join(standalone, "lib"), { recursive: true, force: true });
 transpileSources(join(root, "lib"), join(standalone, "lib"), "lib");
+
+// Make packaged .mjs loadable with native import() (no jiti for local graph).
+const nextShimPath = join(standalone, "daemon", "shims", "next-server.mjs");
+const rewriteOpts = { packageRoot: standalone, nextShim: nextShimPath };
+rewritePackagedEsmImports(join(standalone, "lib"), rewriteOpts);
+rewritePackagedEsmImports(join(standalone, "app", "api"), rewriteOpts);
 
 // jiti stays a devDependency (the published npm package ships .next, not daemon/),
 // so it is staged here rather than traced in by Next.
