@@ -3,21 +3,10 @@
 /**
  * Session row actions menu (opened from ⋮ or right-click).
  * Presentational — parent owns rename/delete/title side effects.
+ * Text-only items (no icons). Spinner text when generating a title.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-  Copy,
-  FolderOpen,
-  Hash,
-  Loader2,
-  Pencil,
-  Sparkles,
-  Trash2,
-  Type,
-  type LucideIcon,
-} from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
-import { Icon } from "../Icon";
 
 export type SessionMenuAction =
   | "rename"
@@ -40,7 +29,6 @@ interface Props {
 interface Item {
   id: SessionMenuAction;
   label: string;
-  icon: LucideIcon;
   disabled?: boolean;
   danger?: boolean;
   separatorAfter?: boolean;
@@ -60,20 +48,19 @@ export function SessionItemMenu({
   const [pos, setPos] = useState({ top: y, left: x });
 
   const items: Item[] = [
-    { id: "rename", label: t("common.rename"), icon: Pencil },
+    { id: "rename", label: t("common.rename") },
     {
       id: "generateTitle",
       label: naming ? t("shell.generating") : t("shell.generateTitle"),
-      icon: naming ? Loader2 : Sparkles,
       disabled: !canGenerateTitle || naming,
       title: !canGenerateTitle ? t("shell.titleNeedMessage") : t("shell.titleGenerate"),
       separatorAfter: true,
     },
-    { id: "copyTitle", label: t("sidebar.copyTitle"), icon: Type },
-    { id: "copyId", label: t("sidebar.copySessionId"), icon: Hash },
-    { id: "copyPath", label: t("sidebar.copySessionPath"), icon: Copy },
-    { id: "copyCwd", label: t("sidebar.copyCwd"), icon: FolderOpen, separatorAfter: true },
-    { id: "delete", label: t("common.delete"), icon: Trash2, danger: true },
+    { id: "copyTitle", label: t("sidebar.copyTitle") },
+    { id: "copyId", label: t("sidebar.copySessionId") },
+    { id: "copyPath", label: t("sidebar.copySessionPath") },
+    { id: "copyCwd", label: t("sidebar.copyCwd"), separatorAfter: true },
+    { id: "delete", label: t("common.delete"), danger: true },
   ];
 
   useLayoutEffect(() => {
@@ -120,7 +107,7 @@ export function SessionItemMenu({
         position: "fixed",
         top: pos.top,
         left: pos.left,
-        width: 196,
+        width: 180,
         zIndex: 90,
         padding: 4,
       }}
@@ -139,13 +126,6 @@ export function SessionItemMenu({
             }}
             style={item.danger ? { color: "var(--destructive)" } : undefined}
           >
-            <Icon
-              icon={item.icon}
-              size={13}
-              strokeWidth={item.id === "generateTitle" && naming ? 2 : 1.8}
-              className={item.id === "generateTitle" && naming ? "animate-spin" : undefined}
-              style={{ flexShrink: 0 }}
-            />
             <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {item.label}
             </span>

@@ -3,19 +3,11 @@
 /**
  * Right-click menu for the chat composer textarea (cut / copy / paste / select / clear).
  * Owns clipboard ops against a live textarea; parent only supplies value + setValue.
+ * Text-only items (no icons).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  ClipboardPaste,
-  Copy,
-  Eraser,
-  MousePointerClick,
-  Scissors,
-  type LucideIcon,
-} from "lucide-react";
 import { copyText } from "@/lib/clipboard";
 import { useLocale } from "@/hooks/useLocale";
-import { Icon } from "../Icon";
 
 export type ComposerMenuAction = "cut" | "copy" | "paste" | "selectAll" | "clear";
 
@@ -34,7 +26,6 @@ interface Props {
 interface MenuItem {
   id: ComposerMenuAction;
   label: string;
-  icon: LucideIcon;
   disabled?: boolean;
   danger?: boolean;
   separatorAfter?: boolean;
@@ -78,11 +69,11 @@ export function ComposerContextMenu({
   const hasText = value.length > 0;
 
   const items: MenuItem[] = [
-    { id: "cut", label: t("chat.cut"), icon: Scissors, disabled: !hasSelection },
-    { id: "copy", label: t("common.copy"), icon: Copy, disabled: !hasSelection },
-    { id: "paste", label: t("chat.paste"), icon: ClipboardPaste, separatorAfter: true },
-    { id: "selectAll", label: t("chat.selectAll"), icon: MousePointerClick, disabled: !hasText },
-    { id: "clear", label: t("chat.clearInput"), icon: Eraser, disabled: !hasText, danger: true },
+    { id: "cut", label: t("chat.cut"), disabled: !hasSelection },
+    { id: "copy", label: t("common.copy"), disabled: !hasSelection },
+    { id: "paste", label: t("chat.paste"), separatorAfter: true },
+    { id: "selectAll", label: t("chat.selectAll"), disabled: !hasText },
+    { id: "clear", label: t("chat.clearInput"), disabled: !hasText, danger: true },
   ];
 
   useLayoutEffect(() => {
@@ -189,7 +180,7 @@ export function ComposerContextMenu({
         position: "fixed",
         top: pos.top,
         left: pos.left,
-        width: 180,
+        width: 160,
         zIndex: 90,
         padding: 4,
       }}
@@ -204,7 +195,6 @@ export function ComposerContextMenu({
             onClick={() => { void handleAction(item.id); }}
             style={item.danger ? { color: "var(--destructive)" } : undefined}
           >
-            <Icon icon={item.icon} size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
             <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {item.label}
             </span>

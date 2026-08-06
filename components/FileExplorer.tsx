@@ -34,7 +34,6 @@ import {
   uploadFiles,
 } from "./file-explorer/api";
 import {
-  EXPLORER_MENU_ICONS,
   FileExplorerContextMenu,
   type ExplorerMenuAction,
 } from "./file-explorer/ContextMenu";
@@ -383,7 +382,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     const items: Array<{
       id: ExplorerMenuAction;
       label: string;
-      icon: (typeof EXPLORER_MENU_ICONS)[ExplorerMenuAction];
       danger?: boolean;
       disabled?: boolean;
       separatorAfter?: boolean;
@@ -391,39 +389,38 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
     if (isDir) {
       items.push(
-        { id: "newFile", label: t("files.newFile"), icon: EXPLORER_MENU_ICONS.newFile },
-        { id: "newFolder", label: t("files.newFolder"), icon: EXPLORER_MENU_ICONS.newFolder, separatorAfter: true },
+        { id: "newFile", label: t("files.newFile") },
+        { id: "newFolder", label: t("files.newFolder"), separatorAfter: true },
       );
     }
 
     if (!isRoot) {
       items.push(
-        { id: "rename", label: t("common.rename"), icon: EXPLORER_MENU_ICONS.rename },
-        { id: "copy", label: t("files.copy"), icon: EXPLORER_MENU_ICONS.copy },
-        { id: "cut", label: t("files.cut"), icon: EXPLORER_MENU_ICONS.cut },
+        { id: "rename", label: t("common.rename") },
+        { id: "copy", label: t("files.copy") },
+        { id: "cut", label: t("files.cut") },
       );
     }
 
     items.push({
       id: "paste",
       label: t("files.paste"),
-      icon: EXPLORER_MENU_ICONS.paste,
       disabled: !canPaste,
       separatorAfter: true,
     });
 
     if (!isRoot) {
       items.push(
-        { id: "copyRelativePath", label: t("files.copyRelativePath"), icon: EXPLORER_MENU_ICONS.copyRelativePath },
-        { id: "copyAbsolutePath", label: t("files.copyAbsolutePath"), icon: EXPLORER_MENU_ICONS.copyAbsolutePath, separatorAfter: true },
+        { id: "copyRelativePath", label: t("files.copyRelativePath") },
+        { id: "copyAbsolutePath", label: t("files.copyAbsolutePath"), separatorAfter: true },
       );
       if (!target!.isDir) {
-        items.push({ id: "download", label: t("files.download"), icon: EXPLORER_MENU_ICONS.download });
+        items.push({ id: "download", label: t("files.download") });
       }
       if (onAtMention) {
-        items.push({ id: "mention", label: t("files.insertPath"), icon: EXPLORER_MENU_ICONS.mention, separatorAfter: true });
+        items.push({ id: "mention", label: t("files.insertPath"), separatorAfter: true });
       }
-      items.push({ id: "delete", label: t("common.delete"), icon: EXPLORER_MENU_ICONS.delete, danger: true });
+      items.push({ id: "delete", label: t("common.delete"), danger: true });
     }
 
     return items;

@@ -3,21 +3,9 @@
 /**
  * Fixed-position context menu for the file explorer.
  * Pure presentational — parent owns which actions are available.
+ * Text-only items (no icons) by product preference.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-  ClipboardPaste,
-  Copy,
-  Download,
-  FilePlus,
-  FolderPlus,
-  Link2,
-  Pencil,
-  Scissors,
-  Trash2,
-  AtSign,
-} from "lucide-react";
-import { Icon } from "../Icon";
 
 export type ExplorerMenuAction =
   | "newFile"
@@ -35,7 +23,6 @@ export type ExplorerMenuAction =
 interface MenuItem {
   id: ExplorerMenuAction;
   label: string;
-  icon: typeof Copy;
   danger?: boolean;
   disabled?: boolean;
   separatorAfter?: boolean;
@@ -96,7 +83,7 @@ export function FileExplorerContextMenu({ x, y, items, onAction, onClose }: Prop
         position: "fixed",
         top: pos.top,
         left: pos.left,
-        width: 196,
+        width: 180,
         zIndex: 90,
         padding: 4,
       }}
@@ -115,7 +102,6 @@ export function FileExplorerContextMenu({ x, y, items, onAction, onClose }: Prop
             }}
             style={item.danger ? { color: "var(--destructive)" } : undefined}
           >
-            <Icon icon={item.icon} size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
             <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {item.label}
             </span>
@@ -128,17 +114,3 @@ export function FileExplorerContextMenu({ x, y, items, onAction, onClose }: Prop
     </div>
   );
 }
-
-export const EXPLORER_MENU_ICONS = {
-  newFile: FilePlus,
-  newFolder: FolderPlus,
-  rename: Pencil,
-  copy: Copy,
-  cut: Scissors,
-  paste: ClipboardPaste,
-  copyRelativePath: Link2,
-  copyAbsolutePath: Link2,
-  download: Download,
-  delete: Trash2,
-  mention: AtSign,
-} as const;
