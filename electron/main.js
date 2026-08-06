@@ -155,6 +155,7 @@ function applyNetworkEnvFromSettings(targetEnv, settings) {
     }
   }
   // Apply proxy/CA to this process so Chromium network respects them where possible.
+  // Network settings UI is removed; leave empty values alone (do not invent a proxy).
   applyNetworkEnvFromSettings(process.env, early);
 
   // Windows cold-start tweaks (safe no-ops elsewhere). Must run before ready.

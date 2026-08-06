@@ -28,7 +28,6 @@ export type SettingsSection =
   | "agent"
   | "memory"
   | "permissions"
-  | "network"
   | "usage"
   | "appearance"
   | "models"
@@ -44,7 +43,6 @@ import {
   type LspServerRow,
 } from "./settings/settings-ui";
 import { ToolsSettingsPanel } from "./settings/ToolsSettingsPanel";
-import { NetworkSettingsPanel } from "./settings/NetworkSettingsPanel";
 import { AgentModelsSettingsPanel } from "./settings/AgentModelsSettingsPanel";
 import { ModelThinkingControl } from "./settings/ModelThinkingControl";
 import { MemorySettingsPanel } from "./settings/MemorySettingsPanel";
@@ -125,9 +123,6 @@ export function SettingsPage({
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [prefs, setPrefs] = useState({
-    httpProxy: "",
-    proxyBypass: "",
-    customCaCerts: "",
     soundEnabled: true,
     desktopNotifications: true,
     notificationSound: true,
@@ -152,14 +147,6 @@ export function SettingsPage({
   const [memoryReflectBusy, setMemoryReflectBusy] = useState(false);
   const [memoryReflectText, setMemoryReflectText] = useState<string | null>(null);
   const [memoryReflectMeta, setMemoryReflectMeta] = useState<string | null>(null);
-  const [networkTesting, setNetworkTesting] = useState(false);
-  const [networkReport, setNetworkReport] = useState<{
-    summary?: { fetchOk: number; fetchTotal: number; searchOk: boolean | null };
-    fetches?: Array<{ url: string; ok: boolean; status?: number; ms: number; error?: string }>;
-    search?: { ok: boolean; ms: number; count?: number; error?: string; first?: { title: string; url: string } };
-    proxy?: { httpProxy?: string; envHttpProxy?: string };
-    error?: string;
-  } | null>(null);
   const [restartHint, setRestartHint] = useState(false);
   const isDesktop = typeof window !== "undefined" && Boolean(window.piDesktop?.isDesktop);
 
@@ -194,11 +181,17 @@ export function SettingsPage({
         setRolePlanRef(data.settings?.modelRolesRefs?.plan ?? "");
         applyModelSettings(data.settings);
         const s = data.settings ?? {};
+        // Network settings UI was removed — clear leftover proxy/CA so they
+        // cannot keep breaking OAuth / model calls after the page is gone.
+        if (
+          (typeof s.httpProxy === "string" && s.httpProxy.trim()) ||
+          (typeof s.proxyBypass === "string" && s.proxyBypass.trim()) ||
+          (typeof s.customCaCerts === "string" && s.customCaCerts.trim())
+        ) {
+          void saveWebSettings({ httpProxy: "", proxyBypass: "", customCaCerts: "" });
+        }
         setPrefs((prev) => ({
           ...prev,
-          httpProxy: typeof s.httpProxy === "string" ? s.httpProxy : prev.httpProxy,
-          proxyBypass: typeof s.proxyBypass === "string" ? s.proxyBypass : prev.proxyBypass,
-          customCaCerts: typeof s.customCaCerts === "string" ? s.customCaCerts : prev.customCaCerts,
           soundEnabled: typeof s.soundEnabled === "boolean" ? s.soundEnabled : prev.soundEnabled,
           desktopNotifications: typeof s.desktopNotifications === "boolean" ? s.desktopNotifications : prev.desktopNotifications,
           notificationSound: typeof s.notificationSound === "boolean" ? s.notificationSound : prev.notificationSound,
@@ -466,7 +459,6 @@ export function SettingsPage({
         { id: "general", label: t("settings.general") },
         { id: "appearance", label: t("settings.appearance") },
         { id: "usage", label: t("settings.usage") },
-        { id: "network", label: t("settings.network") },
       ],
     },
     {
@@ -596,18 +588,6 @@ export function SettingsPage({
     />
   );
 
-  const networkPanel = (
-    <NetworkSettingsPanel
-      prefs={prefs}
-      setPrefs={setPrefs}
-      patchPref={patchPref}
-      networkTesting={networkTesting}
-      setNetworkTesting={setNetworkTesting}
-      networkReport={networkReport}
-      setNetworkReport={setNetworkReport}
-      saveErrorBlock={saveErrorBlock}
-    />
-  );
 
   const generalSystemPanel = (
     <>
@@ -1137,11 +1117,6 @@ export function SettingsPage({
             </div>
           )}
           {section === "permissions" && <PermissionsSettingsPanel />}
-          {section === "network" && (
-            <div className="settings-page-general">
-              {networkPanel}
-            </div>
-          )}
           {section === "usage" && <UsagePanel />}
           {section === "appearance" && appearancePanel}
           {section === "models" && (

@@ -28,8 +28,7 @@ test("light routes never touch the agent SDK graph", () => {
     "/api/github?cwd=x",
     "/api/checkpoints?sessionId=1",
     "/api/workspace-journal?sessionId=1",
-    "/api/network/test",
-    "/api/debug/sessions",
+      "/api/debug/sessions",
     "/api/skills/install",
     "/api/skills/search",
   ];
