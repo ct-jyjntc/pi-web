@@ -36,7 +36,7 @@ import {
   writeFileSync,
 } from "fs";
 import { dirname, join, relative } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -89,7 +89,14 @@ const ENTRIES = [
   { pkg: "@earendil-works/pi-agent-core", entry: "dist/node.js", outfile: "dist/node.js" },
   { pkg: "@earendil-works/pi-tui", entry: "dist/index.js", outfile: "dist/index.js" },
   // Cold-start hot path — fully inlined, no @earendil-works externals.
-  { pkg: "@earendil-works/pi-coding-agent", entry: "dist/index.js", outfile: "dist/index.js" },
+  // entry is a local wrapper that registers static OAuth loaders (see
+  // coding-agent-bundle-entry.mjs) before re-exporting the real SDK index.
+  {
+    pkg: "@earendil-works/pi-coding-agent",
+    entry: join(root, "scripts", "coding-agent-bundle-entry.mjs"),
+    outfile: "dist/index.js",
+    entryIsAbsolute: true,
+  },
   // Subagent `pi` shim points at dist/cli.js.
   { pkg: "@earendil-works/pi-coding-agent", entry: "dist/cli.js", outfile: "dist/cli.js" },
 ];
@@ -184,7 +191,7 @@ function pruneAgentNestedModules(agentDest, standaloneNm) {
 }
 
 async function bundleOne(job) {
-  const srcEntry = join(pkgPath(srcNm, job.pkg), job.entry);
+  const srcEntry = job.entryIsAbsolute ? job.entry : join(pkgPath(srcNm, job.pkg), job.entry);
   const destFile = join(pkgPath(destNm, job.pkg), job.outfile);
   if (!existsSync(srcEntry)) {
     throw new Error(`bundle-pi-sdk: missing entry ${srcEntry}`);
@@ -215,6 +222,43 @@ async function bundleOne(job) {
     `  ${job.pkg} ${job.outfile}: ${(size / 1e6).toFixed(2)} MB from ${inputs} inputs in ${Date.now() - t0}ms`,
   );
   return { destFile, size, inputs };
+}
+
+/**
+ * Smoke: ModelRuntime.login must not resolve relative OAuth modules against
+ * coding-agent/dist (the pruned single-file layout). Static registration makes
+ * loadAnthropicOAuth etc. return in-memory loaders.
+ */
+async function verifyOAuthLoginLoads(agentIndex) {
+  const href = pathToFileURL(agentIndex).href;
+  const mod = await import(`${href}?oauth-verify=${Date.now()}`);
+  if (typeof mod.ModelRuntime?.create !== "function") {
+    throw new Error("bundle-pi-sdk: ModelRuntime missing from bundled coding-agent index");
+  }
+  const runtime = await mod.ModelRuntime.create();
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 800);
+  try {
+    await runtime.login("anthropic", "oauth", {
+      signal: ac.signal,
+      notify: () => {},
+      prompt: async () => {
+        ac.abort();
+        throw new Error("oauth-verify-abort");
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Cannot find module") && message.includes("anthropic.js")) {
+      throw new Error(
+        `bundle-pi-sdk: OAuth still dynamic-imports missing coding-agent/dist/anthropic.js — ${message}`,
+      );
+    }
+    // Abort / user-cancel / callback races are expected; only MODULE_NOT_FOUND is fatal.
+  } finally {
+    clearTimeout(timer);
+  }
+  console.log("  oauth verify: anthropic login no longer misses dist/anthropic.js");
 }
 
 async function main() {
@@ -259,6 +303,8 @@ async function main() {
       throw new Error(`bundle-pi-sdk: missing ${rel} after bundle`);
     }
   }
+
+  await verifyOAuthLoginLoads(join(agentDist, "index.js"));
 
   console.log(
     `SDK bundle done in ${Date.now() - t0}ms (pruned ${prunedJs} coding-agent dist JS/maps, dropped ${nestedDropped} nested agent files)`,
