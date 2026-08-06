@@ -13,9 +13,17 @@ export const dynamic = "force-dynamic";
  *
  * Invariant: one refresh path; response always includes `live` (true if network
  * refresh succeeded). Soft-fail continues with static/last store when live=false.
+ *
+ * Performance: ModelRuntime.refresh({ allowNetwork: true }) refreshes *every*
+ * dynamic provider, not just `?provider=`. Settings fires one request per
+ * connected provider in parallel — N full-network refreshes would thrash.
+ * Prefer the offline/store catalog from create(); only hit the network when
+ * the provider catalog is empty or the client passes `?fresh=1`.
  */
 export async function GET(req: Request) {
-  const provider = new URL(req.url).searchParams.get("provider")?.trim() ?? "";
+  const url = new URL(req.url);
+  const provider = url.searchParams.get("provider")?.trim() ?? "";
+  const force = url.searchParams.get("fresh") === "1";
   if (!provider) {
     return NextResponse.json({ error: "provider is required" }, { status: 400 });
   }
@@ -27,7 +35,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 404 });
     }
 
-    const live = await refreshBuiltinProviderModels(modelRuntime, provider);
+    const existing = modelRuntime.getModels(provider);
+    let live = false;
+    if (force || existing.length === 0) {
+      live = await refreshBuiltinProviderModels(modelRuntime, provider);
+    } else {
+      // Store / static catalog already populated — skip the global network refresh
+      // so parallel per-provider GETs stay independent and fast.
+      live = true;
+    }
 
     const disabled = getDisabledModelRefs();
     const models = modelRuntime.getModels(provider)

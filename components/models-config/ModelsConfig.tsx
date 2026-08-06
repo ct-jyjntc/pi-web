@@ -440,69 +440,80 @@ export function ModelsConfig({
   ].join("\0");
 
   useEffect(() => {
-    const ids = builtinProviderIdsKey ? builtinProviderIdsKey.split("\0").filter(Boolean) : [];
+    const ids = builtinProviderIdsKey ? builtinProviderIdsKey.split(" ").filter(Boolean) : [];
     if (ids.length === 0) {
       setBuiltinModelsByProvider({});
       setBuiltinModelsLoading({});
       setBuiltinModelsError({});
       return;
     }
-    const loadingState = Object.fromEntries(ids.map((id) => [id, true]));
-    const errorState = Object.fromEntries(ids.map((id) => [id, null]));
-    setBuiltinModelsLoading(loadingState);
-    setBuiltinModelsError(errorState);
+    // Per-provider loading: each catalog paints as soon as its request finishes.
+    // Do NOT wait for Promise.all — a slow provider used to block every other
+    // row from appearing even though the fetches already ran in parallel.
+    setBuiltinModelsLoading(Object.fromEntries(ids.map((id) => [id, true])));
+    setBuiltinModelsError(Object.fromEntries(ids.map((id) => [id, null])));
     let cancelled = false;
-    void (async () => {
-      const next: Record<string, ProviderModelRow[]> = {};
-      const nextErrors: Record<string, string | null> = {};
-      await Promise.all(ids.map(async (id) => {
+    for (const id of ids) {
+      void (async () => {
         try {
-          const res = await apiFetch(`/api/models-config/provider-models?provider=${encodeURIComponent(id)}`);
+          const res = await apiFetch(
+            `/api/models-config/provider-models?provider=${encodeURIComponent(id)}`,
+          );
           const data = await res.json() as { models?: ProviderModelRow[]; error?: string };
           if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-          next[id] = Array.isArray(data.models) ? data.models : [];
-          nextErrors[id] = null;
+          if (cancelled) return;
+          setBuiltinModelsByProvider((prev) => ({
+            ...prev,
+            [id]: Array.isArray(data.models) ? data.models : [],
+          }));
+          setBuiltinModelsError((prev) => ({ ...prev, [id]: null }));
         } catch (e) {
-          next[id] = [];
-          nextErrors[id] = e instanceof Error ? e.message : String(e);
+          if (cancelled) return;
+          setBuiltinModelsByProvider((prev) => ({ ...prev, [id]: [] }));
+          setBuiltinModelsError((prev) => ({
+            ...prev,
+            [id]: e instanceof Error ? e.message : String(e),
+          }));
+        } finally {
+          if (!cancelled) {
+            setBuiltinModelsLoading((prev) => ({ ...prev, [id]: false }));
+          }
         }
-      }));
-      if (cancelled) return;
-      setBuiltinModelsByProvider(next);
-      setBuiltinModelsLoading(Object.fromEntries(ids.map((id) => [id, false])));
-      setBuiltinModelsError(nextErrors);
-    })();
-    return () => { cancelled = true; };
+      })();
+    }
+    return () => {
+      cancelled = true;
+    };
   }, [builtinProviderIdsKey]);
 
 
   const toggleBuiltinModel = useCallback(async (providerId: string, modelId: string, disabled: boolean) => {
-      // Optimistic: free/custom toggles are pure local state. Built-in toggles used
-      // to await a heavy ModelRuntime refresh before flipping the switch — felt laggy.
-      const previous = builtinModelsByProvider[providerId] ?? [];
+    // Optimistic: free/custom toggles are pure local state. Built-in toggles used
+    // to await a heavy ModelRuntime refresh before flipping the switch — felt laggy.
+    const previous = builtinModelsByProvider[providerId] ?? [];
+    setBuiltinModelsByProvider((prev) => ({
+      ...prev,
+      [providerId]: (prev[providerId] ?? []).map((m) => (
+        m.id === modelId ? { ...m, disabled } : m
+      )),
+    }));
+    try {
+      const res = await apiFetch("/api/models-config/disabled-models", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: providerId, modelId, disabled }),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      onModelsChanged?.();
+    } catch (error) {
       setBuiltinModelsByProvider((prev) => ({
         ...prev,
-        [providerId]: (prev[providerId] ?? []).map((m) => (
-          m.id === modelId ? { ...m, disabled } : m
-        )),
+        [providerId]: previous,
       }));
-      try {
-        const res = await apiFetch("/api/models-config/disabled-models", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: providerId, modelId, disabled }),
-        });
-        const data = await res.json() as { success?: boolean; error?: string };
-        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-        onModelsChanged?.();
-      } catch (error) {
-        setBuiltinModelsByProvider((prev) => ({
-          ...prev,
-          [providerId]: previous,
-        }));
-        throw error;
-      }
-    }, [builtinModelsByProvider, onModelsChanged]);
+      throw error;
+    }
+  }, [builtinModelsByProvider, onModelsChanged]);
 
   // Resolve current detail
   const detailContent = (() => {
