@@ -97,6 +97,15 @@ export function ProviderDetail({
       setRemoteLoading(false);
       return;
     }
+    // First-time only: if models.json already has a list, never auto-hit /discover.
+    // User refreshes via the button (same as free / built-in providers).
+    const hasLocalModels = (provider.models?.length ?? 0) > 0;
+    if (hasLocalModels) {
+      setRemoteModels([]);
+      setRemoteError(null);
+      setRemoteLoading(false);
+      return;
+    }
     const timer = window.setTimeout(() => {
       void fetchRemoteModels();
     }, 320);
@@ -104,7 +113,7 @@ export function ProviderDetail({
       window.clearTimeout(timer);
       remoteRequestIdRef.current += 1;
     };
-  }, [fetchRemoteModels, managed, provider.baseUrl]);
+  }, [fetchRemoteModels, managed, provider.baseUrl, provider.models?.length]);
 
   const enableModels: ModelEntry[] = (() => {
     const configured = provider.models ?? [];
