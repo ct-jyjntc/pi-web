@@ -6,6 +6,10 @@
 // final seal. That real ad-hoc signature is what Electron 42+ UNNotification needs.
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { join } from "path";
+import { sanitizeBundleSymlinks } from "./sanitize-bundle-symlinks.mjs";
+
+/** Preserve relative .bin links; Node default rewrites them to absolute host paths. */
+const COPY_OPTS = { recursive: true, verbatimSymlinks: true };
 
 function ensureElectronLocales(projectDir, appOutDir, electronPlatformName, productFilename) {
   // electronLanguages uses mac-style names (en / zh_CN) that do not match Chromium
@@ -78,7 +82,7 @@ export default async function afterPack(context) {
 
   console.log(`[afterPack] Copying node_modules → ${destNm}`);
   rmSync(destNm, { recursive: true, force: true });
-  cpSync(srcNm, destNm, { recursive: true });
+  cpSync(srcNm, destNm, COPY_OPTS);
 
   // The desktop runtime is the daemon (docs/desktop-architecture.md); `next` is
   // pruned unless PI_WEB_KEEP_NEXT=1. jiti is what loads the route sources, so it
@@ -135,7 +139,7 @@ export default async function afterPack(context) {
   if (existsSync(srcBin)) {
     console.log(`[afterPack] Copying bundled runtime → ${destBin}`);
     rmSync(destBin, { recursive: true, force: true });
-    cpSync(srcBin, destBin, { recursive: true });
+    cpSync(srcBin, destBin, COPY_OPTS);
     const nodeName = process.platform === "win32" ? "node.exe" : "node";
     const piName = process.platform === "win32" ? "pi.cmd" : "pi";
     if (!existsSync(join(destBin, nodeName))) {
@@ -157,8 +161,11 @@ export default async function afterPack(context) {
     const destLib = join(destStandalone, "lib");
     console.log(`[afterPack] Copying standalone/lib (daemon sources + npm) → ${destLib}`);
     rmSync(destLib, { recursive: true, force: true });
-    cpSync(srcLib, destLib, { recursive: true });
+    cpSync(srcLib, destLib, COPY_OPTS);
   }
+
+  // Drop absolute / out-of-bundle symlinks before electron-builder codesign.
+  sanitizeBundleSymlinks(destStandalone, { label: "standalone (afterPack)" });
 
   // Git intentionally uses the system install (credential helper / Keychain).
   // Remove any leftover portable git tree from older builds.
