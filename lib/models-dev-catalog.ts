@@ -13,7 +13,10 @@ import {
 
 export const MODELS_DEV_URL = "https://models.dev/api.json";
 const CATALOG_TTL_MS = 60 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 15_000;
+// Fail-fast: models.dev is enrichment only. A 15s hang on an unreachable host
+// blocked the light runtime (free-models) and made Settings → Models → back to
+// chat feel like a multi-second "Loading session..." stall.
+const FETCH_TIMEOUT_MS = 2_500;
 
 export type ModelsDevCatalogSource = "live" | "cache" | "stale" | "none";
 

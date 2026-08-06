@@ -1,7 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { createAgentSessionServices, estimateTokens, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { createConfiguredModelRuntime } from "@/lib/model-runtime";
+import { estimateTokens, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ContextUsage } from "@/lib/pi-types";
 
 export type ContextUsageSnapshot = ContextUsage;
@@ -89,26 +88,13 @@ export async function resolveModelContextWindow(
   const fromFile = resolveContextWindowFromModelsJson(model);
   if (fromFile) return fromFile;
 
-  try {
-    const modelRuntime = await createConfiguredModelRuntime();
-    const services = await createAgentSessionServices({
-      cwd,
-      agentDir: getAgentDir(),
-      modelRuntime,
-    });
-    const direct = services.modelRuntime.getModel(model.provider, model.modelId);
-    const directWindow = asPositiveInt(direct?.contextWindow);
-    if (directWindow) return directWindow;
-
-    const available = await services.modelRuntime.getAvailable();
-    const match = available.find((entry) =>
-      (entry.provider === model.provider || entry.provider.toLowerCase() === model.provider.toLowerCase())
-      && (entry.id === model.modelId || entry.id.toLowerCase() === model.modelId.toLowerCase())
-    );
-    return asPositiveInt(match?.contextWindow);
-  } catch {
-    return null;
-  }
+  // Intentionally do NOT fall back to createConfiguredModelRuntime /
+  // createAgentSessionServices here. Session GET runs this on every cold open;
+  // spinning the agent services just to read a context window blocked the
+  // heavy IPC queue and made "Loading session..." last many seconds.
+  // Live AgentSession state overwrites contextUsage once the session is running.
+  void cwd;
+  return null;
 }
 
 /**

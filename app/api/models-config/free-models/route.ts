@@ -8,7 +8,7 @@ import { loadModelsDevCatalogDetailed } from "@/lib/models-dev-catalog";
 
 export const dynamic = "force-dynamic";
 
-const FETCH_TIMEOUT_MS = 15_000;
+const FETCH_TIMEOUT_MS = 8_000;
 
 type OpenAiModelsResponse = {
   data?: Array<{ id?: unknown }>;
@@ -29,15 +29,21 @@ export async function GET(req: Request) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(`${def.baseUrl.replace(/\/$/, "")}/models`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${def.apiKey}`,
-        Accept: "application/json",
-      },
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    // Provider /models and models.dev enrichment are independent. Running them
+    // sequentially made free-provider open wait for models.dev timeout (often
+    // unreachable) even when the provider list was already ready.
+    const [res, catalogLoad] = await Promise.all([
+      fetch(`${def.baseUrl.replace(/\/$/, "")}/models`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${def.apiKey}`,
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+        cache: "no-store",
+      }),
+      loadModelsDevCatalogDetailed(),
+    ]);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       return NextResponse.json(
@@ -50,8 +56,6 @@ export async function GET(req: Request) {
       ? json.data.map((m) => (typeof m?.id === "string" ? m.id : "")).filter(Boolean)
       : [];
 
-    // Single owner soft-fail: loadModelsDevCatalogDetailed always returns a source.
-    const catalogLoad = await loadModelsDevCatalogDetailed();
     const models = buildFreeModelEntries(def, rawIds, catalogLoad.entries);
 
     return NextResponse.json({
