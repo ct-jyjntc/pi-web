@@ -163,7 +163,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [error, setError] = useState<string | null>(null);
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const messagesLenRef = useRef(0);
   const [entryIds, setEntryIds] = useState<string[]>([]);
+  // Soft-load guard: length of the currently displayed transcript.
+  // loadSession reads this to avoid blanking the UI on remount/refresh.
+  useEffect(() => {
+    messagesLenRef.current = messages.length;
+  }, [messages.length]);
   const [streamState, dispatch] = useReducer(streamReducer, { isStreaming: false, streamingMessage: null });
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
@@ -297,12 +303,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
+    // Soft load: if we already have messages for this session, never blank the
+    // transcript with the full-page "Loading session..." state. Compact/reload
+    // and background refreshes should keep the UI interactive.
+    const softLoad =
+      showLoading &&
+      sessionIdRef.current === sid &&
+      messagesLenRef.current > 0;
+    const useLoading = showLoading && !softLoad;
     try {
-      if (showLoading) setLoading(true);
+      if (useLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       const res = await apiFetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
       if (res.status === 404) {
-        if (showLoading) {
+        if (useLoading) {
           setData(null);
           setActiveLeafId(null);
           setMessages([]);
@@ -328,7 +342,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       else setContextUsage(null);
 
       messagesLoaded = true;
-      if (showLoading) setLoading(false);
+      if (useLoading) setLoading(false);
       if (!includeState) return null;
 
       try {
@@ -361,7 +375,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setError(String(e));
       return null;
     } finally {
-      if (showLoading && !messagesLoaded) setLoading(false);
+      if (useLoading && !messagesLoaded) setLoading(false);
     }
   }, []);
 

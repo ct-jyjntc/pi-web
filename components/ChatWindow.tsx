@@ -921,7 +921,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     </>
   );
 
-  if (loading) {
+  // Full-page loader only when there is nothing to show yet. Soft reloads keep
+  // the transcript mounted so returning from Settings never looks like a second cold open.
+  if (loading && messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center" style={{ color: "var(--text-muted)" }}>
         {t("window.loadingSession")}

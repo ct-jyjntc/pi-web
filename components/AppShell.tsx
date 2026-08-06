@@ -376,9 +376,26 @@ export function AppShell() {
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     setNewSessionCwd(null);
-    setSelectedSession(session);
-    setSessionKey((k) => k + 1);
-    setSystemPrompt(null);
+    // Same session id: update metadata only. Bumping sessionKey remounts ChatWindow
+    // and flashes "Loading session..." even though messages are already on screen
+    // (common when returning from Settings / re-selecting the active row).
+    const sameSession = activeSessionIdRef.current === session.id;
+    if (sameSession) {
+      setSelectedSession((prev) => {
+        if (!prev || prev.id !== session.id) return session;
+        return {
+          ...prev,
+          ...session,
+          path: session.path || prev.path,
+          name: session.name ?? prev.name,
+          projectRoot: session.projectRoot ?? prev.projectRoot,
+        };
+      });
+    } else {
+      setSelectedSession(session);
+      setSessionKey((k) => k + 1);
+      setSystemPrompt(null);
+    }
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);

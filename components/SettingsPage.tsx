@@ -1128,7 +1128,8 @@ export function SettingsPage({
             <ModelsConfig
               embedded
               onClose={() => {
-                onModelsChanged?.();
+                // Do not call onModelsChanged here — browsing Models must not
+                // force-refresh the chat catalog / feel like a session reload.
               }}
               onModelsChanged={() => {
                 // Silent refresh: chat catalog (parent) + this page's agent model lists.
