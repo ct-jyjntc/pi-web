@@ -1,24 +1,20 @@
 import { NextResponse } from "next/server";
-import { createConfiguredModelRuntime } from "@/lib/model-runtime";
 import { getDisabledModelRefs } from "@/lib/disabled-models";
-import { projectBuiltinProviderModel, refreshBuiltinProviderModels } from "@/lib/builtin-provider-models";
+import {
+  readBuiltinProviderModelsCache,
+  writeBuiltinProviderModelsCache,
+} from "@/lib/builtin-provider-models-cache";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Built-in provider model list (read only).
+ * Built-in provider model list.
  *
- * Enable/disable is owned by `/api/models-config/disabled-models` (light, fs-only)
- * so toggles never wait on ModelRuntime / remote catalog refresh.
+ * Default (no query): **cache-only**, SDK-free — light runtime.
+ * `?fresh=1`: ModelRuntime network refresh for this provider, then write cache — heavy.
  *
- * Invariant: one refresh path; response always includes `live` (true if network
- * refresh succeeded). Soft-fail continues with static/last store when live=false.
- *
- * Performance: ModelRuntime.refresh({ allowNetwork: true }) refreshes *every*
- * dynamic provider, not just `?provider=`. Settings fires one request per
- * connected provider in parallel — N full-network refreshes would thrash.
- * Prefer the offline/store catalog from create(); only hit the network when
- * the provider catalog is empty or the client passes `?fresh=1`.
+ * Enable/disable stays on `/api/models-config/disabled-models` (light).
+ * Cache stores catalog rows; disabled flags are re-applied from denylist on read.
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -28,28 +24,63 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "provider is required" }, { status: 400 });
   }
 
+  // ── Cache path (light): never import ModelRuntime ─────────────────────────
+  if (!force) {
+    const cached = readBuiltinProviderModelsCache(provider);
+    if (!cached) {
+      return NextResponse.json({
+        provider,
+        displayName: provider,
+        modelCount: 0,
+        enabledCount: 0,
+        live: false,
+        degraded: true,
+        cached: false,
+        models: [],
+      });
+    }
+    const models = cached.models;
+    return NextResponse.json({
+      provider,
+      displayName: cached.displayName ?? provider,
+      modelCount: models.length,
+      enabledCount: models.filter((m) => !m.disabled).length,
+      live: false,
+      degraded: false,
+      cached: true,
+      updatedAt: cached.updatedAt,
+      models,
+    });
+  }
+
+  // ── Fresh path (heavy): SDK + optional network refresh ────────────────────
   try {
+    const { createConfiguredModelRuntime } = await import("@/lib/model-runtime");
+    const { projectBuiltinProviderModel, refreshBuiltinProviderModels } = await import(
+      "@/lib/builtin-provider-models"
+    );
+
     const modelRuntime = await createConfiguredModelRuntime();
     const def = modelRuntime.getProvider(provider);
     if (!def) {
       return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 404 });
     }
 
-    const existing = modelRuntime.getModels(provider);
-    let live = false;
-    if (force || existing.length === 0) {
-      live = await refreshBuiltinProviderModels(modelRuntime, provider);
-    } else {
-      // Store / static catalog already populated — skip the global network refresh
-      // so parallel per-provider GETs stay independent and fast.
-      live = true;
-    }
-
+    const live = await refreshBuiltinProviderModels(modelRuntime, provider);
     const disabled = getDisabledModelRefs();
-    const models = modelRuntime.getModels(provider)
+    const models = modelRuntime
+      .getModels(provider)
       .map((m) => projectBuiltinProviderModel(provider, m, disabled.has(`${provider}/${m.id}`)))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-        || a.id.localeCompare(b.id));
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) ||
+          a.id.localeCompare(b.id),
+      );
+
+    writeBuiltinProviderModelsCache(provider, {
+      displayName: def.name,
+      models,
+    });
 
     const enabledCount = models.filter((m) => !m.disabled).length;
     return NextResponse.json({
@@ -59,9 +90,27 @@ export async function GET(req: Request) {
       enabledCount,
       live,
       degraded: !live,
+      cached: false,
+      updatedAt: Date.now(),
       models,
     });
   } catch (error) {
+    // Soft-fail: if live refresh fails but cache exists, serve cache.
+    const cached = readBuiltinProviderModelsCache(provider);
+    if (cached && cached.models.length > 0) {
+      return NextResponse.json({
+        provider,
+        displayName: cached.displayName ?? provider,
+        modelCount: cached.models.length,
+        enabledCount: cached.models.filter((m) => !m.disabled).length,
+        live: false,
+        degraded: true,
+        cached: true,
+        updatedAt: cached.updatedAt,
+        models: cached.models,
+        warning: String(error),
+      });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

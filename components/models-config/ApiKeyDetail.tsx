@@ -16,6 +16,8 @@ export function ApiKeyDetail({
   modelsLoading = false,
   modelsError = null,
   onToggleModel,
+  onRefreshModels,
+  refreshingModels = false,
 }: {
   provider: ApiKeyProvider;
   onRefresh: () => void;
@@ -23,6 +25,8 @@ export function ApiKeyDetail({
   modelsLoading?: boolean;
   modelsError?: string | null;
   onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
+  onRefreshModels?: () => void;
+  refreshingModels?: boolean;
 }) {
   const { t } = useLocale();
   const [apiKey, setApiKey] = useState("");
@@ -57,13 +61,14 @@ export function ApiKeyDetail({
         setSavedOk(true);
         setTimeout(() => setSavedOk(false), 2000);
         onRefresh();
+        onRefreshModels?.();
       }
     } catch (e) {
       setError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [apiKey, provider.id, onRefresh]);
+  }, [apiKey, provider.id, onRefresh, onRefreshModels]);
 
   const handleRemove = useCallback(async () => {
     setRemoving(true);
@@ -143,12 +148,29 @@ export function ApiKeyDetail({
         </button>
       )}
       {provider.configured && (
-        <ConfigModelsEnablePanel
-          models={models}
-          loading={modelsLoading}
-          error={modelsError}
-          onToggleModel={onToggleModel}
-        />
+        <>
+          {onRefreshModels && (
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn-ghost btn-compact"
+                onClick={onRefreshModels}
+                disabled={refreshingModels || modelsLoading}
+                title={t("models.refreshModels")}
+              >
+                {refreshingModels || modelsLoading
+                  ? t("models.refreshingModels")
+                  : t("models.refreshModels")}
+              </button>
+            </div>
+          )}
+          <ConfigModelsEnablePanel
+            models={models}
+            loading={modelsLoading && models.length === 0}
+            error={modelsError}
+            onToggleModel={onToggleModel}
+          />
+        </>
       )}
 
     </div>

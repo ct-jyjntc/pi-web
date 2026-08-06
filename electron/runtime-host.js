@@ -68,12 +68,23 @@ const LIGHT_PREFIXES = [
   "/api/models-config/free-models",
   "/api/models-config/catalog",
   "/api/models-config/disabled-models",
-  // NOT light: /provider-models, /model-overrides, /test, /discover (ModelRuntime)
+  // provider-models without ?fresh=1 is routed in roleForPath (cache-only light).
+  // NOT light: /model-overrides, /test, /discover (ModelRuntime)
 ];
 
 /** @param {string} rawPath */
 function roleForPath(rawPath) {
-  const pathname = (rawPath || "").split("?")[0];
+  const raw = rawPath || "";
+  const qIndex = raw.indexOf("?");
+  const pathname = qIndex >= 0 ? raw.slice(0, qIndex) : raw;
+  const query = qIndex >= 0 ? raw.slice(qIndex + 1) : "";
+
+  // Built-in provider catalogs: default is cache-only (light). Live refresh
+  // (?fresh=1) needs ModelRuntime and must stay on heavy.
+  if (pathname === "/api/models-config/provider-models") {
+    return new URLSearchParams(query).get("fresh") === "1" ? "heavy" : "light";
+  }
+
   if (LIGHT_EXACT.has(pathname)) return "light";
   return LIGHT_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ? "light" : "heavy";
 }

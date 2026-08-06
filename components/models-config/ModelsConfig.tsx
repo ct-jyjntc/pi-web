@@ -439,17 +439,17 @@ export function ModelsConfig({
     ...activeApiKey.map((p) => p.id),
   ].join("\0");
 
+  // Built-in catalogs: default is local disk cache (light). Never auto-refresh
+  // over the network — that flooded heavy and made returning to chat slow.
+  // User clicks "Refresh models" per provider (or after login) for ?fresh=1.
   useEffect(() => {
-    const ids = builtinProviderIdsKey ? builtinProviderIdsKey.split(" ").filter(Boolean) : [];
+    const ids = builtinProviderIdsKey ? builtinProviderIdsKey.split("\0").filter(Boolean) : [];
     if (ids.length === 0) {
       setBuiltinModelsByProvider({});
       setBuiltinModelsLoading({});
       setBuiltinModelsError({});
       return;
     }
-    // Per-provider loading: each catalog paints as soon as its request finishes.
-    // Do NOT wait for Promise.all — a slow provider used to block every other
-    // row from appearing even though the fetches already ran in parallel.
     setBuiltinModelsLoading(Object.fromEntries(ids.map((id) => [id, true])));
     setBuiltinModelsError(Object.fromEntries(ids.map((id) => [id, null])));
     let cancelled = false;
@@ -469,7 +469,7 @@ export function ModelsConfig({
           setBuiltinModelsError((prev) => ({ ...prev, [id]: null }));
         } catch (e) {
           if (cancelled) return;
-          setBuiltinModelsByProvider((prev) => ({ ...prev, [id]: [] }));
+          setBuiltinModelsByProvider((prev) => ({ ...prev, [id]: prev[id] ?? [] }));
           setBuiltinModelsError((prev) => ({
             ...prev,
             [id]: e instanceof Error ? e.message : String(e),
@@ -486,6 +486,32 @@ export function ModelsConfig({
     };
   }, [builtinProviderIdsKey]);
 
+  const refreshBuiltinProviderModels = useCallback(async (providerId: string) => {
+    setBuiltinModelsLoading((prev) => ({ ...prev, [providerId]: true }));
+    setBuiltinModelsError((prev) => ({ ...prev, [providerId]: null }));
+    try {
+      const res = await apiFetch(
+        `/api/models-config/provider-models?provider=${encodeURIComponent(providerId)}&fresh=1`,
+      );
+      const data = await res.json() as { models?: ProviderModelRow[]; error?: string; warning?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setBuiltinModelsByProvider((prev) => ({
+        ...prev,
+        [providerId]: Array.isArray(data.models) ? data.models : [],
+      }));
+      if (data.warning) {
+        setBuiltinModelsError((prev) => ({ ...prev, [providerId]: data.warning ?? null }));
+      }
+      onModelsChanged?.();
+    } catch (e) {
+      setBuiltinModelsError((prev) => ({
+        ...prev,
+        [providerId]: e instanceof Error ? e.message : String(e),
+      }));
+    } finally {
+      setBuiltinModelsLoading((prev) => ({ ...prev, [providerId]: false }));
+    }
+  }, [onModelsChanged]);
 
   const toggleBuiltinModel = useCallback(async (providerId: string, modelId: string, disabled: boolean) => {
     // Optimistic: free/custom toggles are pure local state. Built-in toggles used
@@ -530,6 +556,8 @@ export function ModelsConfig({
           modelsLoading={builtinModelsLoading[p.id] ?? false}
           modelsError={builtinModelsError[p.id] ?? null}
           onToggleModel={(modelId, enabled) => toggleBuiltinModel(p.id, modelId, !enabled)}
+          onRefreshModels={() => void refreshBuiltinProviderModels(p.id)}
+          refreshingModels={builtinModelsLoading[p.id] ?? false}
         />
       );
     }
@@ -545,6 +573,8 @@ export function ModelsConfig({
           modelsLoading={builtinModelsLoading[p.id] ?? false}
           modelsError={builtinModelsError[p.id] ?? null}
           onToggleModel={(modelId, enabled) => toggleBuiltinModel(p.id, modelId, !enabled)}
+          onRefreshModels={() => void refreshBuiltinProviderModels(p.id)}
+          refreshingModels={builtinModelsLoading[p.id] ?? false}
         />
       );
     }

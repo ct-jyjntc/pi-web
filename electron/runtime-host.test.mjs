@@ -24,11 +24,13 @@ test("light routes never touch the agent SDK graph", () => {
     "/api/models-config/free-models?provider=x",
     "/api/models-config/catalog?q=gpt",
     "/api/models-config/disabled-models",
+    // Built-in catalogs default to disk cache (no ModelRuntime).
+    "/api/models-config/provider-models?provider=openai",
     "/api/default-cwd",
     "/api/github?cwd=x",
     "/api/checkpoints?sessionId=1",
     "/api/workspace-journal?sessionId=1",
-      "/api/debug/sessions",
+    "/api/debug/sessions",
     "/api/skills/install",
     "/api/skills/search",
   ];
@@ -40,7 +42,8 @@ test("light routes never touch the agent SDK graph", () => {
 test("SDK / ModelRuntime routes stay on heavy", () => {
   const heavy = [
     "/api/models",
-    "/api/models-config/provider-models?provider=openai",
+    // Live catalog refresh for one built-in provider.
+    "/api/models-config/provider-models?provider=openai&fresh=1",
     "/api/models-config/model-overrides",
     "/api/models-config/test",
     "/api/models-config/discover",

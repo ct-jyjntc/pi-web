@@ -14,6 +14,8 @@ export function OAuthDetail({
   modelsLoading = false,
   modelsError = null,
   onToggleModel,
+  onRefreshModels,
+  refreshingModels = false,
 }: {
   provider: OAuthProvider;
   onRefresh: () => void;
@@ -21,6 +23,9 @@ export function OAuthDetail({
   modelsLoading?: boolean;
   modelsError?: string | null;
   onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
+  /** Live catalog refresh (heavy). Omit to hide the button. */
+  onRefreshModels?: () => void;
+  refreshingModels?: boolean;
 }) {
   const { t } = useLocale();
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
@@ -83,6 +88,7 @@ export function OAuthDetail({
         es.close();
         setLoginState({ phase: "success" });
         onRefresh();
+        onRefreshModels?.();
       } else if (data.type === "error") {
         es.close();
         setLoginState({ phase: "error", message: data.message! });
@@ -95,7 +101,7 @@ export function OAuthDetail({
       es.close();
       setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: t("models.connectionLost") });
     };
-  }, [provider.id, onRefresh, t]);
+  }, [provider.id, onRefresh, onRefreshModels, t]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -303,12 +309,29 @@ export function OAuthDetail({
       </div>
 
       {provider.loggedIn && (
-        <ConfigModelsEnablePanel
-          models={models}
-          loading={modelsLoading}
-          error={modelsError}
-          onToggleModel={onToggleModel}
-        />
+        <>
+          {onRefreshModels && (
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn-ghost btn-compact"
+                onClick={onRefreshModels}
+                disabled={refreshingModels || modelsLoading}
+                title={t("models.refreshModels")}
+              >
+                {refreshingModels || modelsLoading
+                  ? t("models.refreshingModels")
+                  : t("models.refreshModels")}
+              </button>
+            </div>
+          )}
+          <ConfigModelsEnablePanel
+            models={models}
+            loading={modelsLoading && models.length === 0}
+            error={modelsError}
+            onToggleModel={onToggleModel}
+          />
+        </>
       )}
     </div>
   );
