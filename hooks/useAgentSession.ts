@@ -147,6 +147,49 @@ type SlashCommandsResponse = {
   commands?: SlashCommandInfo[];
 };
 
+
+/** Soft cache of last-known transcripts so remounting ChatWindow (session switch
+ *  key change / Settings bounce) can paint immediately without "Loading session...".
+ *  Heavy /api/sessions/[id] still refreshes in the background. */
+const SESSION_TRANSCRIPT_CACHE = new Map<string, {
+  messages: AgentMessage[];
+  entryIds: string[];
+  leafId: string | null;
+  data: SessionData | null;
+  contextUsage: ContextUsage | null;
+  at: number;
+}>();
+const SESSION_TRANSCRIPT_CACHE_TTL_MS = 10 * 60 * 1000;
+const SESSION_TRANSCRIPT_CACHE_MAX = 12;
+
+function readSessionTranscriptCache(id: string) {
+  const hit = SESSION_TRANSCRIPT_CACHE.get(id);
+  if (!hit) return null;
+  if (Date.now() - hit.at > SESSION_TRANSCRIPT_CACHE_TTL_MS) {
+    SESSION_TRANSCRIPT_CACHE.delete(id);
+    return null;
+  }
+  return hit;
+}
+
+function writeSessionTranscriptCache(
+  id: string,
+  payload: {
+    messages: AgentMessage[];
+    entryIds: string[];
+    leafId: string | null;
+    data: SessionData | null;
+    contextUsage: ContextUsage | null;
+  },
+) {
+  SESSION_TRANSCRIPT_CACHE.set(id, { ...payload, at: Date.now() });
+  while (SESSION_TRANSCRIPT_CACHE.size > SESSION_TRANSCRIPT_CACHE_MAX) {
+    const oldest = SESSION_TRANSCRIPT_CACHE.keys().next().value;
+    if (oldest === undefined) break;
+    SESSION_TRANSCRIPT_CACHE.delete(oldest);
+  }
+}
+
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
@@ -157,14 +200,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const lastForcedModelsKeyRef = useRef(0);
 
   const isNew = session === null && newSessionCwd !== null;
+  const cachedTranscript = session ? readSessionTranscriptCache(session.id) : null;
 
-  const [data, setData] = useState<SessionData | null>(null);
-  const [loading, setLoading] = useState(!isNew);
+  const [data, setData] = useState<SessionData | null>(cachedTranscript?.data ?? null);
+  // Skip full-page loader when we already have a soft-cached transcript.
+  const [loading, setLoading] = useState(!isNew && !cachedTranscript);
   const [error, setError] = useState<string | null>(null);
-  const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
-  const messagesLenRef = useRef(0);
-  const [entryIds, setEntryIds] = useState<string[]>([]);
+  const [activeLeafId, setActiveLeafId] = useState<string | null>(cachedTranscript?.leafId ?? null);
+  const [messages, setMessages] = useState<AgentMessage[]>(cachedTranscript?.messages ?? []);
+  const messagesLenRef = useRef(cachedTranscript?.messages.length ?? 0);
+  const [entryIds, setEntryIds] = useState<string[]>(cachedTranscript?.entryIds ?? []);
   // Soft-load guard: length of the currently displayed transcript.
   // loadSession reads this to avoid blanking the UI on remount/refresh.
   useEffect(() => {
@@ -192,7 +237,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const globalAgentMode = useWebSettings()?.agentMode;
 
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
-  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(cachedTranscript?.contextUsage ?? null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
@@ -331,6 +376,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      writeSessionTranscriptCache(sid, {
+        messages: d.context.messages,
+        entryIds: d.context.entryIds ?? [],
+        leafId: d.leafId,
+        data: d,
+        contextUsage: d.contextUsage ?? null,
+      });
       setCurrentModelOverride(null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {

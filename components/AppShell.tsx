@@ -400,11 +400,11 @@ export function AppShell() {
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);
-    if (isRestore) {
-      // Suppress the redundant sessionKey bump that would come from the
-      // onCwdChange effect firing after setSelectedCwd in the sidebar
-      suppressCwdBumpRef.current = true;
-    }
+    // Always suppress the next onCwdChange wipe when a session is selected.
+    // Sidebar sets selectedCwd = session.cwd on click; if projectRoot resolution
+    // is briefly wrong (worktree not loaded), handleCwdChange would clear the
+    // open session and force a full ChatWindow remount → "Loading session...".
+    suppressCwdBumpRef.current = true;
     // Skip router.replace when restoring from URL, OR when already on this session —
     // replace on the same query remounts AppShell via Suspense in production.
     if (!isRestore && !sameSession) {
