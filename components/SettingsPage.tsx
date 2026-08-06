@@ -100,6 +100,8 @@ export function SettingsPage({
   const [roleSmolRef, setRoleSmolRef] = useState("");
   const [rolePlanRef, setRolePlanRef] = useState("");
   const [loadingModels, setLoadingModels] = useState(true);
+  /** Bumped after ModelsConfig mutations so agent dropdowns re-fetch with ?fresh=1. */
+  const [modelsCatalogKey, setModelsCatalogKey] = useState(0);
   const [savingKey, setSavingKey] = useState<AgentModelSaveKey | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const {
@@ -259,7 +261,10 @@ export function SettingsPage({
         }
       };
 
+      // force only after a models mutation (modelsCatalogKey > 0) so disabled/
+      // enabled models appear immediately in agent role dropdowns without Ctrl+R.
       fetchWebSettingsWithModels(cwd, {
+        force: modelsCatalogKey > 0,
         onSettings: (settings) => {
           applySettingsPayload({ settings });
           if (!cancelled) setLoadingModels(false);
@@ -280,7 +285,7 @@ export function SettingsPage({
       return () => {
         cancelled = true;
       };
-    }, [applyModelSettings, cwd]);
+    }, [applyModelSettings, cwd, modelsCatalogKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1125,7 +1130,11 @@ export function SettingsPage({
               onClose={() => {
                 onModelsChanged?.();
               }}
-              onModelsChanged={onModelsChanged}
+              onModelsChanged={() => {
+                // Silent refresh: chat catalog (parent) + this page's agent model lists.
+                onModelsChanged?.();
+                setModelsCatalogKey((k) => k + 1);
+              }}
             />
           )}
           {section === "skills" && cwd && (

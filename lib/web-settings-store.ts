@@ -222,23 +222,32 @@ export function ensureWebSettings(): Promise<WebSettingsData | null> {
  *
  * `onSettings` fires as soon as the light settings payload is applied so the UI
  * can clear its loading spinner without waiting on the heavy model catalog.
+ *
+ * Pass `force: true` after a models mutation (disable/enable) so the heavy
+ * process bypasses its 60s in-process catalog cache — light cannot invalidate
+ * heavy's globalThis cache.
  */
 export function fetchWebSettingsWithModels(
   cwd?: string | null,
-  options?: { onSettings?: (settings: WebSettingsData | null) => void },
+  options?: {
+    onSettings?: (settings: WebSettingsData | null) => void;
+    /** Bypass heavy /api/models cache (maps to `?fresh=1`). */
+    force?: boolean;
+  },
 ): Promise<WebSettingsWithModels> {
   const settingsParams = new URLSearchParams({ utilityModels: "0" });
   if (cwd) settingsParams.set("cwd", cwd);
   const modelsParams = new URLSearchParams();
   if (cwd) modelsParams.set("cwd", cwd);
+  if (options?.force) modelsParams.set("fresh", "1");
   const key = `${settingsParams}|${modelsParams}`;
-    if (modelsInFlight && modelsInFlight.key === key) {
-      // Shared flight: still deliver onSettings when the cached result resolves.
-      return modelsInFlight.promise.then((result) => {
-        options?.onSettings?.(result.settings);
-        return result;
-      });
-    }
+  if (modelsInFlight && modelsInFlight.key === key) {
+    // Shared flight: still deliver onSettings when the cached result resolves.
+    return modelsInFlight.promise.then((result) => {
+      options?.onSettings?.(result.settings);
+      return result;
+    });
+  }
 
   const promise: Promise<WebSettingsWithModels> = (async () => {
     const settingsRes = await apiFetch(`/api/web-settings?${settingsParams.toString()}`);
