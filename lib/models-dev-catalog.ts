@@ -11,12 +11,16 @@ import {
   type ModelCatalogEntry,
 } from "./model-catalog";
 
-export const MODELS_DEV_URL = "https://models.dev/api.json";
+/**
+ * models.dev catalog URL.
+ * Official `https://models.dev/api.json` is often blocked in CN; use the
+ * rainflowtb mirror (same JSON shape, `X-Mirror-Upstream: https://models.dev`).
+ */
+export const MODELS_DEV_URL = "https://models.rainflowtb.com/api.json";
 const CATALOG_TTL_MS = 60 * 60 * 1000;
-// Fail-fast: models.dev is enrichment only. A 15s hang on an unreachable host
-// blocked the light runtime (free-models) and made Settings → Models → back to
-// chat feel like a multi-second "Loading session..." stall.
-const FETCH_TIMEOUT_MS = 2_500;
+// Catalog is ~3.5MB. Mirror is reachable (~1s typical); keep a modest ceiling
+// so a dead network cannot block free-models / settings for tens of seconds.
+const FETCH_TIMEOUT_MS = 12_000;
 
 export type ModelsDevCatalogSource = "live" | "cache" | "stale" | "none";
 
@@ -46,9 +50,13 @@ async function fetchCatalog(): Promise<ModelCatalogEntry[]> {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`models.dev returned HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`models catalog returned HTTP ${response.status} (${MODELS_DEV_URL})`);
+  }
   const entries = flattenModelsDevCatalog(await response.json());
-  if (entries.length === 0) throw new Error("models.dev returned an empty catalog");
+  if (entries.length === 0) {
+    throw new Error(`models catalog returned an empty body (${MODELS_DEV_URL})`);
+  }
   return entries;
 }
 
