@@ -80,6 +80,8 @@ export function AppShell() {
   );
   const [initialCwdError, setInitialCwdError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Force-remount epoch for ChatWindow (fork/trust/project switch). Session
+  // identity is the primary key — re-selecting the same id must NOT bump this.
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -376,9 +378,8 @@ export function AppShell() {
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     setNewSessionCwd(null);
-    // Same session id: update metadata only. Bumping sessionKey remounts ChatWindow
-    // and flashes "Loading session..." even though messages are already on screen
-    // (common when returning from Settings / re-selecting the active row).
+    // Same session id: update metadata only. Never remount ChatWindow and never
+    // router.replace — both flash "Loading session..." after Settings → Models.
     const sameSession = activeSessionIdRef.current === session.id;
     if (sameSession) {
       setSelectedSession((prev) => {
@@ -393,7 +394,7 @@ export function AppShell() {
       });
     } else {
       setSelectedSession(session);
-      setSessionKey((k) => k + 1);
+      // sessionKey is a force-remount epoch only; identity is in ChatWindow key.
       setSystemPrompt(null);
     }
     setInitialSessionRestored(true);
@@ -404,9 +405,9 @@ export function AppShell() {
       // onCwdChange effect firing after setSelectedCwd in the sidebar
       suppressCwdBumpRef.current = true;
     }
-    // Skip router.replace when restoring from URL — the param is already correct
-    // and calling replace in production Next.js triggers a Suspense remount loop
-    if (!isRestore) {
+    // Skip router.replace when restoring from URL, OR when already on this session —
+    // replace on the same query remounts AppShell via Suspense in production.
+    if (!isRestore && !sameSession) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
   }, [router, isMobile]);
@@ -1039,7 +1040,7 @@ export function AppShell() {
           )}
           {showChat ? (
             <ChatWindow
-              key={sessionKey}
+              key={`${selectedSession?.id ?? (effectiveNewSessionCwd ? `new:${effectiveNewSessionCwd}` : "empty")}:${sessionKey}`}
               session={selectedSession}
               newSessionCwd={effectiveNewSessionCwd}
               onAgentEnd={handleAgentEnd}
