@@ -98,10 +98,27 @@ export function OAuthDetail({
   }, [provider.id, onRefresh, t]);
 
   const handleLogout = useCallback(async () => {
-    await apiFetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
-    setLoginState({ phase: "idle" });
-    onRefresh();
-  }, [provider.id, onRefresh]);
+      try {
+        const res = await apiFetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          setLoginState({
+            phase: "error",
+            message: d.error ?? t("models.disconnectFailed", { status: res.status }),
+          });
+          return;
+        }
+        setLoginState({ phase: "idle" });
+        onRefresh();
+      } catch (e) {
+        setLoginState({
+          phase: "error",
+          message: e instanceof Error ? e.message : t("models.networkError"),
+        });
+      }
+    }, [provider.id, onRefresh, t]);
 
   const submitCode = useCallback(async (token: string, code: string) => {
     if (!code.trim()) return;
