@@ -47,14 +47,17 @@ export function useAppShellTerminal({
     if (prev.filter((tab) => tab.source === "user").length === 0) terminalSeqRef.current = 1;
     const n = terminalSeqRef.current++;
     const id = `term-${n}`;
-    const next = renumber([...prev, { id, label: "", source: "user" }]);
+    const next = renumber([
+      ...prev,
+      { id, label: "", source: "user", cwd: terminalWatchCwd },
+    ]);
     setTerminalTabs(next);
     setActiveTerminalTabId(id);
     setMountedTerminalIds((mounted) => (mounted.includes(id) ? mounted : [...mounted, id]));
     setActiveWorkspaceTabId("terminal");
     setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
-  }, [isMobile, renumber, setActiveWorkspaceTabId, setRightPanelOpen, setSidebarOpen]);
+  }, [isMobile, renumber, setActiveWorkspaceTabId, setRightPanelOpen, setSidebarOpen, terminalWatchCwd]);
 
   const closeTerminalSession = useCallback((tabId: string, options?: { kill?: boolean }) => {
     const kill = options?.kill !== false;
@@ -81,6 +84,21 @@ export function useAppShellTerminal({
       return next;
     });
   }, [renumber]);
+
+  /**
+   * Tabs belonging to the current top-left workspace (for tab bar / counts).
+   * Other workspaces' tabs stay mounted off-screen so remote PTYs keep running.
+   */
+  const visibleTerminalTabs = terminalWatchCwd
+    ? terminalTabs.filter((tab) => !tab.cwd || tab.cwd === terminalWatchCwd)
+    : terminalTabs;
+
+  // When the workspace changes, point the active tab at something visible here —
+  // never kill other workspaces' shells.
+  useEffect(() => {
+    if (visibleTerminalTabs.some((tab) => tab.id === activeTerminalTabId)) return;
+    setActiveTerminalTabId(visibleTerminalTabs[0]?.id ?? null);
+  }, [visibleTerminalTabs, activeTerminalTabId]);
 
   const upsertAgentTerminalSession = useCallback((session: {
     id: string;
@@ -115,6 +133,7 @@ export function useAppShellTerminal({
           source: "agent",
           attachSessionId: session.id,
           command: session.command ?? session.title,
+          cwd: terminalWatchCwd,
         },
       ]);
     });
@@ -122,7 +141,7 @@ export function useAppShellTerminal({
     setMountedTerminalIds((mounted) => (mounted.includes(tabId) ? mounted : [...mounted, tabId]));
     setActiveWorkspaceTabId("terminal");
     setRightPanelOpen(true);
-  }, [closeTerminalSession, renumber, setActiveWorkspaceTabId, setRightPanelOpen]);
+  }, [closeTerminalSession, renumber, setActiveWorkspaceTabId, setRightPanelOpen, terminalWatchCwd]);
 
   useEffect(() => {
     if (!activeTerminalTabId) return;
@@ -211,6 +230,7 @@ export function useAppShellTerminal({
 
   return {
     terminalTabs,
+    visibleTerminalTabs,
     activeTerminalTabId,
     setActiveTerminalTabId,
     mountedTerminalIds,

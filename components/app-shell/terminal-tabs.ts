@@ -8,6 +8,8 @@ export type TerminalSessionTab = {
   source: "user" | "agent";
   attachSessionId?: string;
   command?: string;
+  /** Workspace cwd where this terminal was opened — UI filters by top-left workspace. */
+  cwd?: string | null;
 };
 
 export function renumberTerminalLabels(

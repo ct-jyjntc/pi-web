@@ -284,6 +284,7 @@ export function AppShell() {
   const terminalWatchCwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null;
   const {
     terminalTabs,
+    visibleTerminalTabs,
     activeTerminalTabId,
     setActiveTerminalTabId,
     mountedTerminalIds,
@@ -322,8 +323,13 @@ export function AppShell() {
   const initialSessionId = initialNavigation.sessionId;
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
-  // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
+  // Suppresses workspace wipe in handleCwdChange during session select / URL restore
   const suppressCwdBumpRef = useRef(false);
+  /** Last top-left workspace { cwd, projectRoot } — single compare baseline for switches. */
+  const activeWorkspaceRef = useRef<{ cwd: string | null; projectRoot: string | null }>({
+    cwd: null,
+    projectRoot: null,
+  });
 
   useEffect(() => {
     const requestedCwd = initialNavigation.requestedCwd;
@@ -361,41 +367,70 @@ export function AppShell() {
   }, [initialNavigation]);
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
+    // Product rule: top-left workspace is the source of truth for every surface.
+    // Frontend-only switch — do not kill agents/PTYs; just leave them in the background.
     setActiveCwd(cwd);
-    // Skip if cwd is null (initial mount) or during the initial URL restore.
-    if (!cwd) return;
-    if (suppressCwdBumpRef.current) {
-      suppressCwdBumpRef.current = false;
+    if (!cwd) {
+      activeWorkspaceRef.current = { cwd: null, projectRoot: null };
       return;
     }
-    // Worktrees of one repo share a project root. Moving the effective cwd
-    // within the same project (e.g. switching worktree, or clicking a session
-    // that lives in another worktree) must not close the open session or wipe
-    // file tabs that still belong to the same project.
+
     const newProject = projectRoot ?? cwd;
-    const currentProject = selectedSession
-      ? (selectedSession.projectRoot ?? selectedSession.cwd)
-      : (activeCwd ?? null);
-    if (currentProject && currentProject === newProject) {
+    const prev = activeWorkspaceRef.current;
+
+    // Consume suppress always so it cannot stick across a skipped notify.
+    const suppressed = suppressCwdBumpRef.current;
+    if (suppressed) suppressCwdBumpRef.current = false;
+
+    // Suppress only protects the session/URL that armed it (notify cwd === that session).
+    // If suppress was left armed and the user picks another workspace, fall through and switch UI.
+    if (suppressed && (!selectedSession || selectedSession.cwd === cwd)) {
+      activeWorkspaceRef.current = { cwd, projectRoot: newProject };
       return;
     }
-    // Different project: drop open file tabs (paths from the old tree are stale).
+
+    const cwdChanged = prev.cwd !== null && prev.cwd !== cwd;
+    // Project-root refinement for the same path (worktree API resolved) is not a switch.
+    const projectRefinedOnly =
+      prev.cwd === cwd
+      && prev.projectRoot !== null
+      && prev.projectRoot !== newProject
+      && (prev.projectRoot === prev.cwd || prev.projectRoot === newProject);
+    const projectChanged =
+      prev.projectRoot !== null
+      && newProject !== prev.projectRoot
+      && !projectRefinedOnly
+      && prev.cwd !== null;
+
+    activeWorkspaceRef.current = { cwd, projectRoot: newProject };
+
+    // First adoption (prev.cwd null) or pure root refinement: record only.
+    if (prev.cwd === null || (!cwdChanged && !projectChanged)) {
+      return;
+    }
+
+    // Align chrome to the new top-left workspace (UI only).
     setFileTabs([]);
     setActiveFileTabId(null);
-    // Close any session that belongs to a different project — it no longer
-    // matches the selected project directory.
-    setSelectedSession(null);
-    setNewSessionCwd((prev) => {
-      if (prev && prev !== cwd) return null;
-      return prev;
-    });
-    setSessionKey((k) => k + 1);
-    setBranchTree([]);
-    setBranchActiveLeafId(null);
-    setSystemPrompt(null);
-    setActiveTopPanel(null);
-    router.replace("/", { scroll: false });
-  }, [router, selectedSession, activeCwd]);
+
+    // Deselect chat if it isn't at this exact cwd (RPC/agent keeps running).
+    const sessionStays = selectedSession?.cwd === cwd;
+    if (!sessionStays) {
+      setSelectedSession(null);
+      setNewSessionCwd(null); // blank chat uses activeCwd via effectiveNewSessionCwd
+      setSessionKey((k) => k + 1);
+      setBranchTree([]);
+      setBranchActiveLeafId(null);
+      setSystemPrompt(null);
+      setActiveTopPanel(null);
+      router.replace("/", { scroll: false });
+    } else {
+      setBranchTree([]);
+      setBranchActiveLeafId(null);
+      setSystemPrompt(null);
+      setActiveTopPanel(null);
+    }
+  }, [router, selectedSession]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     setNewSessionCwd(null);
@@ -415,17 +450,20 @@ export function AppShell() {
       });
     } else {
       setSelectedSession(session);
-      // sessionKey is a force-remount epoch only; identity is in ChatWindow key.
+      // ChatWindow key is sessionKey-only (stable across new→real id promote).
+      // Different session must bump the epoch so the chat surface remounts.
+      setSessionKey((k) => k + 1);
       setSystemPrompt(null);
     }
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);
-    // Always suppress the next onCwdChange wipe when a session is selected.
-    // Sidebar sets selectedCwd = session.cwd on click; if projectRoot resolution
-    // is briefly wrong (worktree not loaded), handleCwdChange would clear the
-    // open session and force a full ChatWindow remount → "Loading session...".
-    suppressCwdBumpRef.current = true;
+    // Suppress only when the sidebar will actually notify a cwd change. If session.cwd
+    // already matches the top-left workspace, onCwdChange may be skipped and a sticky
+    // suppress would eat the *next* real workspace switch (chat stuck on old session).
+    if (session.cwd !== activeWorkspaceRef.current.cwd) {
+      suppressCwdBumpRef.current = true;
+    }
     // Skip router.replace when restoring from URL, OR when already on this session —
     // replace on the same query remounts AppShell via Suspense in production.
     if (!isRestore && !sameSession) {
@@ -483,13 +521,23 @@ export function AppShell() {
       .catch(() => {});
   }, []);
 
-  // Called by ChatWindow when a new session gets its real id from pi
+  // Called by ChatWindow when a new session gets its real id from pi.
+  // Must NOT bump sessionKey / remount ChatWindow — that wiped the optimistic
+  // first message + stream and flashed "Loading session...".
   const handleSessionCreated = useCallback((session: SessionInfo) => {
     setNewSessionCwd(null);
     setSelectedSession(session);
     setRefreshKey((k) => k + 1);
     hydrateSelectedSession(session.id);
-    router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+    // Prefer history.replaceState so Next Suspense does not remount AppShell mid-stream
+    // (router.replace on searchParams has remounted the shell in production).
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("session", session.id);
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    } else {
+      router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+    }
   }, [router, hydrateSelectedSession]);
 
   const handleAgentEnd = useCallback(() => {
@@ -817,7 +865,8 @@ export function AppShell() {
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
         onSessionRenamed={handleSessionRenamed}
-        selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
+        // Prefer top-left workspace (activeCwd); fall back to session / new-chat cwd.
+        selectedCwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
@@ -1062,7 +1111,9 @@ export function AppShell() {
           )}
           {showChat ? (
             <ChatWindow
-              key={`${selectedSession?.id ?? (effectiveNewSessionCwd ? `new:${effectiveNewSessionCwd}` : "empty")}:${sessionKey}`}
+              // Epoch only — do not key by session id. First send promotes new→real id;
+              // keying by id remounted the surface into "Loading session..." mid-stream.
+              key={`chat:${sessionKey}`}
               session={selectedSession}
               newSessionCwd={effectiveNewSessionCwd}
               onAgentEnd={handleAgentEnd}
@@ -1219,8 +1270,8 @@ export function AppShell() {
                   {tab.kind === "files" && fileTabs.length > 0 && (
                     <span className="right-workspace-tab-count">{fileTabs.length}</span>
                   )}
-                  {tab.kind === "terminal" && terminalTabs.length > 0 && (
-                    <span className="right-workspace-tab-count">{terminalTabs.length}</span>
+                  {tab.kind === "terminal" && visibleTerminalTabs.length > 0 && (
+                    <span className="right-workspace-tab-count">{visibleTerminalTabs.length}</span>
                   )}
                 </button>
               );
@@ -1339,9 +1390,9 @@ export function AppShell() {
             minHeight: 0,
             overflow: "hidden",
           }}>
-            {/* Terminal subtabs — same strip language as Files (icon-only when narrow) */}
+            {/* Terminal subtabs — only this workspace; other workspaces stay mounted off-screen. */}
             <div className="file-subtabs titlebar-no-drag">
-              {terminalTabs.map((tab) => {
+              {visibleTerminalTabs.map((tab) => {
                 const isActive = tab.id === activeTerminalTabId;
                 return (
                   <div
@@ -1400,7 +1451,33 @@ export function AppShell() {
             </div>
 
             <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
-              {terminalTabs.length === 0 ? (
+              {/* Always keep mounted panels for every workspace so PTYs keep running off-screen. */}
+              {terminalTabs.map((tab) => {
+                if (!mountedTerminalIds.includes(tab.id)) return null;
+                const inWorkspace = !tab.cwd || tab.cwd === terminalWatchCwd;
+                const active = inWorkspace && tab.id === activeTerminalTabId;
+                return (
+                  <div
+                    key={tab.id}
+                    style={{
+                      display: active ? "flex" : "none",
+                      flexDirection: "column",
+                      position: "absolute",
+                      inset: 0,
+                      minHeight: 0,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <TerminalPanel
+                      cwd={tab.cwd ?? terminalWatchCwd}
+                      attachSessionId={tab.attachSessionId ?? null}
+                      sourceLabel={tab.source === "agent" ? tab.label : null}
+                      persistRemoteOnUnmount
+                    />
+                  </div>
+                );
+              })}
+              {visibleTerminalTabs.length === 0 && (
                 <div style={{
                   height: "100%",
                   display: "flex",
@@ -1410,36 +1487,14 @@ export function AppShell() {
                   gap: 10,
                   color: "var(--text-dim)",
                   fontSize: 12,
+                  position: "relative",
+                  zIndex: 1,
                 }}>
                   <span>{t("git.terminal")}</span>
                   <button type="button" className="chrome-btn" onClick={addTerminalSession}>
                     {t("git.newTerminal")}
                   </button>
                 </div>
-              ) : (
-                terminalTabs.map((tab) => {
-                  if (!mountedTerminalIds.includes(tab.id)) return null;
-                  const active = tab.id === activeTerminalTabId;
-                  return (
-                    <div
-                      key={tab.id}
-                      style={{
-                        display: active ? "flex" : "none",
-                        flexDirection: "column",
-                        position: "absolute",
-                        inset: 0,
-                        minHeight: 0,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <TerminalPanel
-                        cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
-                        attachSessionId={tab.attachSessionId ?? null}
-                        sourceLabel={tab.source === "agent" ? tab.label : null}
-                      />
-                    </div>
-                  );
-                })
               )}
             </div>
           </div>

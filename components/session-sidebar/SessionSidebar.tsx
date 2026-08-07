@@ -325,13 +325,18 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     return match?.projectRoot ?? cwd;
   }, [worktreeState, allSessions]);
 
-  // Notify parent only when the effective cwd actually changes (not when
-  // projectRootFor identity changes due to session/worktree refreshes).
-  const lastNotifiedCwdRef = useRef<string | null>(null);
+  // Notify parent when cwd or resolved project root changes. Root can lag until
+  // worktree API returns; parent treats pure root refinement as non-destructive.
+  const lastNotifiedWorkspaceRef = useRef<{ cwd: string | null; projectRoot: string | null }>({
+    cwd: null,
+    projectRoot: null,
+  });
   useEffect(() => {
-    if (lastNotifiedCwdRef.current === selectedCwd) return;
-    lastNotifiedCwdRef.current = selectedCwd;
-    onCwdChange?.(selectedCwd, projectRootFor(selectedCwd));
+    const root = selectedCwd ? projectRootFor(selectedCwd) : null;
+    const prev = lastNotifiedWorkspaceRef.current;
+    if (prev.cwd === selectedCwd && prev.projectRoot === root) return;
+    lastNotifiedWorkspaceRef.current = { cwd: selectedCwd, projectRoot: root };
+    onCwdChange?.(selectedCwd, root);
   }, [selectedCwd, onCwdChange, projectRootFor]);
 
   // Sync the worktree switcher to the selected session's cwd. Sessions of all
