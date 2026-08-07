@@ -160,12 +160,9 @@ const oauth: OAuthAuth = {
   },
 };
 
-async function fetchModels(ctx: RefreshModelsContext): Promise<readonly Model<"anthropic-messages">[]> {
-  let models = FALLBACK.map((id) => anthropicModel(MINIMAX_PROVIDER_ID, INFERENCE, id));
-  if (ctx.allowNetwork) {
-    await ctx.store.write({ models, checkedAt: Date.now() });
-  }
-  return models;
+async function fetchModels(_ctx: RefreshModelsContext): Promise<readonly Model<"anthropic-messages">[]> {
+  // Static catalog for now; createProvider still persists via publish when force-refreshed.
+  return FALLBACK.map((id) => anthropicModel(MINIMAX_PROVIDER_ID, INFERENCE, id));
 }
 
 export function createMinimaxProvider(): Provider<"anthropic-messages"> {

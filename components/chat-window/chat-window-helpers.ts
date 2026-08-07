@@ -30,6 +30,22 @@ export function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Reco
 export const CHAT_RAIL_BTN_WIDTH = 36;
 export const CHAT_RAIL_WIDTH = CHAT_RAIL_BTN_WIDTH + 1; // + left divider
 export const CHAT_COLUMN_PADDING = 16;
+
+/**
+ * Forward vertical wheel from chrome outside the scroll owner (right rail /
+ * minimap) into `.chat-scroll-area`. Single owner: only mutates that element's
+ * scrollTop — no second scroller.
+ */
+export function forwardWheelToScrollContainer(
+  el: HTMLElement | null | undefined,
+  deltaY: number,
+  deltaMode = 0,
+): void {
+  if (!el || deltaY === 0) return;
+  // WheelEvent.deltaMode: 0=pixel, 1=line, 2=page. Manual scrollTop needs the same scaling the browser applies for overflow:auto.
+  const scale = deltaMode === 1 ? 16 : deltaMode === 2 ? el.clientHeight : 1;
+  el.scrollTop += deltaY * scale;
+}
 /** Cold open mounts only this many trailing render items synchronously; the
  * rest of the first page backfills on the next frame inside a transition. */
 export const FIRST_PAINT_RENDER_ITEMS = 20;

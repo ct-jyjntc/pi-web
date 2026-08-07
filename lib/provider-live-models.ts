@@ -446,20 +446,31 @@ export function withSubscriptionLiveModelList(provider: Provider): Provider {
     refreshModels: (context: RefreshModelsContext) => {
       inflight ??= (async () => {
         try {
-          const stored = await context.store.read();
-          if (stored?.models?.length) {
-            dynamicModels = stored.models.filter((m) => m.provider === provider.id) as AnyModel[];
+          // Pi 0.84: restore from context.stored, mutate memory via publish().
+          if (context.stored?.models?.length) {
+            const restored = context.stored.models.filter((m) => m.provider === provider.id) as AnyModel[];
+            if (!(await context.publish({
+              update: () => {
+                dynamicModels = restored;
+              },
+            }))) {
+              return;
+            }
           }
-          if (!context.allowNetwork || context.signal?.aborted) return;
+          if (!context.allowNetwork || context.signal.aborted) return;
 
           try {
             const live = await fetchSubscriptionLiveModels(provider, {
               credential: context.credential,
               signal: context.signal,
             });
-            if (context.signal?.aborted) return;
-            dynamicModels = live;
-            await context.store.write({ models: live, checkedAt: Date.now() });
+            if (context.signal.aborted) return;
+            await context.publish({
+              persist: { models: live, checkedAt: Date.now() },
+              update: () => {
+                dynamicModels = live;
+              },
+            });
           } catch (error) {
             console.warn(
               `[provider-live-models] ${provider.id} live models failed; using static/store`,

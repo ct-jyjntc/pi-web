@@ -51,21 +51,28 @@ import {
   SLASH_SOURCE_ORDER,
   SLASH_SOURCES,
   THINKING_LEVEL_KEYS,
+  canRestoreUserMessage,
   compareModelOptions,
   draftImagesToAttachedImages,
   filterModelOptions,
+  getUserMessageDraftImages,
+  getUserMessageText,
   imageToDraftImage,
   revokeImagePreview,
   slashMatchRank,
   type ModelOption,
   type SlashCommandPaletteItem,
   type SlashCommandSource,
-} from "./chat-input/chat-input-shared";
-import { parseAgentMode, type AgentMode } from "@/lib/agent-mode";
+} from "./chat-input/chat-input-shared";import { parseAgentMode, type AgentMode } from "@/lib/agent-mode";
 import { apiFetch } from "@/lib/api-transport";
 
-// Re-export for any external test/import of the pure filter helper.
-export { filterModelOptions } from "./chat-input/chat-input-shared";
+// Re-export pure helpers for tests / external callers.
+export {
+  canRestoreUserMessage,
+  filterModelOptions,
+  getUserMessageDraftImages,
+  getUserMessageText,
+} from "./chat-input/chat-input-shared";
 
 interface Props {
   onSend: (message: string, images?: AttachedImage[]) => void;
@@ -197,6 +204,25 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (current.trim()) return;
       setValue(text);
       setAtQuery(null);
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    },
+    replaceMessage(message) {
+      const ta = textareaRef.current;
+      const current = ta ? ta.value : value;
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+
+      setValue(getUserMessageText(message));
+      setAtQuery(null);
+      setHistoryMenuOpen(false);
+      setAttachedImages((prev) => {
+        prev.forEach(revokeImagePreview);
+        return draftImagesToAttachedImages(getUserMessageDraftImages(message));
+      });
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();

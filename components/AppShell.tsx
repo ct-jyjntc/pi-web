@@ -125,6 +125,8 @@ export function AppShell() {
     return () => window.clearTimeout(timer);
   }, []);
   // Electron immersive chrome: mark html so CSS can pad under traffic lights / enable drag.
+  // Also toggle pi-desktop-fullscreen so macOS can drop --traffic-lights-pad when the
+  // system chrome no longer occupies the top-left (enter/leave-full-screen).
   useEffect(() => {
     const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
     if (!desktop?.isDesktop) return;
@@ -139,8 +141,27 @@ export function AppShell() {
             : null;
     root.classList.add("pi-desktop");
     if (platformClass) root.classList.add(platformClass);
+
+    const applyFullscreen = (fullscreen: boolean) => {
+      root.classList.toggle("pi-desktop-fullscreen", fullscreen);
+    };
+    applyFullscreen(false);
+    void desktop.windowState?.().then((state) => {
+      applyFullscreen(Boolean(state?.fullscreen));
+    }).catch(() => {});
+    const unsub = desktop.onWindowStateChange?.((state) => {
+      applyFullscreen(Boolean(state?.fullscreen));
+    });
+
     return () => {
-      root.classList.remove("pi-desktop", "pi-desktop-mac", "pi-desktop-win", "pi-desktop-linux");
+      unsub?.();
+      root.classList.remove(
+        "pi-desktop",
+        "pi-desktop-mac",
+        "pi-desktop-win",
+        "pi-desktop-linux",
+        "pi-desktop-fullscreen",
+      );
     };
   }, []);
 

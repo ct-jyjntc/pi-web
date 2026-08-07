@@ -355,20 +355,18 @@ function staticModels(): Model<"openai-completions">[] {
 async function fetchTokenRhythmModels(
   context: RefreshModelsContext,
 ): Promise<readonly Model<"openai-completions">[]> {
+  // createProvider owns restore/publish; only return the next overlay catalog.
+  const storedModels = (context.stored?.models ?? []).filter(
+    (m): m is Model<"openai-completions"> =>
+      m.provider === TOKENRHYTHM_PROVIDER_ID && m.api === "openai-completions",
+  );
   if (!context.allowNetwork) {
-    const stored = await context.store.read();
-    if (stored?.models?.length) {
-      return stored.models.filter(
-        (m): m is Model<"openai-completions"> =>
-          m.provider === TOKENRHYTHM_PROVIDER_ID && m.api === "openai-completions",
-      );
-    }
-    return staticModels();
+    return storedModels.length ? storedModels : staticModels();
   }
 
   const controller = new AbortController();
   const onAbort = () => controller.abort();
-  context.signal?.addEventListener("abort", onAbort, { once: true });
+  context.signal.addEventListener("abort", onAbort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 12_000);
   try {
     const res = await fetch(TOKENRHYTHM_CATALOG_URL, {
@@ -385,22 +383,12 @@ async function fetchTokenRhythmModels(
       .map(toModel)
       .filter((m): m is Model<"openai-completions"> => !!m);
     if (models.length === 0) throw new Error("Empty catalog");
-    if (!context.signal?.aborted) {
-      await context.store.write({ models, checkedAt: Date.now() });
-    }
     return models;
   } catch {
-    const stored = await context.store.read();
-    if (stored?.models?.length) {
-      return stored.models.filter(
-        (m): m is Model<"openai-completions"> =>
-          m.provider === TOKENRHYTHM_PROVIDER_ID && m.api === "openai-completions",
-      );
-    }
-    return staticModels();
+    return storedModels.length ? storedModels : staticModels();
   } finally {
     clearTimeout(timeout);
-    context.signal?.removeEventListener("abort", onAbort);
+    context.signal.removeEventListener("abort", onAbort);
   }
 }
 

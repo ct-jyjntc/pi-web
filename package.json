@@ -153,10 +153,10 @@
     }
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.83.0",
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-coding-agent": "0.83.0",
-    "@earendil-works/pi-tui": "0.83.0",
+    "@earendil-works/pi-agent-core": "0.84.0",
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0",
     "@gotgenes/pi-permission-system": "24.0.0",
     "@gotgenes/pi-subagents": "19.2.1",
     "@lobehub/icons": "^5.6.0",
@@ -186,8 +186,8 @@
     "use-stick-to-bottom": "^1.1.6"
   },
   "optionalDependencies": {
-    "lightningcss-darwin-arm64": "^1.33.0",
-    "lightningcss-win32-x64-msvc": "^1.33.0"
+    "lightningcss-darwin-arm64": "1.32.0",
+    "lightningcss-win32-x64-msvc": "1.32.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",

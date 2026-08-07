@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, GitBranch, Undo2 } from "lucide-react";
+import { Check, ChevronDown, Copy, GitBranch, Undo2 } from "lucide-react";
 import { Icon } from "../Icon";
 import { MarkdownBody } from "../MarkdownBody";
 import { PreviewableImage } from "../PreviewableImage";
 import { copyText } from "@/lib/clipboard";
 import { useLocale } from "@/hooks/useLocale";
 import type { ImageContent, TextContent, UserMessage } from "@/lib/types";
+import { skillExpansionToCommand } from "@/lib/slash-display";
 import {
   USER_MSG_COLLAPSE_CHARS,
   USER_MSG_COLLAPSE_LINES,
@@ -18,6 +19,26 @@ import { MessageHoverShell } from "./MessageHoverShell";
 import { EditFromHereDialog, type EditFromHereMode } from "./EditFromHereDialog";
 import { apiFetch } from "@/lib/api-transport";
 
+/** Replace the first text block (or string content) while keeping image blocks. */
+export function replaceUserMessageText(message: UserMessage, text: string): UserMessage {
+  if (typeof message.content === "string") return { ...message, content: text };
+
+  const content: Array<TextContent | ImageContent> = [];
+  let replaced = false;
+  for (const block of message.content) {
+    if (block.type !== "text") {
+      content.push(block);
+      continue;
+    }
+    if (!replaced) {
+      content.push({ ...block, text });
+      replaced = true;
+    }
+  }
+  if (!replaced) content.unshift({ type: "text", text });
+  return { ...message, content };
+}
+
 export function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, sessionId }: {
   message: UserMessage;
   cwd?: string;
@@ -27,12 +48,13 @@ export function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, for
   forking?: boolean;
   onNavigate?: (entryId: string) => void;
   prevAssistantEntryId?: string;
-  onEditContent?: (content: string) => void;
+  onEditContent?: (message: UserMessage) => void;
   sessionId?: string;
 }) {
   const { t } = useLocale();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [skillExpanded, setSkillExpanded] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -51,12 +73,23 @@ export function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, for
       ? []
       : contentBlocks.filter((b): b is ImageContent => b.type === "image");
 
+  const commandText = skillExpansionToCommand(content);
+  const commandSeparator = commandText?.search(/\s/) ?? -1;
+  const commandName = commandText
+    ? (commandSeparator === -1 ? commandText : commandText.slice(0, commandSeparator))
+    : "";
+  const commandArgs = commandText && commandSeparator !== -1
+    ? commandText.slice(commandSeparator + 1)
+    : "";
+
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
+  const copyTarget = commandText ?? content;
+  const editTarget = commandText ? replaceUserMessageText(message, commandText) : message;
   const lineCount = content ? content.split("\n").length : 0;
   const isLong =
-    content.length > USER_MSG_COLLAPSE_CHARS || lineCount > USER_MSG_COLLAPSE_LINES;
+    !commandText && (content.length > USER_MSG_COLLAPSE_CHARS || lineCount > USER_MSG_COLLAPSE_LINES);
   const showCollapsed = isLong && !expanded;
   const collapsedPreview = content
     .split("\n")
@@ -64,8 +97,26 @@ export function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, for
     .join("\n")
     .slice(0, USER_MSG_COLLAPSE_CHARS);
 
+  const imageBlocksNode = imageBlocks.length > 0 && (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content || commandText ? 8 : 0 }}>
+      {imageBlocks.map((img, i) => {
+        const src = imageSource(img);
+        if (!src) return null;
+        return (
+          <PreviewableImage
+            key={i}
+            src={src}
+            alt=""
+            className="chat-sent-image"
+            previewLabel={t("msg.imagePreview")}
+          />
+        );
+      })}
+    </div>
+  );
+
   const copyContent = () => {
-    copyText(content).then(() => {
+    copyText(copyTarget).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -74,7 +125,7 @@ export function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, for
   const applyEditOnly = () => {
     if (!prevAssistantEntryId || !onNavigate) return;
     onNavigate(prevAssistantEntryId);
-    onEditContent?.(content);
+    onEditContent?.(editTarget);
   };
 
   const handleEditFromHereChoice = async (mode: EditFromHereMode) => {
@@ -242,79 +293,126 @@ export function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, for
               wordBreak: "break-word",
             }}
           >
-            {imageBlocks.length > 0 && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
-                {imageBlocks.map((img, i) => {
-                  const src = imageSource(img);
-                  if (!src) return null;
-                  return (
-                    <PreviewableImage
-                      key={i}
-                      src={src}
-                      alt=""
-                      className="chat-sent-image"
-                      previewLabel={t("msg.imagePreview")}
-                    />
-                  );
-                })}
-              </div>
-            )}
-            {content && (
-              showCollapsed ? (
-                <div>
-                  <div
-                    style={{
-                      maxHeight: 140,
-                      overflow: "hidden",
-                      position: "relative",
-                      maskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
-                      WebkitMaskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
-                    }}
-                  >
-                    <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>
-                      {collapsedPreview}
-                    </MarkdownBody>
-                  </div>
+            {commandText ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                {imageBlocksNode}
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <button
                     type="button"
-                    onClick={() => setExpanded(true)}
+                    onClick={() => setSkillExpanded((prev) => !prev)}
+                    title={skillExpanded ? t("msg.collapse") : t("msg.expand")}
+                    aria-expanded={skillExpanded}
                     style={{
-                      marginTop: 6,
-                      padding: "2px 0",
-                      border: "none",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      flexShrink: 0,
+                      padding: 0,
                       background: "none",
-                      color: "var(--text-muted)",
+                      border: "none",
                       cursor: "pointer",
-                      fontSize: 12,
-                      fontWeight: 500,
+                      color: "var(--accent)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 13,
+                      textAlign: "left",
                     }}
                   >
-                    {t("msg.showMore")}
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
-                  {isLong && (
-                    <button
-                      type="button"
-                      onClick={() => setExpanded(false)}
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {commandName}
+                    </span>
+                    <Icon
+                      icon={ChevronDown}
+                      size={11}
+                      strokeWidth={2}
                       style={{
-                        marginTop: 6,
-                        padding: "2px 0",
-                        border: "none",
-                        background: "none",
-                        color: "var(--text-muted)",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        fontWeight: 500,
+                        flexShrink: 0,
+                        opacity: 0.75,
+                        transform: skillExpanded ? "rotate(180deg)" : "none",
+                        transition: "transform 0.15s",
                       }}
-                    >
-                      {t("msg.showLess")}
-                    </button>
+                    />
+                  </button>
+                  {commandArgs && (
+                    <span style={{
+                      color: "var(--text)",
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      minWidth: 0,
+                      flex: 1,
+                    }}>
+                      {commandArgs}
+                    </span>
                   )}
                 </div>
-              )
+                {skillExpanded && (
+                  <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>
+                    {content}
+                  </MarkdownBody>
+                )}
+              </div>
+            ) : (
+              <>
+                {imageBlocksNode}
+                {content && (
+                  showCollapsed ? (
+                    <div>
+                      <div
+                        style={{
+                          maxHeight: 140,
+                          overflow: "hidden",
+                          position: "relative",
+                          maskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
+                          WebkitMaskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
+                        }}
+                      >
+                        <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>
+                          {collapsedPreview}
+                        </MarkdownBody>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setExpanded(true)}
+                        style={{
+                          marginTop: 6,
+                          padding: "2px 0",
+                          border: "none",
+                          background: "none",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontWeight: 500,
+                        }}
+                      >
+                        {t("msg.showMore")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
+                      {isLong && (
+                        <button
+                          type="button"
+                          onClick={() => setExpanded(false)}
+                          style={{
+                            marginTop: 6,
+                            padding: "2px 0",
+                            border: "none",
+                            background: "none",
+                            color: "var(--text-muted)",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            fontWeight: 500,
+                          }}
+                        >
+                          {t("msg.showLess")}
+                        </button>
+                      )}
+                    </div>
+                  )
+                )}
+              </>
             )}
           </div>
         </div>

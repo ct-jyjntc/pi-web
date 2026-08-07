@@ -39,6 +39,7 @@ export async function POST(req: Request, { params }: Params) {
     // get the credential without an unbounded network catalog refresh that can
     // leave the save request hanging.
     const credential = await apiKeyAuth.login({
+      signal: req.signal,
       notify: () => {},
       prompt: async (prompt) => {
         if (prompt.type === "select") {

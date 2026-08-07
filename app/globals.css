@@ -154,6 +154,12 @@ html.pi-desktop.pi-desktop-mac {
   --sidebar-width: 272px;
 }
 
+/* macOS fullscreen: system traffic lights leave the layout (menu bar auto-hide).
+   Drop the reserved pad so the sidebar title row can use the full width. */
+html.pi-desktop.pi-desktop-mac.pi-desktop-fullscreen {
+  --traffic-lights-pad: 0px;
+}
+
 html.pi-desktop.pi-desktop-win,
 html.pi-desktop.pi-desktop-linux {
   --titlebar-height: 36px;

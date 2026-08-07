@@ -5,6 +5,7 @@ import type { SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { ChatDraftImage } from "@/lib/draft-store";
 import type { MessageKey } from "@/lib/i18n/messages";
 import type { AttachedImage } from "@/lib/chat-input-types";
+import type { TextContent, UserMessage } from "@/lib/types";
 import {
   MAX_ATTACHED_IMAGES,
   isBase64ImageWithinLimits,
@@ -124,5 +125,39 @@ export function revokeImagePreview(image: AttachedImage): void {
   if (image.previewUrl.startsWith("blob:")) {
     URL.revokeObjectURL(image.previewUrl);
   }
+}
+
+/** True when the composer has no typed text and no attachments/pending uploads. */
+export function canRestoreUserMessage(
+  value: string,
+  attachedImageCount: number,
+  pendingImageCount: number,
+): boolean {
+  return !value.trim() && attachedImageCount === 0 && pendingImageCount === 0;
+}
+
+export function getUserMessageText(message: UserMessage): string {
+  if (typeof message.content === "string") return message.content;
+  return message.content
+    .filter((block): block is TextContent => block.type === "text")
+    .map((block) => block.text)
+    .join("\n");
+}
+
+/** Extract draftable base64 images from a historical user message (nested or flat pi-ai shape). */
+export function getUserMessageDraftImages(message: UserMessage): ChatDraftImage[] {
+  if (typeof message.content === "string") return [];
+  return message.content.flatMap((block) => {
+    if (block.type !== "image") return [];
+
+    // Support both the current nested image format and older flat pi-ai entries.
+    const flat = block as unknown as { data?: unknown; mimeType?: unknown };
+    const data = block.source?.type === "base64" ? block.source.data : flat.data;
+    const mimeType = block.source?.type === "base64" ? block.source.media_type : flat.mimeType;
+    if (typeof data !== "string" || typeof mimeType !== "string") return [];
+
+    const image = { data, mimeType };
+    return isBase64ImageWithinLimits(image) ? [image] : [];
+  });
 }
 

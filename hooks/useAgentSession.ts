@@ -57,6 +57,11 @@ import { applyExtensionUiRequest } from "@/lib/agent-session-extension-ui";
 import { parseSlashCommandLine } from "@/lib/agent-session-slash-parse";
 import { handleAgentSessionEvent } from "@/lib/agent-session-handle-event";
 import {
+  loadCustomSlashCommands,
+  loadSkillSlashCommands,
+  mergeSlashCommandLists,
+} from "@/lib/slash-commands-load";
+import {
   cancelEventStreamGrace as cancelEventStreamGraceImpl,
   closeEventSource,
   connectEventSource,
@@ -522,47 +527,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, thinkingLevel, sessionMode]);
 
-  const loadCustomSlashCommands = useCallback(async (cwdValue: string | null | undefined): Promise<SlashCommandInfo[]> => {
-    if (!cwdValue) return [];
-    try {
-      const res = await apiFetch(`/api/commands?cwd=${encodeURIComponent(cwdValue)}`);
-      if (!res.ok) return [];
-      const body = await res.json() as { commands?: Array<{ name: string; description?: string; args: string[]; source: "user" | "project" }> };
-      return (body.commands ?? []).map((c) => ({
-        name: c.name,
-        description: c.description || (c.args.length > 0 ? `args: ${c.args.join(", ")}` : "Custom command"),
-        source: "custom" as const,
-        sourceInfo: {
-          path: cwdValue,
-          source: c.source,
-          scope: "project" as const,
-          origin: "top-level" as const,
-        },
-      }));
-    } catch {
-      // Custom commands are best-effort.
-      return [];
-    }
-  }, []);
-
   const loadSlashCommands = useCallback(async () => {
     // Do not ensure_session just to populate the slash palette. That persists an
     // empty .jsonl (model/thinking only) which used to show as "(no messages)".
-    // Builtins are client-side; custom commands only need cwd. Extension/prompt/
-    // skill commands load once a real session already exists.
+    // Builtins are client-side; custom + skills only need cwd (light routes).
+    // Extension/prompt commands still need a live session (get_commands).
     const sid = sessionIdRef.current;
     const cwdValue = session?.cwd ?? newSessionCwd;
     setSlashCommandsLoading(true);
     try {
-      const custom = await loadCustomSlashCommands(cwdValue);
+      const [custom, skills] = await Promise.all([
+        loadCustomSlashCommands(cwdValue),
+        loadSkillSlashCommands(cwdValue),
+      ]);
       if (!sid) {
-        setSlashCommands(custom);
-        return custom;
+        const light = mergeSlashCommandLists(custom, [], skills) as SlashCommandInfo[];
+        setSlashCommands(light);
+        return light;
       }
-      const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
-      const merged = [...custom, ...(data?.commands ?? [])];
-      setSlashCommands(merged);
-      return merged;
+      try {
+        const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
+        const merged = mergeSlashCommandLists(custom, data?.commands ?? [], skills) as SlashCommandInfo[];
+        setSlashCommands(merged);
+        return merged;
+      } catch (sessionErr) {
+        console.error("Failed to load session slash commands:", sessionErr);
+        const light = mergeSlashCommandLists(custom, [], skills) as SlashCommandInfo[];
+        setSlashCommands(light);
+        return light;
+      }
     } catch (e) {
       console.error("Failed to load slash commands:", e);
       setSlashCommands([]);
@@ -570,7 +563,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       setSlashCommandsLoading(false);
     }
-  }, [loadCustomSlashCommands, newSessionCwd, session?.cwd]);
+  }, [newSessionCwd, session?.cwd]);
 
   const getEventSourceCtx = useCallback((): AgentEventSourceContext => ({
     eventSourceRef,

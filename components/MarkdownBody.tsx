@@ -17,6 +17,7 @@ import {
   markdownRehypePlugins,
   markdownRemarkPlugins,
   MARKDOWN_MATH_PATTERN,
+  normalizeDisplayMath,
   type MarkdownRehypePlugin,
   type MarkdownRehypePlugins,
 } from "@/lib/markdown";
@@ -253,34 +254,6 @@ function splitStreamingMarkdown(markdown: string): StreamingSplit {
   };
 }
 
-function normalizeDisplayMath(markdown: string): string {
-  const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
-  const lines = markdown.split(/\r?\n/);
-  let fence: { marker: string; size: number } | null = null;
-
-  return lines
-    .map((line) => {
-      const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-      if (fenceMatch) {
-        const marker = fenceMatch[1][0];
-        const size = fenceMatch[1].length;
-        if (!fence) fence = { marker, size };
-        else if (marker === fence.marker && size >= fence.size) fence = null;
-        return line;
-      }
-
-      if (fence) return line;
-
-      const displayMathMatch = line.match(/^([ \t]{0,3})\$\$(.+)\$\$[ \t]*$/);
-      if (!displayMathMatch) return line;
-
-      const math = displayMathMatch[2].trim();
-      if (!math) return line;
-
-      return `${displayMathMatch[1]}$$${lineBreak}${math}${lineBreak}${displayMathMatch[1]}$$`;
-    })
-    .join(lineBreak);
-}
 
 function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boolean }) {
   const { t } = useLocale();

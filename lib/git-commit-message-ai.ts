@@ -4,7 +4,10 @@ import { completeWithUtilityModel } from "./utility-model";
 import { readWebSettings } from "./web-settings";
 
 const AI_TIMEOUT_MS = 25_000;
-const AI_MAX_TOKENS = 220;
+// Do not pass a tight maxTokens: for reasoning models the SDK budget is shared
+// with thinking (see pi-ai adjustMaxTokensForThinking). A low cap (e.g. 220)
+// often yields stopReason=length with empty text blocks → "empty commit message".
+// Omitting maxTokens uses model.maxTokens and still reserves answer room.
 
 export type CommitMessageDraft = {
   message: string;
@@ -85,7 +88,6 @@ export async function draftCommitMessageWithAi(
         timestamp: Date.now(),
       }],
     }, {
-      maxTokens: AI_MAX_TOKENS,
       temperature: 0.2,
       timeoutMs: AI_TIMEOUT_MS,
       maxRetries: 0,

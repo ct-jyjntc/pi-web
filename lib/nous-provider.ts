@@ -146,7 +146,8 @@ const oauth: OAuthAuth = {
 };
 
 async function fetchModels(ctx: RefreshModelsContext): Promise<readonly Model<"openai-completions">[]> {
-  const stored = ((await ctx.store.read())?.models ?? []).filter(
+  // createProvider owns restore/publish; only return the next overlay catalog.
+  const stored = (ctx.stored?.models ?? []).filter(
     (m): m is Model<"openai-completions"> => m.provider === NOUS_PROVIDER_ID,
   );
   const token = ctx.credential?.type === "oauth" ? ctx.credential.access : "";
@@ -168,9 +169,6 @@ async function fetchModels(ctx: RefreshModelsContext): Promise<readonly Model<"o
     } catch {
       /* keep fallback / store */
     }
-  }
-  if (ctx.allowNetwork) {
-    await ctx.store.write({ models, checkedAt: Date.now() });
   }
   return models;
 }

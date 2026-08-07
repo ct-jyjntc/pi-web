@@ -42,9 +42,19 @@ declare global {
       windowMaximizeToggle?: () => Promise<{ maximized?: boolean } | void>;
       windowClose?: () => Promise<void>;
       windowIsMaximized?: () => Promise<boolean>;
-      windowState?: () => Promise<{ maximized?: boolean }>;
+      windowState?: () => Promise<{
+        maximized?: boolean;
+        minimized?: boolean;
+        focused?: boolean;
+        fullscreen?: boolean;
+      }>;
       onWindowStateChange?: (
-        callback: (state: { maximized?: boolean }) => void,
+        callback: (state: {
+          maximized?: boolean;
+          minimized?: boolean;
+          focused?: boolean;
+          fullscreen?: boolean;
+        }) => void,
       ) => () => void;
       notify?: (payload: { title: string; body: string; silent?: boolean; force?: boolean }) => Promise<{ ok?: boolean }>;
       notifyUiReady?: () => void;

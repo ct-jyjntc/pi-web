@@ -8,7 +8,7 @@
  * 4. Single-flight per provider so concurrent UI refreshes share one load.
  * 5. Always ends with models or a soft cache fallback.
  */
-import type { Api, Credential, Model, Provider, ProviderModelsStore } from "@earendil-works/pi-ai";
+import type { Api, Credential, Model, Provider } from "@earendil-works/pi-ai";
 
 type AnyModel = Model<Api>;
 
@@ -22,9 +22,7 @@ import {
   writeBuiltinProviderModelsCache,
 } from "./builtin-provider-models-cache";
 import {
-  fetchSubscriptionLiveModels,
   SUBSCRIPTION_LIVE_MODEL_PROVIDERS,
-  PROVIDER_LIVE_MODELS_TIMEOUT_MS,
 } from "./provider-live-models";
 
 export type BuiltinProviderCatalogMaterialize = {
@@ -87,120 +85,55 @@ async function credentialFor(providerId: string): Promise<Credential | undefined
 }
 
 /**
- * Live-fetch only this provider's models into models-store, then re-read via runtime.
- * Does not call modelRuntime.refresh({ allowNetwork: true }) (that would fan out).
+ * Live-fetch only this provider's models into the SDK models-store.
+ * Uses Models.refresh({ providers: [id] }) so we never fan out to every provider.
+ * Pi 0.84: store/publish is owned by the runtime — no hand-rolled ProviderModelsStore.
  */
 async function liveRefreshOneProvider(
   modelRuntime: {
     getProvider: (id: string) => Provider | undefined;
-    refresh: (opts?: { allowNetwork?: boolean; signal?: AbortSignal }) => Promise<unknown>;
+    refresh: (opts?: {
+      allowNetwork?: boolean;
+      force?: boolean;
+      providers?: readonly string[];
+      signal?: AbortSignal;
+    }) => Promise<{ aborted: boolean; errors: ReadonlyMap<string, Error> }>;
   },
   providerId: string,
   signal?: AbortSignal,
 ): Promise<{ live: boolean; warning?: string }> {
   const provider = modelRuntime.getProvider(providerId);
   if (!provider) return { live: false };
+  if (typeof provider.refreshModels !== "function") return { live: false };
 
-  // Prefer the provider's own refreshModels (Nous/MiniMax/AtomGit/Kimi wrappers).
-  // That path owns rich /models parsing. Do NOT short-circuit
-  // first-party providers through bare id-only fetchSubscriptionLiveModels.
-  if (typeof provider.refreshModels === "function") {
-    const credential = await credentialFor(providerId);
-    if (!credential && SUBSCRIPTION_LIVE_MODEL_PROVIDERS.has(providerId)) {
-      return { live: false, warning: "Not signed in; showing static catalog" };
-    }
-    try {
-      const { join, dirname } = await import("node:path");
-      const { getAgentDir } = await import("./agent-dir");
-      const { readFileSync, writeFileSync, existsSync, mkdirSync } = await import("node:fs");
-      const storePath = join(getAgentDir(), "models-store.json");
-
-      const store: ProviderModelsStore = {
-        async read() {
-          if (!existsSync(storePath)) return undefined;
-          try {
-            const file = JSON.parse(readFileSync(storePath, "utf8")) as Record<
-              string,
-              { models?: AnyModel[]; checkedAt?: number }
-            >;
-            const entry = file[providerId];
-            if (!entry?.models) return undefined;
-            return { models: entry.models, checkedAt: entry.checkedAt };
-          } catch {
-            return undefined;
-          }
-        },
-        async write(entry) {
-          let file: Record<string, unknown> = {};
-          if (existsSync(storePath)) {
-            try {
-              file = JSON.parse(readFileSync(storePath, "utf8")) as Record<string, unknown>;
-            } catch {
-              file = {};
-            }
-          }
-          file[providerId] = entry;
-          mkdirSync(dirname(storePath), { recursive: true });
-          writeFileSync(storePath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-        },
-        async delete() {
-          /* unused */
-        },
-      };
-
-      await provider.refreshModels({
-        credential,
-        store,
-        allowNetwork: true,
-        force: true,
-        signal,
-      });
-      await modelRuntime.refresh({ allowNetwork: false, signal });
-      return { live: true };
-    } catch (error) {
-      return {
-        live: false,
-        warning: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  // Fallback: id-list fetch for providers without refreshModels.
   if (SUBSCRIPTION_LIVE_MODEL_PROVIDERS.has(providerId)) {
     const credential = await credentialFor(providerId);
-    if (!credential) return { live: false, warning: "Not signed in; showing static catalog" };
-    try {
-      const liveModels = await fetchSubscriptionLiveModels(provider, {
-        credential,
-        signal,
-        timeoutMs: PROVIDER_LIVE_MODELS_TIMEOUT_MS,
-      });
-      const { join, dirname } = await import("node:path");
-      const { getAgentDir } = await import("./agent-dir");
-      const { readFileSync, writeFileSync, existsSync, mkdirSync } = await import("node:fs");
-      const storePath = join(getAgentDir(), "models-store.json");
-      let file: Record<string, unknown> = {};
-      if (existsSync(storePath)) {
-        try {
-          file = JSON.parse(readFileSync(storePath, "utf8")) as Record<string, unknown>;
-        } catch {
-          file = {};
-        }
-      }
-      file[providerId] = { models: liveModels, checkedAt: Date.now() };
-      mkdirSync(dirname(storePath), { recursive: true });
-      writeFileSync(storePath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-      await modelRuntime.refresh({ allowNetwork: false, signal });
-      return { live: true };
-    } catch (error) {
-      return {
-        live: false,
-        warning: error instanceof Error ? error.message : String(error),
-      };
+    if (!credential) {
+      return { live: false, warning: "Not signed in; showing static catalog" };
     }
   }
 
-  return { live: false };
+  try {
+    const result = await modelRuntime.refresh({
+      allowNetwork: true,
+      force: true,
+      providers: [providerId],
+      signal,
+    });
+    if (result.aborted) {
+      return { live: false, warning: "Aborted" };
+    }
+    const err = result.errors.get(providerId);
+    if (err) {
+      return { live: false, warning: err.message };
+    }
+    return { live: true };
+  } catch (error) {
+    return {
+      live: false,
+      warning: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function materializeOnce(

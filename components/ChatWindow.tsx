@@ -2,7 +2,7 @@
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
 import { Fragment, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import type { AgentMessage, AssistantMessage, BashExecutionMessage, ToolResultMessage } from "@/lib/types";
+import type { AgentMessage, AssistantMessage, BashExecutionMessage, ToolResultMessage, UserMessage } from "@/lib/types";
 import { isHiddenContextMessage } from "@/lib/message-display";
 import { ArrowDown } from "lucide-react";
 import { MessageView } from "./MessageView";
@@ -31,6 +31,7 @@ import {
   CHAT_COLUMN_PADDING,
   CHAT_RAIL_BTN_WIDTH,
   CHAT_RAIL_WIDTH,
+  forwardWheelToScrollContainer,
   FIRST_PAINT_RENDER_ITEMS,
   LIVE_TAIL_RENDER_ITEMS,
   SCROLL_SETTLE_MAX_FRAMES,
@@ -211,8 +212,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [newSessionCwd, onAgentEnd, session?.cwd, session?.id, t]);
 
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
-  const handleEditContent = useCallback((content: string) => {
-    chatInputRef?.current?.insertIfEmpty(content);
+  const handleEditContent = useCallback((message: UserMessage) => {
+    chatInputRef?.current?.replaceMessage(message);
   }, [chatInputRef]);
 
   const {
@@ -1141,10 +1142,15 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         </div>
 
         {/* Full-height right rail: same width grammar as topbar file-panel control
-            (1px chrome-divider + 36px icon column). */}
+            (1px chrome-divider + 36px icon column). Outside the scroll owner —
+            forward wheel so minimap/empty rail/jump button still scroll the transcript. */}
         {isMobile ? null : (
           <div
             className="chat-scroll-rail"
+            onWheel={(e) => {
+              if (e.deltaY === 0) return;
+              forwardWheelToScrollContainer(scrollContainerRef.current, e.deltaY, e.deltaMode);
+            }}
             style={{
               width: CHAT_RAIL_WIDTH,
               flexShrink: 0,

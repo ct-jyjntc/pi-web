@@ -310,8 +310,8 @@ async function fetchGatewayModels(
 async function fetchAtomGitModels(
   context: RefreshModelsContext,
 ): Promise<readonly Model<"openai-completions">[]> {
-  const stored = await context.store.read();
-  const storedModels = (stored?.models ?? []).filter(
+  // createProvider owns restore/publish; only return the next overlay catalog.
+  const storedModels = (context.stored?.models ?? []).filter(
     (m): m is Model<"openai-completions"> => m.provider === ATOMGIT_PROVIDER_ID && m.api === "openai-completions",
   );
 
@@ -320,20 +320,16 @@ async function fetchAtomGitModels(
 
   const controller = new AbortController();
   const onAbort = () => controller.abort();
-  context.signal?.addEventListener("abort", onAbort, { once: true });
+  context.signal.addEventListener("abort", onAbort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 12_000);
   try {
-    const models = await fetchGatewayModels(token, controller.signal);
-    if (!context.signal?.aborted) {
-      await context.store.write({ models, checkedAt: Date.now() });
-    }
-    return models;
+    return await fetchGatewayModels(token, controller.signal);
   } catch {
     // Soft-fail with the last stored catalog; the login/refresh UI reports live=false.
     return storedModels;
   } finally {
     clearTimeout(timeout);
-    context.signal?.removeEventListener("abort", onAbort);
+    context.signal.removeEventListener("abort", onAbort);
   }
 }
 
