@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { copyText } from "@/lib/clipboard";
+import { shouldDismissMenuOnScroll } from "@/lib/menu-dismiss";
 import { useLocale } from "@/hooks/useLocale";
 
 export type ComposerMenuAction = "cut" | "copy" | "paste" | "selectAll" | "clear";
@@ -99,13 +100,16 @@ export function ComposerContextMenu({
     const onPointer = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
+    const onScroll = (event: Event) => {
+      if (shouldDismissMenuOnScroll(event, ref.current)) onClose();
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onPointer, true);
-    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onPointer, true);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [onClose]);
 

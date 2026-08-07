@@ -7,6 +7,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
+import { shouldDismissMenuOnScroll } from "@/lib/menu-dismiss";
 
 export type SessionMenuAction =
   | "rename"
@@ -86,13 +87,18 @@ export function SessionItemMenu({
     const onPointer = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
+    // Capture-phase scroll: close when the sidebar/list moves, but not when the
+    // chat transcript auto-scrolls during streaming (that was dismissing menus).
+    const onScroll = (event: Event) => {
+      if (shouldDismissMenuOnScroll(event, ref.current)) onClose();
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onPointer, true);
-    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onPointer, true);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [onClose]);
 

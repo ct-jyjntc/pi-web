@@ -25,6 +25,7 @@ export const SessionItem = memo(function SessionItem({
   onClick,
   onRenamed,
   onDeleted,
+  onDeleteSettled,
   depth = 0,
   hasChildren = false,
   collapsed = false,
@@ -36,7 +37,10 @@ export const SessionItem = memo(function SessionItem({
   isUnread?: boolean;
   onClick: () => void;
   onRenamed?: (sessionId?: string, name?: string) => void;
+  /** Optimistic start — parent removes the row and tracks pending id. */
   onDeleted?: (id: string) => void;
+  /** After DELETE finishes — parent force-refreshes once (ok) or restores (fail). */
+  onDeleteSettled?: (id: string, ok: boolean) => void;
   depth?: number;
   hasChildren?: boolean;
   collapsed?: boolean;
@@ -82,16 +86,18 @@ export const SessionItem = memo(function SessionItem({
   const performDelete = useCallback(async () => {
     setMenuOpen(false);
     setDeleting(true);
-    // Optimistic: remove from the list immediately. Parent also force-refreshes
-    // with ?fresh=1 because light/heavy caches are not shared.
+    // Optimistic remove only — do NOT force-reload until DELETE finishes; mid-delete
+    // disk scans re-insert the row (often at top by modified) until manual refresh.
     onDeleted?.(session.id);
     try {
-      await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      onDeleteSettled?.(session.id, res.ok);
+      if (!res.ok) setDeleting(false);
     } catch {
-      // Parent force-reload will restore the row if the file is still on disk.
+      onDeleteSettled?.(session.id, false);
       setDeleting(false);
     }
-  }, [session.id, onDeleted]);
+  }, [session.id, onDeleted, onDeleteSettled]);
 
   const handleGenerateTitle = useCallback(async () => {
     if (!canGenerateTitle || naming) return;

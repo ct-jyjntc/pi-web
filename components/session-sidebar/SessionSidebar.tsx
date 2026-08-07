@@ -127,8 +127,13 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+  /** User-deleted ids kept out of list applies until DELETE settles (or fail restores). */
+  const pendingDeletedIdsRef = useRef<Set<string>>(new Set());
+  /** Monotonic load generation — late responses must not overwrite newer applies. */
+  const loadSessionsGenRef = useRef(0);
 
   const loadSessions = useCallback(async (showLoading = false, options?: { force?: boolean }) => {
+    const gen = ++loadSessionsGenRef.current;
     try {
       if (showLoading) setLoading(true);
       // After delete/rename, force a disk rescan on the light runtime (its
@@ -136,7 +141,18 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
       const res = await apiFetch(options?.force ? "/api/sessions?fresh=1" : "/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
-      setAllSessions(data.sessions);
+      if (gen !== loadSessionsGenRef.current) return;
+      const pending = pendingDeletedIdsRef.current;
+      const sessions = pending.size > 0
+        ? data.sessions.filter((s) => !pending.has(s.id))
+        : data.sessions;
+      // Drop pending tombstones once the server no longer lists them.
+      if (pending.size > 0) {
+        for (const id of [...pending]) {
+          if (!data.sessions.some((s) => s.id === id)) pending.delete(id);
+        }
+      }
+      setAllSessions(sessions);
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
@@ -146,7 +162,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         });
       }
       // Drop unread markers for sessions that no longer exist (e.g. deleted).
-      const existingIds = new Set(data.sessions.map((s) => s.id));
+      const existingIds = new Set(sessions.map((s) => s.id));
       setUnreadSessionIds((prev) => {
         if (prev.size === 0) return prev;
         const next = new Set([...prev].filter((id) => existingIds.has(id)));
@@ -159,9 +175,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
       }
     } catch (e) {
+      if (gen !== loadSessionsGenRef.current) return;
       setError(String(e));
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading && gen === loadSessionsGenRef.current) setLoading(false);
     }
   }, []);
 
@@ -627,7 +644,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   }, [loadSessions, onSessionRenamed]);
 
   const handleSessionDeletedFromList = useCallback((id: string) => {
-    // Optimistic remove — do not wait for light list cache / heavy DELETE round-trip.
+    // Optimistic remove + pending tombstone. Do NOT force-reload here: heavy DELETE
+    // may still be reparenting/unlinking, and light ?fresh=1 would reinsert the row
+    // (often at top by modified) until a later manual refresh.
+    pendingDeletedIdsRef.current.add(id);
     setAllSessions((prev) => prev.filter((s) => s.id !== id));
     setUnreadSessionIds((prev) => {
       if (!prev.has(id)) return prev;
@@ -636,8 +656,17 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
       return next;
     });
     onSessionDeleted?.(id);
+  }, [onSessionDeleted]);
+
+  const handleSessionDeleteSettled = useCallback((id: string, ok: boolean) => {
+    if (!ok) {
+      // Failed DELETE — allow the next force scan to restore the row.
+      pendingDeletedIdsRef.current.delete(id);
+    }
+    // One post-settlement force reload (light cache bypass). Pending filter still
+    // hides id until the server list no longer includes it.
     void loadSessions(false, { force: true });
-  }, [onSessionDeleted, loadSessions]);
+  }, [loadSessions]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -1100,6 +1129,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                 onSelectSession={handleSelectSessionFromList}
                 onRenamed={handleSessionRenamed}
                 onSessionDeleted={handleSessionDeletedFromList}
+                onSessionDeleteSettled={handleSessionDeleteSettled}
                 depth={0}
               />
             ))}

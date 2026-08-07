@@ -539,7 +539,8 @@ export function AppShell() {
   }, []);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
-    setRefreshKey((k) => k + 1);
+    // Selection only — SessionSidebar owns list reload after DELETE settles.
+    // Bumping refreshKey here raced mid-delete disk scans and reinserted the row.
     if (selectedSession?.id === sessionId) {
       const cwd = selectedSession.cwd;
       setSelectedSession(null);

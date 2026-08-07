@@ -6,6 +6,7 @@
  * Text-only items (no icons) by product preference.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { shouldDismissMenuOnScroll } from "@/lib/menu-dismiss";
 
 export type ExplorerMenuAction =
   | "newFile"
@@ -63,14 +64,17 @@ export function FileExplorerContextMenu({ x, y, items, onAction, onClose }: Prop
     const onPointer = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
+    const onScroll = (event: Event) => {
+      if (shouldDismissMenuOnScroll(event, ref.current)) onClose();
+    };
     // Capture so row click handlers don't steal the dismiss.
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onPointer, true);
-    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onPointer, true);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [onClose]);
 

@@ -13,6 +13,7 @@ export const SessionTreeItem = memo(function SessionTreeItem({
   onSelectSession,
   onRenamed,
   onSessionDeleted,
+  onSessionDeleteSettled,
   depth,
 }: {
   node: SessionTreeNode;
@@ -22,6 +23,7 @@ export const SessionTreeItem = memo(function SessionTreeItem({
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: (sessionId?: string, name?: string) => void;
   onSessionDeleted?: (id: string) => void;
+  onSessionDeleteSettled?: (id: string, ok: boolean) => void;
   depth: number;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -54,6 +56,7 @@ export const SessionTreeItem = memo(function SessionTreeItem({
           onClick={handleClick}
           onRenamed={onRenamed}
           onDeleted={onSessionDeleted}
+          onDeleteSettled={onSessionDeleteSettled}
           depth={depth}
           hasChildren={hasChildren}
           collapsed={collapsed}
@@ -72,6 +75,7 @@ export const SessionTreeItem = memo(function SessionTreeItem({
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
               onSessionDeleted={onSessionDeleted}
+              onSessionDeleteSettled={onSessionDeleteSettled}
               depth={depth + 1}
             />
           ))}
