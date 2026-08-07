@@ -19,7 +19,6 @@ type UsageData = {
   range: { days: number; startDate: string };
   totals: {
     tokens: number;
-    cost: number;
     sessions: number;
     messages: number;
     activeDays: number;
@@ -60,9 +59,6 @@ function fmtTokens(n: number, locale: string): string {
   return String(n);
 }
 
-function fmtCost(n: number): string {
-  return `$${n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)}`;
-}
 
 function fmtDayLabel(date: string, locale: string): string {
   const [, m, d] = date.split("-").map(Number);
@@ -292,7 +288,6 @@ export function UsagePanel() {
               icon={<StatIcon icon={Flame} />}
               label={t("usage.tokens")}
               value={fmtTokens(data.totals.tokens, locale)}
-              sub={data.totals.cost > 0 ? fmtCost(data.totals.cost) : undefined}
             />
             <StatCard
               icon={<StatIcon icon={MessageSquare} />}

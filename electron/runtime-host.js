@@ -66,7 +66,6 @@ const LIGHT_PREFIXES = [
   "/api/lsp",
   // models-config subpaths verified free of ModelRuntime / SDK:
   "/api/models-config/free-models",
-  "/api/models-config/catalog",
   "/api/models-config/disabled-models",
   // provider-models without ?fresh=1 is routed in roleForPath (cache-only light).
   // NOT light: /model-overrides, /test, /discover (ModelRuntime)

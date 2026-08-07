@@ -4,7 +4,6 @@ import { join, dirname } from "path";
 import { getAgentDir } from "@/lib/agent-dir";
 import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { normalizeModelCost } from "@/lib/model-cost";
 
 export const dynamic = "force-dynamic";
 
@@ -46,8 +45,8 @@ export async function GET() {
   return NextResponse.json(result.data);
 }
 
-/** Ensure every model.cost has input/output/cacheRead/cacheWrite as numbers (default 0). */
-function normalizeProvidersCost(data: Record<string, unknown>): Record<string, unknown> {
+/** Strip legacy cost / catalog-lock fields from models.json on save. */
+function stripLegacyModelBilling(data: Record<string, unknown>): Record<string, unknown> {
   const providers = data.providers;
   if (!providers || typeof providers !== "object" || Array.isArray(providers)) return data;
   const nextProviders: Record<string, unknown> = {};
@@ -62,10 +61,8 @@ function normalizeProvidersCost(data: Record<string, unknown>): Record<string, u
       provider.models = models.map((rawModel) => {
         if (!rawModel || typeof rawModel !== "object" || Array.isArray(rawModel)) return rawModel;
         const model = { ...(rawModel as Record<string, unknown>) };
-        const cost = (model.cost && typeof model.cost === "object" && !Array.isArray(model.cost))
-          ? (model.cost as Record<string, unknown>)
-          : {};
-        model.cost = normalizeModelCost(cost);
+        delete model.cost;
+        delete model.thinkingMapLocked;
         return model;
       });
     }
@@ -77,7 +74,7 @@ function normalizeProvidersCost(data: Record<string, unknown>): Record<string, u
 export async function PUT(req: Request) {
   try {
     const body = await req.json() as Record<string, unknown>;
-    writeModelsJson(normalizeProvidersCost(body));
+    writeModelsJson(stripLegacyModelBilling(body));
     // Local process caches only. Utility runtime is SDK-backed — load lazily so
     // GET /api/models-config stays free of the agent package (light runtime).
     invalidateModelsCache();

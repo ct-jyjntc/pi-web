@@ -8,7 +8,20 @@ import { useLocale } from "@/hooks/useLocale";
 
 export function ReadOnlyValue({ children, mono = false }: { children: React.ReactNode; mono?: boolean }) {
   return (
-    <div className={`input-base${mono ? " input-mono" : ""}`} style={{ opacity: 0.85, cursor: "default" }}>
+    <div
+      className={`input-base${mono ? " input-mono" : ""}`}
+      style={{
+        opacity: 0.9,
+        cursor: "default",
+        pointerEvents: "none",
+        userSelect: "text",
+        background: "var(--bg-subtle)",
+        borderStyle: "dashed",
+        color: "var(--text-muted)",
+      }}
+      title="Locked (from provider catalog)"
+      aria-readonly="true"
+    >
       {children}
     </div>
   );

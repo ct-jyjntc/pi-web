@@ -36,7 +36,7 @@ import { Icon } from "../Icon";
 
 import { Check as CheckIcon, Cpu } from "lucide-react";
 
-import { normalizeModelCost } from "@/lib/model-cost";
+
 
 import { navRowClass } from "./form-fields";
 
@@ -73,6 +73,8 @@ import { OAuthDetail } from "./OAuthDetail";
 import { ApiKeyDetail } from "./ApiKeyDetail";
 
 import { AddProviderPicker } from "./AddProviderPicker";
+
+import { loadBuiltinProviderModelCatalog } from "./load-builtin-provider-models";
 
 import { apiFetch } from "@/lib/api-transport";
 
@@ -147,6 +149,9 @@ export function ModelsConfig({
   const savedConfigJsonRef = useRef<string>(JSON.stringify({ providers: {} }));
 
   const configRef = useRef(config);
+
+  /** Bumps when the built-in catalog load effect restarts so stale finally blocks no-op. */
+  const builtinModelsLoadGenRef = useRef(0);
 
   configRef.current = config;
 
@@ -546,7 +551,7 @@ export function ModelsConfig({
 
         ...(provider.models ?? []),
 
-        { id: "", cost: normalizeModelCost(null) },
+        { id: "" },
 
       ];
 
@@ -616,8 +621,7 @@ export function ModelsConfig({
 
     setSavedOk(false);
 
-    // Normalize every model cost so blank prices become 0 and all four keys exist.
-
+    // Normalize models (strip legacy cost fields, disabled flags).
     const providers = { ...(config.providers ?? {}) };
 
     for (const [name, provider] of Object.entries(providers)) {
@@ -760,7 +764,7 @@ export function ModelsConfig({
 
   // Built-in catalogs: local disk cache by default (light).
 
-  // First-time only (empty cache) -> one ?fresh=1. After that: manual refresh only.
+  // First-time only (empty cache) -> one timed ?fresh=1. After that: manual refresh only.
 
   useEffect(() => {
 
@@ -778,11 +782,13 @@ export function ModelsConfig({
 
     }
 
+    const gen = ++builtinModelsLoadGenRef.current;
+
+    const ac = new AbortController();
+
     setBuiltinModelsLoading(Object.fromEntries(ids.map((id) => [id, true])));
 
     setBuiltinModelsError(Object.fromEntries(ids.map((id) => [id, null])));
-
-    let cancelled = false;
 
     for (const id of ids) {
 
@@ -790,51 +796,25 @@ export function ModelsConfig({
 
         try {
 
-          let res = await apiFetch(
+          const { models, warning } = await loadBuiltinProviderModelCatalog(id, {
 
-            `/api/models-config/provider-models?provider=${encodeURIComponent(id)}`,
+            signal: ac.signal,
 
-          );
+          });
 
-          let data = await res.json() as {
-
-            models?: ProviderModelRow[];
-
-            error?: string;
-
-            cached?: boolean;
-
-          };
-
-          if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-
-          let models = Array.isArray(data.models) ? data.models : [];
-
-          if (models.length === 0) {
-
-            res = await apiFetch(
-
-              `/api/models-config/provider-models?provider=${encodeURIComponent(id)}&fresh=1`,
-
-            );
-
-            data = await res.json() as { models?: ProviderModelRow[]; error?: string };
-
-            if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-
-            models = Array.isArray(data.models) ? data.models : [];
-
-          }
-
-          if (cancelled) return;
+          if (builtinModelsLoadGenRef.current !== gen) return;
 
           setBuiltinModelsByProvider((prev) => ({ ...prev, [id]: models }));
 
-          setBuiltinModelsError((prev) => ({ ...prev, [id]: null }));
+          setBuiltinModelsError((prev) => ({ ...prev, [id]: warning ?? null }));
 
         } catch (e) {
 
-          if (cancelled) return;
+          if (builtinModelsLoadGenRef.current !== gen) return;
+
+          if (e instanceof DOMException && e.name === "AbortError") return;
+
+          if (e instanceof Error && e.name === "AbortError") return;
 
           setBuiltinModelsByProvider((prev) => ({ ...prev, [id]: prev[id] ?? [] }));
 
@@ -848,7 +828,11 @@ export function ModelsConfig({
 
         } finally {
 
-          if (!cancelled) {
+          // Always clear when this generation still owns the load — prevents
+
+          // permanent "刷新中" if the effect is superseded or the request times out.
+
+          if (builtinModelsLoadGenRef.current === gen) {
 
             setBuiltinModelsLoading((prev) => ({ ...prev, [id]: false }));
 
@@ -862,7 +846,7 @@ export function ModelsConfig({
 
     return () => {
 
-      cancelled = true;
+      ac.abort();
 
     };
 
@@ -876,29 +860,29 @@ export function ModelsConfig({
 
     setBuiltinModelsError((prev) => ({ ...prev, [providerId]: null }));
 
+    const ac = new AbortController();
+
     try {
 
-      const res = await apiFetch(
+      const { models, warning } = await loadBuiltinProviderModelCatalog(providerId, {
 
-        `/api/models-config/provider-models?provider=${encodeURIComponent(providerId)}&fresh=1`,
+        forceFresh: true,
 
-      );
+        signal: ac.signal,
 
-      const data = await res.json() as { models?: ProviderModelRow[]; error?: string; warning?: string };
-
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      });
 
       setBuiltinModelsByProvider((prev) => ({
 
         ...prev,
 
-        [providerId]: Array.isArray(data.models) ? data.models : [],
+        [providerId]: models,
 
       }));
 
-      if (data.warning) {
+      if (warning) {
 
-        setBuiltinModelsError((prev) => ({ ...prev, [providerId]: data.warning ?? null }));
+        setBuiltinModelsError((prev) => ({ ...prev, [providerId]: warning }));
 
       }
 
@@ -906,13 +890,19 @@ export function ModelsConfig({
 
     } catch (e) {
 
-      setBuiltinModelsError((prev) => ({
+      if (!(e instanceof DOMException && e.name === "AbortError") &&
 
-        ...prev,
+          !(e instanceof Error && e.name === "AbortError")) {
 
-        [providerId]: e instanceof Error ? e.message : String(e),
+        setBuiltinModelsError((prev) => ({
 
-      }));
+          ...prev,
+
+          [providerId]: e instanceof Error ? e.message : String(e),
+
+        }));
+
+      }
 
     } finally {
 
@@ -980,6 +970,60 @@ export function ModelsConfig({
 
 
 
+  const toggleAllBuiltinModels = useCallback(async (providerId: string, enabled: boolean) => {
+
+    const previous = builtinModelsByProvider[providerId] ?? [];
+
+    const modelIds = previous.map((m) => m.id).filter(Boolean);
+
+    if (modelIds.length === 0) return;
+
+    const disabled = !enabled;
+
+    setBuiltinModelsByProvider((prev) => ({
+
+      ...prev,
+
+      [providerId]: (prev[providerId] ?? []).map((m) => ({ ...m, disabled })),
+
+    }));
+
+    try {
+
+      const res = await apiFetch("/api/models-config/disabled-models", {
+
+        method: "PATCH",
+
+        headers: { "Content-Type": "application/json" },
+
+        body: JSON.stringify({ provider: providerId, modelIds, disabled }),
+
+      });
+
+      const data = await res.json() as { success?: boolean; error?: string };
+
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+
+      onModelsChanged?.();
+
+    } catch (error) {
+
+      setBuiltinModelsByProvider((prev) => ({
+
+        ...prev,
+
+        [providerId]: previous,
+
+      }));
+
+      throw error;
+
+    }
+
+  }, [builtinModelsByProvider, onModelsChanged]);
+
+
+
   // Resolve current detail
 
   const detailContent = (() => {
@@ -1009,6 +1053,8 @@ export function ModelsConfig({
           modelsError={builtinModelsError[p.id] ?? null}
 
           onToggleModel={(modelId, enabled) => toggleBuiltinModel(p.id, modelId, !enabled)}
+
+          onToggleAllModels={(enabled) => toggleAllBuiltinModels(p.id, enabled)}
 
           onRefreshModels={() => void refreshBuiltinProviderModels(p.id)}
 
@@ -1043,6 +1089,8 @@ export function ModelsConfig({
           modelsError={builtinModelsError[p.id] ?? null}
 
           onToggleModel={(modelId, enabled) => toggleBuiltinModel(p.id, modelId, !enabled)}
+
+          onToggleAllModels={(enabled) => toggleAllBuiltinModels(p.id, enabled)}
 
           onRefreshModels={() => void refreshBuiltinProviderModels(p.id)}
 

@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { getFreeProvider } from "@/lib/free-providers";
-import { normalizeModelCost } from "@/lib/model-cost";
+
 import type { DiscoveredModel } from "@/lib/model-discovery";
 import {
   Field, TextInput, SecretTextInput, Select, DetailStrip,
@@ -129,7 +129,6 @@ export function ProviderDetail({
         id: remote.id,
         name: remote.name || remote.id,
         disabled: true,
-        cost: normalizeModelCost(null),
       }));
     }
     const configuredIds = new Set(configured.map((m) => m.id).filter(Boolean));

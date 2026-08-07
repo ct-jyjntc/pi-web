@@ -1,5 +1,5 @@
 /**
- * Map models.dev reasoning_options onto Pi thinkingLevelMap.
+ * Map vendor reasoning/effort options onto Pi thinkingLevelMap.
  * Single owner for effort/toggle → off/minimal/low/…/max mapping.
  */
 
@@ -38,7 +38,7 @@ export function availableThinkingLevelsFromMap(
   });
 }
 /**
- * Build a Pi thinkingLevelMap from models.dev `reasoning_options`.
+ * Build a Pi thinkingLevelMap from vendor `reasoning_options`.
  * - effort.values → discrete level map (unsupported UI levels disabled with null)
  * - toggle / budget_tokens only → undefined (runtime defaults)
  */

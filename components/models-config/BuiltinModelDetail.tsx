@@ -167,21 +167,6 @@ export function BuiltinModelDetail({
             )}
           </Field>
         </div>
-
-        {model.cost && (
-          <div>
-            <SectionTitle>{t("models.cost")}</SectionTitle>
-            <div style={{ marginTop: 6, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-              {(["input", "output", "cacheRead", "cacheWrite"] as const).map((k) => (
-                <Field key={k} label={k}>
-                  <ReadOnlyValue mono>
-                    {model.cost?.[k] !== undefined ? String(model.cost[k]) : "—"}
-                  </ReadOnlyValue>
-                </Field>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

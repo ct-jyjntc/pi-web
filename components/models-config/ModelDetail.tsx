@@ -5,12 +5,6 @@ import { useLocale } from "@/hooks/useLocale";
 import { SettingsToggle } from "../SettingsToggle";
 import { Icon } from "../Icon";
 import { Check as CheckIcon } from "lucide-react";
-import { normalizeModelCost, type ModelCost } from "@/lib/model-cost";
-import type { ModelCatalogRecommendation } from "@/lib/model-catalog";
-import {
-  applyOfficialCatalogFields,
-  isCatalogExactMatch,
-} from "@/lib/model-catalog-apply";
 import { DEEPSEEK_COMPAT } from "@/lib/deepseek-compat";
 import {
   Field, TextInput, NumInput, Select, Check, SectionTitle, DetailStrip, ReadOnlyValue,
@@ -262,24 +256,11 @@ export function ModelDetail({
 }) {
   const { t } = useLocale();
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
-  const catalogRequestIdRef = useRef(0);
-  const modelRef = useRef(model);
-  const onChangeRef = useRef(onChange);
-  modelRef.current = model;
-  onChangeRef.current = onChange;
 
   const officialLocked = managed;
-  // Identified official thinking map → lock; otherwise user may customize.
-  const thinkingMapEditable = !model.thinkingMapLocked;
+  // Custom models: always editable. Managed free: toggle-only (officialLocked).
+  const thinkingMapEditable = !officialLocked;
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
-  const costVal = (k: keyof ModelCost) => {
-    const n = model.cost?.[k];
-    return n !== undefined && n !== null ? String(n) : "";
-  };
-  const setCost = (k: keyof ModelCost, v: string) => {
-    const next = normalizeModelCost({ ...(model.cost ?? {}), [k]: v.trim() === "" ? 0 : v });
-    onChange({ ...model, cost: next });
-  };
   const testSummary = (() => {
     if (testState.phase === "idle") return null;
     if (testState.phase === "testing") return t("models.testingConnection");
@@ -296,71 +277,6 @@ export function ModelDetail({
   useEffect(() => {
     setTestState({ phase: "idle" });
   }, [providerName, provider.baseUrl, provider.api, provider.apiKey, model.id, model.api]);
-
-  // Auto-recognize models.dev exact matches and lock official fields.
-  // Free managed providers already ship official metadata; skip remote lookup.
-  useEffect(() => {
-    const clearThinkingMapLock = () => {
-      const current = modelRef.current;
-      if (!current.thinkingMapLocked) return;
-      const next = { ...current };
-      delete next.thinkingMapLocked;
-      onChangeRef.current(next);
-    };
-
-    if (managed) {
-      catalogRequestIdRef.current += 1;
-      return;
-    }
-
-    const query = model.id.trim();
-    if (!query) {
-      catalogRequestIdRef.current += 1;
-      clearThinkingMapLock();
-      return;
-    }
-
-    const requestId = ++catalogRequestIdRef.current;
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const params = new URLSearchParams({ q: query, provider: providerName, limit: "50" });
-          if (provider.baseUrl?.trim()) params.set("baseUrl", provider.baseUrl.trim());
-          const res = await apiFetch(`/api/models-config/catalog?${params}`);
-          const data = await res.json() as { recommendation?: ModelCatalogRecommendation; error?: string };
-          if (requestId !== catalogRequestIdRef.current) return;
-          if (!res.ok || data.error || !data.recommendation) {
-            console.warn("[models-config] catalog lookup failed", data.error ?? `HTTP ${res.status}`);
-            return;
-          }
-
-          const recommendation = data.recommendation;
-          if (!isCatalogExactMatch(recommendation)) {
-            clearThinkingMapLock();
-            return;
-          }
-
-          const applied = applyOfficialCatalogFields(modelRef.current, recommendation.preset);
-          const next = { ...applied.model };
-          if (recommendation.preset.thinkingLevelMap) {
-            next.thinkingMapLocked = true;
-          } else if (next.thinkingMapLocked) {
-            delete next.thinkingMapLocked;
-          }
-          if (applied.changed || next.thinkingMapLocked !== modelRef.current.thinkingMapLocked) {
-            onChangeRef.current(next);
-          }
-        } catch (error) {
-          if (requestId !== catalogRequestIdRef.current) return;
-          console.warn("[models-config] catalog lookup failed", error);
-        }
-      })();
-    }, 280);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [managed, model.id, provider.baseUrl, providerName]);
 
   const handleTest = useCallback(async () => {
     if (!model.id.trim() || testState.phase === "testing") return;
@@ -524,7 +440,7 @@ export function ModelDetail({
               editable={thinkingMapEditable}
               map={model.thinkingLevelMap}
               onChangeMap={(v) => {
-                if (!v) onChange({ ...model, thinkingLevelMap: undefined, thinkingMapLocked: undefined });
+                if (!v) onChange({ ...model, thinkingLevelMap: undefined });
                 else set("thinkingLevelMap", v);
               }}
             />
@@ -560,7 +476,7 @@ export function ModelDetail({
               editable={thinkingMapEditable}
               map={model.thinkingLevelMap}
               onChangeMap={(v) => {
-                if (!v) onChange({ ...model, thinkingLevelMap: undefined, thinkingMapLocked: undefined });
+                if (!v) onChange({ ...model, thinkingLevelMap: undefined });
                 else set("thinkingLevelMap", v);
               }}
               deepseek={{
@@ -587,21 +503,6 @@ export function ModelDetail({
                   onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
               )}
             </Field>
-          </div>
-
-          <div>
-            <SectionTitle>{t("models.cost")}</SectionTitle>
-            <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-              {(["input", "output", "cacheRead", "cacheWrite"] as const).map((k) => (
-                <Field key={k} label={k}>
-                  {officialLocked ? (
-                    <ReadOnlyValue mono>{costVal(k) || "0"}</ReadOnlyValue>
-                  ) : (
-                    <NumInput value={costVal(k)} onChange={(v) => setCost(k, v)} placeholder="0" />
-                  )}
-                </Field>
-              ))}
-            </div>
           </div>
         </>
       )}

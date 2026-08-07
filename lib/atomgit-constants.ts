@@ -4,7 +4,7 @@
  * so UI modules can import the ids/URLs freely.
  */
 export const ATOMGIT_PROVIDER_ID = "atomgit";
-export const ATOMGIT_DISPLAY_NAME = "AtomGit 订阅";
+export const ATOMGIT_DISPLAY_NAME = "AtomGit Coding Plan";
 /** Brand mark (GitCode favicon); color PNG — ProviderIcon uses image paint, not mask. */
 export const ATOMGIT_ICON_URL = "/providers/atomgit.png";
 /** Platform broker that owns OAuth login (login/check/token/refresh). */

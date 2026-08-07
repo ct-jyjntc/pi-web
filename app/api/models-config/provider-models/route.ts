@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { getDisabledModelRefs } from "@/lib/disabled-models";
 import {
   readBuiltinProviderModelsCache,
-  writeBuiltinProviderModelsCache,
 } from "@/lib/builtin-provider-models-cache";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +9,8 @@ export const dynamic = "force-dynamic";
  * Built-in provider model list.
  *
  * Default (no query): **cache-only**, SDK-free — light runtime.
- * `?fresh=1`: ModelRuntime network refresh for this provider, then write cache — heavy.
+ * `?fresh=1`: materialize ONE provider from local ModelRuntime (static + models-store),
+ * then write cache — heavy. Never fans out to pi.dev remote catalogs.
  *
  * Enable/disable stays on `/api/models-config/disabled-models` (light).
  * Cache stores catalog rows; disabled flags are re-applied from denylist on read.
@@ -53,49 +52,20 @@ export async function GET(req: Request) {
     });
   }
 
-  // ── Fresh path (heavy): SDK + optional network refresh ────────────────────
+  // ── Fresh path (heavy): one provider, local catalog only ──────────────────
   try {
-    const { createConfiguredModelRuntime } = await import("@/lib/model-runtime");
-    const { projectBuiltinProviderModel, refreshBuiltinProviderModels } = await import(
-      "@/lib/builtin-provider-models"
+    const { materializeBuiltinProviderCatalog } = await import(
+      "@/lib/builtin-provider-models-fresh"
     );
-
-    const modelRuntime = await createConfiguredModelRuntime();
-    const def = modelRuntime.getProvider(provider);
-    if (!def) {
-      return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 404 });
-    }
-
-    const live = await refreshBuiltinProviderModels(modelRuntime, provider);
-    const disabled = getDisabledModelRefs();
-    const models = modelRuntime
-      .getModels(provider)
-      .map((m) => projectBuiltinProviderModel(provider, m, disabled.has(`${provider}/${m.id}`)))
-      .sort(
-        (a, b) =>
-          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) ||
-          a.id.localeCompare(b.id),
-      );
-
-    writeBuiltinProviderModelsCache(provider, {
-      displayName: def.name,
-      models,
+    const result = await materializeBuiltinProviderCatalog(provider, {
+      signal: req.signal,
     });
-
-    const enabledCount = models.filter((m) => !m.disabled).length;
-    return NextResponse.json({
-      provider,
-      displayName: def.name,
-      modelCount: models.length,
-      enabledCount,
-      live,
-      degraded: !live,
-      cached: false,
-      updatedAt: Date.now(),
-      models,
-    });
+    return NextResponse.json(result);
   } catch (error) {
-    // Soft-fail: if live refresh fails but cache exists, serve cache.
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return NextResponse.json({ error: "aborted" }, { status: 499 });
+    }
+    // Soft-fail: if materialize fails but cache exists, serve cache.
     const cached = readBuiltinProviderModelsCache(provider);
     if (cached && cached.models.length > 0) {
       return NextResponse.json({

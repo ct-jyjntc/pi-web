@@ -1,7 +1,6 @@
 /**
  * Shared types for ModelsConfig panels.
  */
-import { normalizeModelCost } from "@/lib/model-cost";
 import type { FreeProviderId } from "@/lib/free-providers";
 import { PI_THINKING_LEVELS, type PiThinkingLevel } from "@/lib/thinking-level-map";
 
@@ -41,17 +40,17 @@ export interface ModelEntry {
   disabled?: boolean;
   reasoning?: boolean;
   thinkingLevelMap?: Record<string, string | null>;
-  /** Official catalog supplied this map — UI must not edit it. */
-  thinkingMapLocked?: boolean;
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
-  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
   compat?: Record<string, unknown>;
 }
 
 export function normalizeModelEntry(model: ModelEntry): ModelEntry {
-  const next: ModelEntry = { ...model, cost: normalizeModelCost(model.cost) };
+  const next: ModelEntry = { ...model };
+  // Drop legacy cost / catalog-lock fields if present on disk.
+  delete (next as { cost?: unknown }).cost;
+  delete (next as { thinkingMapLocked?: unknown }).thinkingMapLocked;
   // Only persist disabled:true — omit the key when enabled.
   if (next.disabled) next.disabled = true;
   else delete next.disabled;
@@ -123,7 +122,6 @@ export type ProviderModelRow = {
   /** True when maxTokens is user-supplied or missing from the runtime. */
   maxTokensEditable?: boolean;
   input?: string[];
-  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
   thinkingLevelMap?: Record<string, string | null>;
   /** False when user may customize thinking map (no official map). */
   thinkingMapEditable?: boolean;

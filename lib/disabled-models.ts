@@ -134,6 +134,39 @@ export function setBuiltinModelDisabled(
   return { ok: true, ref, disabled };
 }
 
+/**
+ * Bulk enable/disable every model for one built-in provider.
+ * `disabled=true` adds all `provider/modelId` refs; `false` removes any ref
+ * with that provider prefix.
+ */
+export function setBuiltinProviderModelsDisabled(
+  provider: string,
+  modelIds: readonly string[],
+  disabled: boolean,
+  listPath?: string,
+): { ok: true; provider: string; disabled: boolean; count: number } | { ok: false; error: string } {
+  const p = provider.trim();
+  if (!p || p.includes("/")) return { ok: false, error: "invalid provider" };
+  const ids = [...new Set(modelIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return { ok: false, error: "modelIds are required" };
+
+  const path = disabledListPath(listPath);
+  const refs = readDisabledListFile(path);
+  const prefix = `${p}/`;
+  if (disabled) {
+    for (const id of ids) {
+      if (id.includes("\n")) return { ok: false, error: "invalid modelId" };
+      refs.add(modelRef(p, id));
+    }
+  } else {
+    for (const ref of [...refs]) {
+      if (ref.startsWith(prefix)) refs.delete(ref);
+    }
+  }
+  writeDisabledListFile(path, refs);
+  return { ok: true, provider: p, disabled, count: ids.length };
+}
+
 /** Read-only snapshot of the dedicated denylist (not models.json flags). */
 export function getBuiltinDisabledModelRefs(listPath?: string): Set<string> {
   return readDisabledListFile(disabledListPath(listPath));

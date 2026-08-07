@@ -371,7 +371,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       sessionStats.tokens.cacheRead,
       sessionStats.tokens.cacheWrite,
       sessionStats.tokens.total,
-      sessionStats.cost ?? 0,
     ].join("|")
     : null, [sessionStats]);
   const sessionStatsRef = useRef(sessionStats);

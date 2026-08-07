@@ -22,7 +22,7 @@ test("light routes never touch the agent SDK graph", () => {
     "/api/lsp",
     "/api/models-config",
     "/api/models-config/free-models?provider=x",
-    "/api/models-config/catalog?q=gpt",
+
     "/api/models-config/disabled-models",
     // Built-in catalogs default to disk cache (no ModelRuntime).
     "/api/models-config/provider-models?provider=openai",

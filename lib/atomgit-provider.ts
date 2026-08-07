@@ -409,7 +409,7 @@ function signedOpenAICompletionsApi(): ProviderStreams {
 // ── OAuth auth implementation ─────────────────────────────────────────────────
 
 const atomGitOAuth: OAuthAuth = {
-  name: "AtomGit 订阅账号 (CodingPlan)",
+  name: "AtomGit Coding Plan",
   loginLabel: "使用 AtomGit 账号登录",
   async login(interaction: AuthInteraction): Promise<OAuthCredential> {
     const { loginUrl, state } = await startPlatformLogin();

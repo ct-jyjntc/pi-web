@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   getBuiltinDisabledModelRefs,
   setBuiltinModelDisabled,
+  setBuiltinProviderModelsDisabled,
 } from "@/lib/disabled-models";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
@@ -18,24 +19,37 @@ export async function GET() {
   return NextResponse.json({ disabled: refs });
 }
 
-/** PATCH { provider, modelId, disabled } */
+/**
+ * PATCH one model: { provider, modelId, disabled }
+ * PATCH all for a provider: { provider, modelIds: string[], disabled }
+ */
 export async function PATCH(req: Request) {
   try {
     const body = await req.json() as {
       provider?: unknown;
       modelId?: unknown;
+      modelIds?: unknown;
       disabled?: unknown;
     };
     const provider = typeof body.provider === "string" ? body.provider.trim() : "";
-    const modelId = typeof body.modelId === "string" ? body.modelId.trim() : "";
-    if (!provider || !modelId) {
-      return NextResponse.json({ error: "provider and modelId are required" }, { status: 400 });
+    if (!provider) {
+      return NextResponse.json({ error: "provider is required" }, { status: 400 });
     }
     if (typeof body.disabled !== "boolean") {
       return NextResponse.json({ error: "disabled boolean is required" }, { status: 400 });
     }
 
-    const result = setBuiltinModelDisabled(provider, modelId, body.disabled);
+    const modelIds = Array.isArray(body.modelIds)
+      ? body.modelIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      : null;
+
+    const result = modelIds
+      ? setBuiltinProviderModelsDisabled(provider, modelIds, body.disabled)
+      : setBuiltinModelDisabled(
+          provider,
+          typeof body.modelId === "string" ? body.modelId : "",
+          body.disabled,
+        );
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }

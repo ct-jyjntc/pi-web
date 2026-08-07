@@ -263,7 +263,6 @@ export function ContextPanel() {
   }, []);
 
   const tokens = sessionStats?.tokens;
-  const c = sessionStats?.cost ?? 0;
   const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
   const ctx = contextUsage ?? sessionStats?.contextUsage ?? null;
   let ctxColor = "var(--text-muted)";
@@ -337,7 +336,6 @@ export function ContextPanel() {
     if (tokens.cacheWrite > 0) usageRows.push([t("shell.cacheWrite"), tokens.cacheWrite.toLocaleString()]);
     if (tokens.total > 0) usageRows.push([t("shell.total"), tokens.total.toLocaleString()]);
   }
-  if (c > 0) usageRows.push([t("shell.cost"), `$${c.toFixed(4)}`]);
 
   return (
     <div
@@ -357,11 +355,6 @@ export function ContextPanel() {
           {ctxPct != null && (
             <span className="git-panel-stats" style={{ color: ctxColor }}>
               {`${Math.round(ctxPct)}%`}
-            </span>
-          )}
-          {c > 0 && (
-            <span className="git-panel-stats" style={{ color: "var(--text-muted)" }}>
-              {`$${c.toFixed(2)}`}
             </span>
           )}
         </div>

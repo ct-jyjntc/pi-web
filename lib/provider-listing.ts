@@ -1,14 +1,16 @@
 /**
  * Provider listing for the Models panel.
  *
- * Providers are listed by the auth methods they actually declare, not by a
- * hardcoded id list. Anthropic and GitHub Copilot (and kimi-coding, openrouter,
- * radius, xai) declare both an API key and OAuth; hardcoding them as "OAuth
- * only" hid them from the API-key endpoint, while the OAuth endpoint separately
- * excluded Anthropic, so a configured Anthropic account appeared in neither list
- * (#309). Which providers are dual-auth is a property of the SDK's provider
- * definitions and changes between releases — read it from `auth`, never assume
- * it from an id.
+ * Product surface (Pi Web):
+ * 1. **Subscription** — OAuth providers (Kimi / xAI / Codex / AtomGit / …)
+ * 2. **Free** — managed free providers (separate free-models path)
+ * 3. **Custom** — user `models.json` gateways (base URL + key/command)
+ *
+ * No API-key cloud marketplace (SDK stock OpenAI/Groq/… and first-party
+ * tokenrhythm). Dual-auth SDKs appear under **Subscription** only.
+ *
+ * Auth methods are still read from `provider.auth` (not a frozen id list) so new
+ * OAuth builtins show up automatically.
  */
 
 /** Credential kinds pi stores in `auth.json`. */
@@ -21,6 +23,9 @@ const CUSTOM_PROVIDER_SOURCES = new Set(["models_json_key", "models_json_command
 const OAUTH_DISPLAY_NAMES: Record<string, string> = {
   "openai-codex": "ChatGPT Plus/Pro",
   "github-copilot": "GitHub Copilot",
+  "minimax-oauth": "MiniMax (OAuth)",
+  nous: "Nous Portal",
+  atomgit: "AtomGit Coding Plan",
 };
 
 export interface ProviderListingInput {
@@ -71,32 +76,16 @@ function dedupeById(providers: readonly ProviderListingInput[]): ProviderListing
 }
 
 /**
- * Providers that can be authenticated with an API key.
+ * API-key rows for the Models panel.
  *
- * Custom `models.json` providers are excluded because the Models panel already
- * renders them from `models.json` itself. A provider currently authenticated
- * with an OAuth credential is reported as not configured here, so it is listed
- * once — in the OAuth list — instead of twice.
+ * Product rule: **no API-key cloud marketplace** (including first-party ones like
+ * tokenrhythm). Users add gateways as **Custom** (`models.json`). Subscriptions
+ * use the OAuth list; free uses the free-providers path.
  */
 export function buildApiKeyProviderList(
-  providers: readonly ProviderListingInput[],
+  _providers: readonly ProviderListingInput[],
 ): ApiKeyProviderListing[] {
-  const result: ApiKeyProviderListing[] = [];
-  for (const provider of dedupeById(providers)) {
-    if (!provider.hasApiKeyLogin) continue;
-    if (provider.status.source && CUSTOM_PROVIDER_SOURCES.has(provider.status.source)) continue;
-
-    const configured = provider.status.configured && provider.credentialType !== "oauth";
-    result.push({
-      id: provider.id,
-      displayName: provider.name,
-      configured,
-      ...(configured && provider.status.source ? { source: provider.status.source } : {}),
-      modelCount: provider.modelCount,
-      supportsOAuth: provider.hasOAuth,
-    });
-  }
-  return result;
+  return [];
 }
 
 /** Providers that can be authenticated with OAuth. */

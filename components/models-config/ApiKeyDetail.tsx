@@ -16,6 +16,7 @@ export function ApiKeyDetail({
   modelsLoading = false,
   modelsError = null,
   onToggleModel,
+  onToggleAllModels,
   onRefreshModels,
   refreshingModels = false,
 }: {
@@ -25,6 +26,7 @@ export function ApiKeyDetail({
   modelsLoading?: boolean;
   modelsError?: string | null;
   onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
+  onToggleAllModels?: (enabled: boolean) => void | Promise<void>;
   onRefreshModels?: () => void;
   refreshingModels?: boolean;
 }) {
@@ -169,6 +171,7 @@ export function ApiKeyDetail({
             loading={modelsLoading && models.length === 0}
             error={modelsError}
             onToggleModel={onToggleModel}
+            onToggleAllModels={onToggleAllModels}
           />
         </>
       )}

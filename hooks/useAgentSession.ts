@@ -310,7 +310,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const sessionStats = useMemo(() => {
     if (sessionStatsOverride) return sessionStatsOverride;
     const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-    let cost = 0;
     let userMessages = 0;
     let assistantMessages = 0;
     let toolResults = 0;
@@ -327,7 +326,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       tokens.output += u.output ?? 0;
       tokens.cacheRead += u.cacheRead ?? 0;
       tokens.cacheWrite += u.cacheWrite ?? 0;
-      cost += u.cost?.total ?? 0;
     }
     tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
     if (tokens.total === 0 && messages.length === 0) return null;
@@ -341,7 +339,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       toolResults,
       totalMessages: messages.length,
       tokens,
-      cost,
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
   }, [messages, sessionStatsOverride, contextUsage, data?.filePath, session?.id, session?.name]);

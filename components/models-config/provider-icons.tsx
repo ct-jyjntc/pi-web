@@ -62,6 +62,7 @@ export const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boo
   "moonshot":               { Icon: MoonshotIcon,         hasColor: false },
   "minimax":                { Icon: MinimaxColorIcon,     hasColor: true },
   "minimax-cn":             { Icon: MinimaxColorIcon,     hasColor: true },
+  "minimax-oauth":          { Icon: MinimaxColorIcon,     hasColor: true },
   "fireworks":              { Icon: FireworksColorIcon,   hasColor: true },
   "huggingface":            { Icon: HuggingFaceColorIcon, hasColor: true },
   "cerebras":               { Icon: CerebrasColorIcon,    hasColor: true },
@@ -95,6 +96,11 @@ export const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boo
 export const PROVIDER_ICON_URLS: Record<string, string | ProviderRemoteIcon> = {
   [TOKENRHYTHM_PROVIDER_ID]: TOKENRHYTHM_ICON_URL,
   [ATOMGIT_PROVIDER_ID]: { url: ATOMGIT_ICON_URL, paint: "image" },
+  // Local brand marks (downloaded assets under public/providers/) — image paint keeps color.
+  nous: {
+    url: "/providers/nous.png",
+    paint: "image",
+  },
   // Official Qwen/DashScope color mark — image paint (mask turns opaque PNGs into gray squares).
   qwen: {
     url: "/providers/qwen.png",

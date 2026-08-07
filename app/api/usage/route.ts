@@ -20,7 +20,6 @@ type DayBucket = {
   /** Local date YYYY-MM-DD */
   date: string;
   tokens: number;
-  cost: number;
   messages: number;
   /** modelId -> totalTokens */
   models: Record<string, number>;
@@ -30,7 +29,6 @@ type DayBucket = {
 type FileDaySlice = {
   date: string;
   tokens: number;
-  cost: number;
   messages: number;
   models: Record<string, number>;
   sessionId: string;
@@ -114,7 +112,7 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Fi
     const key = dateKey(ts);
     let bucket = byDate.get(key);
     if (!bucket) {
-      bucket = { date: key, tokens: 0, cost: 0, messages: 0, models: {}, sessionId };
+      bucket = { date: key, tokens: 0, messages: 0, models: {}, sessionId };
       byDate.set(key, bucket);
     }
     bucket.messages++;
@@ -124,7 +122,6 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Fi
     if (usageIdx === -1) continue;
     const tokens = sliceNumberField(line, "totalTokens", usageIdx);
     if (tokens <= 0) continue;
-    const cost = sliceNumberField(line, "total", usageIdx);
     // Message-level "model" sits just before "usage"; last match before usageIdx wins.
     const modelIdx = line.lastIndexOf('"model":"', usageIdx);
     let model = "unknown";
@@ -134,7 +131,6 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Fi
       if (end !== -1) model = line.slice(start, end) || "unknown";
     }
     bucket.tokens += tokens;
-    bucket.cost += cost;
     bucket.models[model] = (bucket.models[model] ?? 0) + tokens;
   }
   return [...byDate.values()];
@@ -149,7 +145,6 @@ function mergeSlices(slices: Iterable<FileDaySlice[]>): Map<string, DayBucket> {
         bucket = {
           date: slice.date,
           tokens: 0,
-          cost: 0,
           messages: 0,
           models: {},
           sessionIds: new Set(),
@@ -157,7 +152,6 @@ function mergeSlices(slices: Iterable<FileDaySlice[]>): Map<string, DayBucket> {
         days.set(slice.date, bucket);
       }
       bucket.tokens += slice.tokens;
-      bucket.cost += slice.cost;
       bucket.messages += slice.messages;
       bucket.sessionIds.add(slice.sessionId);
       for (const [model, v] of Object.entries(slice.models)) {
@@ -278,7 +272,6 @@ export async function GET(request: NextRequest) {
     const startDate = shiftKey(today, -(rangeDays - 1));
 
     let tokens = 0;
-    let cost = 0;
     let messages = 0;
     let activeDays = 0;
     const rangeSessionIds = new Set<string>();
@@ -287,7 +280,6 @@ export async function GET(request: NextRequest) {
     for (const bucket of agg.days.values()) {
       if (bucket.date < startDate || bucket.date > today) continue;
       tokens += bucket.tokens;
-      cost += bucket.cost;
       messages += bucket.messages;
       if (bucket.messages > 0) activeDays++;
       for (const id of bucket.sessionIds) rangeSessionIds.add(id);
@@ -337,7 +329,6 @@ export async function GET(request: NextRequest) {
       range: { days: rangeDays, startDate },
       totals: {
         tokens,
-        cost: Math.round(cost * 100) / 100,
         sessions: rangeSessionIds.size,
         messages,
         activeDays,

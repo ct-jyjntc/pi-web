@@ -14,19 +14,47 @@ export function ConfigModelsEnablePanel({
   models,
   onChangeModels,
   onToggleModel,
+  onToggleAllModels,
   loading = false,
   error = null,
 }: {
   models: readonly ModelEntry[];
   onChangeModels?: (models: ModelEntry[]) => void;
   onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
+  /** Bulk enable (true) / disable (false) every model in the list. */
+  onToggleAllModels?: (enabled: boolean) => void | Promise<void>;
   loading?: boolean;
   error?: string | null;
 }) {
   const { t } = useLocale();
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [bulkPending, setBulkPending] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const enabledCount = models.filter((m) => !m.disabled).length;
+  const busy = bulkPending || pendingId !== null;
+  const q = query.trim().toLowerCase();
+  const visibleModels = q
+    ? models.filter((m) => {
+        const hay = `${m.id ?? ""} ${m.name ?? ""}`.toLowerCase();
+        return hay.includes(q);
+      })
+    : models;
+
+  const runBulk = (enabled: boolean) => {
+    if (onToggleAllModels) {
+      setBulkPending(true);
+      setToggleError(null);
+      void Promise.resolve(onToggleAllModels(enabled))
+        .catch((e) => setToggleError(e instanceof Error ? e.message : String(e)))
+        .finally(() => setBulkPending(false));
+      return;
+    }
+    if (!onChangeModels) return;
+    onChangeModels(
+      models.map((m) => normalizeModelEntry({ ...m, disabled: enabled ? undefined : true })),
+    );
+  };
 
   return (
     <div
@@ -54,6 +82,51 @@ export function ConfigModelsEnablePanel({
         </div>
       </div>
 
+      {models.length > 0 ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flexShrink: 0,
+            minWidth: 0,
+          }}
+        >
+          <input
+            className="input-base"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("models.searchModelsPlaceholder")}
+            aria-label={t("models.searchModelsPlaceholder")}
+            style={{ fontSize: 12, flex: 1, minWidth: 0 }}
+          />
+          {(onToggleAllModels || onChangeModels) ? (
+            <>
+              <button
+                type="button"
+                className="btn-ghost btn-compact"
+                disabled={busy || loading || enabledCount === models.length}
+                onClick={() => runBulk(true)}
+                title={t("models.enableAllHint")}
+                style={{ flexShrink: 0 }}
+              >
+                {bulkPending ? t("models.working") : t("models.enableAll")}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost btn-compact"
+                disabled={busy || loading || enabledCount === 0}
+                onClick={() => runBulk(false)}
+                title={t("models.disableAllHint")}
+                style={{ flexShrink: 0 }}
+              >
+                {bulkPending ? t("models.working") : t("models.disableAll")}
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       {(error || toggleError) && (
         <div style={{ fontSize: 12, color: "var(--destructive)", flexShrink: 0 }}>{error ?? toggleError}</div>
       )}
@@ -78,9 +151,14 @@ export function ConfigModelsEnablePanel({
           <div style={{ padding: 12, fontSize: 12, color: "var(--text-muted)" }}>
             {t("models.noProviderModels")}
           </div>
+        ) : visibleModels.length === 0 ? (
+          <div style={{ padding: 12, fontSize: 12, color: "var(--text-muted)" }}>
+            {t("models.noSearchMatches")}
+          </div>
         ) : (
-          models.map((model, index) => {
+          visibleModels.map((model, index) => {
             const label = model.name?.trim() || model.id || t("models.newModel");
+            const fullIndex = models.indexOf(model);
             return (
               <div
                 key={`${model.id || "draft"}-${index}`}
@@ -129,9 +207,10 @@ export function ConfigModelsEnablePanel({
                 </span>
                 <SettingsToggle
                   enabled={!model.disabled}
-                  loading={pendingId === model.id}
+                  loading={pendingId === model.id || bulkPending}
                   title={model.disabled ? t("models.enableHint") : t("models.disableHint")}
                   onChange={(on) => {
+                    if (busy) return;
                     if (onToggleModel) {
                       setPendingId(model.id);
                       setToggleError(null);
@@ -142,7 +221,7 @@ export function ConfigModelsEnablePanel({
                     }
                     if (!onChangeModels) return;
                     const next = models.map((m, i) => (
-                      i === index
+                      i === fullIndex
                         ? normalizeModelEntry({ ...m, disabled: on ? undefined : true })
                         : m
                     ));
