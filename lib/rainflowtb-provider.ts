@@ -21,6 +21,7 @@ import {
   type Provider,
   type ProviderStreams,
   type RefreshModelsContext,
+  type ThinkingLevelMap,
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import {
@@ -215,20 +216,61 @@ function channelBaseUrl(channel: Channel | undefined): string {
 
 // ── Model catalog ───────────────────────────────────────────────────────────
 
+interface CatalogRow {
+  id: string;
+  name?: string;
+  reasoning?: { enabled?: unknown; effort?: unknown };
+  image_input?: unknown;
+  context_window?: unknown;
+  max_output_tokens?: unknown;
+}
+
+/**
+ * RAINFLOWTB exposes reasoning as { enabled, effort: string[] } per model.
+ * Pi models map it to `reasoning` plus a `thinkingLevelMap`: supported
+ * efforts become the matching pi levels, missing ones are marked null
+ * (unsupported). An empty effort list means "upstream default" — no map.
+ * RAINFLOWTB also allows an "ultra" effort, which has no pi level — it is
+ * not advertised to Pi-Web (the relay still passes it through on requests).
+ */
+function buildThinkingLevelMap(reasoning: CatalogRow["reasoning"]): ThinkingLevelMap | undefined {
+  if (!reasoning || !Array.isArray(reasoning.effort)) return undefined;
+  const efforts = reasoning.effort.filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (efforts.length === 0) return undefined;
+  return {
+    minimal: efforts.includes("minimal") ? "minimal" : null,
+    low: efforts.includes("low") ? "low" : null,
+    medium: efforts.includes("medium") ? "medium" : null,
+    high: efforts.includes("high") ? "high" : null,
+    xhigh: efforts.includes("xhigh") ? "xhigh" : null,
+    max: efforts.includes("max") ? "max" : null,
+  };
+}
+
+/** Positive token value when the catalog row declares one; fallback otherwise. */
+function toTokenCount(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
 /** OpenAI-compatible /models rows → soft placeholder models (all fields editable). */
-function toModels(rows: readonly { id: string; name?: string }[], baseUrl: string): Model<"openai-completions">[] {
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name || row.id,
-    api: "openai-completions",
-    provider: RAINFLOWTB_PROVIDER_ID,
-    baseUrl,
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128_000,
-    maxTokens: 16_384,
-  }));
+function toModels(rows: readonly CatalogRow[], baseUrl: string): Model<"openai-completions">[] {
+  return rows.map((row) => {
+    const thinkingLevelMap = buildThinkingLevelMap(row.reasoning);
+    const imageInput = row.image_input === true;
+    return {
+      id: row.id,
+      name: row.name || row.id,
+      api: "openai-completions",
+      provider: RAINFLOWTB_PROVIDER_ID,
+      baseUrl,
+      reasoning: row.reasoning?.enabled === true,
+      ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+      input: imageInput ? ["text", "image"] : ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: toTokenCount(row.context_window, 128_000),
+      maxTokens: toTokenCount(row.max_output_tokens, 16_384),
+    };
+  });
 }
 
 async function fetchRainflowtbModels(context: RefreshModelsContext): Promise<readonly Model<"openai-completions">[]> {
@@ -258,13 +300,28 @@ async function fetchRainflowtbModels(context: RefreshModelsContext): Promise<rea
     if (!res.ok) throw new Error(`RAINFLOWTB models failed (HTTP ${res.status})`);
     const json = (await res.json()) as { data?: unknown } | unknown[] | null;
     const data = Array.isArray(json) ? json : Array.isArray((json as { data?: unknown })?.data) ? (json as { data: unknown[] }).data : [];
-    const rows: { id: string; name?: string }[] = [];
+    const rows: CatalogRow[] = [];
     for (const entry of data) {
       if (typeof entry === "string" && entry) {
         rows.push({ id: entry });
       } else if (entry && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string") {
-        const rec = entry as { id: string; name?: unknown };
-        rows.push({ id: rec.id, name: typeof rec.name === "string" ? rec.name : undefined });
+        const rec = entry as CatalogRow & { id: string };
+        rows.push({
+          id: rec.id,
+          name: typeof rec.name === "string" ? rec.name : undefined,
+          ...(rec.reasoning && typeof rec.reasoning === "object"
+            ? {
+                reasoning: {
+                  enabled: rec.reasoning.enabled,
+                  effort: rec.reasoning.effort,
+                },
+              }
+            : {}),
+          // Parse-time extraction — these must be copied or toModels never sees them.
+          ...(rec.image_input !== undefined ? { image_input: rec.image_input } : {}),
+          ...(rec.context_window !== undefined ? { context_window: rec.context_window } : {}),
+          ...(rec.max_output_tokens !== undefined ? { max_output_tokens: rec.max_output_tokens } : {}),
+        });
       }
     }
     if (rows.length === 0) throw new Error("RAINFLOWTB returned no models");
