@@ -101,6 +101,8 @@ export const PROVIDER_ICON_URLS: Record<string, string | ProviderRemoteIcon> = {
     url: "/providers/nous.png",
     paint: "image",
   },
+  // Traced from the vendor PNG (single-color mark) — mask paints with theme text color.
+  rainflowtb: "/providers/rainflowtb.svg",
   // Official Qwen/DashScope color mark — image paint (mask turns opaque PNGs into gray squares).
   qwen: {
     url: "/providers/qwen.png",

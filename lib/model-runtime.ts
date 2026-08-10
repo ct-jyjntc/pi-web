@@ -17,6 +17,7 @@ import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { createAtomGitProvider } from "./atomgit-provider";
 import { createMinimaxProvider } from "./minimax-provider";
 import { createNousProvider } from "./nous-provider";
+import { createRainflowtbProvider } from "./rainflowtb-provider";
 import { attachProviderLiveModelLists } from "./provider-live-models";
 
 export type { CreateModelRuntimeOptions };
@@ -44,5 +45,7 @@ export async function createConfiguredModelRuntime(
   runtime.registerNativeProvider(createAtomGitProvider());
   runtime.registerNativeProvider(createNousProvider());
   runtime.registerNativeProvider(createMinimaxProvider());
+  runtime.registerNativeProvider(createRainflowtbProvider());
+  return runtime;
   return runtime;
 }

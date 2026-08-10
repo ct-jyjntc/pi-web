@@ -26,6 +26,7 @@ const OAUTH_DISPLAY_NAMES: Record<string, string> = {
   "minimax-oauth": "MiniMax (OAuth)",
   nous: "Nous Portal",
   atomgit: "AtomGit Coding Plan",
+  rainflowtb: "RAINFLOW TB",
 };
 
 export interface ProviderListingInput {
