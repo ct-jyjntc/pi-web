@@ -15,6 +15,7 @@ import { dirname, join } from "path";
 import { createRequire } from "module";
 import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
+import { applySubagentsStaleCtxPatch } from "./apply-subagents-stale-ctx-patch.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -111,7 +112,11 @@ function runEsbuildCli(args) {
 }
 
 function bundleOne(target) {
-  const pkgRoot = resolvePackageRoot(target.packageName);
+  // The subagents bundle embeds the stale-ctx emit guard — sources must be
+  // patched before esbuild reads them (see apply-subagents-stale-ctx-patch.mjs).
+  if (target.name === "subagents") applySubagentsStaleCtxPatch();
+
+   const pkgRoot = resolvePackageRoot(target.packageName);
   if (!pkgRoot) {
     return { ok: false, name: target.name, error: `package not installed: ${target.packageName}` };
   }
