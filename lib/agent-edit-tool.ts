@@ -209,12 +209,13 @@ const HASHLINE_GUIDELINES = [
   "Body rows under SWAP/INS MUST start with '+'. Bare code lines are rejected (not ops).",
   "N.=M means inclusive start..end line numbers from the read output (e.g. lines 10-12 → SWAP 10.=12:). M is NOT a line count.",
   "Line numbers refer to the ORIGINAL file snapshot for that tag; do not renumber mid-patch.",
+  "Across separate edit calls on the SAME file, a successful SWAP/INS/DEL changes line counts, so the line numbers you recall for the next call are now offset — the fresh #TAG only proves the file is current, it does NOT remap your old line numbers, and the tool applies them literally to the shifted file (typical symptom: 'would leave unparsable source' landing far from your SWAP range). Avoid the drift: either batch all same-file edits into one input (every op shares the read snapshot), or re-read before each later edit; never carry line numbers over from before a prior successful edit.",
   "On stale-tag rejection: prefer re-read. Parallel same-file edits often auto-recover via snapshot anchors when the target block is still unique; if recovery fails, re-read and retry.",
   "JS/TS edits that would leave unparsable source are rejected and not written — fix the patch, do not paper over with another file.",
   "Keep one file green: after a syntax rejection, re-read and repair that file before editing others.",
   "On already-large files (~800+ lines), extract a module first; prefer small single-hunk patches over multi-range rewrites of hot files.",
   "Classic fallback still works: edit({ path, edits: [{ oldText, newText }] }) — bugfix-only; deprecated dual-path, removal by pi-web 1.0.0 / 2026-12-01.",
-  "When changing multiple separate locations in one file, prefer one edit call with multiple ops/sections.",
+  "When changing multiple separate locations in one file, put them all in ONE edit({ input }) with multiple ops/sections — every op's line numbers come from the same fresh read, so they cannot drift apart the way sequential calls do.",
   "On edit failure, use the kind/path/excerpt/tag in the error to craft a smaller unique anchor; do not rewrite whole files with write unless necessary.",
 ];
 
@@ -231,7 +232,7 @@ export function createPiWebEditToolDefinition(
     description:
       "Edit files. Preferred: hashline patch language via { input: \"[path#TAG]\\nSWAP N.=M:\\n+...\" }. " +
       "Also accepts classic { path, edits: [{ oldText, newText }] } and hunk mode { path, hunks }. " +
-      "TAG is a 4-hex fingerprint of the whole file — re-read after every successful edit.",
+      "TAG is a 4-hex fingerprint of the whole file. A successful edit shifts line counts, so for the next edit on the same file either re-read first or batch all changes into one input — within one input all ops share the read snapshot and cannot drift.",
     promptSnippet:
       "Make precise file edits (hashline patch language preferred; classic exact replace as fallback)",
     promptGuidelines: HASHLINE_GUIDELINES,
