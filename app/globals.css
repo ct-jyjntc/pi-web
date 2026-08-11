@@ -3367,11 +3367,7 @@ textarea.input-base:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.usage-stat-value.is-mono {
-  font-size: 13px;
-  font-family: var(--font-mono);
-  font-weight: 500;
-}
+
 .usage-stat-sub {
   font-size: 11px;
   color: var(--text-muted);
@@ -3380,6 +3376,16 @@ textarea.input-base:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.usage-stat-sub-inline {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .usage-section {
   margin-top: 4px;

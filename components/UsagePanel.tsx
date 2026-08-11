@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Calendar,
@@ -83,21 +83,35 @@ function StatIcon({ icon }: { icon: LucideIcon }) {
   return <Icon icon={icon} size={11} strokeWidth={1.8} />;
 }
 
-function StatCard({ icon, label, value, sub, mono }: {
+function StatCard({ icon, label, value, sub }: {
   icon: ReactNode;
   label: string;
   value: string;
+  /** Corner badge in the label row — never a third line. */
   sub?: string;
-  mono?: boolean;
 }) {
+  const valueRef = useRef<HTMLSpanElement | null>(null);
+
+  // Long values (e.g. model ids) must stay on one line: shrink the font to fit
+  // the card instead of wrapping — stat cards are always two rows. Short values
+  // keep the shared 18px stat font, so all cards read consistently.
+  useLayoutEffect(() => {
+    const el = valueRef.current;
+    if (!el) return;
+    el.style.fontSize = "";
+    if (el.scrollWidth <= el.clientWidth + 1) return;
+    const fitted = Math.max((el.clientWidth / el.scrollWidth) * 18, 11);
+    el.style.fontSize = `${fitted}px`;
+  }, [value]);
+
   return (
     <div className="usage-stat-card">
       <span className="usage-stat-label">
         {icon}
         {label}
+        {sub && <span className="usage-stat-sub-inline">{sub}</span>}
       </span>
-      <span className={`usage-stat-value${mono ? " is-mono" : ""}`}>{value}</span>
-      {sub && <span className="usage-stat-sub">{sub}</span>}
+      <span ref={valueRef} className="usage-stat-value" title={value}>{value}</span>
     </div>
   );
 }
@@ -320,7 +334,6 @@ export function UsagePanel() {
               label={t("usage.topModel")}
               value={data.topModel?.id ?? "—"}
               sub={data.topModel ? t("usage.shareOfTokens", { pct: Math.round(data.topModel.share * 100) }) : undefined}
-              mono
             />
           </div>
 
