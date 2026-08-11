@@ -46,3 +46,10 @@ next-env.d.ts
 
 # local SDK bundle probes / staging
 .sdk-bundle-probe/
+
+# Playwright MCP artifacts (page snapshots, console logs, screenshots)
+.playwright-mcp/
+
+# ad-hoc UI test screenshots dropped in repo root
+/trend-chart*
+/trend-zoomed.png

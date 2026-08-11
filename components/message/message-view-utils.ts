@@ -149,11 +149,37 @@ export function previewText(text: string): string {
 }
 
 
+/**
+ * Dig into a nested args/input value for a short readable scalar to use as a
+ * scaffold preview (URL, ref, filename, …). Never renders "[object Object]".
+ */
+function readableScalar(value: unknown, depth = 0): string {
+  if (typeof value === "string") return value;
+  if (value === null || typeof value !== "object" || depth >= 2) return "";
+  const entries = Object.entries(value as Record<string, unknown>);
+  const preferred = ["url", "ref", "element", "target", "filename", "name", "text", "title", "label", "query"];
+  for (const key of preferred) {
+    const found = entries.find(([k]) => k === key);
+    if (found) {
+      const s = readableScalar(found[1], depth + 1);
+      if (s) return s;
+    }
+  }
+  for (const [, v] of entries) {
+    const s = readableScalar(v, depth + 1);
+    if (s) return s;
+  }
+  return "";
+}
+
 export function getToolPreview(block: ToolCallContent): string {
   const input = block.input;
   if (!input || typeof input !== "object") return "";
   const keys = Object.keys(input);
   if (keys.length === 0) return "";
+
+  // mcp wrapper: { server, tool, args } — preview the inner tool name.
+  if ("tool" in input && typeof input.tool === "string") return input.tool.slice(0, 120);
 
   // Common tool input patterns
   if ("command" in input) return String(input.command).slice(0, 120);
@@ -162,8 +188,8 @@ export function getToolPreview(block: ToolCallContent): string {
   if ("pattern" in input) return String(input.pattern).slice(0, 120);
   if ("query" in input) return String(input.query).slice(0, 120);
 
-  const first = input[keys[0]];
-  return String(first).slice(0, 120);
+  // Nested args object — dig for a readable scalar, never "[object Object]".
+  return readableScalar(input[keys[0]]).slice(0, 120);
 }
 
 export function formatUsage(usage: {
@@ -180,4 +206,3 @@ export function formatUsage(usage: {
   if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
   return parts.join(" · ");
 }
-

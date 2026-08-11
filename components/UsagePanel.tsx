@@ -47,6 +47,11 @@ const HEAT_LEVELS = [
   "color-mix(in oklab, var(--accent) 85%, var(--bg))",
 ];
 const TOP_SERIES = 5;
+/** Bar track height — must match `.usage-trend-bars` height in globals.css. */
+const TREND_TRACK_PX = 120;
+/** Per-segment floor so tiny series stay visible; reserved per series so the
+ *  stacked minimums of the tallest day can never exceed the track. */
+const TREND_MIN_SEG_PX = 2;
 
 function fmtTokens(n: number, locale: string): string {
   if (locale === "zh") {
@@ -225,6 +230,7 @@ export function UsagePanel() {
     () => Math.max(1, ...(data?.trend.map((d) => d.tokens) ?? [1])),
     [data],
   );
+  const trendUsablePx = TREND_TRACK_PX - TREND_MIN_SEG_PX * Math.max(1, series.length);
 
   const modelLabel = (id: string) => (id === "__other__" ? t("usage.other") : id);
 
@@ -360,22 +366,24 @@ export function UsagePanel() {
                       className="usage-trend-col"
                       title={`${day.date} · ${fmtTokens(day.tokens, locale)} ${t("usage.tokens")}`}
                     >
-                      {painted.map((s, pi) => (
-                        <div
-                          key={s.id}
-                          className={`usage-trend-seg${pi === painted.length - 1 ? " is-top" : ""}`}
-                          style={{
-                            height: Math.max(2, (s.v / trendMax) * 118),
-                            background: seriesColor(s.i),
-                          }}
-                        />
-                      ))}
+                      <div className="usage-trend-bar">
+                        {painted.map((s) => (
+                          <div
+                            key={s.id}
+                            className="usage-trend-seg"
+                            style={{
+                              height: Math.max(TREND_MIN_SEG_PX, (s.v / trendMax) * trendUsablePx),
+                              background: seriesColor(s.i),
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
               </div>
             </div>
-            <div className="usage-trend-labels">
+            <div className={`usage-trend-labels${days === 7 ? " is-week" : ""}`}>
               {data.trend.map((day, i) => {
                 const step = Math.ceil(data.trend.length / 6);
                 const show = i % step === 0 || i === data.trend.length - 1;

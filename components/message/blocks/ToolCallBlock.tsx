@@ -84,11 +84,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
   const pending = Boolean(isStreaming) && !result;
 
-  // Hooks must run unconditionally (scaffold + card paths share them).
-  // Scaffold: null = no user toggle yet → open on error, closed otherwise.
   const [scaffoldUserOpen, setScaffoldUserOpen] = useState<boolean | null>(null);
   const [cardExpanded, setCardExpanded] = useState(false);
-  const scaffoldExpanded = scaffoldUserOpen ?? isError;
+  // Errors stay folded by default — the red title marks the row; click to unfold.
+  const scaffoldExpanded = scaffoldUserOpen ?? false;
   const showScaffoldArgs = !isCard && scaffoldExpanded;
   const showCardArgs = isCard && cardExpanded && !isEditTool;
   const showInputArgs = showScaffoldArgs || showCardArgs;
@@ -740,5 +739,3 @@ export function PairedResult({ text, isEmpty, isError }: {
     </div>
   );
 }
-
-

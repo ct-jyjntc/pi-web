@@ -50,8 +50,8 @@ export const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, too
   }
   const live = Boolean(isStreaming) && doneCount < runs.length;
   // Live runs stay expanded (Hermes: cannot collapse while a tool is running).
-  // Errors auto-unfurl until the user folds them.
-  const expanded = open ?? (live || errorCount > 0);
+  // Errors stay folded by default — the red "N errors" badge marks the row.
+  const expanded = open ?? live;
 
   let totalDuration = 0;
   for (const tc of runs) totalDuration += toolCallDurations?.get(tc.toolCallId) ?? 0;
@@ -167,5 +167,4 @@ export const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, too
     </div>
   );
 });
-
 

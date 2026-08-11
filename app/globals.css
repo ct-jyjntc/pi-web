@@ -3449,17 +3449,34 @@ textarea.input-base:focus-visible {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  align-items: center;
+}
+.usage-trend-bar {
+  /* Cap bar width so few-day ranges (7d) show bars, not full-width slabs. */
+  width: 100%;
+  max-width: 48px;
+  display: flex;
+  /* column-reverse: first DOM child renders at the baseline, so the legend's
+     top-ranked series forms the bar base. */
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  /* Round the bar's top corners as one shape, clipping whatever segment ends
+     up on top — keeps the arc constant even when the top segment is tiny. */
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  overflow: hidden;
 }
 .usage-trend-seg {
   flex-shrink: 0;
   min-height: 2px;
 }
-.usage-trend-seg.is-top {
-  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
-}
 .usage-trend-labels {
   display: flex;
   margin-top: 6px;
+  /* Match .usage-trend-bars gaps so label cells align exactly with columns. */
+  gap: 3px;
+}
+.usage-trend-labels.is-week {
+  gap: 10px;
 }
 .usage-trend-label {
   flex: 1;
@@ -3602,6 +3619,15 @@ textarea.input-base:focus-visible {
   height: 30px;
   font-size: 12px;
 }
+/* Native selects center their label inside the 30px track themselves; keeping
+   input-base's 7px vertical padding shrinks the glyph box to 14px and clips
+   the label's descenders. */
+.settings-page-general select.input-base,
+.settings-page-content select.input-base {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 
 /* Code theme preview chrome — fixed light/dark palettes, independent of app theme */
 .code-preview.is-light {
