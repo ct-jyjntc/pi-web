@@ -746,7 +746,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                 left: 0,
                 right: 0,
                 zIndex: 100,
-                 borderRadius: 16,
+                borderRadius: "var(--radius-md)",
                  padding: 3,
               }}
             >
@@ -898,7 +898,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                   left: 0,
                   right: 0,
                   zIndex: 100,
-                   borderRadius: 16,
+                  borderRadius: "var(--radius-md)",
                    padding: 3,
                 }}
               >

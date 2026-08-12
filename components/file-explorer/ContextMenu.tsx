@@ -90,7 +90,7 @@ export function FileExplorerContextMenu({ x, y, items, onAction, onClose }: Prop
         width: 180,
         zIndex: 90,
         padding: 3,
-        borderRadius: 16,
+        borderRadius: "var(--radius-md)",
       }}
       onContextMenu={(event) => event.preventDefault()}
     >

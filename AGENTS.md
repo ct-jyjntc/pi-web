@@ -294,7 +294,7 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --success-bg --success-border --destructive-bg --destructive-border   (status tints)
 --diff-add-bg --diff-del-bg --diff-hunk-bg                           (single diff recipe)
 --overlay-bg --shadow-sm --shadow-md                                   (per-theme values)
---radius-xs(4) --radius-sm(6) --radius-md(8) --radius-lg(10) --radius-pill(999)
+--radius-xs(4) --radius-sm(6) --radius-md(8) --radius-lg(10) --radius-xl(16) --radius-pill(999)
 --font-mono
 ```
 

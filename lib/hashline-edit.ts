@@ -108,6 +108,42 @@ function resolvePath(cwd: string, pathValue: string): string {
   return isAbsolute(pathValue) ? pathValue : resolve(cwd, pathValue);
 }
 
+/** Absolute paths a hashline patch will mutate (section headers + MV dest). */
+export function collectHashlineLockPaths(cwd: string, input: string): string[] {
+  const { sections } = parseHashlinePatch(input);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (value: string) => {
+    const abs = resolvePath(cwd, value);
+    if (seen.has(abs)) return;
+    seen.add(abs);
+    out.push(abs);
+  };
+  for (const section of sections) {
+    add(section.path);
+    for (const op of section.ops) {
+      if (op.kind === "mv") add(op.dest);
+    }
+  }
+  return out.sort();
+}
+
+function assertNoOverlap(
+  ranges: Array<{ start: number; end: number; label: string }>,
+  where: string,
+): void {
+  const ordered = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end);
+  for (let i = 1; i < ordered.length; i++) {
+    const prev = ordered[i - 1]!;
+    const curr = ordered[i]!;
+    if (prev.end > curr.start) {
+      throw new Error(
+        `${prev.label} and ${curr.label} overlap in ${where}. Merge them into one edit or target disjoint regions.`,
+      );
+    }
+  }
+}
+
 function displayPath(cwd: string, abs: string): string {
   const rel = relative(cwd, abs);
   return rel && !rel.startsWith("..") ? rel : abs;
@@ -134,7 +170,7 @@ export function applyHashlineEdits(
   const content = normalize(original);
   const hashes: string[] = [];
 
-  type Planned = { start: number; end: number; newText: string; hash: string };
+  type Planned = { start: number; end: number; newText: string; hash: string; index: number };
   const planned: Planned[] = [];
 
   for (let i = 0; i < hunks.length; i++) {
@@ -156,9 +192,14 @@ export function applyHashlineEdits(
     if (second !== -1) {
       throw new Error(`hunks[${i}] oldText is not unique (hash=${h}). Add more context.`);
     }
-    planned.push({ start: first, end: first + oldText.length, newText, hash: h });
+    planned.push({ start: first, end: first + oldText.length, newText, hash: h, index: i });
     hashes.push(h);
   }
+
+  assertNoOverlap(
+    planned.map((p) => ({ start: p.start, end: p.end, label: `hunks[${p.index}]` })),
+    pathValue,
+  );
 
   planned.sort((a, b) => b.start - a.start);
   let next = content;
@@ -280,6 +321,22 @@ function applyOpsToLines(lines: string[], ops: PatchOp[]): string[] {
     if (m.type === "insert") {
       if (m.index < 0 || m.index > lines.length) {
         throw new Error(`Insert index ${m.index} out of bounds (file has ${lines.length} lines).`);
+      }
+    }
+  }
+
+  const replaces = muts.filter((m): m is Extract<typeof m, { type: "replace" }> => m.type === "replace");
+  assertNoOverlap(
+    replaces.map((m) => ({ start: m.start, end: m.end, label: `SWAP/DEL ${m.start}.=${m.end}` })),
+    "this file",
+  );
+  for (const replace of replaces) {
+    for (const mut of muts) {
+      if (mut.type !== "insert") continue;
+      if (replace.start - 1 < mut.index && mut.index < replace.end) {
+        throw new Error(
+          `Insert at ${mut.index} overlaps SWAP/DEL ${replace.start}.=${replace.end} in this file. Merge them into one edit or target disjoint regions.`,
+        );
       }
     }
   }

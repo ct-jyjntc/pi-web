@@ -29,6 +29,7 @@ import { formatFileOnDisk } from "./format-file";
 import {
   applyHashlineEdits,
   applyHashlinePatch,
+  collectHashlineLockPaths,
   computeFileTag,
   hashBlock,
   isClassicEditArgs,
@@ -40,9 +41,8 @@ import {
 } from "./hashline-edit";
 import { buildHashlinePreview } from "./hashline-preview";
 import {
-  canonicalHashlinePath,
   recordHashlineSnapshot,
-  withHashlinePathLock,
+  withHashlinePathsLocked,
 } from "./hashline-snapshots";
 import { recordFileMutation } from "./workspace-turn-journal";
 
@@ -314,179 +314,164 @@ export function createPiWebEditToolDefinition(
           }
         };
 
-        // Collect absolute paths from a hashline input for per-path serialization.
-        const hashlinePaths = (input: string): string[] => {
-          const paths: string[] = [];
-          const seen = new Set<string>();
-          for (const m of input.matchAll(/^\[(.+?)#[0-9A-Fa-f]{4}\]/gm)) {
-            const abs = canonicalHashlinePath(cwd, m[1]!.trim());
-            if (!seen.has(abs)) {
-              seen.add(abs);
-              paths.push(abs);
-            }
-          }
-          return paths;
-        };
-
-        const withPathsLocked = async <T,>(paths: string[], fn: () => Promise<T> | T): Promise<T> => {
-          const unique = [...new Set(paths)].sort();
-          let i = 0;
-          const run = async (): Promise<T> => {
-            if (i >= unique.length) return await fn();
-            const p = unique[i++]!;
-            return withHashlinePathLock(p, run);
-          };
-          return run();
+        const mutateLocked = async <T,>(
+          paths: string[],
+          fn: (beforeMap: Map<string, string | null>) => Promise<T>,
+        ): Promise<T> => {
+          return withHashlinePathsLocked(paths, async () => {
+            const beforeMap = snapshotPaths(paths);
+            return fn(beforeMap);
+          });
         };
 
         // 1) Preferred: hashline patch language
         if (isHashlineInputArgs(args)) {
           const input = String(args.input);
-          const paths = hashlinePaths(input);
-          const beforeMap = snapshotPaths(paths);
-          const results = await withPathsLocked(paths, () => applyHashlinePatch(cwd, input));
-          await formatEditedFiles(results.map((r) => r.path));
-          for (const r of results) {
-            const abs = isAbsolute(r.path) ? r.path : resolve(cwd, r.path);
-            if (!beforeMap.has(abs)) beforeMap.set(abs, null);
-          }
-          refreshHashlineAfterFormat(cwd, results, beforeMap);
-          recordSnapshots(getSessionId?.(), beforeMap);
-          const text = results.map((r) => r.summary ?? `Applied ${r.applied} op(s) to ${r.path}`).join("\n\n");
-          // Prefer first file's patch for the chat SplitPatchView; multi-file still in results.
-          const patch = results.map((r) => r.patch).filter(Boolean).join("\n") || undefined;
-          const tag = results.map((r) => r.tag).filter(Boolean).join(",");
-          return {
-            content: [{ type: "text", text }],
-            details: {
-              mode: "hashline-patch",
-              tag,
-              patch,
-              diff: patch,
-              results,
-            },
-          };
+          const paths = collectHashlineLockPaths(cwd, input);
+          return mutateLocked(paths, async (beforeMap) => {
+            const results = applyHashlinePatch(cwd, input);
+            await formatEditedFiles(results.map((r) => r.path));
+            for (const r of results) {
+              const abs = isAbsolute(r.path) ? r.path : resolve(cwd, r.path);
+              if (!beforeMap.has(abs)) beforeMap.set(abs, null);
+            }
+            refreshHashlineAfterFormat(cwd, results, beforeMap);
+            recordSnapshots(getSessionId?.(), beforeMap);
+            const text = results.map((r) => r.summary ?? `Applied ${r.applied} op(s) to ${r.path}`).join("\n\n");
+            const patch = results.map((r) => r.patch).filter(Boolean).join("\n") || undefined;
+            const tag = results.map((r) => r.tag).filter(Boolean).join(",");
+            return {
+              content: [{ type: "text", text }],
+              details: {
+                mode: "hashline-patch",
+                tag,
+                patch,
+                diff: patch,
+                results,
+              },
+            };
+          });
         }
 
         // 2) Hunk mode
         if (isHashlineHunkArgs(args)) {
           const abs = resolveEditPath(cwd, args.path);
-          const beforeMap = snapshotPaths(abs ? [abs] : []);
-          const hunks = (args.hunks as HashlineHunk[]).map((h) => ({
-            ...h,
-            hash: h.hash || hashBlock(h.oldText),
-          }));
-          const result = applyHashlineEdits(cwd, String(args.path), hunks);
-          await formatEditedFiles([result.path]);
-          refreshHashlineAfterFormat(cwd, [result], beforeMap);
-          recordSnapshots(getSessionId?.(), beforeMap);
-          return {
-            content: [{
-              type: "text",
-              text: `${result.summary ?? `Applied ${result.applied} hunk(s)`}\nhashes: ${result.hashes.join(", ")}`,
-            }],
-            details: {
-              mode: "hashline-hunks",
-              tag: result.tag,
-              patch: result.patch,
-              diff: result.diff,
-              ...result,
-            },
-          };
-        }
-
-        // 3) Classic path+edits — exact unique match first, then SDK fuzzy classic
-        if (isClassicEditArgs(args)) {
-          const { path, edits } = normalizeClassicEdits(args);
-          const absClassic = resolveEditPath(cwd, path);
-          const beforeMap = snapshotPaths(absClassic ? [absClassic] : []);
-
-          // Exact unique replace (no self-computed hash — hash would always match).
-          try {
-            const hunks: HashlineHunk[] = edits.map((e) => ({
-              oldText: e.oldText,
-              newText: e.newText,
+          return mutateLocked(abs ? [abs] : [], async (beforeMap) => {
+            const hunks = (args.hunks as HashlineHunk[]).map((h) => ({
+              ...h,
+              hash: h.hash || hashBlock(h.oldText),
             }));
-            const result = applyHashlineEdits(cwd, path, hunks);
+            const result = applyHashlineEdits(cwd, String(args.path), hunks);
             await formatEditedFiles([result.path]);
-            recordSnapshots(getSessionId?.(), beforeMap);
             refreshHashlineAfterFormat(cwd, [result], beforeMap);
+            recordSnapshots(getSessionId?.(), beforeMap);
             return {
               content: [{
                 type: "text",
-                text:
-                  `Successfully replaced ${result.applied} block(s) in ${path} (hashline-strict) → #${result.tag ?? "?"}.` +
-                  (result.largeFileWarning ? `\n${result.largeFileWarning}` : "") +
-                  (result.preview ? `\n\n${result.preview}` : ""),
+                text: `${result.summary ?? `Applied ${result.applied} hunk(s)`}\nhashes: ${result.hashes.join(", ")}`,
               }],
               details: {
-                mode: "classic-via-hashline",
+                mode: "hashline-hunks",
                 tag: result.tag,
                 patch: result.patch,
                 diff: result.diff,
                 ...result,
               },
             };
-          } catch (strictError) {
-            // Fall back to SDK classic (fuzzy whitespace tolerance)
+          });
+        }
+
+        // 3) Classic path+edits — exact unique match first, then SDK fuzzy classic
+        if (isClassicEditArgs(args)) {
+          const { path, edits } = normalizeClassicEdits(args);
+          const absClassic = resolveEditPath(cwd, path);
+          return mutateLocked(absClassic ? [absClassic] : [], async (beforeMap) => {
             try {
-              const abs = absClassic;
-              const before = abs ? beforeMap.get(abs) ?? null : null;
-              const classicResult = await classic.execute(
-                toolCallId,
-                { path, edits },
-                signal,
-                onUpdate,
-                ctx,
-              ) as { content?: unknown; details?: Record<string, unknown> };
-              // Fuzzy path can write unparsable source; reject + rollback like hashline.
-              let sizeNote: string | undefined;
-              if (abs && before != null && existsSync(abs)) {
-                const after = readFileSync(abs, "utf8");
-                if (after !== before) {
-                  const syntax = checkSourceSyntax(abs, after, cwd);
-                  if (!syntax.ok) {
-                    writeFileSync(abs, before, "utf8");
-                    throw new Error(formatSyntaxGuardFailure(path, syntax));
+              const hunks: HashlineHunk[] = edits.map((e) => ({
+                oldText: e.oldText,
+                newText: e.newText,
+              }));
+              const result = applyHashlineEdits(cwd, path, hunks);
+              await formatEditedFiles([result.path]);
+              recordSnapshots(getSessionId?.(), beforeMap);
+              refreshHashlineAfterFormat(cwd, [result], beforeMap);
+              return {
+                content: [{
+                  type: "text",
+                  text:
+                    `Successfully replaced ${result.applied} block(s) in ${path} (hashline-strict) → #${result.tag ?? "?"}.` +
+                    (result.largeFileWarning ? `\n${result.largeFileWarning}` : "") +
+                    (result.preview ? `\n\n${result.preview}` : ""),
+                }],
+                details: {
+                  mode: "classic-via-hashline",
+                  tag: result.tag,
+                  patch: result.patch,
+                  diff: result.diff,
+                  ...result,
+                },
+              };
+            } catch (strictError) {
+              const strictMsg = strictError instanceof Error ? strictError.message : String(strictError);
+              if (/overlap/i.test(strictMsg)) throw strictError;
+              try {
+                const abs = absClassic;
+                const before = abs ? beforeMap.get(abs) ?? null : null;
+                const classicResult = await classic.execute(
+                  toolCallId,
+                  { path, edits },
+                  signal,
+                  onUpdate,
+                  ctx,
+                ) as { content?: unknown; details?: Record<string, unknown> };
+                let sizeNote: string | undefined;
+                if (abs && before != null && existsSync(abs)) {
+                  const after = readFileSync(abs, "utf8");
+                  if (after !== before) {
+                    const syntax = checkSourceSyntax(abs, after, cwd);
+                    if (!syntax.ok) {
+                      writeFileSync(abs, before, "utf8");
+                      throw new Error(formatSyntaxGuardFailure(path, syntax));
+                    }
+                    sizeNote = largeFileEditWarning(path, after);
                   }
-                  sizeNote = largeFileEditWarning(path, after);
                 }
-              }
-              if (classicResult && typeof classicResult === "object") {
+                if (classicResult && typeof classicResult === "object") {
+                  await formatEditedFiles([abs]);
+                  recordSnapshots(getSessionId?.(), beforeMap);
+                  if (sizeNote && Array.isArray(classicResult.content)) {
+                    const content = classicResult.content as Array<{ type?: string; text?: string }>;
+                    const first = content[0];
+                    if (first && first.type === "text" && typeof first.text === "string") {
+                      first.text = `${first.text}\n${sizeNote}`;
+                    }
+                  }
+                  return {
+                    ...classicResult,
+                    details: {
+                      ...(classicResult.details ?? {}),
+                      mode: "classic-fuzzy",
+                      largeFileWarning: sizeNote,
+                    },
+                  };
+                }
                 await formatEditedFiles([abs]);
                 recordSnapshots(getSessionId?.(), beforeMap);
-                if (sizeNote && Array.isArray(classicResult.content)) {
-                  const content = classicResult.content as Array<{ type?: string; text?: string }>;
-                  const first = content[0];
-                  if (first && first.type === "text" && typeof first.text === "string") {
-                    first.text = `${first.text}\n${sizeNote}`;
-                  }
-                }
-                return {
-                  ...classicResult,
-                  details: {
-                    ...(classicResult.details ?? {}),
-                    mode: "classic-fuzzy",
-                    largeFileWarning: sizeNote,
-                  },
-                };
+                return classicResult;
+              } catch (classicError) {
+                const extraNote = strictError instanceof Error
+                  && classicError instanceof Error
+                  && strictError.message !== classicError.message
+                  ? `(hashline-strict also failed: ${strictError.message})`
+                  : undefined;
+                throw enrichEditError(cwd, classicError, { path, edits }, {
+                  absolutePath: resolveEditPath(cwd, path),
+                  extraNote,
+                  appendRecoveryHint: true,
+                });
               }
-              await formatEditedFiles([abs]);
-              recordSnapshots(getSessionId?.(), beforeMap);
-              return classicResult;
-            } catch (classicError) {
-              const strictNote = strictError instanceof Error
-                && classicError instanceof Error
-                && strictError.message !== classicError.message
-                ? `(hashline-strict also failed: ${strictError.message})`
-                : undefined;
-              throw enrichEditError(cwd, classicError, { path, edits }, {
-                absolutePath: resolveEditPath(cwd, path),
-                extraNote: strictNote,
-                appendRecoveryHint: true,
-              });
             }
-          }
+          });
         }
 
         throw new Error(

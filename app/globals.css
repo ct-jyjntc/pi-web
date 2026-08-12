@@ -18,10 +18,10 @@
   --color-bg-subtle: var(--bg-subtle);
   --color-success: var(--success);
   --color-destructive: var(--destructive);
-  --radius-xs: 6px;
-  --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 16px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
   --radius-xl: 16px;
   --radius-pill: 999px;
 }
@@ -29,10 +29,10 @@
 /* Quiet Console monochrome tokens — keep existing names so inline styles cascade */
 :root {
   /* Radius scale — use these instead of raw px values */
-  --radius-xs: 6px;   /* small controls: icon buttons, tags, checkboxes */
-  --radius-sm: 8px;   /* inputs, list blocks */
-  --radius-md: 16px;  /* cards, bubbles, dropdown menus */
-  --radius-lg: 16px;  /* tool blocks, modal shells */
+  --radius-xs: 4px;   /* small controls: icon buttons, tags, checkboxes */
+  --radius-sm: 6px;   /* inputs, list blocks */
+  --radius-md: 8px;   /* cards, menus, tables */
+  --radius-lg: 10px;  /* tool blocks, modal shells */
   --radius-xl: 16px;  /* composer plate */
   --radius-pill: 999px;
 
@@ -1918,7 +1918,7 @@ textarea.input-base:focus-visible {
   flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   overflow: hidden;
   padding: 3px;

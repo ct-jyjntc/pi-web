@@ -26,10 +26,7 @@ import { readWebSettings } from "./web-settings";
 import { existsSync } from "fs";
 import { cacheSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
-import {
-  ensureHeavyExtensionFactories,
-  getBuiltinResourceLoaderOptions,
-} from "./builtin-extensions";
+import { getBuiltinResourceLoaderOptions } from "./builtin-extensions";
 import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
 import { ensureBuiltinPackages, migrateBuiltinPackageSettings } from "./ensure-builtin-packages";
 import { ensureSubagentDelegation } from "./ensure-subagent-delegation";
@@ -128,9 +125,6 @@ export async function startRpcSession(
       (block): block is string => Boolean(block),
     );
     const modelRuntime = await createConfiguredModelRuntime();
-    // First-party factories own todo / ask-user / subagents / permission / MCP.
-    // Never installed into ~/.pi/agent/npm.
-    await ensureHeavyExtensionFactories();
     const builtinLoader = getBuiltinResourceLoaderOptions();
     const services = await createAgentSessionServices({
       cwd,

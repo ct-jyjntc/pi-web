@@ -244,7 +244,7 @@ npm run smoke:electron
 | `npm run daemon` | 单独跑 IPC host（需父进程 IPC） |
 | `npm run build:electron` | 桌面打包准备 |
 | `npm run dist:mac` / `dist:dmg` / `dist:win` | 安装包 |
-| `npm run bundle:extensions` / `bundle:sdk` | 预打包扩展 / 折叠 SDK |
+| `npm run bundle:sdk` | 折叠 SDK |
 | `npm run smoke:ipc` / `smoke:flows` / `smoke:electron` | 桌面冒烟 |
 | `npm run dev` / `start` | 浏览器 Next 服务 |
 | `npm run lint` | ESLint |

@@ -87,3 +87,18 @@ export async function withHashlinePathLock<T>(
     }
   }
 }
+
+/** Acquire multiple path locks in sorted order (deadlock-safe). */
+export async function withHashlinePathsLocked<T>(
+  absPaths: string[],
+  fn: () => Promise<T> | T,
+): Promise<T> {
+  const unique = [...new Set(absPaths.filter(Boolean))].sort();
+  let i = 0;
+  const run = async (): Promise<T> => {
+    if (i >= unique.length) return await fn();
+    const path = unique[i++]!;
+    return withHashlinePathLock(path, run);
+  };
+  return run();
+}

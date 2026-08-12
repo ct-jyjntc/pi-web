@@ -818,7 +818,7 @@ export function GitPanel({
               <Icon icon={ChevronDown} size={9} strokeWidth={1.6} style={{ opacity: 0.5, display: "block", flexShrink: 0 }} />
             </button>
             {branchOpen && (
-               <div className="menu-card" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, minWidth: 220, zIndex: 70, maxHeight: 260, overflow: "auto", borderRadius: 16, padding: 3 }}>
+               <div className="menu-card" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, minWidth: 220, zIndex: 70, maxHeight: 260, overflow: "auto", borderRadius: "var(--radius-md)", padding: 3 }}>
                 {branches.map((b) => (
                   <button
                     key={b}

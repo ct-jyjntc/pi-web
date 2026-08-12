@@ -187,7 +187,7 @@ export function ComposerContextMenu({
         width: 160,
         zIndex: 90,
         padding: 3,
-        borderRadius: 16,
+        borderRadius: "var(--radius-md)",
       }}
     >
       {items.map((item) => (

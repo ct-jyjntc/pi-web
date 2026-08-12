@@ -106,25 +106,6 @@ function prunePrebuildsToTarget(pkgRoot, label = basename(pkgRoot)) {
   return removed;
 }
 
-/**
- * tree-sitter-bash is only consumed via web-tree-sitter Language.load(wasm).
- * Keep package.json + the .wasm; drop native prebuilds, C sources, bindings.
- */
-function slimTreeSitterBash(dest) {
-  if (!existsSync(dest)) return;
-  const keep = new Set(["package.json", "tree-sitter-bash.wasm"]);
-  let removed = 0;
-  for (const entry of readdirSync(dest)) {
-    if (keep.has(entry)) continue;
-    rmSync(join(dest, entry), { recursive: true, force: true });
-    removed += 1;
-  }
-  if (!existsSync(join(dest, "tree-sitter-bash.wasm"))) {
-    console.error("tree-sitter-bash.wasm missing after slim — aborting.");
-    process.exit(1);
-  }
-  console.log(`Slimmed tree-sitter-bash to wasm-only (removed ${removed} entries)`);
-}
 
 /**
  * Keep @mariozechner/clipboard + the matching platform package
@@ -342,8 +323,6 @@ function stageExtensionRuntimeDeps(rootPackages) {
   }
 }
 
-// permission-system loads bash grammar via web-tree-sitter + .wasm only.
-slimTreeSitterBash(join(standaloneNm, "tree-sitter-bash"));
 
 // No heavy-extension prebundles. Native factories live in lib/first-party/.
 

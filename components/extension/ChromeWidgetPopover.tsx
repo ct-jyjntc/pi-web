@@ -85,7 +85,7 @@ export function ChromeWidgetPopover({
          maxHeight: "min(42vh, 300px)",
          overflow: "hidden",
          zIndex: 520,
-         borderRadius: 16,
+         borderRadius: "var(--radius-md)",
          padding: 3,
       }}
     >

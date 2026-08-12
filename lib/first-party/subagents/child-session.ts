@@ -127,10 +127,15 @@ export async function createChildRun(
   });
 
   let activityListener: ((text: string) => void) | undefined;
+  let assistantTurns = 0;
   const unsubscribe = session.subscribe((event) => {
-    const rec = event as { type?: string; toolName?: string; name?: string };
+    const rec = event as { type?: string; toolName?: string; name?: string; message?: { role?: string } };
     if (rec.type === "tool_execution_start" || rec.type === "tool_call") {
       activityListener?.(rec.toolName || rec.name || "working");
+    }
+    if (rec.type === "message_end" && rec.message?.role === "assistant" && type.maxTurns && type.maxTurns > 0) {
+      assistantTurns += 1;
+      if (assistantTurns >= type.maxTurns) void session.abort();
     }
   });
 

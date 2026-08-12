@@ -35,7 +35,7 @@ export function ComposerPalette({
         zIndex: 120,
         maxHeight,
         overflow: "hidden",
-        borderRadius: 16,
+        borderRadius: "var(--radius-md)",
         padding: 3,
       }}
     >

@@ -24,8 +24,3 @@ export { createAskUserInlineExtension } from "./ask-user-extension";
 export { createSubagentsInlineExtension } from "./subagents";
 export { createPermissionInlineExtension } from "./permission";
 export { createMcpInlineExtension } from "./mcp";
-export {
-  loadHeavyExtensionFactories,
-  resolveHeavyBundlePath,
-  HEAVY_EXTENSION_SPECS,
-} from "./heavy-extensions";

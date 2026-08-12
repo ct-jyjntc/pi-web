@@ -244,7 +244,7 @@ npm run smoke:electron
 | `npm run daemon` | IPC host alone (needs a parent with IPC) |
 | `npm run build:electron` | Desktop packaging prep |
 | `npm run dist:mac` / `dist:dmg` / `dist:win` | Installers |
-| `npm run bundle:extensions` / `bundle:sdk` | Prebundle extensions / SDK collapse |
+| `npm run bundle:sdk` | SDK collapse |
 | `npm run smoke:ipc` / `smoke:flows` / `smoke:electron` | Desktop smokes |
 | `npm run dev` / `start` | Browser Next server |
 | `npm run lint` | ESLint |

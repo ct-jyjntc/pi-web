@@ -60,7 +60,7 @@ export function ChatInputModeMenu({ style, mode, onModeChange }: ChatInputModeMe
         flexDirection: "column",
         minWidth: 268,
         padding: 3,
-        borderRadius: 16,
+        borderRadius: "var(--radius-md)",
         overflow: "hidden",
       }}
     >

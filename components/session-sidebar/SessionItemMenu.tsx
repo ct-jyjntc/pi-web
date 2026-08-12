@@ -116,7 +116,7 @@ export function SessionItemMenu({
         width: 180,
         zIndex: 90,
         padding: 3,
-        borderRadius: 16,
+        borderRadius: "var(--radius-md)",
       }}
     >
       {items.map((item) => (

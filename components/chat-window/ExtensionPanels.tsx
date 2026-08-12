@@ -237,7 +237,7 @@ export function ExtensionCustomPanel({
           width: "min(720px, 100%)",
           maxHeight: "min(720px, calc(100vh - 40px))",
           outline: "none",
-          borderRadius: 16,
+          borderRadius: "var(--radius-md)",
           padding: 0,
           overflow: "hidden",
         }}

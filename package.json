@@ -27,11 +27,11 @@
     "package.json"
   ],
   "scripts": {
-    "postinstall": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs && node scripts/bundle-builtin-extensions.mjs",
+    "postinstall": "node scripts/fix-node-pty-perms.mjs && node scripts/ensure-electron-adhoc-sign.mjs",
     "dev": "node scripts/fix-node-pty-perms.mjs && next dev -H 127.0.0.1 -p 30141",
     "dev:lan": "node scripts/fix-node-pty-perms.mjs && next dev -H 0.0.0.0 -p 30141",
     "build": "node scripts/fix-node-pty-perms.mjs && next build --webpack",
-    "build:electron": "npm run bundle:extensions && npm run desktop:build && npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
+    "build:electron": "npm run desktop:build && npm run build && node scripts/prepare-electron-standalone.mjs && node scripts/bundle-runtime-node.mjs && node scripts/bundle-pi-cli.mjs",
     "desktop:dev": "vite",
     "desktop:build": "vite build",
     "daemon": "node daemon/ipc-host.mjs",
@@ -49,7 +49,6 @@
     "dist:mac": "npm run build:electron && electron-builder --mac dmg zip",
     "dist:win": "npm run build:electron && electron-builder --win nsis",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
-    "bundle:extensions": "node scripts/bundle-builtin-extensions.mjs",
     "bundle:sdk": "node scripts/bundle-pi-sdk.mjs",
     "smoke:ipc": "node scripts/smoke-ipc-runtime.mjs",
     "smoke:flows": "node scripts/smoke-ipc-flows.mjs",

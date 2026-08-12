@@ -1,8 +1,8 @@
 /**
  * Migrate away from ~/.pi/agent npm-installed "builtin packages".
  *
- * First-party capabilities now ship as app dependencies and are registered via
- * lib/builtin-extensions.ts (additionalExtensionPaths). This module only:
+ * First-party capabilities register via lib/builtin-extensions.ts.
+ * This module only:
  *   1. Strips those package sources from settings.json so the package manager
  *      does not double-load or try to update them
  *   2. Optionally prunes legacy TUI-only package entries from settings
@@ -18,7 +18,6 @@ import {
   PRUNE_PACKAGE_SOURCES,
   isBuiltinPackageSource,
   prewarmBuiltinExtensions,
-  resolveBuiltinExtensionPaths,
 } from "./builtin-extensions";
 
 let ensurePromise: Promise<{ notes: string[]; loaded: string[]; missing: string[] }> | null = null;
@@ -99,13 +98,6 @@ export function ensureBuiltinPackages(): Promise<{
 
     try {
       notes.push(...migrateBuiltinPackageSettings());
-
-      const resolved = resolveBuiltinExtensionPaths();
-      notes.push(
-        resolved.length > 0
-          ? `Builtin extensions resolved from app install: ${resolved.map((r) => r.packageName).join(", ")}`
-          : "WARNING: no builtin extensions resolved from app node_modules",
-      );
 
       const warm = await prewarmBuiltinExtensions();
       loaded = warm.loaded;

@@ -7,8 +7,6 @@ import { getAgentDir, SessionManager, Theme } from "@earendil-works/pi-coding-ag
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, writeFileSync } from "fs";
-import { resolve } from "path";
-import { pathToFileURL } from "url";
 import { peekAgentQueueImages, validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateUtilityModelRuntimes } from "./utility-model";
@@ -275,11 +273,6 @@ export class AgentSessionWrapper {
         this.adoptBaseToolNames(this.baseToolNames);
       }
       this.applyForcedEmptySystemPrompt();
-      // rpiv-todo keeps a process-global "active render session". In Pi Web many
-      // AgentSessions share one process, so reclaim the foreground for THIS
-      // session whenever we (re)bind extensions — otherwise the overlay reads
-      // another session's (empty) slot and never emits a widget.
-      void this.reclaimTodoForeground();
     })().catch((err) => {
       // Clear the cached promise so the next command retries the binding
       // instead of rethrowing this failure forever. Concurrent callers still
@@ -317,34 +310,6 @@ export class AgentSessionWrapper {
     }
   }
 
-  /**
-   * Point @juicesharp/rpiv-todo's process-global render pointer at this session
-   * so getRenderState() / the overlay factory see the right task list.
-   * Best-effort: path resolution varies with install layout.
-   */
-  private async reclaimTodoForeground(): Promise<void> {
-    const sessionId = this.inner.sessionId;
-    if (!sessionId) return;
-    const home = process.env.HOME ?? "";
-    const candidates = [
-      // Common install under ~/.pi/agent/npm (TS source loaded by jiti/tsx loaders)
-      resolve(home, ".pi/agent/npm/node_modules/@juicesharp/rpiv-todo/state/store.ts"),
-      resolve(home, ".pi/agent/npm/node_modules/@juicesharp/rpiv-todo/state/store.js"),
-    ];
-    for (const candidate of candidates) {
-      try {
-        // file:// URL for ESM dynamic import of absolute paths
-        const href = pathToFileURL(candidate).href;
-        const mod = await import(href);
-        if (typeof mod.setActiveRenderSession === "function") {
-          mod.setActiveRenderSession(sessionId);
-          return;
-        }
-      } catch {
-        // try next path
-      }
-    }
-  }
 
   private emit(event: AgentEvent): void {
     for (const l of this.listeners) {
@@ -426,11 +391,6 @@ export class AgentSessionWrapper {
       if (type === "prompt" && this.abortRequested) {
         this.emit({ type: "prompt_done" });
         return null;
-      }
-      // Reclaim rpiv-todo foreground before each user turn so multi-session
-      // hosts don't leave the overlay bound to a different chat.
-      if (type === "prompt" || type === "steer" || type === "follow_up") {
-        void this.reclaimTodoForeground();
       }
     }
 

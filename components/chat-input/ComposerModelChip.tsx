@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { Check, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { Icon } from "../Icon";
 import { useLocale } from "@/hooks/useLocale";
+import { useWebSettings } from "@/lib/web-settings-store";
 import {
   THINKING_LEVELS,
   THINKING_LEVEL_KEYS,
@@ -61,6 +62,7 @@ export function ComposerModelChip({
   defaultModel,
 }: ComposerModelChipProps) {
   const { t } = useLocale();
+  const settings = useWebSettings();
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -142,8 +144,11 @@ export function ComposerModelChip({
   const right = anchor ? Math.max(8, viewportWidth - anchor.right) : 8;
   const maxH = anchor ? Math.max(160, Math.min(anchor.top - 10, viewportHeight * 0.5)) : 240;
 
+  const resetThinking = THINKING_LEVELS.includes((settings?.defaultThinkingLevel ?? "auto") as ThinkingLevel)
+    ? (settings?.defaultThinkingLevel as ThinkingLevel)
+    : "auto";
   const reset = () => {
-    if (onThinkingLevelChange && thinkingLevel !== "auto") onThinkingLevelChange("auto");
+    if (onThinkingLevelChange && thinkingLevel !== resetThinking) onThinkingLevelChange(resetThinking);
     if (defaultModel && onModelChange) {
       if (model?.provider !== defaultModel.provider || model?.modelId !== defaultModel.modelId) {
         onModelChange(defaultModel.provider, defaultModel.modelId);
@@ -186,7 +191,7 @@ export function ComposerModelChip({
             maxHeight: maxH,
             display: "flex",
             flexDirection: "column",
-            borderRadius: 16,
+            borderRadius: "var(--radius-md)",
             padding: 3,
             overflow: "hidden",
           }}
