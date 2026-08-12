@@ -1,14 +1,7 @@
 /**
  * First-party agent capabilities shipped inside Pi Web (not via ~/.pi/agent/npm).
  *
- * Layers:
- *   1. **Thin inline factories** (lib/first-party/todo + ask-user) — pure app modules.
- *   2. **Heavy prebundled factories** (permission / subagents / mcp) — ESM bundles at
- *      `node_modules/<pkg>/.pi-web-bundle/extension.mjs` produced by
- *      `scripts/bundle-builtin-extensions.mjs`. Loaded as extensionFactories (no jiti).
- *   3. **TS path fallback** — only if a heavy bundle is missing (dev before first bundle).
- *
- * Compaction uses the SDK native path (pi-better-compaction is not shipped).
+ * Todo, ask-user, subagents, permission, and MCP are native first-party modules.
  * Legacy settings.json packages[] entries are stripped on boot.
  */
 import { existsSync, readFileSync } from "fs";
@@ -35,6 +28,9 @@ export type BuiltinExtensionPackage = (typeof BUILTIN_EXTENSION_PACKAGES)[number
 /** Names still stripped from settings.packages (includes retired thin packages). */
 export const LEGACY_BUILTIN_PACKAGE_NAMES = [
   ...BUILTIN_EXTENSION_PACKAGES,
+  "@gotgenes/pi-permission-system",
+  "@gotgenes/pi-subagents",
+  "pi-mcp-adapter",
   "@juicesharp/rpiv-ask-user-question",
   "@juicesharp/rpiv-todo",
   "@lll9p/pi-better-compaction",
@@ -94,9 +90,9 @@ export function resolveBuiltinExtensionPaths(options?: {
   return out;
 }
 
-/** Flat path list for DefaultResourceLoader.additionalExtensionPaths (fallback only). */
+/** Packaged TS fallbacks are retired — permission/MCP/subagents are native. */
 export function getBuiltinAdditionalExtensionPaths(): string[] {
-  return resolveBuiltinExtensionPaths({ onlyMissingBundles: true }).map((e) => e.path);
+  return [];
 }
 
 let heavyCache: HeavyLoadResult | null = null;
@@ -116,20 +112,16 @@ export async function ensureHeavyExtensionFactories(): Promise<HeavyLoadResult> 
 
 /**
  * Resource-loader options for full agent sessions.
- * Prefer prebundled heavy factories + thin first-party factories.
- * Falls back to TS paths only for packages still missing a bundle.
- *
- * Call `await ensureHeavyExtensionFactories()` first when possible so heavy
- * factories are populated; safe to call sync if prewarm already finished.
+ * First-party factories own todo / ask-user / subagents / permission / MCP.
+ * TS paths remain only for packaged factories whose bundle is missing.
  */
 export function getBuiltinResourceLoaderOptions(): {
   additionalExtensionPaths: string[];
   extensionFactories: InlineExtension[];
 } {
-  const heavy = heavyCache?.factories ?? [];
   return {
     additionalExtensionPaths: getBuiltinAdditionalExtensionPaths(),
-    extensionFactories: [...getFirstPartyExtensionFactories(), ...heavy],
+    extensionFactories: getFirstPartyExtensionFactories(),
   };
 }
 

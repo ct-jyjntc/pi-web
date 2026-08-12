@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
+import { CenteredDialog } from "../CenteredDialog";
 import { Icon } from "../Icon";
 import { Plus, Search } from "lucide-react";
 import {
@@ -62,18 +63,15 @@ export function AddProviderPicker({
   const totalCount = availableOAuth.length + availableApiKey.length + availableFree.length + (showCustom ? 1 : 0);
 
   return (
-    <div
-      className="modal-backdrop"
-      style={{ zIndex: 1100 }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="modal-shell"
-        style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))" }}
-      >
-        {/* Search — borderless strip (avoids a heavy focused frame in the dialog chrome) */}
-        <div className="modal-header" style={{ gap: 8, padding: "0 12px" }}>
-          <Icon icon={Search} size={13} strokeWidth={2} style={{ color: "var(--text-dim)", flexShrink: 0 }} />
+     <CenteredDialog
+       width={720}
+       zIndex={1100}
+       label={t("models.searchProviders")}
+       onClose={onClose}
+       style={{ maxHeight: "min(72vh, calc(100vh - 32px))", display: "flex", flexDirection: "column" }}
+     >
+       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px 8px" }}>
+           <Icon icon={Search} size={13} strokeWidth={2} style={{ color: "var(--text-dim)", flexShrink: 0 }} />
           <input
             ref={inputRef}
             value={search}
@@ -179,11 +177,8 @@ export function AddProviderPicker({
             </div>
           )}
         </div>
-      </div>
-    </div>
+     </CenteredDialog>
   );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-
-

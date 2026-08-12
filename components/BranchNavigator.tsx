@@ -368,6 +368,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           right: 0,
           marginTop: 4,
           zIndex: 100,
+          borderRadius: "var(--radius-xl)",
         }}>
           {hasContent && firstNode ? (
             <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>

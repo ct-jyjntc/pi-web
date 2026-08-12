@@ -13,6 +13,8 @@ test("light routes never touch the agent SDK graph", () => {
     "/api/health",
     "/api/files/foo",
     "/api/git/status",
+    "/api/accounts",
+    "/api/accounts/github/connect",
     "/api/cwd/validate",
     "/api/worktrees",
     "/api/usage",

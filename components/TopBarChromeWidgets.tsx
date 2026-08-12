@@ -4,18 +4,14 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { Bot, ListTodo } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import {
+  chromeWidgetFocus,
   chromeWidgetSummary,
   classifyWidgetKey,
   parseWidget,
-  type ParsedAgentsWidget,
-  type ParsedTodoWidget,
 } from "@/lib/extension-widgets";
+import { ChromeWidgetPopover, CHROME_WIDGET_POPOVER_WIDTH } from "./extension/ChromeWidgetPopover";
 import { useChromeWidgetsMetric } from "@/lib/session-metrics-store";
-import type { ExtensionWidgetItem } from "@/lib/types";
-import { TodoItemRow } from "./extension/TodoAtoms";
 import { Icon } from "./Icon";
-
-const POPOVER_WIDTH = 300;
 
 const CAPSULE_STYLE: CSSProperties = {
   display: "inline-flex",
@@ -43,71 +39,6 @@ const CAPSULE_STYLE: CSSProperties = {
   boxSizing: "border-box",
 };
 
-function TodoPanelBody({ parsed }: { parsed: ParsedTodoWidget }) {
-  const { t } = useLocale();
-  if (parsed.collapsedHint) {
-    return (
-      <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--text-muted)" }}>
-        {parsed.collapsedHint}
-      </div>
-    );
-  }
-  if (parsed.items.length === 0) {
-    return (
-      <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--text-dim)" }}>
-        {t("ext.todoEmpty")}
-      </div>
-    );
-  }
-  return (
-    <div style={{ padding: "6px 8px 8px" }}>
-      {parsed.items.map((item, i) => (
-        <TodoItemRow key={`${item.id ?? i}-${item.text.slice(0, 24)}`} item={item} index={i} />
-      ))}
-    </div>
-  );
-}
-
-function AgentsPanelBody({ parsed }: { parsed: ParsedAgentsWidget }) {
-  return (
-    <pre
-      style={{
-        margin: 0,
-        padding: "8px 12px",
-        fontSize: 11,
-        lineHeight: 1.4,
-        fontFamily: "var(--font-mono)",
-        color: "var(--text-muted)",
-        whiteSpace: "pre-wrap",
-        wordBreak: "break-word",
-      }}
-    >
-      {parsed.lines.join("\n")}
-    </pre>
-  );
-}
-
-function ChromeWidgetPanel({ widget }: { widget: ExtensionWidgetItem }) {
-  const parsed = parseWidget(widget.key, widget.lines);
-  if (parsed.kind === "todo") return <TodoPanelBody parsed={parsed} />;
-  if (parsed.kind === "agents") return <AgentsPanelBody parsed={parsed} />;
-  return (
-    <pre
-      style={{
-        margin: 0,
-        padding: "8px 12px",
-        fontSize: 11,
-        lineHeight: 1.4,
-        fontFamily: "var(--font-mono)",
-        color: "var(--text-muted)",
-        whiteSpace: "pre-wrap",
-      }}
-    >
-      {widget.lines.join("\n")}
-    </pre>
-  );
-}
-
 function capsuleCount(key: string, lines: string[]): string {
   const parsed = parseWidget(key, lines);
   if (parsed.kind === "todo") {
@@ -115,7 +46,6 @@ function capsuleCount(key: string, lines: string[]): string {
     return "0";
   }
   if (parsed.kind === "agents") {
-    // Never use raw body line count — each running agent is 2 lines.
     return String(Math.max(0, parsed.agentCount));
   }
   return String(Math.max(1, lines.filter((l) => l.trim()).length));
@@ -128,8 +58,7 @@ function isCapsuleActive(key: string, lines: string[]): boolean {
       || (parsed.total > 0 && parsed.completed < parsed.total);
   }
   if (parsed.kind === "agents") {
-    const text = parsed.lines.join(" ").toLowerCase();
-    return /running|active|progress|working|执行|运行|进行/.test(text);
+    return parsed.runningCount + parsed.queuedCount > 0;
   }
   return false;
 }
@@ -153,8 +82,8 @@ export function TopBarChromeWidgets() {
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
     const left = Math.min(
-      Math.max(8, rect.left + rect.width / 2 - POPOVER_WIDTH / 2),
-      window.innerWidth - POPOVER_WIDTH - 8,
+      Math.max(8, rect.left),
+      window.innerWidth - CHROME_WIDGET_POPOVER_WIDTH - 8,
     );
     setPopoverPos({ top: rect.bottom + 6, left });
   }, []);
@@ -162,7 +91,6 @@ export function TopBarChromeWidgets() {
   const toggle = useCallback((key: string) => {
     setOpenKey((cur) => {
       if (cur === key) return null;
-      // Place after state settles — useLayoutEffect also repositions.
       requestAnimationFrame(() => placePopover(key));
       return key;
     });
@@ -223,6 +151,7 @@ export function TopBarChromeWidgets() {
           const kind = classifyWidgetKey(widget.key);
           const title = kind === "todo" ? t("ext.todo") : kind === "agents" ? t("ext.agents") : widget.key;
           const count = capsuleCount(widget.key, widget.lines);
+          const focus = chromeWidgetFocus(widget.key, widget.lines);
           const summary = chromeWidgetSummary(widget.key, widget.lines);
           const live = isCapsuleActive(widget.key, widget.lines);
           const open = openKey === widget.key;
@@ -277,6 +206,21 @@ export function TopBarChromeWidgets() {
               >
                 {count}
               </span>
+              {focus ? (
+                <span
+                  className="topbar-capsule-focus"
+                  style={{
+                    maxWidth: 140,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    color: "var(--text-muted)",
+                    fontWeight: 400,
+                  }}
+                >
+                  {focus}
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -284,64 +228,11 @@ export function TopBarChromeWidgets() {
       <div className="chrome-divider" aria-hidden style={{ flexShrink: 0 }} />
 
       {openWidget && popoverPos && (
-        <div
-          ref={popoverRef}
-          className="menu-card"
-          role="dialog"
-          aria-label={
-            classifyWidgetKey(openWidget.key) === "todo"
-              ? t("ext.todo")
-              : t("ext.agents")
-          }
-          style={{
-            position: "fixed",
-            top: popoverPos.top,
-            left: popoverPos.left,
-            width: POPOVER_WIDTH,
-            maxHeight: "min(40vh, 320px)",
-            overflowY: "auto",
-            zIndex: 520,
-            boxShadow: "var(--shadow-md)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "8px 12px 6px",
-              borderBottom: "1px solid var(--border)",
-            }}
-          >
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                color: "var(--text-muted)",
-              }}
-            >
-              {classifyWidgetKey(openWidget.key) === "todo" ? t("ext.todo") : t("ext.agents")}
-            </span>
-            <span
-              style={{
-                marginLeft: "auto",
-                fontSize: 11,
-                color: "var(--text-dim)",
-                fontVariantNumeric: "tabular-nums",
-                minWidth: 0,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                maxWidth: 180,
-              }}
-            >
-              {chromeWidgetSummary(openWidget.key, openWidget.lines)}
-            </span>
-          </div>
-          <ChromeWidgetPanel widget={openWidget} />
-        </div>
+        <ChromeWidgetPopover
+          widget={openWidget}
+          pos={popoverPos}
+          popoverRef={popoverRef}
+        />
       )}
     </>
   );

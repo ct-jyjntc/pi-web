@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 import { existsSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { pathToFileURL } from "url";
-import { validateAgentImages } from "./image-attachments";
+import { peekAgentQueueImages, validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateUtilityModelRuntimes } from "./utility-model";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
@@ -140,6 +140,8 @@ export class AgentSessionWrapper {
     placement: "aboveEditor" | "belowEditor" | "topBar";
   }>();
   private promptRunning = false;
+  /** Set by abort; prompt checks this after any await so Stop cannot lose a race. */
+  private abortRequested = false;
   /** Last per-prompt memory recall block queued for this session (dedupe guard). */
   private lastMemoryContextBlock: string | null = null;
   private extensionsBound = false;
@@ -266,6 +268,12 @@ export class AgentSessionWrapper {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
       }
       this.extensionsBound = true;
+      // set_tools / session-start adopt can run before factory tools land in
+      // getAllTools(). Re-merge so subagent stays active; empty allow-list
+      // (all tools off) is left untouched.
+      if (this.baseToolNames && this.baseToolNames.length > 0) {
+        this.adoptBaseToolNames(this.baseToolNames);
+      }
       this.applyForcedEmptySystemPrompt();
       // rpiv-todo keeps a process-global "active render session". In Pi Web many
       // AgentSessions share one process, so reclaim the foreground for THIS
@@ -299,7 +307,8 @@ export class AgentSessionWrapper {
   }
 
   private shouldWaitForExtensions(type: string): boolean {
-    return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands";
+    return type === "prompt" || type === "steer" || type === "follow_up"
+      || type === "get_commands" || type === "set_tools";
   }
 
   private applyForcedEmptySystemPrompt(): void {
@@ -408,9 +417,16 @@ export class AgentSessionWrapper {
     if (!this._alive) throw new Error("Session destroyed");
     this.resetIdleTimer();
     const type = command.type as string;
+    // This prompt owns the flag so a leftover Stop cannot drop the next send,
+    // but a Stop during waitForExtensions still wins after the await.
+    if (type === "prompt") this.abortRequested = false;
     if (this.shouldWaitForExtensions(type)) {
       await this.waitForExtensionsBound();
       if (!this._alive) throw new Error("Session destroyed");
+      if (type === "prompt" && this.abortRequested) {
+        this.emit({ type: "prompt_done" });
+        return null;
+      }
       // Reclaim rpiv-todo foreground before each user turn so multi-session
       // hosts don't leave the overlay bound to a different chat.
       if (type === "prompt" || type === "steer" || type === "follow_up") {
@@ -473,6 +489,10 @@ export class AgentSessionWrapper {
             }
           }
         }
+        if (this.abortRequested) {
+          this.emit({ type: "prompt_done" });
+          return null;
+        }
         this.promptRunning = true;
         try {
           // Capture the pre-prompt leaf so /undo can navigate_tree back here
@@ -526,6 +546,11 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
+        this.abortRequested = true;
+        if (this.inner.isBashRunning) this.inner.abortBash();
+        if (this.inner.isCompacting) {
+          try { this.inner.abortCompaction(); } catch { /* ignore */ }
+        }
         await this.inner.abort();
         return null;
 
@@ -675,7 +700,14 @@ export class AgentSessionWrapper {
       case "clear_queue": {
         // Full clear only: pi has no single-item dequeue, and clear+requeue
         // races against the agent loop pulling messages mid-flight.
-        return this.inner.clearQueue();
+        // Peek images before clearQueue() drops the agent-core queues.
+        const images = peekAgentQueueImages(this.inner.agent);
+        const cleared = this.inner.clearQueue();
+        return {
+          ...cleared,
+          steeringImages: images.steering,
+          followUpImages: images.followUp,
+        };
       }
 
       case "steer": {

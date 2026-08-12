@@ -14,6 +14,8 @@ import {
   type GitPorcelainEntry,
 } from "./git-status";
 import { gitProcessEnv, resolveGitBinary } from "./resolve-git";
+import { getGithubAccount } from "./accounts-store";
+import { githubAuthEnv, redactGitAuth, type GitAuthEnv } from "./git-github-auth";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
@@ -44,19 +46,20 @@ export async function runGit(
   args: string[],
   maxBuffer = GIT_STATUS_MAX_BUFFER,
   timeout = GIT_TIMEOUT_MS,
+  extraEnv?: GitAuthEnv,
 ): Promise<string> {
   try {
     const { stdout } = await execFileAsync(resolveGitBinary(), ["-C", cwd, ...args], {
       timeout,
       maxBuffer,
-      env: gitProcessEnv(),
+      env: extraEnv ? { ...gitProcessEnv(), ...extraEnv } : gitProcessEnv(),
     });
     return stdout;
   } catch (error) {
     const err = error as { stderr?: string | Buffer; stdout?: string | Buffer; message?: string };
     const stderr = typeof err.stderr === "string" ? err.stderr : err.stderr?.toString("utf8") ?? "";
     const stdout = typeof err.stdout === "string" ? err.stdout : err.stdout?.toString("utf8") ?? "";
-    throw new Error((stderr || stdout || err.message || "git failed").trim());
+    throw new Error(redactGitAuth((stderr || stdout || err.message || "git failed").trim()));
   }
 }
 
@@ -534,6 +537,7 @@ function notARepositoryStatus(): GitStatusResponse {
     upstream: null,
     ahead: 0,
     behind: 0,
+    hasRemote: false,
     files: [],
     stagedCount: 0,
     unstagedCount: 0,
@@ -582,9 +586,10 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
       // Always re-read the porcelain snapshot here (this response has its own
       // TTL; layering two caches would stack their staleness) while still
       // publishing it for the diff requests that share the bucket.
-      const [snapshot, numstat] = await Promise.all([
+      const [snapshot, numstat, remoteOut] = await Promise.all([
         readStatusSnapshot(repositoryRoot, { allowCached: false }),
         readNumstatMap(repositoryRoot),
+        git(repositoryRoot, ["remote"]).catch(() => ""),
       ]);
       await addUntrackedLineCounts(repositoryRoot, snapshot.entries, numstat);
       const branch = await resolveBranchLabel(repositoryRoot, snapshot.head);
@@ -598,6 +603,7 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
           upstream: snapshot.head.upstream,
           ahead: snapshot.head.ahead,
           behind: snapshot.head.behind,
+          hasRemote: remoteOut.split("\n").some((line) => line.trim()),
           files,
           stagedCount: files.filter((f) => f.staged).length,
           unstagedCount: files.filter((f) => f.unstaged).length,
@@ -751,6 +757,11 @@ export async function discardGitFiles(cwd: string, filePaths: string[]): Promise
   return getGitStatus(cwd);
 }
 
+async function githubRemoteAuth(repositoryRoot: string, remoteName: string): Promise<GitAuthEnv | undefined> {
+  const url = (await git(repositoryRoot, ["remote", "get-url", remoteName]).catch(() => "")).trim();
+  return githubAuthEnv(getGithubAccount()?.token, url);
+}
+
 export async function pushGit(cwd: string): Promise<{
   message: string;
   status: GitStatusResponse;
@@ -762,9 +773,9 @@ export async function pushGit(cwd: string): Promise<{
   if (!repositoryRoot) throw new Error("Not a git repository");
   // Push only moves refs, which the index/HEAD fingerprint cannot see — the
   // ahead/behind counters would keep the pre-push numbers without this.
-  const run = async (args: string[]): Promise<string> => {
+  const run = async (args: string[], extraEnv?: GitAuthEnv): Promise<string> => {
     try {
-      return await runGit(repositoryRoot, args, GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+      return await runGit(repositoryRoot, args, GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS, extraEnv);
     } finally {
       invalidateGitStatusCache();
     }
@@ -777,7 +788,9 @@ export async function pushGit(cwd: string): Promise<{
       // whether the user is signed in and shows the publish dialog.
       return { message: "", status: await getGitStatus(cwd), needRemote: true };
     }
-    const out = await run(["push"]);
+    const remoteName = remotes.includes("origin") ? "origin" : remotes[0]!;
+    const auth = await githubRemoteAuth(repositoryRoot, remoteName);
+    const out = await run(["push"], auth);
     return {
       message: (out || "Push completed").trim() || "Push completed",
       status: await getGitStatus(cwd),
@@ -785,7 +798,8 @@ export async function pushGit(cwd: string): Promise<{
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     if (/no upstream|has no upstream|set-upstream/i.test(msg)) {
-      const out = await run(["push", "-u", "origin", "HEAD"]);
+      const auth = await githubRemoteAuth(repositoryRoot, "origin");
+      const out = await run(["push", "-u", "origin", "HEAD"], auth);
       return {
         message: (out || "Push completed").trim() || "Push completed",
         status: await getGitStatus(cwd),
@@ -798,15 +812,16 @@ export async function pushGit(cwd: string): Promise<{
 export async function pullGit(cwd: string): Promise<{ message: string; status: GitStatusResponse }> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) throw new Error("Not a git repository");
-  const run = async (args: string[]): Promise<string> => {
+  const run = async (args: string[], extraEnv?: GitAuthEnv): Promise<string> => {
     try {
-      return await git(repositoryRoot, args, GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+      return await runGit(repositoryRoot, args, GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS, extraEnv);
     } finally {
       invalidateGitStatusCache();
     }
   };
   try {
-    const out = await run(["pull", "--ff-only"]);
+    const auth = await githubRemoteAuth(repositoryRoot, "origin");
+    const out = await run(["pull", "--ff-only"], auth);
     return {
       message: (out || "Already up to date.").trim() || "Pull completed",
       status: await getGitStatus(cwd),
@@ -815,7 +830,8 @@ export async function pullGit(cwd: string): Promise<{ message: string; status: G
     // fallback to regular pull if no upstream / ff-only fails with diverged history message
     const msg = error instanceof Error ? error.message : String(error);
     if (/Not possible to fast-forward|diverged|no tracking information/i.test(msg)) {
-      const out = await run(["pull", "--no-rebase"]);
+      const auth = await githubRemoteAuth(repositoryRoot, "origin");
+      const out = await run(["pull", "--no-rebase"], auth);
       return {
         message: (out || "Pull completed").trim() || "Pull completed",
         status: await getGitStatus(cwd),

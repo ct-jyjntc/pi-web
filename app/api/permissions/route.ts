@@ -1,6 +1,6 @@
 /**
  * Permissions API — mode (yolo) + fine-grained policy document for the
- * @gotgenes/pi-permission-system extension config.
+ * first-party permission factory config.
  */
 import { NextResponse } from "next/server";
 import { getPermissionMode, setPermissionMode, type PermissionMode } from "@/lib/permission-mode";

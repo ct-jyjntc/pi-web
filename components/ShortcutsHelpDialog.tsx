@@ -4,11 +4,9 @@
  * Modal listing global keyboard shortcuts. Opened via ⌘/Ctrl+/.
  */
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { X } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { formatShortcut, modKeyLabel } from "@/lib/keyboard";
-import { Icon } from "./Icon";
+import { CenteredDialog } from "./CenteredDialog";
 
 interface Props {
   open: boolean;
@@ -19,11 +17,11 @@ type Row = { keys: string; label: string };
 
 export function ShortcutsHelpDialog({ open, onClose }: Props) {
   const { t } = useLocale();
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [ready, setReady] = useState(false);
   const mod = modKeyLabel();
 
   useEffect(() => {
-    setPortalTarget(document.body);
+    setReady(true);
   }, []);
 
   useEffect(() => {
@@ -38,7 +36,7 @@ export function ShortcutsHelpDialog({ open, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open || !portalTarget) return null;
+  if (!open || !ready) return null;
 
   const rows: Row[] = [
     { keys: formatShortcut(mod, "B"), label: t("shortcuts.toggleSidebar") },
@@ -55,74 +53,35 @@ export function ShortcutsHelpDialog({ open, onClose }: Props) {
     { keys: formatShortcut(mod, "/"), label: t("shortcuts.thisHelp") },
   ];
 
-  return createPortal(
-    <div
-      className="modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("shortcuts.title")}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="modal-shell"
-        style={{
-          width: 420,
-          maxWidth: "calc(100vw - 16px)",
-          maxHeight: "min(560px, calc(100dvh - 16px))",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          padding: 0,
-        }}
-      >
-        <div className="modal-header">
-          <div className="modal-title">{t("shortcuts.title")}</div>
-          <button
-            type="button"
-            className="chrome-btn is-icon"
-            onClick={onClose}
-            title={t("common.close")}
-            aria-label={t("common.close")}
+  return (
+    <CenteredDialog portal width={380} label={t("shortcuts.title")} onClose={onClose}>
+      <div style={{ padding: "14px 14px 8px", fontSize: 14, fontWeight: 600, letterSpacing: "-0.02em" }}>
+        {t("shortcuts.title")}
+      </div>
+      <div style={{ padding: "0 4px 8px", maxHeight: "min(480px, calc(100dvh - 80px))", overflowY: "auto" }}>
+        {rows.map((row) => (
+          <div
+            key={`${row.keys}:${row.label}`}
+            className="menu-row"
+            style={{ cursor: "default" }}
           >
-            <Icon icon={X} size={14} strokeWidth={1.8} />
-          </button>
-        </div>
-        <div style={{ overflowY: "auto", padding: "8px 0 12px" }}>
-          {rows.map((row) => (
-            <div
-              key={`${row.keys}:${row.label}`}
+            <span style={{ flex: 1, minWidth: 0, color: "var(--text)" }}>{row.label}</span>
+            <span
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                padding: "7px 16px",
-                fontSize: 12.5,
+                flexShrink: 0,
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                color: "var(--text-dim)",
+                background: "var(--bg-subtle)",
+                borderRadius: "var(--radius-pill)",
+                padding: "1px 7px",
               }}
             >
-              <span style={{ color: "var(--text)", minWidth: 0 }}>{row.label}</span>
-              <kbd
-                style={{
-                  flexShrink: 0,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: "var(--text-muted)",
-                  background: "var(--bg-subtle)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-xs)",
-                  padding: "2px 7px",
-                }}
-              >
-                {row.keys}
-              </kbd>
-            </div>
-          ))}
-        </div>
+              {row.keys}
+            </span>
+          </div>
+        ))}
       </div>
-    </div>,
-    portalTarget,
+    </CenteredDialog>
   );
 }

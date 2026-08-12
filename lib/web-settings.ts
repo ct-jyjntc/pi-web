@@ -111,18 +111,30 @@ export type WebSettings = {
   soundEnabled: boolean;
   desktopNotifications: boolean;
   notificationSound: boolean;
-  /** Default thinking for new sessions. */
+  /** Default thinking for new sessions when lastChatModel is unset. */
   defaultThinkingLevel: ThinkingLevelPref;
+  /**
+   * Last composer model + thinking. New sessions follow this when set;
+   * configured defaultModel / defaultThinkingLevel remain the Reset fallback.
+   * Does not rewrite modelRoles or agent frontmatter.
+   */
+  lastChatModel: ModelRef | null;
   /**
    * Global agent permission mode (ask/auto/plan/yolo). Shared across sessions
    * and restored after restart; not per-session.
    */
   agentMode: AgentMode;
-
-  /** Show thinking blocks expanded by default in the transcript. */
-  showThinking: boolean;
-  /** Show todo extension widgets by default (client preference). */
-  showTodos: boolean;
+   /** Show thinking blocks expanded by default in the transcript. */
+   showThinking: boolean;
+   /** Show todo extension widgets by default (client preference). */
+   showTodos: boolean;
+   /** Expand Git Review file diffs on first load. */
+   expandReviewDiffs: boolean;
+   /** Cap parallel native subagents (API providers often limit concurrency). */
+   subagentConcurrency: {
+     enabled: boolean;
+     max: number;
+   };
 
   // ── Appearance ──
   themeMode: ThemeMode;
@@ -171,10 +183,12 @@ const DEFAULT_SETTINGS: WebSettings = {
   desktopNotifications: true,
   notificationSound: true,
   defaultThinkingLevel: "auto",
+  lastChatModel: null,
   agentMode: "ask",
-  showThinking: true,
-
-  showTodos: true,
+   showThinking: true,
+   showTodos: true,
+   expandReviewDiffs: false,
+   subagentConcurrency: { enabled: true, max: 4 },
   themeMode: "system",
   uiFontSize: 14,
   codeThemeLight: "vs",
@@ -304,9 +318,20 @@ function normalizeWebSettings(raw: unknown): WebSettings {
     desktopNotifications: asBool(raw.desktopNotifications, DEFAULT_SETTINGS.desktopNotifications),
     notificationSound: asBool(raw.notificationSound, DEFAULT_SETTINGS.notificationSound),
     defaultThinkingLevel: asThinking(raw.defaultThinkingLevel, DEFAULT_SETTINGS.defaultThinkingLevel),
+    lastChatModel: parseModelRef(raw.lastChatModel),
     agentMode: parseAgentMode(raw.agentMode),
-    showThinking: asBool(raw.showThinking, DEFAULT_SETTINGS.showThinking),
-    showTodos: asBool(raw.showTodos, DEFAULT_SETTINGS.showTodos),
+     showThinking: asBool(raw.showThinking, DEFAULT_SETTINGS.showThinking),
+     showTodos: asBool(raw.showTodos, DEFAULT_SETTINGS.showTodos),
+     expandReviewDiffs: asBool(raw.expandReviewDiffs, DEFAULT_SETTINGS.expandReviewDiffs),
+     subagentConcurrency: (() => {
+       const d = DEFAULT_SETTINGS.subagentConcurrency;
+       if (!isRecord(raw.subagentConcurrency)) return { ...d };
+       const sc = raw.subagentConcurrency;
+       return {
+         enabled: asBool(sc.enabled, d.enabled),
+         max: asNumber(sc.max, d.max, 1, 16),
+       };
+     })(),
     themeMode: asThemeMode(raw.themeMode, DEFAULT_SETTINGS.themeMode),
     uiFontSize: asNumber(raw.uiFontSize, DEFAULT_SETTINGS.uiFontSize, 12, 18),
     codeThemeLight: asCodeTheme(raw.codeThemeLight, DEFAULT_SETTINGS.codeThemeLight),
@@ -352,13 +377,15 @@ function cloneWebSettings(settings: WebSettings): WebSettings {
     titleModel: settings.titleModel ? { ...settings.titleModel } : null,
     commitModel: settings.commitModel ? { ...settings.commitModel } : null,
     advisorModel: settings.advisorModel ? { ...settings.advisorModel } : null,
+    lastChatModel: settings.lastChatModel ? { ...settings.lastChatModel } : null,
     modelRoles: {
       default: settings.modelRoles.default ? { ...settings.modelRoles.default } : null,
       smol: settings.modelRoles.smol ? { ...settings.modelRoles.smol } : null,
       plan: settings.modelRoles.plan ? { ...settings.modelRoles.plan } : null,
     },
-    projectMemory: { ...settings.projectMemory },
-    leanMode: { ...settings.leanMode },
+     projectMemory: { ...settings.projectMemory },
+     leanMode: { ...settings.leanMode },
+     subagentConcurrency: { ...settings.subagentConcurrency },
   };
 }
 

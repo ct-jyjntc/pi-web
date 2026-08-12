@@ -18,20 +18,22 @@
   --color-bg-subtle: var(--bg-subtle);
   --color-success: var(--success);
   --color-destructive: var(--destructive);
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 16px;
+  --radius-xl: 16px;
   --radius-pill: 999px;
 }
 
 /* Quiet Console monochrome tokens — keep existing names so inline styles cascade */
 :root {
   /* Radius scale — use these instead of raw px values */
-  --radius-xs: 4px;   /* small controls: icon buttons, tags, checkboxes */
-  --radius-sm: 6px;   /* inputs, list blocks */
-  --radius-md: 8px;   /* cards, bubbles, dropdown menus */
-  --radius-lg: 10px;  /* composer, tool blocks, modal shells */
+  --radius-xs: 6px;   /* small controls: icon buttons, tags, checkboxes */
+  --radius-sm: 8px;   /* inputs, list blocks */
+  --radius-md: 16px;  /* cards, bubbles, dropdown menus */
+  --radius-lg: 16px;  /* tool blocks, modal shells */
+  --radius-xl: 16px;  /* composer plate */
   --radius-pill: 999px;
 
   --bg: #ffffff;
@@ -220,6 +222,17 @@ html.pi-desktop .app-topbar {
   .app-topbar-actions .chrome-btn > span {
     display: none;
   }
+  .topbar-capsule-focus {
+    display: none;
+  }
+}
+.topbar-capsule-focus {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-weight: 400;
 }
 /* macOS: first sidebar strip clears traffic lights + matches top bar height */
 html.pi-desktop.pi-desktop-mac .sidebar-desktop-title-row.sidebar-toolbar-row {
@@ -1493,10 +1506,11 @@ textarea.input-base:focus-visible {
 .sidebar-menu-item-active:hover {
   background: var(--bg-selected);
 }
-.wt-row .sidebar-menu-item {
-  width: auto;
-  flex: 1;
-}
+ .wt-row .sidebar-menu-item,
+ .wt-row .menu-row {
+   width: auto;
+   flex: 1;
+ }
 
 .sidebar-section-label {
   display: flex;
@@ -1729,21 +1743,22 @@ textarea.input-base:focus-visible {
   container-name: composer;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  /* Bottom-only lift — upward shadow let transcript text show above the plate */
-  box-shadow: 0 8px 24px -12px color-mix(in oklab, var(--text) 18%, transparent);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.composer-shell:focus-within {
+  border-color: color-mix(in oklab, var(--text) 14%, var(--border));
 }
 .composer-shell.is-streaming {
   border-color: color-mix(in oklab, var(--text-muted) 35%, var(--border));
 }
 .composer-input-row {
   display: flex;
-  align-items: center; /* single-line text + send share the same vertical center */
+  align-items: center;
   gap: 8px;
-  padding: 8px 10px 8px 14px;
-  background: var(--bg);
-  /* Radius comes only from .composer-shell clip — no partial child radii */
+  padding: 13px 10px 0;
+  background: transparent;
   border-radius: 0;
   min-width: 0;
 }
@@ -1756,8 +1771,8 @@ textarea.input-base:focus-visible {
   box-sizing: border-box;
   display: block;
   width: 100%;
-  min-height: 32px !important;
-  height: 32px;
+  min-height: 45px !important;
+  height: 45px;
   margin: 0;
   border: none;
   outline: none;
@@ -1766,7 +1781,7 @@ textarea.input-base:focus-visible {
   color: var(--text);
   font: inherit;
   font-size: 14px;
-  line-height: 32px; /* equal to control height → true vertical center for single line */
+  line-height: 22px; /* text sits at the top of the taller field */
   padding: 0;
   overflow-y: auto;
 }
@@ -1777,11 +1792,12 @@ textarea.input-base:focus-visible {
 .composer-toolbar {
   display: flex;
   flex-direction: row;
-  align-items: stretch;
-  min-height: 34px;
+  align-items: center;
+  min-height: 0;
   min-width: 0;
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel);
+  padding: 0 6px 6px;
+  border-top: none;
+  background: transparent;
   border-radius: 0;
   position: relative;
   z-index: 30;
@@ -1799,12 +1815,40 @@ textarea.input-base:focus-visible {
   z-index: 400;
 }
 .composer-toolbar .chrome-btn {
-  height: 34px;
-  min-height: 34px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-weight: 500;
 }
 .composer-toolbar .chrome-btn.is-icon {
-  width: 34px;
-  min-width: 34px;
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+.composer-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+.composer-send:hover:not(:disabled) {
+  opacity: 0.88;
+}
+.composer-send:disabled {
+  background: var(--bg-subtle);
+  color: var(--text-dim);
+  cursor: not-allowed;
 }
 .composer-toolbar-start {
   flex: 0 1 auto;
@@ -1818,7 +1862,7 @@ textarea.input-base:focus-visible {
 /* Model chip may shrink; pure icon buttons stay fixed */
 .composer-toolbar-start .chrome-btn:not(.is-icon) {
   flex-shrink: 1;
-  min-width: 34px;
+  min-width: 28px;
   max-width: 180px;
 }
 .composer-toolbar-spacer {
@@ -1826,9 +1870,7 @@ textarea.input-base:focus-visible {
   min-width: 0;
 }
 .composer-toolbar .chrome-divider {
-  margin: 8px 0;
-  align-self: stretch;
-  flex-shrink: 0;
+  display: none;
 }
 /* Progressive collapse: long zh labels (完全访问 / 压缩) overflow first */
 @container composer (max-width: 680px) {
@@ -1853,7 +1895,7 @@ textarea.input-base:focus-visible {
   .composer-toolbar-start .chrome-btn:not(.is-icon) {
     padding: 0 8px;
     gap: 0;
-    max-width: 34px;
+    max-width: 28px;
     flex-shrink: 0;
   }
   .composer-toolbar .chrome-divider {
@@ -1872,11 +1914,49 @@ textarea.input-base:focus-visible {
 
 /* Floating dropdown/menu card */
 .menu-card {
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 16px;
   box-shadow: var(--shadow-md);
   overflow: hidden;
+  padding: 3px;
+}
+ .menu-card .sidebar-menu-item {
+   border-radius: var(--radius-sm);
+ }
+ .menu-card .sidebar-menu-item-active {
+   background: transparent;
+ }
+ .menu-row {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+   width: 100%;
+   padding: 4px 8px;
+   background: transparent;
+   border: none;
+   border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-row:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.menu-row.is-active {
+  background: transparent;
+  color: var(--text);
+  font-weight: 500;
+}
+.menu-row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Modal backdrop + shell — match main strip chrome (flat, dense, quiet) */
@@ -1885,16 +1965,42 @@ textarea.input-base:focus-visible {
   inset: 0;
   z-index: 1000;
   display: flex;
-  align-items: center;
+  align-items: safe center;
   justify-content: center;
   background: color-mix(in oklab, var(--text) 28%, transparent);
-  /* No heavy blur — main UI is flat strip chrome */
 }
 /* Nested over chat (ask / permission / custom UI) — absolute fill of chat pane */
 .modal-backdrop-local {
   position: absolute;
   inset: 0;
   z-index: 90;
+  overflow: hidden;
+}
+/* Flex item must be allowed to shrink or max-height is ignored (content min-size). */
+.modal-backdrop > .menu-card {
+  min-height: 0;
+  max-height: 100%;
+}
+
+/* Extension ask/permission dialog — stay inside the chat pane, scroll the copy */
+.ext-dialog-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  max-height: min(56dvh, calc(100dvh - 200px));
+}
+.ext-dialog-footer {
+  flex: 0 0 auto;
+  background: var(--bg);
+}
+.ext-dialog-option {
+  align-items: flex-start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 28px;
+  padding: 7px 8px;
+  line-height: 1.45;
 }
 .modal-shell {
   display: flex;
@@ -3949,6 +4055,480 @@ textarea.input-base:focus-visible {
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
 }
+
+/* Skills catalog (Settings → Skills) */
+.skill-catalog-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+}
+.skill-catalog {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 24px 40px;
+}
+@media (max-width: 640px) {
+  .skill-catalog { padding: 14px 14px 32px; }
+}
+.skill-catalog-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.skill-catalog-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.2;
+}
+.skill-catalog-lede {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.skill-catalog-toolbar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+.skill-catalog-toolbar .btn-primary,
+.skill-catalog-toolbar .btn-ghost {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.skill-catalog-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--text-dim);
+}
+.skill-catalog-search:focus-within {
+  border-color: color-mix(in oklab, var(--text) 18%, var(--border));
+}
+.skill-catalog-search .input-base {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.skill-catalog-text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.skill-catalog-text-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.skill-catalog-text-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.skill-catalog-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 14px;
+}
+.skill-catalog-tab {
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.skill-catalog-tab:hover { background: var(--bg-hover); color: var(--text); }
+.skill-catalog-tab.is-active {
+  background: var(--bg-subtle);
+  color: var(--text);
+}
+.skill-catalog-section-title {
+  margin: 0 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.skill-catalog-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 4px 28px;
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .skill-catalog-grid { grid-template-columns: minmax(0, 1fr) !important; }
+}
+.skill-catalog-empty {
+  padding: 20px 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.skill-catalog-empty.is-error { color: var(--destructive); }
+.skill-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.skill-card:hover { background: var(--bg-hover); }
+.skill-card:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.skill-card.is-disabled .skill-card-title,
+.skill-card.is-disabled .skill-card-desc { color: var(--text-dim); }
+.skill-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+.skill-card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.skill-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+}
+.skill-card-update {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+}
+.skill-card-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-card-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  color: var(--text-dim);
+}
+
+.skill-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: safe center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: color-mix(in oklab, var(--text) 28%, transparent);
+}
+.skill-detail-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  max-width: 100%;
+  max-height: min(80vh, 680px);
+  min-height: 0;
+  padding: 20px 20px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+}
+.skill-detail-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.skill-detail-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skill-detail-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.skill-detail-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.skill-detail-badge {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.skill-detail-lede {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.skill-detail-trigger {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.skill-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  min-width: 0;
+}
+.skill-detail-scope {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-subtle);
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.skill-detail-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-detail-source {
+  display: inline-block;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.skill-detail-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.skill-detail-update-state.is-up-to-date { color: var(--success); }
+.skill-detail-update-state.is-error { color: var(--destructive); }
+.skill-detail-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin-top: 14px;
+}
+.skill-detail-markdown {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+.skill-detail-muted {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.skill-detail-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--destructive);
+  line-height: 1.45;
+}
+.skill-detail-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 4px;
+}
+
+.skill-add-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.skill-add-header {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.skill-add-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.skill-add-search .skill-catalog-search { flex: 1; }
+.skill-add-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.skill-add-path {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-add-error {
+  font-size: 12px;
+  color: var(--destructive);
+  word-break: break-word;
+}
+.skill-add-results { overflow: auto; }
+.skill-add-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.skill-add-row-copy { flex: 1; min-width: 0; }
+.skill-add-row-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.skill-add-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.skill-add-row-repo {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.skill-add-row-meta a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.skill-add-empty {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.8;
+}
+
+.composer-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: calc(100% - 20px);
+  margin: 10px 10px 0;
+  padding: 2px 4px 2px 2px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+.composer-skill-chip-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-skill-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.composer-skill-chip-remove:hover { opacity: 1; background: color-mix(in oklab, var(--accent) 12%, transparent); }
 
 /* Monaco file editor: git change-line gutters (FileEditor.tsx) */
 .file-editor-gutter-added {

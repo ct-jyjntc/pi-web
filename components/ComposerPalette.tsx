@@ -3,7 +3,7 @@
 import type { CSSProperties, ReactNode, Ref } from "react";
 
 export type ComposerPaletteProps = {
-  title: ReactNode;
+  title?: ReactNode;
   hint?: ReactNode;
   /** CSS max-height for the whole card (default history-sized). */
   maxHeight?: string;
@@ -35,8 +35,11 @@ export function ComposerPalette({
         zIndex: 120,
         maxHeight,
         overflow: "hidden",
+        borderRadius: 16,
+        padding: 3,
       }}
     >
+      {(title != null || hint != null) && (
       <div
         style={{
           padding: "8px 10px",
@@ -54,9 +57,10 @@ export function ComposerPalette({
           <span style={{ fontFamily: "var(--font-mono)" }}>{hint}</span>
         )}
       </div>
+      )}
       <div
         style={{
-          maxHeight: `calc(${maxHeight} - 34px)`,
+          maxHeight: title != null || hint != null ? `calc(${maxHeight} - 34px)` : maxHeight,
           overflowY: "auto",
           padding: 4,
           ...bodyStyle,

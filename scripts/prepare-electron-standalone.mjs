@@ -253,15 +253,10 @@ console.log(`Nested agent deps: copied ${copiedNested}, skipped hoisted ${skippe
 pruneClipboardPlatformPackages(join(nestedDest, "@mariozechner"));
 pruneClipboardPlatformPackages(join(standaloneNm, "@mariozechner"));
 
-// First-party agent extensions ship as app dependencies (not ~/.pi/agent/npm).
-// The SDK JIT-loads their TypeScript entry files via jiti, so Next file-tracing
-// will not pull them in — overlay the full package trees + heavy runtime deps.
+// Native MCP uses @modelcontextprotocol/sdk (static import). Overlay it so
+// Next file-tracing cannot drop the client/stdio/http transports.
 const builtinExtensionPackages = [
-  "@gotgenes/pi-permission-system",
-  "@gotgenes/pi-subagents",
-  "pi-mcp-adapter",
-  "web-tree-sitter",
-  "tree-sitter-bash",
+  "@modelcontextprotocol/sdk",
 ];
 
 function overlayPackageTree(pkgName) {
@@ -350,37 +345,8 @@ function stageExtensionRuntimeDeps(rootPackages) {
 // permission-system loads bash grammar via web-tree-sitter + .wasm only.
 slimTreeSitterBash(join(standaloneNm, "tree-sitter-bash"));
 
-// Ensure heavy extension prebundles exist (extensionFactories path — no jiti at runtime).
-// Prefer already-built .pi-web-bundle under project node_modules; re-run script if missing.
-{
-  const needsBundle = builtinExtensionPackages.some((name) => {
-    const bundle = join(root, "node_modules", ...name.split("/"), ".pi-web-bundle", "extension.mjs");
-    return !existsSync(bundle);
-  });
-  if (needsBundle) {
-    console.log("Building missing heavy extension prebundles…");
-    const r = spawnSync(process.execPath, [join(root, "scripts", "bundle-builtin-extensions.mjs")], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: "inherit",
-    });
-    if (r.status !== 0) {
-      console.warn("Warning: bundle-builtin-extensions failed — runtime may fall back to jiti TS paths");
-    }
-  }
-  // Copy .pi-web-bundle dirs into standalone tree (overlayPackageTree filter may have skipped).
-  for (const name of builtinExtensionPackages) {
-    const srcBundle = join(root, "node_modules", ...name.split("/"), ".pi-web-bundle");
-    const destBundle = join(standaloneNm, ...name.split("/"), ".pi-web-bundle");
-    if (!existsSync(srcBundle)) {
-      console.warn(`Warning: missing prebundle for ${name}`);
-      continue;
-    }
-    rmSync(destBundle, { recursive: true, force: true });
-    cpSync(srcBundle, destBundle, { recursive: true });
-    console.log(`Copied prebundle ${name}/.pi-web-bundle`);
-  }
-}
+// No heavy-extension prebundles. Native factories live in lib/first-party/.
+
 
 // node-pty: Next file-tracing keeps only package.json + lib/, but the native
 // prebuilds/ (pty.node + spawn-helper) are required at runtime in the packaged app.

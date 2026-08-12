@@ -1,12 +1,12 @@
 /**
  * First-party `todo` tool for Pi Web.
  *
- * Replaces @juicesharp/rpiv-todo (jiti-loaded package). Same tool name, parameter
- * shape, and result text so transcript replay + ChatWindow's deriveTodosFromTranscript
- * keep working. State is keyed by session id (multi-session safe).
+ * The live list is the current user turn only — a new user message starts a
+ * fresh checklist. Replay and the chrome widget follow the same cut.
  */
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext, InlineExtension } from "@earendil-works/pi-coding-agent";
+import { formatTodoWidgetLines } from "../todo-from-transcript";
 
 export type TaskStatus = "pending" | "in_progress" | "completed" | "deleted";
 export type TaskAction = "create" | "update" | "list" | "get" | "delete" | "clear";
@@ -78,23 +78,71 @@ function setState(key: string, state: TaskState): void {
   store.set(key, state);
 }
 
+function publishTodoWidget(ctx: ExtensionContext | undefined, state: TaskState): void {
+  try {
+    const ui = ctx?.ui;
+    if (!ui || typeof ui.setWidget !== "function") return;
+    const items = state.tasks
+      .filter((t) => t.status !== "deleted")
+      .map((t) => ({
+        id: t.id,
+        subject: t.subject,
+        status: t.status,
+        activeForm: t.activeForm,
+      }));
+    ui.setWidget("rpiv-todos", formatTodoWidgetLines(items) ?? undefined);
+  } catch {
+    // Session UI is optional (headless / tests).
+  }
+}
+
 function isTaskDetails(value: unknown): value is TaskDetails {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return Array.isArray(v.tasks) && typeof v.nextId === "number";
 }
 
+type BranchEntry = {
+  id?: string;
+  type?: string;
+  message?: { role?: string; toolName?: string; details?: unknown };
+};
+
+function lastUserTurnId(ctx: ExtensionContext): string {
+  try {
+    const branch = [...(ctx.sessionManager.getBranch?.() ?? [])] as BranchEntry[];
+    let id = "";
+    for (const entry of branch) {
+      if (entry.type === "message" && entry.message?.role === "user" && entry.id) id = entry.id;
+    }
+    return id;
+  } catch {
+    return "";
+  }
+}
+
+const turnBySession = new Map<string, string>();
+
+function beginTurnIfNeeded(ctx: ExtensionContext | undefined): void {
+  if (!ctx) return;
+  const key = sessionKey(ctx);
+  const turnId = lastUserTurnId(ctx);
+  if (turnBySession.get(key) === turnId) return;
+  turnBySession.set(key, turnId);
+  setState(key, { tasks: [], nextId: 1 });
+}
+
 function replayFromBranch(ctx: ExtensionContext): TaskState {
   let result: TaskState = { tasks: [], nextId: 1 };
   try {
-    const branch = ctx.sessionManager.getBranch?.() ?? [];
-    for (const entry of branch as Iterable<unknown>) {
-      const e = entry as {
-        type?: string;
-        message?: { role?: string; toolName?: string; details?: unknown };
-      };
-      if (e.type !== "message") continue;
-      const msg = e.message;
+    const branch = [...(ctx.sessionManager.getBranch?.() ?? [])] as BranchEntry[];
+    let from = 0;
+    for (let i = 0; i < branch.length; i++) {
+      if (branch[i]?.type === "message" && branch[i]?.message?.role === "user") from = i;
+    }
+    for (const entry of branch.slice(from)) {
+      if (entry.type !== "message") continue;
+      const msg = entry.message;
       if (msg?.role !== "toolResult" || msg.toolName !== "todo") continue;
       if (!isTaskDetails(msg.details)) continue;
       result = {
@@ -426,6 +474,7 @@ const TodoParamsSchema = Type.Object({
 });
 
 const PROMPT_GUIDELINES = [
+  "Todos are the checklist for the CURRENT user turn only. A new user message starts a fresh list — do not keep a session-long backlog.",
   "Use `todo` for complex work with 3+ steps, when the user gives you a list of tasks, or immediately after receiving new instructions to capture requirements. Skip it for single trivial tasks and purely conversational requests.",
   "When starting any task, mark it in_progress BEFORE beginning work. Mark it completed IMMEDIATELY when done — never batch completions. Exactly one task should be in_progress at a time.",
   "Never mark a task completed if tests are failing, the implementation is partial, or you hit unresolved errors — keep it in_progress and create a new task for the blocker instead.",
@@ -442,7 +491,15 @@ export function createTodoInlineExtension(): InlineExtension {
     factory(pi: ExtensionAPI) {
       pi.on("session_start", async (_event, ctx) => {
         const key = sessionKey(ctx);
-        setState(key, replayFromBranch(ctx));
+        beginTurnIfNeeded(ctx);
+        const replayed = replayFromBranch(ctx);
+        setState(key, replayed);
+        turnBySession.set(key, lastUserTurnId(ctx));
+        publishTodoWidget(ctx, replayed);
+      });
+      pi.on("agent_start", (_event, ctx) => {
+        beginTurnIfNeeded(ctx);
+        publishTodoWidget(ctx, getState(sessionKey(ctx)));
       });
 
       pi.registerTool({
@@ -456,11 +513,13 @@ export function createTodoInlineExtension(): InlineExtension {
         async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
           const params = rawParams as Params;
           const key = sessionKey(ctx);
+          beginTurnIfNeeded(ctx);
           const before = getState(key);
           const { state, op } = applyMutation(before, params);
           // Commit mutations; leave store unchanged on pure reads / validation errors.
           if (op.kind === "create" || op.kind === "update" || op.kind === "delete" || op.kind === "clear") {
             setState(key, state);
+            publishTodoWidget(ctx, state);
           }
           const snapshot = op.kind === "create" || op.kind === "update" || op.kind === "delete" || op.kind === "clear"
             ? state

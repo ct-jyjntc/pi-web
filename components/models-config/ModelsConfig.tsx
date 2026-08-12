@@ -15,6 +15,7 @@ import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 import { ConfigPanelBackdrop, ConfigPanelShell } from "../ConfigPanelShell";
+ import { CenteredDialog } from "../CenteredDialog";
 
 import {
 
@@ -1618,49 +1619,27 @@ export function ModelsConfig({
 
     )}
 
-    {confirmDiscard && (
-
-      <div
-
-        className="modal-backdrop"
-
-        style={{ zIndex: 1100 }}
-
-        onClick={(e) => { if (e.target === e.currentTarget) setConfirmDiscard(false); }}
-
-      >
-
-        <div
-
-          role="dialog"
-
-          aria-modal="true"
-
-          className="modal-shell"
-
-          style={{ width: "min(360px, calc(100vw - 32px))" }}
-
-        >
-
-          <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
-
-            {t("models.unsavedChanges")}
-
-          </div>
-
-          <div className="modal-footer">
-
-            <button type="button" onClick={() => setConfirmDiscard(false)} className="chrome-btn">{t("common.cancel")}</button>
-
-            <button type="button" onClick={() => { setConfirmDiscard(false); onClose(); }} className="btn-danger">{t("models.discardChanges")}</button>
-
-          </div>
-
-        </div>
-
-      </div>
-
-    )}
+     {confirmDiscard && (
+       <CenteredDialog width={360} zIndex={1100} label={t("models.unsavedChanges")} onClose={() => setConfirmDiscard(false)}>
+         <div style={{ padding: "14px 14px 10px", fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
+           {t("models.unsavedChanges")}
+         </div>
+         <div style={{ height: 1, background: "var(--border)" }} />
+         <div style={{ padding: 4 }}>
+           <button
+             type="button"
+             className="menu-row"
+             style={{ color: "var(--destructive)" }}
+             onClick={() => { setConfirmDiscard(false); onClose(); }}
+           >
+             {t("models.discardChanges")}
+           </button>
+           <button type="button" className="menu-row" onClick={() => setConfirmDiscard(false)}>
+             {t("common.cancel")}
+           </button>
+         </div>
+       </CenteredDialog>
+     )}
 
     {pickerOpen && (
 
@@ -1693,4 +1672,3 @@ export function ModelsConfig({
   );
 
 }
-

@@ -52,6 +52,8 @@ export function ChatInputModelMenu({
       overflow: "hidden",
       display: "flex",
       flexDirection: "column",
+      borderRadius: "var(--radius-xl)",
+      padding: 5,
     }}>
       {showModelFilter && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
@@ -109,18 +111,8 @@ export function ChatInputModelMenu({
                     setModelFilter("");
                     if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId);
                   }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8,
-                    width: "100%", padding: "7px 12px",
-                    background: isActive ? "var(--bg-selected)" : "none",
-                    border: "none",
-                    color: isActive ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer", fontSize: 12, textAlign: "left",
-                    fontWeight: isActive ? 600 : 400,
-                    whiteSpace: "nowrap",
-                  }}
-                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                  className={`menu-row${isActive ? " is-active" : ""}`}
+                  style={{ whiteSpace: "nowrap" }}
                 >
                   {isActive
                     ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, color: "var(--accent)" }} />

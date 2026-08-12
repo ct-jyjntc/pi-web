@@ -38,7 +38,8 @@ import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metr
 import { TopBarChromeWidgets } from "./TopBarChromeWidgets";
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@/lib/app-update-store";
-import type { ProjectTrustStatus } from "@/lib/api-types";
+import type { ProjectTrustStatus, SkillInfo } from "@/lib/api-types";
+import { setDraft } from "@/lib/draft-store";
 import { formatShortcut, modKeyLabel } from "@/lib/keyboard";
 import { Icon } from "./Icon";
 
@@ -488,6 +489,18 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
     router.replace("/", { scroll: false });
   }, [router, isMobile]);
+
+  const handleTrySkill = useCallback((skill: SkillInfo) => {
+    const cwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd;
+    if (!cwd) return;
+    setDraft(`new:${cwd}`, {
+      value: "",
+      images: [],
+      attachedSkill: { name: skill.name, description: skill.description },
+    });
+    setSettingsOpen(false);
+    handleNewSession(`try-${skill.name}`, cwd);
+  }, [activeCwd, selectedSession, newSessionCwd, handleNewSession]);
 
   // Global keyboard shortcuts (Esc, ⌘K search, sidebar, settings, workspace tabs…)
   useGlobalKeyboardShortcuts({
@@ -1508,6 +1521,7 @@ export function AppShell() {
         cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd}
         skillsDisabled={!activeCwd && !selectedSession?.cwd && !newSessionCwd}
         onModelsChanged={handleModelsChanged}
+        onTrySkill={handleTrySkill}
       />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (

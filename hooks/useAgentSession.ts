@@ -12,8 +12,15 @@ import type {
   SessionTreeNode,
 } from "@/lib/types";
 import { parseAgentMode, type AgentMode } from "@/lib/agent-mode";
-import { getWebSettings, saveWebSettings, useWebSettings } from "@/lib/web-settings-store";
+import { getWebSettings, saveWebSettings, useWebSettings, ensureWebSettings } from "@/lib/web-settings-store";
+import {
+  initialNewSessionSeed,
+  parseLastChatModel,
+  reconcileNewSessionLastChat,
+  rememberLastChatModel,
+} from "@/lib/last-chat-model";
 import { sendAgentCommand } from "@/lib/agent-client";
+import { flattenQueueRecall, type QueueRecallSnapshot } from "@/lib/image-attachments";
 import { useLocale } from "@/hooks/useLocale";
 import { getFullToolNames } from "@/lib/tool-presets";
 import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
@@ -70,6 +77,7 @@ import {
   type AgentEventSourceContext,
 } from "@/lib/agent-session-event-source";
 import { apiFetch, type ApiStream } from "@/lib/api-transport";
+ import { readModelCatalogCache, writeModelCatalogCache } from "@/lib/model-catalog-cache";
 
 // Re-export public types so existing `@/hooks/useAgentSession` importers stay stable.
 export type { QueuedMessages, ThinkingLevelOption } from "@/lib/agent-session-live-apply";
@@ -204,8 +212,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Tracks last modelsRefreshKey we already force-fetched for (edge-trigger).
   const lastForcedModelsKeyRef = useRef(0);
 
-  const isNew = session === null && newSessionCwd !== null;
-  const cachedTranscript = session ? readSessionTranscriptCache(session.id) : null;
+   const isNew = session === null && newSessionCwd !== null;
+   const cachedTranscript = session ? readSessionTranscriptCache(session.id) : null;
+   const cachedCatalog = readModelCatalogCache(session?.cwd ?? newSessionCwd);
 
   const [data, setData] = useState<SessionData | null>(cachedTranscript?.data ?? null);
   // Skip full-page loader when we already have a soft-cached transcript.
@@ -224,17 +233,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
   const [pendingBash, setPendingBash] = useState<{ command: string; excludeFromContext: boolean } | null>(null);
-  const [modelNames, setModelNames] = useState<Record<string, string>>({});
-  const [modelList, setModelList] = useState<ModelEntry[]>([]);
-  const [modelError, setModelError] = useState<string | null>(null);
-  const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
-  const thinkingLevelPinsRef = useRef<Record<string, string>>({});
-  const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
-  const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
-  const [modelImageSupport, setModelImageSupport] = useState<Record<string, boolean>>({});
-  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
-  const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
+   const [modelNames, setModelNames] = useState<Record<string, string>>(cachedCatalog?.names ?? {});
+   const [modelList, setModelList] = useState<ModelEntry[]>(cachedCatalog?.list ?? []);
+   const [modelError, setModelError] = useState<string | null>(cachedCatalog?.error ?? null);
+   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>(cachedCatalog?.scopeWarnings ?? []);
+   const thinkingLevelPinsRef = useRef<Record<string, string>>(cachedCatalog?.thinkingLevelPins ?? {});
+   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>(cachedCatalog?.thinkingLevels ?? {});
+   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>(cachedCatalog?.thinkingLevelMaps ?? {});
+   const [modelImageSupport, setModelImageSupport] = useState<Record<string, boolean>>(cachedCatalog?.imageSupport ?? {});
+   const lastChatSeed = initialNewSessionSeed(
+     isNew,
+     getWebSettings()?.lastChatModel,
+     cachedCatalog?.list,
+   );
+   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(lastChatSeed.model);
+   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
+   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>(lastChatSeed.thinkingLevel ?? "auto");
+   const thinkingLevelRef = useRef(thinkingLevel);
+   thinkingLevelRef.current = thinkingLevel;
+   const newSessionModelRef = useRef(newSessionModel);
+   newSessionModelRef.current = newSessionModel;
   /** Global agent mode (ask/auto/plan/yolo) — shared across sessions via pi-web.json. */
   const [sessionMode, setSessionMode] = useState<AgentMode>(() =>
     parseAgentMode(getWebSettings()?.agentMode),
@@ -264,6 +282,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const eventSourceRef = useRef<ApiStream | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const agentRunningRef = useRef(false);
+  /** Stop clicked before prompt POST landed — handleSend must not start a run. */
+  const abortRequestedRef = useRef(false);
   const bashRunningRef = useRef(false);
   const bashRecoveryIdRef = useRef(0);
   /** Cancellation token for the prompt settlement poll loop (unmount / newer loop). */
@@ -311,6 +331,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
+  const displayModelRef = useRef(displayModel);
+  displayModelRef.current = displayModel;
 
   const sessionStats = useMemo(() => {
     if (sessionStatsOverride) return sessionStatsOverride;
@@ -888,6 +910,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) return;
+    abortRequestedRef.current = false;
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
 
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
@@ -944,6 +967,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             }
           }
           await ensureEventsConnected(sid);
+          if (abortRequestedRef.current) {
+            try { await sendAgentCommand(sid, { type: "abort" }); } catch { /* already stopping */ }
+            throw new Error("aborted");
+          }
           promptRequestStarted = true;
           await sendAgentCommand(sid, {
             type: "prompt",
@@ -955,6 +982,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);
+        if (abortRequestedRef.current) {
+          try { await sendAgentCommand(session.id, { type: "abort" }); } catch { /* already stopping */ }
+          throw new Error("aborted");
+        }
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
@@ -986,13 +1017,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             : prev;
         });
       }
-      addNotice({
-        type: "error",
-        message: e instanceof EventStreamConnectionError && (e.message === "agent.sseTimeout" || e.message === "agent.sseFailed")
-          ? t(e.message)
-          : e instanceof Error ? e.message : String(e),
-      });
-      if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
+      if (!(e instanceof Error && e.message === "aborted")) {
+        addNotice({
+          type: "error",
+          message: e instanceof EventStreamConnectionError && (e.message === "agent.sseTimeout" || e.message === "agent.sseFailed")
+            ? t(e.message)
+            : e instanceof Error ? e.message : String(e),
+        });
+      }
+      if (message || images?.length) opts.chatInputRef?.current?.insertIfEmpty(message, images);
       optimisticUserMessageKeyRef.current = null;
       agentRunningRef.current = false;
       closeEvents();
@@ -1030,22 +1063,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, ensureNewSession, loadSession, opts.chatInputRef, promoteNewSession, session]);
   executeBashRef.current = executeBash;
 
-  const handleAbort = useCallback(async () => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    if (bashRunningRef.current) {
+  const handleAbort = useCallback(() => {
+    abortRequestedRef.current = true;
+    const sidAtClick = sessionIdRef.current;
+    const runIdAtClick = promptRunIdRef.current;
+    void (async () => {
+      const sid = sidAtClick ?? await ensuringNewSessionRef.current;
+      if (!sid) return;
+      if (promptRunIdRef.current !== runIdAtClick) return;
       try {
-        await sendAgentCommand(sid, { type: "abort_bash" });
+        if (bashRunningRef.current) {
+          await sendAgentCommand(sid, { type: "abort_bash" });
+        }
+        await sendAgentCommand(sid, { type: "abort" });
       } catch (e) {
-        console.error("Failed to abort bash:", e);
+        console.error("Failed to abort:", e);
       }
-      return;
-    }
-    try {
-      await sendAgentCommand(sid, { type: "abort" });
-    } catch (e) {
-      console.error("Failed to abort:", e);
-    }
+    })();
   }, []);
 
   const handleFork = useCallback(async (entryId: string) => {
@@ -1113,10 +1147,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (nextThinking !== thinkingLevel) {
       setThinkingLevel(nextThinking);
     }
+    rememberLastChatModel({ provider, modelId, thinkingLevel: nextThinking });
 
     if (isNew) {
-      setNewSessionModel({ provider, modelId });
-      setPendingModel({ provider, modelId });
+      const nextModel = { provider, modelId };
+      setNewSessionModel(nextModel);
+      newSessionModelRef.current = nextModel;
+      setPendingModel(nextModel);
       const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
       if (!sid) return;
       try {
@@ -1174,33 +1211,59 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const res = await apiFetch(modelsUrl, signal ? { signal } : undefined);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json() as ModelsResponse;
-    setModelNames(d.models);
-    setModelError(d.modelError ?? null);
-    setModelScopeWarnings(d.modelScopeWarnings ?? []);
-    thinkingLevelPinsRef.current = d.thinkingLevelPins ?? {};
-    setModelThinkingLevels(d.thinkingLevels ?? {});
-    setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
-    setModelImageSupport(d.imageSupport ?? {});
-    const nextModelList = d.modelList ?? [];
-    setModelList(nextModelList);
-    if (isNew) {
-      const match = d.defaultModel
-        ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
-        : undefined;
-      const displayModel = match ?? nextModelList[0];
-      setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
-      if (d.defaultThinkingLevel && thinkingLevel === "auto") {
-        setThinkingLevel(d.defaultThinkingLevel);
-      }
-      // Apply `:thinkingLevel` pin from enabledModels for the pre-selected model.
-      if (displayModel && thinkingLevel === "auto") {
-        const pin = thinkingLevelPinsRef.current[`${displayModel.provider}/${displayModel.id}`];
-        if (pin === "off" || pin === "minimal" || pin === "low" || pin === "medium" || pin === "high" || pin === "xhigh" || pin === "max") {
-          setThinkingLevel(pin);
-        }
-      }
-    }
-  }, [isNew, newSessionCwd, session?.cwd, thinkingLevel]);
+     setModelNames(d.models);
+     setModelError(d.modelError ?? null);
+     setModelScopeWarnings(d.modelScopeWarnings ?? []);
+     thinkingLevelPinsRef.current = d.thinkingLevelPins ?? {};
+     setModelThinkingLevels(d.thinkingLevels ?? {});
+     setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
+     setModelImageSupport(d.imageSupport ?? {});
+     const nextModelList = d.modelList ?? [];
+     setModelList(nextModelList);
+     writeModelCatalogCache(modelCwd, {
+       names: d.models,
+       list: nextModelList,
+       error: d.modelError ?? null,
+       scopeWarnings: d.modelScopeWarnings ?? [],
+       thinkingLevels: d.thinkingLevels ?? {},
+       thinkingLevelMaps: d.thinkingLevelMaps ?? {},
+       thinkingLevelPins: d.thinkingLevelPins ?? {},
+       imageSupport: d.imageSupport ?? {},
+     });
+     if (isNew) {
+       const match = d.defaultModel
+         ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
+         : undefined;
+       const displayModel = match ?? nextModelList[0];
+       setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
+       await ensureWebSettings();
+       const reconciled = reconcileNewSessionLastChat({
+         current: newSessionModelRef.current,
+         last: parseLastChatModel(getWebSettings()?.lastChatModel),
+         catalog: nextModelList,
+         currentThinking: thinkingLevelRef.current,
+       });
+       setNewSessionModel(reconciled.model);
+       newSessionModelRef.current = reconciled.model;
+       if (reconciled.thinkingLevel !== thinkingLevelRef.current) {
+         setThinkingLevel(reconciled.thinkingLevel);
+         thinkingLevelRef.current = reconciled.thinkingLevel;
+       }
+       if (reconciled.applyConfiguredThinking) {
+         if (d.defaultThinkingLevel && thinkingLevelRef.current === "auto") {
+           setThinkingLevel(d.defaultThinkingLevel);
+           thinkingLevelRef.current = d.defaultThinkingLevel;
+         }
+         if (displayModel && thinkingLevelRef.current === "auto") {
+           const pin = thinkingLevelPinsRef.current[`${displayModel.provider}/${displayModel.id}`];
+           if (pin === "off" || pin === "minimal" || pin === "low" || pin === "medium" || pin === "high" || pin === "xhigh" || pin === "max") {
+             setThinkingLevel(pin);
+             thinkingLevelRef.current = pin;
+           }
+         }
+       }
+     }
+   }, [isNew, newSessionCwd, session?.cwd]);
 
   /** Silent reload: re-reads session + tools + slash commands + models without
    *  popping the "reloaded" notice. Used after mode/permission switches where
@@ -1417,7 +1480,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to steer:", e);
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
+      if (message || images?.length) opts.chatInputRef?.current?.insertIfEmpty(message, images);
     }
   }, [addNotice, opts.chatInputRef]);
 
@@ -1439,7 +1502,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to queue prompt:", e);
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
+      if (message || images?.length) opts.chatInputRef?.current?.insertIfEmpty(message, images);
     }
   }, [addNotice, opts.chatInputRef]);
 
@@ -1456,7 +1519,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to follow up:", e);
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
+      if (message || images?.length) opts.chatInputRef?.current?.insertIfEmpty(message, images);
     }
   }, [addNotice, opts.chatInputRef]);
 
@@ -1474,13 +1537,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
-      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, { type: "clear_queue" });
+      const result = await sendAgentCommand<QueueRecallSnapshot>(sid, { type: "clear_queue" });
       // clearQueue also emits an empty queue_update, but that only reaches us
       // while SSE is connected — clear locally so idle recalls update the UI.
       setQueuedMessages({ steering: [], followUp: [] });
-      const texts = [...(result?.steering ?? []), ...(result?.followUp ?? [])];
-      if (texts.length > 0) {
-        opts.chatInputRef?.current?.prependText(texts.join("\n\n"));
+      const recalled = flattenQueueRecall(result);
+      if (recalled.text || recalled.images.length) {
+        opts.chatInputRef?.current?.prependText(recalled.text, recalled.images);
       }
     } catch (e) {
       console.error("Failed to recall queued messages:", e);
@@ -1490,6 +1553,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     setThinkingLevel(level);
+    const model = displayModelRef.current;
+    if (model) rememberLastChatModel({ ...model, thinkingLevel: level });
     if (level === "auto") return; // "auto" leaves pi's current setting untouched
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
@@ -1664,6 +1729,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
+    newSessionDefaultModel,
     agentPhase,
     isNew,
     // Refs

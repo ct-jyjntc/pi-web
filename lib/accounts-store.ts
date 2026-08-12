@@ -8,6 +8,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { writePrivateFileAtomicSync } from "./atomic-file";
 
 export type GithubAccount = {
   token: string;
@@ -46,7 +47,8 @@ function readAccounts(): AccountsFile {
     if (parsed && typeof parsed === "object") {
       return {
         version: 1,
-        github: parsed.github && typeof parsed.github === "object" && typeof parsed.github.token === "string"
+        github: parsed.github && typeof parsed.github === "object"
+          && typeof parsed.github.token === "string" && parsed.github.token.length > 0
           ? (parsed.github as GithubAccount)
           : undefined,
       };
@@ -57,13 +59,11 @@ function readAccounts(): AccountsFile {
   return emptyAccounts();
 }
 
-/** Atomic write (tmp + rename) with owner-only permissions, like auth.json. */
+/** Atomic write with owner-only permissions (shared 0600 helper). */
 function writeAccounts(accounts: AccountsFile): void {
   const file = accountsFilePath();
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(accounts, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  writePrivateFileAtomicSync(file, JSON.stringify(accounts, null, 2));
 }
 
 export function getGithubAccount(): GithubAccount | null {
@@ -78,6 +78,7 @@ export function getGithubAccountPublic(): GithubAccountPublic {
 }
 
 export function setGithubAccount(account: GithubAccount): void {
+  if (!account.token) throw new Error("GitHub token is required");
   const accounts = readAccounts();
   accounts.github = account;
   writeAccounts(accounts);

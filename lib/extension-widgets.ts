@@ -1,5 +1,12 @@
 /** Parse and classify extension widget/status content for specialized UI. */
 import { stripAnsi } from "./ansi";
+import {
+  agentListCounts,
+  parseAgentItems,
+  type AgentItem,
+} from "./extension-widget-agents";
+
+export type { AgentItem, AgentItemStatus } from "./extension-widget-agents";
 
 export type WidgetKind =
   | "todo"
@@ -25,6 +32,8 @@ export interface TodoItem {
   status: "pending" | "in_progress" | "completed" | "unknown";
   text: string;
   id?: string;
+  /** Present-continuous label while in_progress, when the line encodes it. */
+  activeForm?: string;
 }
 
 export interface ParsedTodoWidget {
@@ -42,6 +51,9 @@ export interface ParsedAgentsWidget {
   lines: string[];
   /** Distinct agent rows (not raw line count — running agents take 2 lines). */
   agentCount: number;
+  items: AgentItem[];
+  runningCount: number;
+  queuedCount: number;
 }
 
 export interface ParsedGenericWidget {
@@ -137,7 +149,16 @@ export function parseWidget(key: string, lines: string[]): ParsedWidget {
         }
       }
       text = text.trim() || s || t;
-      items.push({ status: parseTodoStatus(t), text, id });
+      const status = parseTodoStatus(t);
+      let activeForm: string | undefined;
+      if (status === "in_progress") {
+        const encoded = text.match(/^(.*?)\s+\(([^)]+)\)\s*$/);
+        if (encoded) {
+          text = encoded[1]!.trim() || text;
+          activeForm = encoded[2]!.trim() || undefined;
+        }
+      }
+      items.push({ status, text, id, activeForm });
     }
     const counts = parseHeadingCounts(heading, items.length);
     return {
@@ -151,11 +172,16 @@ export function parseWidget(key: string, lines: string[]): ParsedWidget {
 
   if (kind === "agents") {
     const heading = clean[0]?.trim() || "Agents";
+    const items = parseAgentItems(clean);
+    const counts = agentListCounts(items);
     return {
       kind: "agents",
       heading,
       lines: clean,
-      agentCount: countAgentsFromWidgetLines(clean),
+      items,
+      agentCount: counts.agentCount > 0 ? counts.agentCount : countAgentsFromWidgetLines(clean),
+      runningCount: counts.runningCount,
+      queuedCount: counts.queuedCount,
     };
   }
 
@@ -241,28 +267,56 @@ export function todoWidgetHasContent(lines: string[]): boolean {
   return /\(\d+\s*\/\s*\d+\)/.test(parsed.heading);
 }
 
+function todoFocusText(item: TodoItem): string {
+  return item.activeForm?.trim() || item.text;
+}
+
+/** Current work label for the capsule (no count). */
+export function chromeWidgetFocus(key: string, lines: string[]): string {
+  const parsed = parseWidget(key, lines);
+  if (parsed.kind === "todo") {
+    const active = parsed.items.find((i) => i.status === "in_progress");
+    if (active) return todoFocusText(active);
+    const pending = parsed.items.find((i) => i.status === "pending");
+    return pending?.text ?? "";
+  }
+  if (parsed.kind === "agents") {
+    const running = parsed.items.find((i) => i.status === "running");
+    if (running) return running.description;
+    const queued = parsed.items.find((i) => i.status === "queued");
+    return queued?.description ?? parsed.items[0]?.description ?? "";
+  }
+  return "";
+}
+
+/** Hide the capsule when nothing is in flight. */
+export function chromeWidgetIsIdle(key: string, lines: string[]): boolean {
+  const parsed = parseWidget(key, lines);
+  if (parsed.kind === "todo") {
+    if (parsed.collapsedHint) return parsed.completed >= parsed.total && parsed.total > 0;
+    return !parsed.items.some((i) => i.status === "in_progress" || i.status === "pending");
+  }
+  if (parsed.kind === "agents") {
+    return parsed.runningCount + parsed.queuedCount <= 0;
+  }
+  return false;
+}
+
 /** One-line top-bar summary for a chrome widget (todo / agents). */
 export function chromeWidgetSummary(key: string, lines: string[]): string {
   const parsed = parseWidget(key, lines);
   if (parsed.kind === "todo") {
     if (parsed.collapsedHint) return parsed.collapsedHint;
-    const active = parsed.items.find((i) => i.status === "in_progress");
-    if (active) return `${parsed.completed}/${parsed.total} · ${active.text}`;
+    const focus = chromeWidgetFocus(key, lines);
+    if (parsed.total > 0 && focus) return `${parsed.completed}/${parsed.total} · ${focus}`;
     if (parsed.total > 0) return `${parsed.completed}/${parsed.total}`;
-    return "";
+    return focus;
   }
   if (parsed.kind === "agents") {
     const n = parsed.agentCount;
+    const focus = chromeWidgetFocus(key, lines);
     if (n <= 0) return parsed.heading;
-    // Prefer first non-activity body line as a short label.
-    for (const raw of parsed.lines.slice(1)) {
-      const line = stripAnsi(raw).trim();
-      if (!line) continue;
-      if (/^[│|]\s/.test(line)) continue;
-      if (/^\+\d+\s+more\b/i.test(line)) continue;
-      const cleaned = line.replace(/^[├└─\s]+/, "").replace(/\s+/g, " ").trim();
-      if (cleaned) return n > 1 ? `${n} · ${cleaned}` : cleaned;
-    }
+    if (focus) return n > 1 ? `${n} · ${focus}` : focus;
     return `${n} agent${n === 1 ? "" : "s"}`;
   }
   return parsed.lines.join(" ").replace(/\s+/g, " ").trim();

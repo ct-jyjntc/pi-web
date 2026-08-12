@@ -1,10 +1,10 @@
 /**
  * MCP server config helpers for Pi Web.
- * Compatible with pi-mcp-adapter / standard `.mcp.json` shapes.
+ * Compatible with standard `.mcp.json` shapes.
  *
- * Editable store (add/remove/edit): ~/.pi/agent/mcp.json
- * Project overlay (optional disabled flags): <cwd>/.pi/mcp.json
- * Read-only discovery also surfaces shared/project files for the list UI.
+ * Editable store: ~/.pi/agent/mcp.json
+ * Project overlay: <cwd>/.pi/mcp.json
+ * Runtime owner: lib/first-party/mcp
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -260,12 +260,5 @@ export function getMcpAdapterStatus(): {
   installed: boolean;
   packageSource: string;
 } {
-  // pi-mcp-adapter is a first-party app dependency (see lib/builtin-extensions.ts),
-  // not an optional ~/.pi/agent package. Report present when the app install has it.
-  const source = "app:pi-mcp-adapter";
-  const appPkg = join(process.cwd(), "node_modules", "pi-mcp-adapter", "package.json");
-  const installed =
-    existsSync(appPkg)
-    || existsSync(join(getAgentDir(), "npm", "node_modules", "pi-mcp-adapter", "package.json"));
-  return { configured: installed, installed, packageSource: source };
+  return { configured: true, installed: true, packageSource: "app:native-mcp" };
 }

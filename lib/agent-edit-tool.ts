@@ -18,7 +18,7 @@
  */
 import { Type } from "typebox";
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { isAbsolute, resolve } from "path";
+import { isAbsolute, relative, resolve } from "path";
 import { createEditToolDefinition } from "@earendil-works/pi-coding-agent";
 import { classifyEditFailure, formatEditFailureMessage } from "./edit-failure";
 import {
@@ -29,15 +29,19 @@ import { formatFileOnDisk } from "./format-file";
 import {
   applyHashlineEdits,
   applyHashlinePatch,
+  computeFileTag,
   hashBlock,
   isClassicEditArgs,
   isHashlineHunkArgs,
   isHashlineInputArgs,
   largeFileEditWarning,
   type HashlineHunk,
+  type HashlineResult,
 } from "./hashline-edit";
+import { buildHashlinePreview } from "./hashline-preview";
 import {
   canonicalHashlinePath,
+  recordHashlineSnapshot,
   withHashlinePathLock,
 } from "./hashline-snapshots";
 import { recordFileMutation } from "./workspace-turn-journal";
@@ -80,6 +84,42 @@ function recordSnapshots(
           ? "delete"
           : "edit";
     recordFileMutation(sessionId, { path: abs, kind, before, after });
+  }
+}
+
+function displayRel(cwd: string, abs: string): string {
+  const rel = relative(cwd, abs);
+  return rel && !rel.startsWith("..") ? rel : abs;
+}
+
+/** After prettier/biome, recompute #TAG + preview so the model re-grounds on disk. */
+function refreshHashlineAfterFormat(
+  cwd: string,
+  results: HashlineResult[],
+  beforeMap: Map<string, string | null>,
+): void {
+  for (const r of results) {
+    const abs = isAbsolute(r.path) ? r.path : resolve(cwd, r.path);
+    if (!existsSync(abs)) continue;
+    let after: string;
+    try {
+      after = readFileSync(abs, "utf8");
+    } catch {
+      continue;
+    }
+    const tag = computeFileTag(after);
+    recordHashlineSnapshot(abs, after.replace(/\r\n/g, "\n").replace(/\r/g, "\n"), tag);
+    const before = beforeMap.get(abs) ?? "";
+    const preview = buildHashlinePreview({
+      rel: displayRel(cwd, abs),
+      tag,
+      before: before ?? "",
+      after,
+    });
+    r.tag = tag;
+    r.preview = preview;
+    const head = (r.summary ?? `Edited ${displayRel(cwd, abs)}`).split("\n\n")[0] ?? "";
+    r.summary = `${head}\n\n${preview}`;
   }
 }
 
@@ -148,9 +188,9 @@ function normalizeClassicEdits(args: Record<string, unknown>): {
 const HASHLINE_RECOVERY_HINT = [
   "",
   "Preferred recovery (hashline):",
-  "  1. read the file → copy [path#TAG] and line numbers",
+  "  1. Copy [path#TAG] + N:line from the last edit response, or re-read",
   "  2. edit({ input: \"[path#TAG]\\nSWAP N.=M:\\n+new lines\" })",
-  "Avoid rewrite-with-write for local changes.",
+  "Do not rewrite the file with write unless the change is inherently non-local.",
 ].join("\n");
 
 /** Single error enricher for classic + hashline failures. */
@@ -203,20 +243,11 @@ function enrichEditError(
 }
 
 const HASHLINE_GUIDELINES = [
-  "Prefer hashline patch language via edit({ input }) — default and most reliable path.",
-  "Every section starts with [path#TAG]. TAG is the 4-hex file fingerprint from a fresh read (shown as [path#TAG] / 1:line). Copy it exactly — never invent #XXXX / #TAG placeholders.",
-  "Ops: SWAP N.=M: (+ body rows), DEL N.=M, INS.PRE N: / INS.POST N: / INS.HEAD: / INS.TAIL: (body rows are +TEXT).",
-  "Body rows under SWAP/INS MUST start with '+'. Bare code lines are rejected (not ops).",
-  "N.=M means inclusive start..end line numbers from the read output (e.g. lines 10-12 → SWAP 10.=12:). M is NOT a line count.",
-  "Line numbers refer to the ORIGINAL file snapshot for that tag; do not renumber mid-patch.",
-  "Across separate edit calls on the SAME file, a successful SWAP/INS/DEL changes line counts, so the line numbers you recall for the next call are now offset — the fresh #TAG only proves the file is current, it does NOT remap your old line numbers, and the tool applies them literally to the shifted file (typical symptom: 'would leave unparsable source' landing far from your SWAP range). Avoid the drift: either batch all same-file edits into one input (every op shares the read snapshot), or re-read before each later edit; never carry line numbers over from before a prior successful edit.",
-  "On stale-tag rejection: prefer re-read. Parallel same-file edits often auto-recover via snapshot anchors when the target block is still unique; if recovery fails, re-read and retry.",
-  "JS/TS edits that would leave unparsable source are rejected and not written — fix the patch, do not paper over with another file.",
-  "Keep one file green: after a syntax rejection, re-read and repair that file before editing others.",
-  "On already-large files (~800+ lines), extract a module first; prefer small single-hunk patches over multi-range rewrites of hot files.",
-  "Classic fallback still works: edit({ path, edits: [{ oldText, newText }] }) — bugfix-only; deprecated dual-path, removal by pi-web 1.0.0 / 2026-12-01.",
-  "When changing multiple separate locations in one file, put them all in ONE edit({ input }) with multiple ops/sections — every op's line numbers come from the same fresh read, so they cannot drift apart the way sequential calls do.",
-  "On edit failure, use the kind/path/excerpt/tag in the error to craft a smaller unique anchor; do not rewrite whole files with write unless necessary.",
+  "CRITICAL: (1) After every edit, copy [path#NEWTAg] and N:line from THAT response (or re-read). A new TAG does not remap old line numbers. (2) Tight ranges; whole construct = SWAP.BLK N: / PUT N*:. (3) Body is final +TEXT; opener and closer of a wrap belong in the SAME patch.",
+  "Section: [path#TAG] then SWAP/DEL/INS (PUT=SWAP, CUT=DEL). Copy TAG from read or the last edit — never invent #XXXX / #TAG.",
+  "N.=M is inclusive end from that snapshot, not a count. Do not renumber mid-patch. Batch same-file ops in ONE input.",
+  "Stale tag: re-read. JS/TS that would be unparsable is not written — re-read that file before editing others.",
+  "On ~800+ line files, extract a module first. Classic { path, edits } is bugfix-only; removal by pi-web 1.0.0 / 2026-12-01.",
 ];
 
 export function createPiWebEditToolDefinition(
@@ -230,9 +261,10 @@ export function createPiWebEditToolDefinition(
     name: "edit",
     label: "edit",
     description:
-      "Edit files. Preferred: hashline patch language via { input: \"[path#TAG]\\nSWAP N.=M:\\n+...\" }. " +
-      "Also accepts classic { path, edits: [{ oldText, newText }] } and hunk mode { path, hunks }. " +
-      "TAG is a 4-hex fingerprint of the whole file. A successful edit shifts line counts, so for the next edit on the same file either re-read first or batch all changes into one input — within one input all ops share the read snapshot and cannot drift.",
+      "Edit files. Preferred: hashline { input: \"[path#TAG]\\nSWAP N.=M:\\n+...\" } (PUT/CUT aliases ok). " +
+      "Also accepts classic { path, edits } and hunk mode { path, hunks }. " +
+      "A successful edit returns [path#NEWTAg] plus N:line rows — copy those for the next call. " +
+      "Do not reuse old line numbers with the new TAG. Batch same-file ops in one input.",
     promptSnippet:
       "Make precise file edits (hashline patch language preferred; classic exact replace as fallback)",
     promptGuidelines: HASHLINE_GUIDELINES,
@@ -314,13 +346,13 @@ export function createPiWebEditToolDefinition(
           const beforeMap = snapshotPaths(paths);
           const results = await withPathsLocked(paths, () => applyHashlinePatch(cwd, input));
           await formatEditedFiles(results.map((r) => r.path));
-          // Also snapshot any path only present in results (e.g. delete ops).
           for (const r of results) {
             const abs = isAbsolute(r.path) ? r.path : resolve(cwd, r.path);
             if (!beforeMap.has(abs)) beforeMap.set(abs, null);
           }
+          refreshHashlineAfterFormat(cwd, results, beforeMap);
           recordSnapshots(getSessionId?.(), beforeMap);
-          const text = results.map((r) => r.summary ?? `Applied ${r.applied} op(s) to ${r.path}`).join("\n");
+          const text = results.map((r) => r.summary ?? `Applied ${r.applied} op(s) to ${r.path}`).join("\n\n");
           // Prefer first file's patch for the chat SplitPatchView; multi-file still in results.
           const patch = results.map((r) => r.patch).filter(Boolean).join("\n") || undefined;
           const tag = results.map((r) => r.tag).filter(Boolean).join(",");
@@ -346,6 +378,7 @@ export function createPiWebEditToolDefinition(
           }));
           const result = applyHashlineEdits(cwd, String(args.path), hunks);
           await formatEditedFiles([result.path]);
+          refreshHashlineAfterFormat(cwd, [result], beforeMap);
           recordSnapshots(getSessionId?.(), beforeMap);
           return {
             content: [{
@@ -377,12 +410,14 @@ export function createPiWebEditToolDefinition(
             const result = applyHashlineEdits(cwd, path, hunks);
             await formatEditedFiles([result.path]);
             recordSnapshots(getSessionId?.(), beforeMap);
+            refreshHashlineAfterFormat(cwd, [result], beforeMap);
             return {
               content: [{
                 type: "text",
                 text:
                   `Successfully replaced ${result.applied} block(s) in ${path} (hashline-strict) → #${result.tag ?? "?"}.` +
-                  (result.largeFileWarning ? `\n${result.largeFileWarning}` : ""),
+                  (result.largeFileWarning ? `\n${result.largeFileWarning}` : "") +
+                  (result.preview ? `\n\n${result.preview}` : ""),
               }],
               details: {
                 mode: "classic-via-hashline",

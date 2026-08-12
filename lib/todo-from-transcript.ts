@@ -1,7 +1,6 @@
 /**
- * Derive a todo overlay payload from the transcript when no live extension
- * widget is present. Parses toolResult text from the first-party `todo` tool
- * (lib/first-party/todo-extension.ts) — same envelope as the old rpiv-todo package.
+ * Derive the current-turn todo overlay from the transcript when no live
+ * widget is present. Only the last user message and what follows it count.
  */
 import type { AgentMessage, AssistantMessage, ToolResultMessage } from "./types";
 
@@ -9,8 +8,8 @@ export type DerivedTodoItem = {
   id: number;
   subject: string;
   status: "pending" | "in_progress" | "completed" | "deleted";
+  activeForm?: string;
 };
-
 const STATUS_RE = "pending|in[_ ]?progress|completed|deleted";
 
 function textFromToolResult(msg: ToolResultMessage): string {
@@ -36,14 +35,19 @@ function glyphFor(status: DerivedTodoItem["status"]): string {
 }
 
 /**
- * Walk the transcript chronologically and rebuild the latest todo list from
- * create / update / list / delete tool results.
+ * Rebuild the todo list from create / update / list / delete results on the
+ * latest user turn (messages after the last user message, plus streaming).
  */
 export function deriveTodosFromTranscript(
   messages: AgentMessage[],
   streamingMessage?: AgentMessage | null,
 ): DerivedTodoItem[] {
   const byId = new Map<number, DerivedTodoItem>();
+  let from = 0;
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i]?.role === "user") from = i;
+  }
+  const turn = messages.slice(from);
 
   const applyText = (text: string) => {
     if (!text.trim()) return;
@@ -130,7 +134,7 @@ export function deriveTodosFromTranscript(
     }
   };
 
-  for (const msg of messages) {
+  for (const msg of turn) {
     scanAssistant(msg);
     if (msg.role === "toolResult") {
       const tr = msg as ToolResultMessage;
@@ -149,19 +153,26 @@ export function deriveTodosFromTranscript(
 }
 
 /** Build rpiv-todo-shaped widget lines for the top-bar capsule. */
+export function formatTodoWidgetLines(
+  items: ReadonlyArray<Pick<DerivedTodoItem, "id" | "subject" | "status" | "activeForm">>,
+): string[] | null {
+  const visible = items.filter((t) => t.status !== "deleted");
+  if (visible.length === 0) return null;
+  const completed = visible.filter((i) => i.status === "completed").length;
+  const lines = [`Todo (${completed}/${visible.length})`];
+  visible.forEach((item, index) => {
+    const branch = index === visible.length - 1 ? "└─" : "├─";
+    const label = item.status === "in_progress" && item.activeForm
+      ? `${item.subject} (${item.activeForm})`
+      : item.subject;
+    lines.push(`${branch} ${glyphFor(item.status)} #${item.id} ${label}`);
+  });
+  return lines;
+}
+
 export function deriveTodoWidgetLines(
   messages: AgentMessage[],
   streamingMessage?: AgentMessage | null,
 ): string[] | null {
-  const items = deriveTodosFromTranscript(messages, streamingMessage);
-  if (items.length === 0) return null;
-
-  const completed = items.filter((i) => i.status === "completed").length;
-  const total = items.length;
-  const lines = [`Todo (${completed}/${total})`];
-  items.forEach((item, index) => {
-    const branch = index === items.length - 1 ? "└─" : "├─";
-    lines.push(`${branch} ${glyphFor(item.status)} #${item.id} ${item.subject}`);
-  });
-  return lines;
+  return formatTodoWidgetLines(deriveTodosFromTranscript(messages, streamingMessage));
 }

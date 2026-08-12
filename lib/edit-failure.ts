@@ -207,9 +207,8 @@ export function formatEditFailureMessage(
   lines.push(
     "",
     "Do not rewrite the whole file with write unless the edit is inherently non-local.",
-    "Prefer hashline after a fresh read:",
+    "Prefer hashline. Copy [path#TAG] and N:line from the last edit response or a fresh read:",
     "  edit({ input: \"[path#TAG]\\nSWAP N.=M:\\n+replacement\" })",
-    "Or retry classic with a smaller unique oldText.",
   );
   return lines.join("\n");
 }

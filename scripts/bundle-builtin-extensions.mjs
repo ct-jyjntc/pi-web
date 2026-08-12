@@ -15,31 +15,12 @@ import { dirname, join } from "path";
 import { createRequire } from "module";
 import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
-import { applySubagentsStaleCtxPatch } from "./apply-subagents-stale-ctx-patch.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 
-/** @type {Array<{ name: string; packageName: string; entry: string; aliasSrc?: string }>} */
-const TARGETS = [
-  {
-    name: "permission",
-    packageName: "@gotgenes/pi-permission-system",
-    entry: "src/index.ts",
-    aliasSrc: "src",
-  },
-  {
-    name: "subagents",
-    packageName: "@gotgenes/pi-subagents",
-    entry: "src/index.ts",
-    aliasSrc: "src",
-  },
-  {
-    name: "mcp-adapter",
-    packageName: "pi-mcp-adapter",
-    entry: "index.ts",
-  },
-];
+/** Retired: built-in capabilities are native. Kept so postinstall still no-ops. */
+const TARGETS = [];
 
 function resolvePackageRoot(packageName) {
   const parts = packageName.split("/");
@@ -112,9 +93,6 @@ function runEsbuildCli(args) {
 }
 
 function bundleOne(target) {
-  // The subagents bundle embeds the stale-ctx emit guard — sources must be
-  // patched before esbuild reads them (see apply-subagents-stale-ctx-patch.mjs).
-  if (target.name === "subagents") applySubagentsStaleCtxPatch();
 
    const pkgRoot = resolvePackageRoot(target.packageName);
   if (!pkgRoot) {

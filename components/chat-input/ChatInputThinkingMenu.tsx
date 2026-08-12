@@ -46,18 +46,8 @@ export function ChatInputThinkingMenu({
           <button
             key={lvl}
             onClick={() => { setThinkingDropdownOpen(false); if (!isActive) onThinkingLevelChange(lvl); }}
-            style={{
-              display: "flex", alignItems: "center", gap: 8,
-              width: "100%", padding: "7px 12px",
-              background: isActive ? "var(--bg-selected)" : "none",
-              border: "none",
-              color: isActive ? "var(--text)" : "var(--text-muted)",
-              cursor: "pointer", fontSize: 12, textAlign: "left",
-              fontWeight: isActive ? 600 : 400,
-              whiteSpace: "nowrap",
-            }}
-            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+            className={`menu-row${isActive ? " is-active" : ""}`}
+            style={{ whiteSpace: "nowrap" }}
           >
             {isActive
               ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, color: "var(--accent)" }} />

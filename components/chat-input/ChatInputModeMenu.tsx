@@ -35,43 +35,92 @@ export type ChatInputModeMenuProps = {
   onModeChange: (mode: AgentMode) => void;
 };
 
+const ROW: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 10,
+  width: "100%",
+  padding: "6px 8px",
+  border: "none",
+   borderRadius: "var(--radius-sm)",
+  background: "transparent",
+  cursor: "pointer",
+  font: "inherit",
+  textAlign: "left",
+};
+
 export function ChatInputModeMenu({ style, mode, onModeChange }: ChatInputModeMenuProps) {
   const { t } = useLocale();
   return (
-    <div className="menu-card" style={style}>
+    <div
+      className="menu-card"
+      style={{
+        ...style,
+        display: "flex",
+        flexDirection: "column",
+        minWidth: 268,
+        padding: 3,
+        borderRadius: 16,
+        overflow: "hidden",
+      }}
+    >
       {AGENT_MODE_ORDER.map((candidate) => {
         const isActive = mode === candidate;
         const { label, desc } = AGENT_MODE_KEYS[candidate];
         const IconComponent = agentModeIcon(candidate);
+        const danger = candidate === "yolo";
         return (
           <button
             key={candidate}
+            type="button"
             onClick={() => onModeChange(candidate)}
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
-              width: "100%",
-              padding: "9px 12px",
-              background: isActive ? "var(--bg-selected)" : "none",
-              border: "none",
-              color: isActive ? "var(--text)" : "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 12,
-              textAlign: "left",
-              fontWeight: isActive ? 600 : 400,
+            style={ROW}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--bg-hover)";
             }}
-            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
           >
-            {isActive
-              ? <Icon icon={Check} size={10} strokeWidth={2} style={{ flexShrink: 0, marginTop: 3, color: "var(--accent)" }} />
-              : <span style={{ width: 10, flexShrink: 0 }} />}
-            <Icon icon={IconComponent} size={13} strokeWidth={1.8} style={{ flexShrink: 0, marginTop: 1 }} />
+            <Icon
+              icon={IconComponent}
+              size={15}
+              strokeWidth={1.8}
+              style={{ flexShrink: 0, marginTop: 2, color: danger ? "var(--destructive)" : "var(--text-muted)" }}
+            />
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "block", color: candidate === "yolo" ? "var(--destructive)" : "inherit" }}>{t(label)}</span>
-              <span style={{ display: "block", fontSize: 11, color: "var(--text-dim)", marginTop: 2, fontWeight: 400 }}>{t(desc)}</span>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: danger ? "var(--destructive)" : "var(--text)",
+                }}
+              >
+                {t(label)}
+              </span>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  color: danger ? "var(--destructive)" : "var(--text-dim)",
+                  marginTop: 2,
+                  fontWeight: 400,
+                  lineHeight: 1.35,
+                  opacity: danger ? 0.85 : 1,
+                }}
+              >
+                {t(desc)}
+              </span>
             </span>
+            {isActive ? (
+              <Icon
+                icon={Check}
+                size={14}
+                strokeWidth={2}
+                style={{ flexShrink: 0, marginTop: 2, color: danger ? "var(--destructive)" : "var(--text-muted)" }}
+              />
+            ) : null}
           </button>
         );
       })}

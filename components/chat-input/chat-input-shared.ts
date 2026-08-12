@@ -8,6 +8,7 @@ import type { AttachedImage } from "@/lib/chat-input-types";
 import type { TextContent, UserMessage } from "@/lib/types";
 import {
   MAX_ATTACHED_IMAGES,
+  extractBase64ImagesFromContent,
   isBase64ImageWithinLimits,
 } from "@/lib/image-attachments";
 
@@ -21,6 +22,8 @@ export const PERMISSION_MODES = ["ask", "full"] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
 export const COMPOSITION_END_ENTER_GRACE_MS = 100;
+export const COMPOSER_LINE_HEIGHT = 22;
+export const COMPOSER_INPUT_MIN_HEIGHT = 45;
 export const SINGLE_LINE_MAX_HEIGHT = 44;
 export const MAX_INPUT_HEIGHT = 200;
 export const MODEL_FILTER_THRESHOLD = 8;
@@ -147,17 +150,18 @@ export function getUserMessageText(message: UserMessage): string {
 /** Extract draftable base64 images from a historical user message (nested or flat pi-ai shape). */
 export function getUserMessageDraftImages(message: UserMessage): ChatDraftImage[] {
   if (typeof message.content === "string") return [];
-  return message.content.flatMap((block) => {
-    if (block.type !== "image") return [];
-
-    // Support both the current nested image format and older flat pi-ai entries.
-    const flat = block as unknown as { data?: unknown; mimeType?: unknown };
-    const data = block.source?.type === "base64" ? block.source.data : flat.data;
-    const mimeType = block.source?.type === "base64" ? block.source.media_type : flat.mimeType;
-    if (typeof data !== "string" || typeof mimeType !== "string") return [];
-
-    const image = { data, mimeType };
-    return isBase64ImageWithinLimits(image) ? [image] : [];
-  });
+  return extractBase64ImagesFromContent(message.content);
 }
 
+/** Prepend recalled draft images onto the composer store, capped and revoking overflow. */
+export function prependAttachedImages(
+  current: AttachedImage[],
+  incoming: ChatDraftImage[] | undefined,
+): AttachedImage[] {
+  const next = draftImagesToAttachedImages(incoming);
+  if (next.length === 0) return current;
+  const combined = [...next, ...current];
+  const kept = combined.slice(0, MAX_ATTACHED_IMAGES);
+  combined.slice(MAX_ATTACHED_IMAGES).forEach(revokeImagePreview);
+  return kept;
+}

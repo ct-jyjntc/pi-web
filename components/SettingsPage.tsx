@@ -7,9 +7,11 @@ import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
+import type { SkillInfo } from "@/lib/api-types";
 import { McpConfig } from "./McpConfig";
 import { SettingsToggle } from "./SettingsToggle";
 import { LeanModeSettingsSection } from "./settings/LeanModeSettingsSection";
+ import { AgentBehaviorSettings } from "./settings/AgentBehaviorSettings";
 import { UsagePanel, prefetchUsage } from "./UsagePanel";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import { getAppUpdateInfo, setAppUpdateInfo, subscribeAppUpdate } from "@/lib/app-update-store";
@@ -59,12 +61,14 @@ export function SettingsPage({
   initialSection = "general",
   onModelsChanged,
   visible = true,
+  onTrySkill,
 }: {
   onClose: () => void;
   cwd?: string | null;
   skillsDisabled?: boolean;
   initialSection?: SettingsSection;
   onModelsChanged?: () => void;
+  onTrySkill?: (skill: SkillInfo) => void;
   /** AppShell keeps the page warm-mounted after first use / idle warmup and
    * toggles this instead of unmounting, so reopening is instant and state
    * (section, models, prefs) survives. */
@@ -131,8 +135,11 @@ export function SettingsPage({
     desktopNotifications: true,
     notificationSound: true,
     defaultThinkingLevel: "auto",
-    showThinking: true,
-    showTodos: true,
+     showThinking: true,
+     showTodos: true,
+     expandReviewDiffs: false,
+     subagentConcurrencyEnabled: true,
+     subagentConcurrencyMax: 4,
     terminalFont: "",
     inheritTerminalEnv: true,
     disableHardwareAcceleration: false,
@@ -200,8 +207,19 @@ export function SettingsPage({
           desktopNotifications: typeof s.desktopNotifications === "boolean" ? s.desktopNotifications : prev.desktopNotifications,
           notificationSound: typeof s.notificationSound === "boolean" ? s.notificationSound : prev.notificationSound,
           defaultThinkingLevel: typeof s.defaultThinkingLevel === "string" ? s.defaultThinkingLevel : prev.defaultThinkingLevel,
-          showThinking: typeof s.showThinking === "boolean" ? s.showThinking : prev.showThinking,
-          showTodos: typeof s.showTodos === "boolean" ? s.showTodos : prev.showTodos,
+           showThinking: typeof s.showThinking === "boolean" ? s.showThinking : prev.showThinking,
+           showTodos: typeof s.showTodos === "boolean" ? s.showTodos : prev.showTodos,
+           expandReviewDiffs: typeof s.expandReviewDiffs === "boolean" ? s.expandReviewDiffs : prev.expandReviewDiffs,
+           subagentConcurrencyEnabled:
+             s.subagentConcurrency && typeof s.subagentConcurrency === "object" && !Array.isArray(s.subagentConcurrency)
+             && typeof (s.subagentConcurrency as { enabled?: unknown }).enabled === "boolean"
+               ? (s.subagentConcurrency as { enabled: boolean }).enabled
+               : prev.subagentConcurrencyEnabled,
+           subagentConcurrencyMax:
+             s.subagentConcurrency && typeof s.subagentConcurrency === "object" && !Array.isArray(s.subagentConcurrency)
+             && typeof (s.subagentConcurrency as { max?: unknown }).max === "number"
+               ? (s.subagentConcurrency as { max: number }).max
+               : prev.subagentConcurrencyMax,
           terminalFont: typeof s.terminalFont === "string" ? s.terminalFont : prev.terminalFont,
           inheritTerminalEnv: typeof s.inheritTerminalEnv === "boolean" ? s.inheritTerminalEnv : prev.inheritTerminalEnv,
           disableHardwareAcceleration: typeof s.disableHardwareAcceleration === "boolean" ? s.disableHardwareAcceleration : prev.disableHardwareAcceleration,
@@ -694,49 +712,13 @@ export function SettingsPage({
     </>
   );
 
-  const agentBehaviorPanel = (
-    <>
-      {sectionTitle(t("settings.agentBehavior"))}
-
-      <SettingsRow
-        stacked
-        title={t("settings.defaultThinking")}
-        description={t("settings.defaultThinkingDesc")}
-        action={
-          <select
-            className="input-base"
-            value={prefs.defaultThinkingLevel}
-            onChange={(e) => void patchPref({ defaultThinkingLevel: e.target.value })}
-            style={{ width: "100%", maxWidth: 280 }}
-          >
-            {(["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const).map((level) => (
-              <option key={level} value={level}>{level}</option>
-            ))}
-          </select>
-        }
-      />
-      <SettingsRow
-        title={t("settings.showThinking")}
-        description={t("settings.showThinkingDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.showThinking}
-            onChange={(next) => void patchPref({ showThinking: next })}
-          />
-        }
-      />
-      <SettingsRow
-        title={t("settings.showTodos")}
-        description={t("settings.showTodosDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.showTodos}
-            onChange={(next) => void patchPref({ showTodos: next })}
-          />
-        }
-      />
-    </>
-  );
+   const agentBehaviorPanel = (
+     <AgentBehaviorSettings
+       prefs={prefs}
+       onLocal={(patch) => setPrefs((prev) => ({ ...prev, ...patch }))}
+       patchPref={patchPref}
+     />
+   );
 
   const memoryPanel = (
     <MemorySettingsPanel
@@ -1126,11 +1108,7 @@ export function SettingsPage({
           )}
           {section === "permissions" && <PermissionsSettingsPanel />}
           {section === "usage" && <UsagePanel />}
-          {section === "accounts" && (
-            <div className="settings-page-general">
-              <AccountsSettingsPanel />
-            </div>
-          )}
+          {section === "accounts" && <AccountsSettingsPanel />}
           {section === "appearance" && appearancePanel}
           {section === "models" && (
             <ModelsConfig
@@ -1147,7 +1125,7 @@ export function SettingsPage({
             />
           )}
           {section === "skills" && cwd && (
-            <SkillsConfig embedded cwd={cwd} onClose={onClose} />
+            <SkillsConfig embedded cwd={cwd} onClose={onClose} onTrySkill={onTrySkill} />
           )}
           {section === "skills" && !cwd && (
             <div className="settings-page-empty">

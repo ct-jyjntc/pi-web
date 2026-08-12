@@ -22,15 +22,10 @@ async function ghCliLogin(): Promise<string | null> {
 
 export async function GET() {
   const github = getGithubAccountPublic();
-  const effectiveGhLogin = await ghCliLogin();
+  const effectiveGhLogin = github.connected ? github.login : await ghCliLogin();
   return Response.json({
     accounts: {
       github: { ...github, ghCliLogin: effectiveGhLogin },
-    },
-  });
-  return Response.json({
-    accounts: {
-      github: { ...github, ghCliLogin },
     },
   });
 }

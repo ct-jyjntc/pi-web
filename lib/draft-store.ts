@@ -3,9 +3,12 @@ export interface ChatDraftImage {
   mimeType: string;
 }
 
+import type { AttachedSkill } from "./skill-invoke";
+
 export interface ChatDraft {
   value: string;
   images: ChatDraftImage[];
+  attachedSkill?: AttachedSkill | null;
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -14,11 +17,12 @@ function cloneDraft(draft: ChatDraft): ChatDraft {
   return {
     value: draft.value,
     images: draft.images.map((image) => ({ ...image })),
+    attachedSkill: draft.attachedSkill ? { ...draft.attachedSkill } : draft.attachedSkill,
   };
 }
 
 function isEmptyDraft(draft: ChatDraft): boolean {
-  return !draft.value && draft.images.length === 0;
+  return !draft.value && draft.images.length === 0 && !draft.attachedSkill;
 }
 
 export function getDraft(key: string): ChatDraft | null {

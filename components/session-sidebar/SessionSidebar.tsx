@@ -746,6 +746,8 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                 left: 0,
                 right: 0,
                 zIndex: 100,
+                 borderRadius: 16,
+                 padding: 3,
               }}
             >
               {showProjectFilter && (
@@ -769,7 +771,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                 {visibleProjects.map((project) => (
                   <button
                     key={project}
-                    className={`sidebar-menu-item${project === selectedProject ? " sidebar-menu-item-active" : ""}`}
+                     className="menu-row"
                     onClick={() => {
                       setSelectedCwd(project);
                       setProjectFilter("");
@@ -780,12 +782,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                     style={{ fontFamily: "var(--font-mono)" }}
                     title={project}
                   >
-                    {project === selectedProject ? (
-                      <Icon icon={Check} size={10} strokeWidth={2} style={{ color: "var(--accent)", flexShrink: 0 }} />
-                    ) : (
-                      <span style={{ width: 10, flexShrink: 0 }} />
-                    )}
-                    <PathLabel text={displayCwd(project, homeDir)} style={{ flex: 1 }} />
+                     <PathLabel text={displayCwd(project, homeDir)} style={{ flex: 1 }} />
+                     {project === selectedProject ? (
+                       <Icon icon={Check} size={12} strokeWidth={2} style={{ color: "var(--text)", flexShrink: 0 }} />
+                     ) : null}
                   </button>
                 ))}
                 {visibleProjects.length === 0 && projectFilter.trim() && (
@@ -793,29 +793,29 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                 )}
               </div>
 
-              {/* Default cwd shortcut */}
-              {!customPathOpen && (
-                <button
-                  className="sidebar-menu-item"
-                  onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
-                  style={{ borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none" }}
-                >
-                  <Icon icon={Folder} size={10} strokeWidth={1.4} style={{ flexShrink: 0 }} />
-                  <span>{t("sidebar.useDefaultDir")}</span>
-                </button>
-              )}
-
-              {/* Custom path / directory picker */}
-              <button
-                className="sidebar-menu-item"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleCustomPathClick();
-                }}
-              >
-                <Icon icon={Plus} size={10} strokeWidth={1.4} style={{ flexShrink: 0 }} />
-                <span>{t("sidebar.customPath")}</span>
-              </button>
+               <div style={{ borderTop: "1px solid var(--border)", marginTop: 2, paddingTop: 2 }}>
+                 {!customPathOpen && (
+                   <button
+                     type="button"
+                     className="menu-row"
+                     onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
+                   >
+                     <Icon icon={Folder} size={12} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+                     <span>{t("sidebar.useDefaultDir")}</span>
+                   </button>
+                 )}
+                 <button
+                   type="button"
+                   className="menu-row"
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     void handleCustomPathClick();
+                   }}
+                 >
+                   <Icon icon={Plus} size={12} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+                   <span>{t("sidebar.customPath")}</span>
+                 </button>
+               </div>
             </AnimatedDropdown>
 
           <button
@@ -898,6 +898,8 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                   left: 0,
                   right: 0,
                   zIndex: 100,
+                   borderRadius: 16,
+                   padding: 3,
                 }}
               >
                   {showWtFilter && (
@@ -959,7 +961,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                           style={{ display: "flex", alignItems: "center" }}
                         >
                           <button
-                            className={`sidebar-menu-item${isCurrent ? " sidebar-menu-item-active" : ""}`}
+                             className="menu-row"
                             onClick={() => {
                               setSelectedCwd(wt.path);
                               setWtDropdownOpen(false);
@@ -969,13 +971,11 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                             title={wt.path}
                             style={{ flex: 1, fontFamily: "var(--font-mono)" }}
                           >
-                            {isCurrent ? (
-                              <Icon icon={Check} size={10} strokeWidth={2} style={{ color: "var(--accent)", flexShrink: 0 }} />
-                            ) : (
-                              <span style={{ width: 10, flexShrink: 0 }} />
-                            )}
-                            <PathLabel text={wt.branch ?? displayCwd(wt.path, homeDir)} style={{ flex: 1 }} />
-                            {wt.isMain && <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>main</span>}
+                             <PathLabel text={wt.branch ?? displayCwd(wt.path, homeDir)} style={{ flex: 1 }} />
+                             {wt.isMain && <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>main</span>}
+                             {isCurrent ? (
+                               <Icon icon={Check} size={12} strokeWidth={2} style={{ color: "var(--text)", flexShrink: 0 }} />
+                             ) : null}
                           </button>
                           {!wt.isMain && (
                             <button
@@ -1001,9 +1001,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                     )}
                   </div>
 
+                   <div style={{ height: 1, background: "var(--border)", margin: "2px 4px 0" }} />
                   {!wtNewOpen ? (
                     <button
-                      className="sidebar-menu-item"
+                       className="menu-row"
                       onClick={(e) => {
                         e.stopPropagation();
                         setWtNewOpen(true);
@@ -1011,7 +1012,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                         setTimeout(() => wtNewInputRef.current?.focus(), 0);
                       }}
                       title={t("sidebar.createWorktreeHint")}
-                      style={{ borderTop: "1px solid var(--border)" }}
+                       style={{ marginTop: 2 }}
                     >
                       <Icon icon={Plus} size={10} strokeWidth={1.4} style={{ flexShrink: 0 }} />
                       <span>{t("sidebar.newWorktree")}</span>
@@ -1218,5 +1219,3 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     </div>
   );
 });
-
-

@@ -2,6 +2,7 @@
 
 import { ShieldCheck } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
+import { CenteredDialog } from "./CenteredDialog";
 import { Icon } from "./Icon";
 
 export function ProjectTrustDialog({
@@ -20,76 +21,57 @@ export function ProjectTrustDialog({
   const { t } = useLocale();
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      style={{ zIndex: 1100, padding: 16 }}
-      onClick={(event) => {
-        if (!busy && event.target === event.currentTarget) onCancel();
-      }}
+    <CenteredDialog
+      width={400}
+      zIndex={1100}
+      labelledBy="project-trust-title"
+      onClose={busy ? undefined : onCancel}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="project-trust-title"
-        className="modal-shell"
-        style={{ width: "min(440px, 100%)" }}
-      >
-        <div className="modal-header" style={{ height: "auto", minHeight: 44, alignItems: "flex-start", padding: "12px 14px" }}>
-          <div style={{ display: "flex", gap: 10, minWidth: 0 }}>
-            <Icon
-              icon={ShieldCheck}
-              size="3xl"
-              strokeWidth={1.8}
-              style={{ color: "var(--text-muted)", flexShrink: 0, marginTop: 2 }}
-            />
-            <div style={{ minWidth: 0 }}>
-              <div id="project-trust-title" className="modal-title">
-                {t("trust.dialogTitle")}
-              </div>
-            </div>
+      <div style={{ padding: "14px 14px 10px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <Icon icon={ShieldCheck} size={16} strokeWidth={1.8} style={{ color: "var(--text-muted)", marginTop: 2, flexShrink: 0 }} />
+        <div style={{ minWidth: 0 }}>
+          <div
+            id="project-trust-title"
+            style={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.02em", color: "var(--text)" }}
+          >
+            {t("trust.dialogTitle")}
           </div>
-        </div>
-        <div className="modal-main" style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 12, lineHeight: 1.55, color: "var(--text-muted)" }}>
+          <p style={{ margin: "6px 0 0", fontSize: 12, lineHeight: 1.5, color: "var(--text-muted)" }}>
             {t("trust.dialogBody")}
-          </div>
-          <code
+          </p>
+          <div
             style={{
-              display: "block",
-              padding: "8px 10px",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-xs)",
-              background: "var(--bg-panel)",
-              color: "var(--text)",
+              marginTop: 10,
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: 12,
+              color: "var(--text)",
               overflowWrap: "anywhere",
             }}
           >
             {cwd}
-          </code>
-          {error && (
-            <div role="alert" style={{ color: "var(--destructive)", fontSize: 12, lineHeight: 1.45 }}>
+          </div>
+          {error ? (
+            <div role="alert" style={{ marginTop: 8, color: "var(--destructive)", fontSize: 12, lineHeight: 1.45 }}>
               {error}
             </div>
-          )}
-        </div>
-        <div className="modal-footer">
-          <button type="button" className="chrome-btn" onClick={onCancel} disabled={busy}>
-            {t("trust.cancel")}
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={onConfirm}
-            disabled={busy}
-            style={{ opacity: busy ? 0.7 : 1 }}
-          >
-            {busy ? t("trust.trusting") : t("trust.trustProject")}
-          </button>
+          ) : null}
         </div>
       </div>
-    </div>
+      <div style={{ height: 1, background: "var(--border)" }} />
+      <div style={{ padding: 4 }}>
+        <button
+          type="button"
+          className="menu-row"
+          onClick={onConfirm}
+          disabled={busy}
+          style={{ opacity: busy ? 0.55 : 1 }}
+        >
+          {busy ? t("trust.trusting") : t("trust.trustProject")}
+        </button>
+        <button type="button" className="menu-row" onClick={onCancel} disabled={busy}>
+          {t("trust.cancel")}
+        </button>
+      </div>
+    </CenteredDialog>
   );
 }

@@ -1,8 +1,8 @@
 /**
  * Single owner for Pi Web permission *policy config* (read/write/validate).
  *
- * Enforcement stays in @gotgenes/pi-permission-system — this module only owns
- * the flat config file the extension already loads:
+ * Enforcement lives in lib/first-party/permission. This module owns
+ * the flat config file that factory reads:
  *   ~/.pi/agent/extensions/pi-permission-system/config.json
  *
  * Two documents, one direction of flow:

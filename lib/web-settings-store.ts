@@ -32,7 +32,8 @@ type ScalarSettingKey =
   | "defaultThinkingLevel"
   | "agentMode"
   | "showThinking"
-  | "showTodos"
+   | "showTodos"
+   | "expandReviewDiffs"
   | "themeMode"
   | "uiFontSize"
   | "codeThemeLight"
@@ -57,6 +58,7 @@ export type WebSettingsData =
     titleModelRef?: string;
     advisorModel?: WebSettings["advisorModel"];
     commitModelRef?: string;
+    lastChatModel?: WebSettings["lastChatModel"];
     modelRoles?: WebSettings["modelRoles"];
     modelRolesRefs?: { default?: string; smol?: string; plan?: string };
   };
@@ -176,7 +178,7 @@ export function refreshWebSettings(): Promise<WebSettingsData | null> {
   if (inFlight) return inFlight;
   if (typeof window === "undefined") return Promise.resolve(settings);
   attemptedAt = Date.now();
-  const request: Promise<WebSettingsData | null> = fetch(LIGHT_URL)
+  const request: Promise<WebSettingsData | null> = apiFetch(LIGHT_URL)
     .then(async (res) => {
       const data = await res.json() as { settings?: WebSettingsData; error?: string };
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);

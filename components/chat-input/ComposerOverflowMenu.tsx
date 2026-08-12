@@ -68,6 +68,7 @@ export function ComposerOverflowMenu({
             minWidth: 168,
             zIndex: 80,
             padding: 4,
+            borderRadius: "var(--radius-xl)",
           }}
         >
           {items.map((item) => (

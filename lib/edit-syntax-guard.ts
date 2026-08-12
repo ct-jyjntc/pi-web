@@ -214,14 +214,33 @@ export function checkSourceSyntax(
 export function formatSyntaxGuardFailure(
   displayPath: string,
   result: Extract<SyntaxCheckResult, { ok: false }>,
+  source?: string,
 ): string {
   const lines = result.errors
     .map((e) => `  ${e.line}:${e.column}  ${e.message}`)
     .join("\n");
+  let excerpt = "";
+  if (source) {
+    const first = result.errors[0];
+    const all = source.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    const numbered =
+      all.length > 0 && all[all.length - 1] === "" ? all.slice(0, -1) : all;
+    const center = first?.line ?? 1;
+    const from = Math.max(1, center - 3);
+    const to = Math.min(numbered.length, center + 4);
+    const body = numbered
+      .slice(from - 1, to)
+      .map((l, i) => `  ${from + i}|${l}`)
+      .join("\n");
+    excerpt =
+      `\nWould-be source around first error (file not written):\n${body}\n`;
+  }
   return (
     `Edit rejected: would leave unparsable source in ${displayPath}.\n` +
     `The file was not modified.\n` +
     `Parse errors:\n${lines}\n` +
-    `Re-read the file, shrink the patch (one hunk / one concern), ensure SWAP/INS body lines start with '+', and retry.`
+    excerpt +
+    `Re-read the file. Leftover tail usually means SWAP N.=M ended before the construct closer — use SWAP.BLK N: or widen M.\n` +
+    `Opener and closer of a wrap must be in the SAME patch. Shrink to one hunk / one concern, ensure body lines start with '+', and retry.`
   );
 }

@@ -13,15 +13,12 @@ import {
 } from "@/lib/file-fuzzy";
 import {
   ArrowRight,
+  ArrowUp,
   ArrowUpToLine,
-  Cpu,
-  Image,
-  Lightbulb,
+  Plus,
   RefreshCw,
   Square,
   Undo2,
-  Volume2,
-  VolumeX,
   X,
 } from "lucide-react";
 import { Icon } from "./Icon";
@@ -30,34 +27,37 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLocale } from "@/hooks/useLocale";
 import { useContextUsageMetric } from "@/lib/session-metrics-store";
 import type { AttachedImage, ChatInputHandle } from "@/lib/chat-input-types";
+import type { AttachedSkill } from "@/lib/skill-invoke";
+import { formatSkillPrompt } from "@/lib/skill-invoke";
+import { ComposerSkillChip } from "./chat-input/ComposerSkillChip";
 import { ContextUsageRing } from "./chat-input/ContextUsageRing";
 import {
   ModelErrorBanner,
   ModelScopeWarningBanner,
   QueuedMessageRow,
 } from "./chat-input/ComposerBanners";
-import { ChatInputModelMenu } from "./chat-input/ChatInputModelMenu";
 import { ComposerAutocompleteMenus } from "./chat-input/ComposerAutocompleteMenus";
-import { ChatInputThinkingMenu } from "./chat-input/ChatInputThinkingMenu";
+import { ComposerModelChip } from "./chat-input/ComposerModelChip";
+import { YoloAccessDialog } from "./chat-input/YoloAccessDialog";
 import { ChatInputModeMenu, agentModeIcon, AGENT_MODE_KEYS } from "./chat-input/ChatInputModeMenu";
 import { ComposerContextMenu } from "./chat-input/ComposerContextMenu";
 import {
   BUILTIN_SLASH_COMMANDS,
   COMPOSITION_END_ENTER_GRACE_MS,
   MAX_INPUT_HEIGHT,
-  MODEL_FILTER_THRESHOLD,
   MODEL_OPTION_COLLATOR,
+  COMPOSER_INPUT_MIN_HEIGHT,
+  COMPOSER_LINE_HEIGHT,
   SINGLE_LINE_MAX_HEIGHT,
   SLASH_SOURCE_ORDER,
   SLASH_SOURCES,
-  THINKING_LEVEL_KEYS,
   canRestoreUserMessage,
   compareModelOptions,
   draftImagesToAttachedImages,
-  filterModelOptions,
   getUserMessageDraftImages,
   getUserMessageText,
   imageToDraftImage,
+  prependAttachedImages,
   revokeImagePreview,
   slashMatchRank,
   type ModelOption,
@@ -89,6 +89,7 @@ interface Props {
   modelScopeWarnings?: string[] | null;
   inputHistory?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
+  defaultModel?: { provider: string; modelId: string } | null;
   /** Open right-panel Context workspace (context ring next to send). */
   onOpenContext?: () => void;
   /** Called after permission mode is persisted so the host can /reload. */
@@ -123,14 +124,14 @@ interface Props {
 // Memoized: this is a large composer that must not re-render on every
 // streaming token reaching ChatWindow.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, defaultModel,
   onOpenContext,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   supportsImageInput = false,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
-  soundEnabled, onSoundToggle, onAudioUnlock,
+  onAudioUnlock,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -145,18 +146,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const contextPct = contextUsage?.percent ?? null;
   const contextPctLabel = contextPct != null ? `${Math.round(contextPct)}%` : null;
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-  const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
-  const [modelFilter, setModelFilter] = useState("");
-  const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
-  const [thinkingMenuRect, setThinkingMenuRect] = useState<{ top: number; right: number } | null>(null);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
-  const [modeMenuRect, setModeMenuRect] = useState<{ top: number; right: number } | null>(null);
+  const [yoloConfirmOpen, setYoloConfirmOpen] = useState(false);
+  const [modeMenuRect, setModeMenuRect] = useState<{ top: number; right: number; left: number } | null>(null);
   const [modeBusy, setModeBusy] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
 
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
+  ));
+  const [attachedSkill, setAttachedSkill] = useState<AttachedSkill | null>(() => (
+    draftKey ? getDraft(draftKey)?.attachedSkill ?? null : null
   ));
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
@@ -175,9 +175,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputRowRef = useRef<HTMLElement | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
-  const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
@@ -193,17 +190,30 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
+  const attachedSkillRef = useRef(attachedSkill);
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  attachedSkillRef.current = attachedSkill;
+
+  useEffect(() => {
+    if (!attachedSkill) return;
+    textareaRef.current?.focus();
+  }, [attachedSkill]);
 
   useImperativeHandle(ref, () => ({
-    insertIfEmpty(text: string) {
+    insertIfEmpty(text: string, images) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (current.trim()) return;
-      setValue(text);
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+      if (text) setValue(text);
       setAtQuery(null);
+      if (images?.length) {
+        setAttachedImages((prev) => {
+          prev.forEach(revokeImagePreview);
+          return draftImagesToAttachedImages(images);
+        });
+      }
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
@@ -230,19 +240,27 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
-    prependText(text: string) {
-      if (!text.trim()) return;
+    prependText(text: string, images) {
+      const hasImages = !!images?.length;
+      if (!text.trim() && !hasImages) return;
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
       // Mirrors the TUI's queue restore: queued text first, then whatever
       // the user already typed, separated by a blank line.
-      const combined = [text, current].filter((t) => t.trim()).join("\n\n");
-      setValue(combined);
-      setAtQuery(null);
+      const combined = text.trim()
+        ? [text, current].filter((t) => t.trim()).join("\n\n")
+        : current;
+      if (text.trim()) {
+        setValue(combined);
+        setAtQuery(null);
+      }
+      if (hasImages) {
+        setAttachedImages((prev) => prependAttachedImages(prev, images));
+      }
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.setSelectionRange(combined.length, combined.length);
+        if (text.trim()) ta.setSelectionRange(combined.length, combined.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -283,7 +301,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }));
 
   const processImageFiles = useCallback(async (files: File[]) => {
-    if (isStreaming || !supportsImageInput) return;
+    if (!supportsImageInput) return;
     const remaining = Math.max(
       0,
       MAX_ATTACHED_IMAGES - attachedImagesRef.current.length - pendingImageCountRef.current,
@@ -318,7 +336,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     } finally {
       pendingImageCountRef.current -= imageFiles.length;
     }
-  }, [isStreaming, supportsImageInput]);
+  }, [supportsImageInput]);
 
   // Drop attached images when switching to a model without vision.
   useEffect(() => {
@@ -354,9 +372,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
+    setAttachedSkill(null);
     clearImages();
     if (textareaRef.current) {
-      textareaRef.current.style.height = "32px";
+      textareaRef.current.style.height = `${COMPOSER_INPUT_MIN_HEIGHT}px`;
     }
   }, [clearImages, draftKey]);
 
@@ -365,8 +384,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
+      attachedSkill,
     });
-  }, [attachedImages, draftKey, value]);
+  }, [attachedImages, attachedSkill, draftKey, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -376,6 +396,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       setDraft(previousDraftKey, {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        attachedSkill: attachedSkillRef.current,
       });
     }
 
@@ -387,6 +408,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     }
     draftKeyRef.current = draftKey;
     setValue(draft?.value ?? "");
+    setAttachedSkill(draft?.attachedSkill ?? null);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
@@ -409,28 +431,26 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     // clearing the input after send costs zero forced layouts.
     if (!value) {
       row?.classList.remove("is-multiline");
-      ta.style.lineHeight = "32px";
+      ta.style.lineHeight = `${COMPOSER_LINE_HEIGHT}px`;
       ta.style.padding = "0";
-      ta.style.height = "32px";
+      ta.style.height = `${COMPOSER_INPUT_MIN_HEIGHT}px`;
       return;
     }
-    // One measurement per keystroke. Reading `scrollHeight` forces a full
-    // document layout (the transcript shares the layout tree), so measure
-    // directly in multi-line metrics: a single line still floors at the 32px
-    // min-height, anything that wraps clears SINGLE_LINE_MAX_HEIGHT.
+    // Measure with min-height cleared so CSS floor cannot fake a wrap.
+    ta.style.minHeight = "0";
     ta.style.lineHeight = "1.45";
-    ta.style.padding = "6px 0";
+    ta.style.padding = "0";
     ta.style.height = "auto";
     const natural = ta.scrollHeight;
     const multiline = natural > SINGLE_LINE_MAX_HEIGHT;
     row?.classList.toggle("is-multiline", multiline);
+    ta.style.minHeight = `${COMPOSER_INPUT_MIN_HEIGHT}px`;
     if (multiline) {
-      ta.style.height = `${Math.min(natural, MAX_INPUT_HEIGHT)}px`;
+      ta.style.height = `${Math.min(Math.max(natural, COMPOSER_INPUT_MIN_HEIGHT), MAX_INPUT_HEIGHT)}px`;
     } else {
-      // Single-line metrics: line box equals the control height → true centering.
-      ta.style.lineHeight = "32px";
+      ta.style.lineHeight = `${COMPOSER_LINE_HEIGHT}px`;
       ta.style.padding = "0";
-      ta.style.height = "32px";
+      ta.style.height = `${COMPOSER_INPUT_MIN_HEIGHT}px`;
     }
   }, [value]);
 
@@ -441,7 +461,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const handleSend = useCallback(async () => {
-    const msg = value.trim();
+    const msg = formatSkillPrompt(attachedSkill?.name, value);
     if (!msg && !attachedImages.length) return;
     if (isStreaming) return;
     onAudioUnlock?.();
@@ -454,7 +474,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     }
     onSend(msg, attachedImages.length ? attachedImages : undefined);
     clearInput();
-  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, attachedSkill, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -494,7 +514,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     ? (slashQuery ? "1 match" : "1 command")
     : `${filteredSlashCommands.length} ${slashQuery ? "matches" : "commands"}`;
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText && attachedImages.length === 0;
+  const hasComposableInput = hasInputText || attachedImages.length > 0 || Boolean(attachedSkill);
+  const canQueueStreamingMessage = hasComposableInput;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -679,9 +700,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
-    const msg = value.trim();
+    const msg = formatSkillPrompt(attachedSkill?.name, value);
     if (!msg && !attachedImages.length) return;
-    if (attachedImages.length) return;
     onAudioUnlock?.();
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
@@ -695,7 +715,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
     clearInput();
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, attachedSkill, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = filteredSlashCommands.length - 1;
@@ -925,29 +945,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     })).sort(compareModelOptions);
   }, [modelList, modelNames, model?.provider]);
 
-  const filteredModelOptions = useMemo(
-    () => filterModelOptions(modelOptions, modelFilter),
-    [modelOptions, modelFilter],
-  );
-  const showModelFilter = modelOptions.length > MODEL_FILTER_THRESHOLD;
-
-  // Group options by provider, preserving insertion order
-  const modelsByProvider: { provider: string; options: ModelOption[] }[] = useMemo(() => {
-    const groups: { provider: string; options: ModelOption[] }[] = [];
-    for (const opt of filteredModelOptions) {
-      const group = groups.find((g) => g.provider === opt.provider);
-      if (group) group.options.push(opt);
-      else groups.push({ provider: opt.provider, options: [opt] });
-    }
-    return groups;
-  }, [filteredModelOptions]);
-
-  const displayModelName = model
-    ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
-    : null;
-  const currentName = displayModelName;
-
-  const thinkingDisplayLabel = t(THINKING_LEVEL_KEYS[thinkingLevel ?? "auto"]);
   const activeMode: AgentMode = parseAgentMode(mode ?? (onModeChange ? "ask" : undefined));
   const modeLabel = t(AGENT_MODE_KEYS[activeMode].label);
 
@@ -960,8 +957,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     // Full access auto-approves shell commands and access outside the project,
     // so make it a deliberate choice rather than a one-click slip.
     if (next === "yolo" && activeMode !== "yolo") {
-      const ok = window.confirm(`${t("chat.modeYoloConfirmTitle")}\n\n${t("chat.modeYoloConfirmBody")}`);
-      if (!ok) return;
+      setYoloConfirmOpen(true);
+      return;
     }
     setModeBusy(true);
     try {
@@ -969,22 +966,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     } finally {
       setModeBusy(false);
     }
-  }, [modeBusy, onModeChange, activeMode, t]);
+  }, [modeBusy, onModeChange, activeMode]);
 
   // Close dropdowns on outside click
   // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (
-        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
-        modelDropdownPanelRef.current && !modelDropdownPanelRef.current.contains(e.target as Node)
-      ) {
-        setModelDropdownOpen(false);
-        setModelFilter("");
-      }
-      if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
-        setThinkingDropdownOpen(false);
-      }
       if (modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
         setModeDropdownOpen(false);
       }
@@ -1008,26 +995,33 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     e: React.MouseEvent<HTMLElement>,
     open: boolean,
     setOpen: (v: boolean | ((prev: boolean) => boolean)) => void,
-    setRect: (r: { top: number; right: number } | null) => void,
+    setRect: (r: { top: number; right: number; left: number } | null) => void,
   ) => {
     if (open) {
       setOpen(false);
       return;
     }
     const rect = e.currentTarget.getBoundingClientRect();
-    setRect({ top: rect.top, right: rect.right });
+    setRect({ top: rect.top, right: rect.right, left: rect.left });
     setOpen(true);
   }, []);
 
-  const fixedMenuStyle = useCallback((rect: { top: number; right: number }, minWidth: number): React.CSSProperties => {
+  const fixedMenuStyle = useCallback((
+    rect: { top: number; right: number; left?: number },
+    minWidth: number,
+    align: "left" | "right" = "right",
+  ): React.CSSProperties => {
     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
     const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
     const bottom = viewportHeight - rect.top + 6;
     const maxH = Math.max(120, Math.min(rect.top - 8, viewportHeight * 0.6));
+    const edge = align === "left"
+      ? { left: Math.max(8, rect.left ?? 8) }
+      : { right: Math.max(8, viewportWidth - rect.right) };
     return {
       position: "fixed",
       bottom,
-      right: Math.max(8, viewportWidth - rect.right),
+      ...edge,
       zIndex: 500,
       minWidth,
       maxHeight: maxH,
@@ -1050,7 +1044,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         type="file"
         accept="image/*"
         multiple
-        disabled={isStreaming || !supportsImageInput}
+        disabled={!supportsImageInput}
         style={{ display: "none" }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
@@ -1203,7 +1197,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           />
           <div
             className={`composer-shell${isStreaming && (onSteer || onFollowUp) ? " is-streaming" : ""}`}
+            style={{ borderRadius: "var(--radius-xl)" }}
           >
+          {attachedSkill && (
+            <ComposerSkillChip
+              name={attachedSkill.name}
+              removeLabel={t("skills.removeChip")}
+              onRemove={() => setAttachedSkill(null)}
+            />
+          )}
           <div className="composer-input-row">
           <textarea
             ref={textareaRef}
@@ -1256,9 +1258,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               color: "var(--text)",
               fontFamily: "inherit",
               fontSize: 14,
-              lineHeight: "32px",
-              height: 32,
-              minHeight: 32,
+              lineHeight: `${COMPOSER_LINE_HEIGHT}px`,
+              height: COMPOSER_INPUT_MIN_HEIGHT,
+              minHeight: COMPOSER_INPUT_MIN_HEIGHT,
               padding: 0,
               overflowY: "auto",
             }}
@@ -1277,91 +1279,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               onClose={() => setComposerMenu(null)}
             />
           )}
-
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-            {/* Context ring — opens right-panel Context workspace */}
-            {onOpenContext && (
-              <button
-                type="button"
-                onClick={onOpenContext}
-                title={
-                  contextPctLabel
-                    ? `${t("shell.contextTab")} · ${contextPctLabel}`
-                    : t("shell.contextTab")
-                }
-                aria-label={t("shell.contextTab")}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 16,
-                  height: 16,
-                  padding: 0,
-                  margin: "0 2px",
-                  border: "none",
-                  borderRadius: "50%",
-                  background: "transparent",
-                  color: "inherit",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                  lineHeight: 0,
-                }}
-              >
-                <ContextUsageRing percent={contextPct} size={14} />
-              </button>
-            )}
-            {isStreaming ? (
-              <>
-                {onSteer && (
-                  <button
-                    type="button"
-                    className={`chrome-btn${canQueueStreamingMessage ? " is-active" : ""}`}
-                    onClick={() => sendQueued("steer")}
-                    disabled={!canQueueStreamingMessage}
-                    title={attachedImages.length ? t("chat.queueNoImages") : t("chat.steerTitle")}
-                  >
-                    <Icon icon={ArrowRight} size={12} strokeWidth={1.8} />
-                    {t("chat.steer")}
-                  </button>
-                )}
-                {onFollowUp && (
-                  <button
-                    type="button"
-                    className="chrome-btn"
-                    onClick={() => sendQueued("followup")}
-                    disabled={!canQueueStreamingMessage}
-                    title={attachedImages.length ? t("chat.queueNoImages") : t("chat.followUpTitle")}
-                  >
-                    <Icon icon={ArrowUpToLine} size={12} strokeWidth={1.8} />
-                    {t("chat.followUp")}
-                  </button>
-                )}
-              </>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={!value.trim() && !attachedImages.length}
-                style={{
-                  flexShrink: 0,
-                  display: "flex", alignItems: "center", gap: 6,
-                  height: 32, padding: "0 14px",
-                  background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
-                  border: "none",
-                  borderRadius: "var(--radius-pill)",
-                  color: (value.trim() || attachedImages.length) ? "var(--accent-fg)" : "var(--text-dim)",
-                  cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  letterSpacing: "-0.01em",
-                  boxShadow: "none",
-                  transition: "background 0.15s, box-shadow 0.15s",
-                }}
-              >
-                <Icon icon={ArrowRight} size={14} strokeWidth={2} />
-                {t("chat.send")}
-              </button>
-            )}
-          </div>
           </div>
 
           {/* Toolbar strip — same chrome language as top bar */}
@@ -1372,57 +1289,39 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               type="button"
               className={`chrome-btn is-icon${attachedImages.length ? " is-active" : ""}`}
               onClick={() => fileInputRef.current?.click()}
-              disabled={isStreaming || !supportsImageInput}
+              disabled={!supportsImageInput}
               title={supportsImageInput ? t("chat.attachImage") : t("chat.attachImageDisabled")}
             >
-              <Icon icon={Image} size={15} strokeWidth={1.8} />
+              <Icon icon={Plus} size={16} strokeWidth={1.8} />
             </button>
-            {/* Model selector — visible always, disabled during streaming */}
-            {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
-                <div ref={dropdownRef} style={{ position: "relative", flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
-                  <button
-                    type="button"
-                    className={`chrome-btn${modelDropdownOpen ? " is-active" : ""}`}
-                    onClick={(e) => {
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setModelDropdownRect({ top: rect.top, left: rect.left, width: rect.width });
-                      setModelDropdownOpen((open) => {
-                        if (open) setModelFilter("");
-                        return !open;
-                      });
-                    }}
-                    disabled={isStreaming}
-                    title={modelOptions.length > 0 ? (currentName ?? t("chat.changeModel")) : t("chat.noAvailableModels")}
-                    aria-label={modelOptions.length > 0 ? (currentName ?? t("chat.changeModel")) : t("chat.noAvailableModels")}
-                    style={{
-                      justifyContent: isMobile ? "flex-start" : undefined,
-                      width: isMobile ? "100%" : undefined,
-                      maxWidth: isMobile ? "100%" : undefined,
-                      minWidth: 0,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <Icon icon={Cpu} size={11} strokeWidth={2} />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {currentName ?? (modelOptions.length > 0 ? t("chat.selectModel") : t("chat.noModels"))}
-                    </span>
-                  </button>
-                  {modelDropdownOpen && modelDropdownRect && (
-                    <ChatInputModelMenu
-                      isMobile={isMobile}
-                      modelDropdownRect={modelDropdownRect}
-                      showModelFilter={showModelFilter}
-                      modelFilter={modelFilter}
-                      setModelFilter={setModelFilter}
-                      setModelDropdownOpen={setModelDropdownOpen}
-                      modelsByProvider={modelsByProvider}
-                      model={model}
-                      isAutoModelSelection={isAutoModelSelection}
-                      onModelChange={onModelChange}
-                      panelRef={modelDropdownPanelRef}
-                    />
-                  )}
-                </div>
+            {onModeChange !== undefined && (
+              <div ref={modeDropdownRef} style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className={`chrome-btn${modeDropdownOpen ? " is-active" : ""}${activeMode === "yolo" ? " is-danger" : ""}${activeMode === "plan" ? " is-plan" : ""}`}
+                  onClick={(e) => {
+                    if (modeBusy || isStreaming) return;
+                    openFixedMenu(e, modeDropdownOpen, setModeDropdownOpen, setModeMenuRect);
+                  }}
+                  disabled={modeBusy || isStreaming}
+                  title={t("chat.changeMode", { mode: modeLabel })}
+                  aria-label={t("chat.changeMode", { mode: modeLabel })}
+                  style={{
+                    cursor: modeBusy ? "wait" : undefined,
+                    opacity: modeBusy ? 0.6 : undefined,
+                  }}
+                >
+                  <Icon icon={agentModeIcon(activeMode)} size={12} strokeWidth={2} />
+                  <span>{modeLabel}</span>
+                </button>
+                {modeDropdownOpen && modeMenuRect && (
+                  <ChatInputModeMenu
+                    style={fixedMenuStyle(modeMenuRect, 240, "left")}
+                    mode={activeMode}
+                    onModeChange={(next) => void applyMode(next)}
+                  />
+                )}
+              </div>
             )}
           </div>
 
@@ -1445,7 +1344,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 aria-hidden={controlsMenuOpen || undefined}
                 tabIndex={controlsMenuOpen ? -1 : undefined}
                 onClick={() => {
-                  setModelDropdownOpen(false);
                   setControlsMenuOpen(true);
                 }}
                 style={{
@@ -1479,64 +1377,34 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 boxShadow: "var(--shadow-md)",
               } : null),
             }}>
-            {!isStreaming && onThinkingLevelChange && (
-              <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
-                <button
-                  type="button"
-                  className={`chrome-btn${thinkingDropdownOpen ? " is-active" : ""}`}
-                  onClick={(e) => {
-                    if (isStreaming) return;
-                    openFixedMenu(e, thinkingDropdownOpen, setThinkingDropdownOpen, setThinkingMenuRect);
-                  }}
-                  disabled={isStreaming}
-                  title={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
-                  aria-label={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
-                  style={isMobile ? { padding: "0 6px" } : undefined}
-                >
-                  <Icon icon={Lightbulb} size={11} strokeWidth={1.8} />
-                  {(!isMobile || controlsMenuOpen) && <span>{thinkingDisplayLabel}</span>}
-                </button>
-                {thinkingDropdownOpen && thinkingMenuRect && (
-                  <ChatInputThinkingMenu
-                    style={fixedMenuStyle(thinkingMenuRect, 112)}
-                    thinkingLevel={thinkingLevel}
-                    availableThinkingLevels={availableThinkingLevels}
-                    thinkingLevelMap={thinkingLevelMap}
-                    onThinkingLevelChange={onThinkingLevelChange}
-                    setThinkingDropdownOpen={setThinkingDropdownOpen}
-                  />
-                )}
-              </div>
-            )}
-            {onModeChange !== undefined && (
-              <div ref={modeDropdownRef} style={{ position: "relative" }}>
-                <button
-                  type="button"
-                  className={`chrome-btn${modeDropdownOpen ? " is-active" : ""}${activeMode === "yolo" ? " is-danger" : ""}${activeMode === "plan" ? " is-plan" : ""}`}
-                  onClick={(e) => {
-                    if (modeBusy || isStreaming) return;
-                    openFixedMenu(e, modeDropdownOpen, setModeDropdownOpen, setModeMenuRect);
-                  }}
-                  disabled={modeBusy || isStreaming}
-                  title={t("chat.changeMode", { mode: modeLabel })}
-                  aria-label={t("chat.changeMode", { mode: modeLabel })}
-                  style={{
-                    ...(isMobile ? { padding: "0 6px" } : null),
-                    cursor: modeBusy ? "wait" : undefined,
-                    opacity: modeBusy ? 0.6 : undefined,
-                  }}
-                >
-                  <Icon icon={agentModeIcon(activeMode)} size={12} strokeWidth={2} />
-                  {(!isMobile || controlsMenuOpen) && <span>{modeLabel}</span>}
-                </button>
-                {modeDropdownOpen && modeMenuRect && (
-                  <ChatInputModeMenu
-                    style={fixedMenuStyle(modeMenuRect, 240)}
-                    mode={activeMode}
-                    onModeChange={(next) => void applyMode(next)}
-                  />
-                )}
-              </div>
+            <ComposerModelChip
+              isMobile={isMobile}
+              isStreaming={isStreaming}
+              model={model}
+              modelOptions={modelOptions}
+              isAutoModelSelection={isAutoModelSelection}
+              onModelChange={onModelChange}
+              thinkingLevel={thinkingLevel}
+              availableThinkingLevels={availableThinkingLevels}
+              thinkingLevelMap={thinkingLevelMap}
+              onThinkingLevelChange={onThinkingLevelChange}
+              defaultModel={defaultModel}
+            />
+
+            {onOpenContext && (
+              <button
+                type="button"
+                className="chrome-btn is-icon"
+                onClick={onOpenContext}
+                title={
+                  contextPctLabel
+                    ? `${t("shell.contextTab")} · ${contextPctLabel}`
+                    : t("shell.contextTab")
+                }
+                aria-label={t("shell.contextTab")}
+              >
+                <ContextUsageRing percent={contextPct} size={14} />
+              </button>
             )}
 
             {isStreaming && (
@@ -1550,21 +1418,57 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 {t("chat.stop")}
               </button>
             )}
-
-            {onSoundToggle !== undefined && (
+            {isStreaming ? (
+              <>
+                {onSteer && (
+                  <button
+                    type="button"
+                    className={`chrome-btn${canQueueStreamingMessage ? " is-active" : ""}`}
+                    onClick={() => sendQueued("steer")}
+                    disabled={!canQueueStreamingMessage}
+                    title={t("chat.steerTitle")}
+                  >
+                    <Icon icon={ArrowRight} size={12} strokeWidth={1.8} />
+                    {(!isMobile || controlsMenuOpen) && <span>{t("chat.steer")}</span>}
+                  </button>
+                )}
+                {onFollowUp && (
+                  <button
+                    type="button"
+                    className="chrome-btn"
+                    onClick={() => sendQueued("followup")}
+                    disabled={!canQueueStreamingMessage}
+                    title={t("chat.followUpTitle")}
+                  >
+                    <Icon icon={ArrowUpToLine} size={12} strokeWidth={1.8} />
+                    {(!isMobile || controlsMenuOpen) && <span>{t("chat.followUp")}</span>}
+                  </button>
+                )}
+              </>
+            ) : (
               <button
                 type="button"
-                className="chrome-btn is-icon"
-                onClick={onSoundToggle}
-                title={soundEnabled ? t("chat.soundOn") : t("chat.soundOff")}
-                aria-label={soundEnabled ? t("chat.soundOn") : t("chat.soundOff")}
-                style={{ opacity: soundEnabled ? 1 : 0.55 }}
+                className="composer-send"
+                onClick={handleSend}
+                disabled={!hasComposableInput}
+                title={t("chat.send")}
+                aria-label={t("chat.send")}
+                style={{
+                  width: 32,
+                  height: 32,
+                  padding: 0,
+                  border: "none",
+                  borderRadius: "50%",
+                  background: hasComposableInput ? "var(--text)" : "var(--bg-subtle)",
+                  color: hasComposableInput ? "var(--bg)" : "var(--text-dim)",
+                  cursor: hasComposableInput ? "pointer" : "not-allowed",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
               >
-                {soundEnabled ? (
-                  <Icon icon={Volume2} size={12} strokeWidth={2} />
-                ) : (
-                  <Icon icon={VolumeX} size={12} strokeWidth={2} />
-                )}
+                <Icon icon={ArrowUp} size={16} strokeWidth={2.2} />
               </button>
             )}
             {isMobile && controlsMenuOpen && (
@@ -1574,7 +1478,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 aria-label={t("chat.collapseControls")}
                 aria-expanded={true}
                 onClick={() => {
-                  setThinkingDropdownOpen(false);
                   setControlsMenuOpen(false);
                 }}
                 style={{
@@ -1616,6 +1519,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           </div>
         )}
       </div>
+      {yoloConfirmOpen && (
+        <YoloAccessDialog
+          onCancel={() => setYoloConfirmOpen(false)}
+          onConfirm={() => {
+            setYoloConfirmOpen(false);
+            if (!onModeChange) return;
+            setModeBusy(true);
+            void Promise.resolve(onModeChange("yolo")).finally(() => setModeBusy(false));
+          }}
+        />
+      )}
     </div>
   );
 }));

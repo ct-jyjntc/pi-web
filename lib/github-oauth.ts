@@ -26,7 +26,7 @@ export type GithubDeviceFlowStart = {
 
 export type GithubDevicePollResult =
   | { status: "success"; accessToken: string }
-  | { status: "pending"; retryAfterMs: number }
+  | { status: "pending"; slowDown?: boolean }
   | { status: "error"; message: string };
 
 function githubJsonHeaders(token?: string): Record<string, string> {
@@ -69,7 +69,7 @@ export async function startGithubDeviceFlow(
   };
 }
 
-/** One poll of the device-code grant. Callers loop with retryAfterMs sleeps. */
+/** One poll of the device-code grant. Callers own the interval / slow_down. */
 export async function pollGithubDeviceFlow(
   clientId: string,
   deviceCode: string,
@@ -90,13 +90,12 @@ export async function pollGithubDeviceFlow(
       }),
     });
   } catch {
-    // Network blip — transient, keep polling at the default interval.
-    return { status: "pending", retryAfterMs: 5_000 };
+    return { status: "pending" };
   }
   if (!res.ok) {
     // 5xx / 504 are transient per RFC 8628 guidance; 4xx is terminal.
     if (res.status >= 500 && res.status <= 599) {
-      return { status: "pending", retryAfterMs: 5_000 };
+      return { status: "pending" };
     }
     return { status: "error", message: `GitHub token HTTP ${res.status}` };
   }
@@ -106,10 +105,10 @@ export async function pollGithubDeviceFlow(
   }
   const error = typeof json.error === "string" ? json.error : "";
   if (error === "authorization_pending") {
-    return { status: "pending", retryAfterMs: 5_000 };
+    return { status: "pending" };
   }
   if (error === "slow_down") {
-    return { status: "pending", retryAfterMs: 10_000 };
+    return { status: "pending", slowDown: true };
   }
   if (error === "expired_token") {
     return { status: "error", message: "The login code expired — please try again" };
@@ -120,7 +119,7 @@ export async function pollGithubDeviceFlow(
   if (error) {
     return { status: "error", message: `GitHub error: ${error}` };
   }
-  return { status: "pending", retryAfterMs: 5_000 };
+  return { status: "pending" };
 }
 
 export type GithubUser = {

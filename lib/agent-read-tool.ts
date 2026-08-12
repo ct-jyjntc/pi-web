@@ -74,7 +74,7 @@ export function formatReadWithHashline(
 
   const header = `[${displayPath(cwd, pathValue)}#${tag}]`;
   const footer =
-    "\n\n(Hashline: copy the [path#TAG] header into edit({ input }). Line numbers are 1-based anchors for SWAP/DEL/INS.)";
+    "\n\n(Hashline: copy [path#TAG] and N:line into edit({ input }). After an edit, use the numbers from that response — do not reuse these with a newer TAG.)";
   return { text: `${header}\n${body}${footer}`, tag };
 }
 
@@ -90,7 +90,7 @@ export function createPiWebReadToolDefinition(
   def.promptGuidelines = [
     ...(def.promptGuidelines ?? []),
     "Text reads include a [path#TAG] header and N:line rows — use that TAG and those line numbers with edit({ input }) hashline patches.",
-    "After any successful edit the TAG changes. Prefer one multi-op edit per file; parallel same-file edits recover via snapshots when anchors still match.",
+    "After any successful edit the TAG and line numbers change — copy them from the edit response (or re-read). Prefer one multi-op edit per file.",
     "For GitHub PRs/issues use read path pr://N or issue://N (or the github tool).",
   ];
 

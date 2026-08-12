@@ -85,7 +85,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const pending = Boolean(isStreaming) && !result;
 
   const [scaffoldUserOpen, setScaffoldUserOpen] = useState<boolean | null>(null);
-  const [cardExpanded, setCardExpanded] = useState(false);
+   const [cardExpanded, setCardExpanded] = useState(isEditTool);
   // Errors stay folded by default — the red title marks the row; click to unfold.
   const scaffoldExpanded = scaffoldUserOpen ?? false;
   const showScaffoldArgs = !isCard && scaffoldExpanded;
@@ -367,7 +367,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         </pre>
       )}
 
-      {result && (expanded || forceExpandError || !longResult || resultDiff) && (
+       {result && (expanded || forceExpandError || (!longResult && !resultDiff)) && (
         resultDiff ? (
           <PairedDiffResult diff={resultDiff} />
         ) : (

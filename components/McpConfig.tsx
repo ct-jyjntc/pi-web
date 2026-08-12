@@ -216,7 +216,7 @@ export function McpConfig({
               </div>
             </div>
             <code style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-              pi-mcp-adapter
+              native
             </code>
           </div>
 

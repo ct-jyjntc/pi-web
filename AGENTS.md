@@ -55,7 +55,7 @@ Applies to `hooks/useAgentSession.ts`, `lib/rpc-manager.ts`, `components/ChatWin
 ### Dual-path / legacy
 
 15. **MUST NOT** add a dual implementation (classic+new, bundle+TS, poll+SSE, …) “for compatibility” without an explicit removal condition in the commit message.
-16. **Edit tool**: hashline `input` is preferred. **MUST NOT** expand classic `{ path, edits }` except bugfixes; new features are hashline-only.
+16. **Edit tool**: hashline `input` is preferred. **MUST NOT** expand classic `{ path, edits }` except bugfixes; new features are hashline-only. After a successful edit, copy `[path#TAG]` and `N:line` from the edit response (or re-read) — a fresh TAG does not remap old line numbers. PUT/CUT are aliases for SWAP/DEL.
 17. **Extensions**: prebundled factories are preferred. **MUST NOT** add new runtime dependence on jiti / TS `additionalExtensionPaths` except the existing missing-bundle fallback in `builtin-extensions.ts`.
 18. **Migrations**: must be idempotent and one-way. **MUST NOT** keep permanent read paths for pre-migration shapes after a shipped release (track removal in the declutter blueprint).
 
@@ -246,12 +246,10 @@ Pi emits `compaction_start` / `compaction_end`. Manual compact is a blocking POS
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 
 ### Built-in packages and skills
-- **Thin tools** (`todo`, `ask_user_question`) are pure first-party modules under `lib/first-party/` and register via `extensionFactories` (no jiti).
-- **Heavy capabilities** (permission, subagents, mcp-adapter) ship as app dependencies and are **prebundled** by `npm run bundle:extensions` → `node_modules/<pkg>/.pi-web-bundle/extension.mjs`, then loaded as `extensionFactories` (no jiti at session start). Missing bundles fall back to TS `additionalExtensionPaths` once.
+- **First-party factories** (`todo`, `ask_user_question`, permission, subagents, MCP) live under `lib/first-party/` and register via `extensionFactories` (no jiti).
 - Compaction uses the SDK native path (`pi-better-compaction` is not shipped).
 - Registration is centralized in `lib/builtin-extensions.ts` → `startRpcSession`. Nothing is installed into `~/.pi/agent/npm` on boot.
 - `lib/ensure-builtin-packages.ts` migrates legacy `settings.json` `packages[]` and prewarms factories. No npm install/update.
-- `postinstall` and `build:electron` run `bundle:extensions`. Electron packaging copies `.pi-web-bundle` trees in `scripts/prepare-electron-standalone.mjs`.
 - Extension runtime UI (confirm/select/input/editor, widgets, status chips, custom panels) is handled by `rpc-manager` + `ChatWindow` — there is no user-facing package manager UI.
 - `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.

@@ -28,6 +28,8 @@ export interface GitStatusResponse {
   upstream: string | null;
   ahead: number;
   behind: number;
+  /** False when `git remote` is empty — the Git panel offers publish. */
+  hasRemote: boolean;
   files: GitFileStatus[];
   stagedCount: number;
   unstagedCount: number;
@@ -41,4 +43,3 @@ export interface GitFileDiffResponse {
   status?: GitFileStatusKind;
   patch?: string;
 }
-

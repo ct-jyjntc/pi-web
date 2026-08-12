@@ -128,8 +128,7 @@ export async function startRpcSession(
       (block): block is string => Boolean(block),
     );
     const modelRuntime = await createConfiguredModelRuntime();
-    // First-party extensions: thin tools as pure factories; heavy ones as
-    // prebundled ESM factories (fallback TS paths if a bundle is missing).
+    // First-party factories own todo / ask-user / subagents / permission / MCP.
     // Never installed into ~/.pi/agent/npm.
     await ensureHeavyExtensionFactories();
     const builtinLoader = getBuiltinResourceLoaderOptions();

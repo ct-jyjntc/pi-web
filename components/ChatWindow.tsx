@@ -19,9 +19,10 @@ import {
   getNextVisibleCount,
   getVisibleRenderWindow,
   restoreScrollTop,
+  shouldPageEarlierMessages,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
-import { classifyWidgetKey, isChromeTopBarWidgetKey, todoWidgetHasContent } from "@/lib/extension-widgets";
+import { chromeWidgetIsIdle, classifyWidgetKey, isChromeTopBarWidgetKey, todoWidgetHasContent } from "@/lib/extension-widgets";
 import { clearSessionMetrics, setChromeWidgetsMetric, setContextUsageMetric, setExtensionStatusesMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { deriveTodoWidgetLines } from "@/lib/todo-from-transcript";
 import { setCompactHandlers } from "@/lib/compact-action-store";
@@ -71,7 +72,7 @@ type Props = Pick<
 
 export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen, onOpenFile }: Props) {
   const { t, locale } = useLocale();
-  const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
+  const { soundEnabled, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerUnderlayRef = useRef<HTMLDivElement>(null);
@@ -225,6 +226,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     addNotice,
     isAutoModelSelection,
+    newSessionDefaultModel,
     agentPhase,
     isNew,
     sessionIdRef, scrollContainerRef,
@@ -264,14 +266,26 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // markdown/highlight render of older items is interruptible instead of one
   // long synchronous commit right after a session switch.
   const [visibleCount, setVisibleCount] = useState(FIRST_PAINT_RENDER_ITEMS);
-
-  const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
+  const pagingLockRef = useRef(false);
   const hasMessages = messages.length > 0;
+  const pageEarlier = useCallback(() => {
+    if (pagingLockRef.current) return;
+    const container = scrollContainerRef.current;
+    if (container) {
+      prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
+    }
+    // Prepending height while stick-to-bottom still thinks we are at the
+    // bottom (short transcripts never escape the lock) would yank the
+    // viewport back down and hide the items we just revealed.
+    pagingLockRef.current = true;
+    stopScroll();
+    setVisibleCount((prev) => getNextVisibleCount(prev));
+  }, [scrollContainerRef, stopScroll]);
 
   // Backfill from the first-paint window to the normal initial page once
   // messages arrive (mount is empty; the transcript lands async). Functional
-  // max: a user-initiated sentinel page can land first and must not be shrunk.
+  // max: a user-initiated page can land first and must not be shrunk.
   useEffect(() => {
     if (!hasMessages || visibleCount >= VISIBLE_PAGE_SIZE) return;
     const rafId = requestAnimationFrame(() => {
@@ -326,29 +340,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     return () => cancelAnimationFrame(rafId);
   }, [hasMessages, stopScroll, stickScrollToBottom, scrollContainerRef]);
 
-  // IntersectionObserver on the sentinel div at the top of the message list.
-  // When it becomes visible, load the next page of older messages.
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    const container = scrollContainerRef.current;
-    if (!sentinel || !container) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          // Save distance from top before prepending to restore scroll later
-          prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
-          setVisibleCount((prev) => getNextVisibleCount(prev));
-        }
-      },
-      { root: container, threshold: 0 }
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [visibleCount, messages.length, scrollContainerRef]);
-
   // After visibleCount increases (more messages prepended), restore the
   // scroll position so the viewport doesn't jump.
-  useEffect(() => {
+  useLayoutEffect(() => {
+    pagingLockRef.current = false;
     if (prevScrollDistanceRef.current == null) return;
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -480,7 +475,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     return map;
   }, [messages]);
 
-  const historicalMessageNodes = useMemo(() => {
+  const { historicalMessageNodes, historyHasMore } = useMemo(() => {
     let lastUserIdx = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user") { lastUserIdx = i; break; }
@@ -696,16 +691,23 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       else rendered.push(renderProcessGroup(item, liveTail));
     }
 
-    return (
+    return {
+      historyHasMore: hasMore,
+      historicalMessageNodes: (
       <>
         {hasMore && (
-          <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
+          <button
+            type="button"
+            className="block w-full py-3 text-center text-xs text-text-muted"
+            onClick={pageEarlier}
+          >
             Scroll up to load earlier messages ({startIndex} hidden)
-          </div>
+          </button>
         )}
         {rendered}
       </>
-    );
+      ),
+    };
   }, [
     messages,
     entryIds,
@@ -725,12 +727,38 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     visibleCount,
     messageRefs,
     stopScroll,
+    pageEarlier,
   ]);
 
+  // Page older items when the viewport is already at the top (further
+  // wheel/scroll may not fire) or the list does not overflow. IO on the
+  // scroll root missed both cases — the banner stayed up and never loaded.
+  useEffect(() => {
+    if (!historyHasMore || visibleCount < VISIBLE_PAGE_SIZE) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    let paged = false;
+    const maybePage = () => {
+      if (paged || !shouldPageEarlierMessages(container)) return;
+      paged = true;
+      pageEarlier();
+    };
+    maybePage();
+    container.addEventListener("scroll", maybePage, { passive: true });
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) maybePage();
+    };
+    container.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", maybePage);
+      container.removeEventListener("wheel", onWheel);
+    };
+  }, [historyHasMore, visibleCount, messages.length, pageEarlier, scrollContainerRef]);
+
   const onDrop = useCallback((files: File[]) => {
-    if (sessionBusy || !supportsImageInput) return;
+    if (!supportsImageInput) return;
     chatInputRef?.current?.addImages(files);
-  }, [sessionBusy, chatInputRef, supportsImageInput]);
+  }, [chatInputRef, supportsImageInput]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
@@ -798,11 +826,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     </div>
   ) : null;
 
-  // Todo visibility: the extension store is session-long, so we only surface the
-  // top-bar capsule when (a) settings allow it AND (b) either the live widget
-  // payload has content OR the latest turn actually called the todo tool.
+  // Todo capsule: live list is the current user turn (native todo store).
   // Also inspect the in-flight streaming bubble — toolCalls often live only
-  // there until message_end, which previously hid the capsule mid-turn.
   const todoUsedInLatestTurn = useMemo(() => {
     const hasTodoCall = (msg: AgentMessage | null | undefined): boolean => {
       if (!msg || msg.role !== "assistant") return false;
@@ -851,7 +876,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         placement: "topBar",
       });
     }
-    return list;
+    return list.filter((widget) => !chromeWidgetIsIdle(widget.key, widget.lines));
   }, [visibleWidgets, derivedTodoLines]);
   const aboveEditorWidgets = visibleWidgets.filter((widget) => (
     !isChromeTopBarWidgetKey(widget.key)
@@ -891,6 +916,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelError={modelError}
       modelScopeWarnings={modelScopeWarnings}
       onModelChange={handleModelChange}
+      defaultModel={newSessionDefaultModel}
       onOpenContext={onSessionStatsPanelOpen}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
@@ -913,8 +939,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           addNotice({ type: "error", message: result.error ?? "Failed to switch mode" });
         }
       }}
-      soundEnabled={soundEnabled}
-      onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
@@ -948,7 +972,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {isDragOver && !sessionBusy && (
+      {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[color-mix(in_oklab,var(--accent)_6%,transparent)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {[0, 0.8, 1.6].map((delay) => (
@@ -1150,7 +1174,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             className="chat-scroll-rail"
             onWheel={(e) => {
               if (e.deltaY === 0) return;
-              forwardWheelToScrollContainer(scrollContainerRef.current, e.deltaY, e.deltaMode);
+              const el = scrollContainerRef.current;
+              forwardWheelToScrollContainer(el, e.deltaY, e.deltaMode);
+              // Rail wheel does not bubble to the scroll root. At the top,
+              // scrollTop cannot move, so the container never sees an event.
+              if (e.deltaY < 0 && historyHasMore && el && shouldPageEarlierMessages(el)) {
+                pageEarlier();
+              }
             }}
             style={{
               width: CHAT_RAIL_WIDTH,

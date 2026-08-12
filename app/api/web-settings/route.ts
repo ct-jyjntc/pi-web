@@ -224,8 +224,9 @@ export async function PUT(req: NextRequest) {
       "soundEnabled",
       "desktopNotifications",
       "notificationSound",
-      "showThinking",
-      "showTodos",
+       "showThinking",
+       "showTodos",
+       "expandReviewDiffs",
       "showCodeLineNumbers",
       "wrapCodeLines",
       "inheritTerminalEnv",
@@ -249,6 +250,15 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: "Invalid defaultThinkingLevel" }, { status: 400 });
       }
       patch.defaultThinkingLevel = v as ThinkingLevelPref;
+    }
+    if ("lastChatModel" in body) {
+      const parsed = body.lastChatModel === "" || body.lastChatModel == null
+        ? null
+        : parseModelRef(body.lastChatModel);
+      if (body.lastChatModel && body.lastChatModel !== "" && !parsed) {
+        return NextResponse.json({ error: "Invalid lastChatModel" }, { status: 400 });
+      }
+      patch.lastChatModel = parsed;
     }
     if ("agentMode" in body) {
       const v = body.agentMode;
@@ -352,6 +362,29 @@ export async function PUT(req: NextRequest) {
       }
       patch.leanMode = next;
     }
+ 
+     if ("subagentConcurrency" in body) {
+       if (!body.subagentConcurrency || typeof body.subagentConcurrency !== "object" || Array.isArray(body.subagentConcurrency)) {
+         return NextResponse.json({ error: "Invalid subagentConcurrency" }, { status: 400 });
+       }
+       const current = readWebSettings().subagentConcurrency;
+       const raw = body.subagentConcurrency as Record<string, unknown>;
+       const next = { ...current };
+       if ("enabled" in raw) {
+         if (typeof raw.enabled !== "boolean") {
+           return NextResponse.json({ error: "Invalid subagentConcurrency.enabled" }, { status: 400 });
+         }
+         next.enabled = raw.enabled;
+       }
+       if ("max" in raw) {
+         const n = Number(raw.max);
+         if (!Number.isFinite(n)) {
+           return NextResponse.json({ error: "Invalid subagentConcurrency.max" }, { status: 400 });
+         }
+         next.max = n;
+       }
+       patch.subagentConcurrency = next;
+     }
 
     const settings = writeWebSettings(patch);
     let idleSessionsReset = 0;

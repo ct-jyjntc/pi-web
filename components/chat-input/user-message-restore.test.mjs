@@ -7,6 +7,7 @@ const {
   canRestoreUserMessage,
   getUserMessageDraftImages,
   getUserMessageText,
+  prependAttachedImages,
 } = await jiti.import("./chat-input-shared.ts");
 
 test("restores text and base64 images when editing a user message", () => {
@@ -42,4 +43,12 @@ test("does not restore a historical message over a pending image attachment", ()
   assert.equal(canRestoreUserMessage("", 1, 0), false);
   assert.equal(canRestoreUserMessage("", 0, 1), false);
   assert.equal(canRestoreUserMessage("draft", 0, 0), false);
+});
+
+test("prepends recalled images in front of existing composer attachments", () => {
+  const current = [{ data: "YWJj", mimeType: "image/png", previewUrl: "data:image/png;base64,YWJj" }];
+  const next = prependAttachedImages(current, [{ data: "AQID", mimeType: "image/jpeg" }]);
+  assert.equal(next[0]?.data, "AQID");
+  assert.equal(next[1]?.data, "YWJj");
+  assert.equal(next.length, 2);
 });

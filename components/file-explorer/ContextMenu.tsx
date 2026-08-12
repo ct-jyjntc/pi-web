@@ -89,7 +89,8 @@ export function FileExplorerContextMenu({ x, y, items, onAction, onClose }: Prop
         left: pos.left,
         width: 180,
         zIndex: 90,
-        padding: 4,
+        padding: 3,
+        borderRadius: 16,
       }}
       onContextMenu={(event) => event.preventDefault()}
     >
@@ -98,7 +99,7 @@ export function FileExplorerContextMenu({ x, y, items, onAction, onClose }: Prop
           <button
             type="button"
             role="menuitem"
-            className="sidebar-menu-item"
+            className="menu-row"
             disabled={item.disabled}
             onClick={() => {
               if (item.disabled) return;

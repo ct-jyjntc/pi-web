@@ -1,29 +1,41 @@
 /**
  * Hashline edit engine for Pi Web.
  *
- * Two surfaces:
- * 1) **Patch language** (omp-compatible subset) — preferred default for `edit`:
- *    ```
+ * Patch language (parsed by hashline-parse.ts) — preferred default for `edit`:
  *    [path/to/file.ts#A1B2]
- *    SWAP 10.=12:
+ *    SWAP 10.=12:   (PUT 10.=12: is an alias)
  *    +const x = 1
- *    DEL 20
+ *    DEL 20         (CUT 20 is an alias)
  *    INS.POST 30:
  *    +// note
- *    ```
- *    TAG is a 4-hex fingerprint of the whole normalized file (must match on-disk).
+ * TAG is a 4-hex fingerprint of the whole normalized file (must match on-disk).
  *
- * 2) **Hunk mode** — `{ path, hunks: [{ hash?, oldText, newText }] }` with optional
- *    per-block sha1[:12] guards (hunk mode on the main edit tool).
+ * Hunk mode — `{ path, hunks: [{ hash?, oldText, newText }] }` with optional
+ * per-block sha1[:12] guards.
+ *
+ * Successful applies return a compact [path#NEWTAg] + N:line preview so the
+ * next edit can re-ground without a full re-read.
  */
 import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, relative, resolve } from "path";
 import { checkSourceSyntax, formatSyntaxGuardFailure } from "./edit-syntax-guard";
+import { resolveBlockRange } from "./hashline-block";
+import {
+  mergeHashlineSections,
+  parseHashlinePatch,
+  type PatchOp,
+} from "./hashline-parse";
+import { buildHashlinePreview, buildUnifiedDiff } from "./hashline-preview";
+import { tryExtendShortSwaps } from "./hashline-repair";
 import {
   getHashlineSnapshot,
   recordHashlineSnapshot,
 } from "./hashline-snapshots";
+
+export { resolveBlockRange } from "./hashline-block";
+export { mergeHashlineSections, parseHashlinePatch } from "./hashline-parse";
+export { buildHashlinePreview, buildUnifiedDiff } from "./hashline-preview";
 
 export type HashlineHunk = {
   /** Optional explicit hash of the old block (sha1 first 12 hex of normalized oldText). */
@@ -49,6 +61,8 @@ export type HashlineResult = {
   resolved?: string[];
   /** Soft size discipline signal for agents (not an error). */
   largeFileWarning?: string;
+  /** Compact [path#TAG] + N:line preview (post-edit numbers) for the next call. */
+  preview?: string;
 };
 
 /** Soft cap aligned with AGENTS.md size discipline — warn, do not block. */
@@ -117,7 +131,7 @@ export function applyHashlineEdits(
   const abs = resolvePath(cwd, pathValue);
   if (!existsSync(abs)) throw new Error(`File not found: ${pathValue}`);
   const original = readFileSync(abs, "utf8");
-  let content = normalize(original);
+  const content = normalize(original);
   const hashes: string[] = [];
 
   type Planned = { start: number; end: number; newText: string; hash: string };
@@ -180,390 +194,12 @@ export function applyHashlineEdits(
   };
 }
 
-// ─── Patch language (omp-compatible subset) ─────────────────────────────────
-
-type PatchOp =
-  | { kind: "swap"; start: number; end: number; body: string[] }
-  | { kind: "del"; start: number; end: number }
-  | { kind: "ins"; at: "pre" | "post" | "head" | "tail"; line?: number; body: string[] }
-  | { kind: "swap_blk"; line: number; body: string[] }
-  | { kind: "del_blk"; line: number }
-  | { kind: "ins_blk_post"; line: number; body: string[] }
-  | { kind: "rem" }
-  | { kind: "mv"; dest: string };
-
-type PatchSection = {
-  path: string;
-  tag: string;
-  ops: PatchOp[];
-};
-
-const SECTION_RE = /^\[(.+?)#([0-9A-Fa-f]{4})\]\s*$/;
-// SWAP 3: / SWAP 3.=5: / SWAP.BLK 3: / SWAP.BLK 3.=8: (range on BLK is tolerated; resolve still from start)
-const SWAP_RE = /^SWAP(?:\.BLK\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?|\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)\s*:?\s*$/i;
-// DEL 3 / DEL 3.=5 / DEL.BLK 3 — trailing colon tolerated (models mirror SWAP  N.=M: style)
-const DEL_RE = /^DEL(?:\.BLK\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?|\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)\s*:?\s*$/i;
-const INS_RE = /^INS\.(PRE|POST|HEAD|TAIL|BLK\.POST)(?:\s+(\d+))?\s*:?\s*$/i;
-const REM_RE = /^REM\s*$/i;
-const MV_RE = /^MV\s+(.+?)\s*$/i;
-
-/**
- * Parse inclusive 1-based range. Models often write `N.=K` meaning "start + count"
- * (K lines) instead of end line; when end < start, reinterpret as count.
- */
-function parseRange(
-  a: string,
-  b: string | undefined,
-  warnings?: string[],
-): { start: number; end: number } {
-  const start = Number(a);
-  let end = b !== undefined && b !== "" ? Number(b) : start;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < 1) {
-    throw new Error(`Invalid line range: ${a}${b ? `.=${b}` : ""}`);
+function joinNumberedLines(numbered: string[], hadTrailingNl: boolean): string {
+  let nextLf = numbered.join("\n");
+  if ((hadTrailingNl || numbered.length > 0) && numbered.length > 0 && !nextLf.endsWith("\n")) {
+    nextLf += "\n";
   }
-  if (end < start) {
-    // Count-style: SWAP 349.=6 → lines 349..354 (6 lines). Always safer than fail.
-    const count = end;
-    end = start + count - 1;
-    warnings?.push(
-      `Interpreted ${start}.=${count} as count → lines ${start}.=${end} ` +
-        `(N.=M is inclusive end line, not line count; prefer SWAP ${start}.=${end}:)`,
-    );
-  }
-  return { start, end };
-}
-
-function parseBodyRow(line: string): string | null {
-  if (line.startsWith("+")) return line.slice(1);
-  // bare body row (omp auto-pipes)
-  if (line.trim() === "") return "";
-  return line;
-}
-
-/**
- * Resolve a syntactic/indent block starting at 1-based line `startLine`.
- * Prefers brace matching `{[(…)]}`; falls back to indent block (Python-style).
- * Returns inclusive 1-based [start, end]. Throws if the line is not a multi-line opener.
- */
-export function resolveBlockRange(lines: string[], startLine: number): { start: number; end: number; method: "brace" | "indent" } {
-  if (startLine < 1 || startLine > lines.length) {
-    throw new Error(`Block anchor line ${startLine} out of bounds (file has ${lines.length} lines).`);
-  }
-  const idx = startLine - 1;
-  const openLine = lines[idx] ?? "";
-  if (!openLine.trim()) {
-    throw new Error(`Block anchor line ${startLine} is blank. Point SWAP.BLK/DEL.BLK at the opening line of a construct.`);
-  }
-  if (/^[}\])]+\s*;?\s*$/.test(openLine.trim())) {
-    throw new Error(
-      `Block anchor line ${startLine} looks like a closer. Point at the opening line, or use plain SWAP/DEL/INS.POST.`,
-    );
-  }
-
-  const braceEnd = resolveBraceBlock(lines, idx);
-  if (braceEnd !== null && braceEnd > idx) {
-    return { start: startLine, end: braceEnd + 1, method: "brace" };
-  }
-
-  const indentEnd = resolveIndentBlock(lines, idx);
-  if (indentEnd !== null && indentEnd > idx) {
-    return { start: startLine, end: indentEnd + 1, method: "indent" };
-  }
-
-  throw new Error(
-    `Could not resolve a multi-line block at line ${startLine}. ` +
-      `Use plain SWAP ${startLine}.=${startLine}: / DEL ${startLine} / INS.POST ${startLine}: instead.`,
-  );
-}
-
-function resolveBraceBlock(lines: string[], startIdx: number): number | null {
-  let depth = 0;
-  let seenOpen = false;
-  for (let i = startIdx; i < lines.length; i++) {
-    const delta = braceDelta(lines[i] ?? "");
-    if (delta.open > 0) seenOpen = true;
-    depth += delta.open - delta.close;
-    if (seenOpen && depth === 0) return i;
-    // Cap runaway
-    if (i - startIdx > 2000) break;
-  }
-  return null;
-}
-
-function braceDelta(line: string): { open: number; close: number } {
-  // Strip // comments and rough strings so braces in them don't count.
-  let s = line.replace(/\/\/.*$/, "");
-  s = s.replace(/'(?:\\.|[^'\\])*'/g, "''");
-  s = s.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  s = s.replace(/`(?:\\.|[^`\\])*`/g, "``");
-  let open = 0;
-  let close = 0;
-  for (const ch of s) {
-    if (ch === "{" || ch === "(" || ch === "[") open++;
-    else if (ch === "}" || ch === ")" || ch === "]") close++;
-  }
-  return { open, close };
-}
-
-function lineIndent(line: string): number {
-  const m = line.match(/^[ \t]*/);
-  if (!m) return 0;
-  // tabs count as 4 for comparison stability
-  return m[0]!.replace(/\t/g, "    ").length;
-}
-
-function resolveIndentBlock(lines: string[], startIdx: number): number | null {
-  const open = lines[startIdx] ?? "";
-  // Require classic block openers or a trailing ':' (Python) / '{' already handled by brace
-  const looksLikeOpener =
-    /:\s*$/.test(open) ||
-    /\b(function|class|interface|type|namespace|module|def|fn|func|impl|struct|enum|if|for|while|match|switch)\b/.test(open);
-  if (!looksLikeOpener && !/\{\s*$/.test(open)) {
-    // still try indent children if next line is deeper
-  }
-  const base = lineIndent(open);
-  let end = startIdx;
-  let sawBody = false;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i] ?? "";
-    if (line.trim() === "") {
-      end = i; // include trailing blank inside block tentatively
-      continue;
-    }
-    const ind = lineIndent(line);
-    if (ind > base) {
-      sawBody = true;
-      end = i;
-      continue;
-    }
-    // same or less indent ends the block; don't include this line
-    break;
-  }
-  if (!sawBody) return null;
-  // trim trailing blanks from end
-  while (end > startIdx && (lines[end] ?? "").trim() === "") end--;
-  return end > startIdx ? end : null;
-}
-
-/** Build a minimal unified diff for UI rendering. */
-export function buildUnifiedDiff(path: string, before: string, after: string): string {
-  const a = normalize(before).replace(/\n$/, "").split("\n");
-  const b = normalize(after).replace(/\n$/, "").split("\n");
-  // Find first/last changed indices
-  let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start++;
-  let aEnd = a.length - 1;
-  let bEnd = b.length - 1;
-  while (aEnd >= start && bEnd >= start && a[aEnd] === b[bEnd]) {
-    aEnd--;
-    bEnd--;
-  }
-  const context = 3;
-  const hStart = Math.max(0, start - context);
-  const aHEnd = Math.min(a.length - 1, aEnd + context);
-  const bHEnd = Math.min(b.length - 1, bEnd + context);
-
-  const oldCount = a.length === 0 ? 0 : aHEnd - hStart + 1;
-  const newCount = b.length === 0 ? 0 : bHEnd - hStart + 1;
-  // Approximate hunk header (single hunk)
-  const linesOut: string[] = [
-    `--- a/${path}`,
-    `+++ b/${path}`,
-    `@@ -${hStart + 1},${Math.max(oldCount, 0)} +${hStart + 1},${Math.max(newCount, 0)} @@`,
-  ];
-  // context before
-  for (let i = hStart; i < start; i++) linesOut.push(` ${a[i] ?? ""}`);
-  // deletions
-  for (let i = start; i <= aEnd; i++) {
-    if (i >= 0 && i < a.length) linesOut.push(`-${a[i]}`);
-  }
-  // additions
-  for (let i = start; i <= bEnd; i++) {
-    if (i >= 0 && i < b.length) linesOut.push(`+${b[i]}`);
-  }
-  // context after — from matching tails
-  const afterStartA = aEnd + 1;
-  const afterStartB = bEnd + 1;
-  const ctxLines = Math.min(context, a.length - afterStartA, b.length - afterStartB);
-  for (let k = 0; k < ctxLines; k++) {
-    linesOut.push(` ${a[afterStartA + k] ?? ""}`);
-  }
-  return linesOut.join("\n") + "\n";
-}
-
-/**
- * Parse one or more `[path#TAG]` sections from an `input` string.
- * Supports SWAP/DEL/INS/REM/MV and SWAP.BLK/DEL.BLK/INS.BLK.POST (resolved at apply time).
- */
-export function parseHashlinePatch(input: string): { sections: PatchSection[]; warnings: string[] } {
-  const text = normalize(input).replace(/\*\*\* Begin Patch\s*/g, "").replace(/\*\*\* End Patch\s*/g, "");
-  const lines = text.split("\n");
-  const sections: PatchSection[] = [];
-  const warnings: string[] = [];
-  let i = 0;
-
-  // Skip leading empty lines
-  while (i < lines.length && lines[i]!.trim() === "") i++;
-
-  while (i < lines.length) {
-    const header = lines[i]!.trim();
-    if (!header) {
-      i++;
-      continue;
-    }
-    const hm = header.match(SECTION_RE);
-    if (!hm) {
-      // Common model failure: invent placeholder tags (#XXXX / #TAG) without re-reading.
-      const placeholder = header.match(/^\[(.+?)#([A-Za-z0-9_-]{1,8})\]\s*$/);
-      if (placeholder && !/^[0-9A-Fa-f]{4}$/.test(placeholder[2]!)) {
-        throw new Error(
-          `Placeholder or invalid tag #${placeholder[2]} is not a real 4-hex fingerprint for ${placeholder[1]}.\n` +
-            `Re-read the file and copy the [path#TAG] header from the read output (e.g. #A1B2).\n` +
-            `Never invent tags or use #XXXX / #TAG placeholders.`,
-        );
-      }
-      throw new Error(
-        `Expected section header [path#TAG] (4-hex tag), got: ${header.slice(0, 80)}\n` +
-          `Example:\n[src/foo.ts#A1B2]\nSWAP 10.=10:\n+const x = 1\n` +
-          `TAG must be the real 4-hex fingerprint from a fresh read — not #XXXX or #TAG.`,
-      );
-    }
-    const section: PatchSection = {
-      path: hm[1]!.trim(),
-      tag: hm[2]!.toUpperCase(),
-      ops: [],
-    };
-    i++;
-
-    while (i < lines.length) {
-      const raw = lines[i]!;
-      const trimmed = raw.trim();
-      if (!trimmed) {
-        i++;
-        continue;
-      }
-      if (SECTION_RE.test(trimmed)) break;
-
-      if (REM_RE.test(trimmed)) {
-        section.ops.push({ kind: "rem" });
-        i++;
-        continue;
-      }
-      const mv = trimmed.match(MV_RE);
-      if (mv) {
-        section.ops.push({ kind: "mv", dest: mv[1]!.replace(/^["']|["']$/g, "").trim() });
-        i++;
-        continue;
-      }
-
-      const swap = trimmed.match(SWAP_RE);
-      if (swap) {
-        // groups: 1=BLK start, 2=BLK end?, 3=plain start, 4=plain end?
-        const isBlk = Boolean(swap[1]);
-        i++;
-        const body: string[] = [];
-        while (i < lines.length) {
-          const bl = lines[i]!;
-          if (/^(SWAP|DEL|INS\.|REM\b|MV\s|\[)/i.test(bl.trim()) && !bl.startsWith("+")) break;
-          if (bl.startsWith("+") || (!SECTION_RE.test(bl.trim()) && bl.trim() !== "" && !/^(SWAP|DEL|INS\.|REM\b|MV\s)/i.test(bl.trim()))) {
-            const row = parseBodyRow(bl);
-            if (row !== null) body.push(row);
-            i++;
-            continue;
-          }
-          if (bl.trim() === "") {
-            const next = lines[i + 1]?.trim() ?? "";
-            if (/^(SWAP|DEL|INS\.|REM\b|MV\s|\[)/i.test(next) || next === "") break;
-          }
-          break;
-        }
-        if (isBlk) {
-          // Prefer structural resolve from opening line; optional end is ignored (model often guesses).
-          section.ops.push({ kind: "swap_blk", line: Number(swap[1]), body });
-        } else {
-          const { start, end } = parseRange(swap[3]!, swap[4], warnings);
-          section.ops.push({ kind: "swap", start, end, body });
-        }
-        continue;
-      }
-
-      const del = trimmed.match(DEL_RE);
-      if (del) {
-        // groups: 1=BLK start, 2=BLK end?, 3=plain start, 4=plain end?
-        const isBlk = Boolean(del[1]);
-        if (isBlk) {
-          section.ops.push({ kind: "del_blk", line: Number(del[1]) });
-        } else {
-          const { start, end } = parseRange(del[3]!, del[4], warnings);
-          section.ops.push({ kind: "del", start, end });
-        }
-        i++;
-        continue;
-      }
-
-      const ins = trimmed.match(INS_RE);
-      if (ins) {
-        const posRaw = ins[1]!.toUpperCase();
-        const lineNum = ins[2] ? Number(ins[2]) : undefined;
-        i++;
-        const body: string[] = [];
-        while (i < lines.length) {
-          const bl = lines[i]!;
-          if (/^(SWAP|DEL|INS\.|REM\b|MV\s|\[)/i.test(bl.trim()) && !bl.startsWith("+")) break;
-          if (bl.startsWith("+") || (bl.trim() !== "" && !SECTION_RE.test(bl.trim()) && !/^(SWAP|DEL|INS\.|REM\b|MV\s)/i.test(bl.trim()))) {
-            const row = parseBodyRow(bl);
-            if (row !== null) body.push(row);
-            i++;
-            continue;
-          }
-          break;
-        }
-        if (posRaw === "BLK.POST") {
-          if (!lineNum || lineNum < 1) throw new Error("INS.BLK.POST requires a 1-based line number");
-          section.ops.push({ kind: "ins_blk_post", line: lineNum, body });
-        } else {
-          let at: "pre" | "post" | "head" | "tail";
-          if (posRaw === "PRE") at = "pre";
-          else if (posRaw === "POST") at = "post";
-          else if (posRaw === "HEAD") at = "head";
-          else at = "tail";
-          if ((at === "pre" || at === "post") && (!lineNum || lineNum < 1)) {
-            throw new Error(`INS.${posRaw} requires a 1-based line number`);
-          }
-          section.ops.push({ kind: "ins", at, line: lineNum, body });
-        }
-        continue;
-      }
-
-      // Models often paste bare code under SWAP/INS without the required '+' body prefix.
-      // That line is then parsed as an op and fails opaquely — make the recovery explicit.
-      if (
-        !trimmed.startsWith("+")
-        && !/^(SWAP|DEL|INS\.|REM\b|MV\s|\[)/i.test(trimmed)
-        && /[{}();=]|^\s*(const|let|var|function|import|export|return|if|class|type|interface)\b/.test(trimmed)
-      ) {
-        throw new Error(
-          `Hashline body lines must start with '+'. Got: ${trimmed.slice(0, 100)}\n` +
-            `Example:\n  SWAP 10.=10:\n  +const x = 1;\n` +
-            `Re-read the file and resend the patch with '+' on every body row.`,
-        );
-      }
-      throw new Error(`Unrecognized hashline op: ${trimmed.slice(0, 100)}`);
-    }
-
-    if (section.ops.length === 0) {
-      throw new Error(`Section [${section.path}#${section.tag}] has no ops`);
-    }
-    sections.push(section);
-  }
-
-  if (sections.length === 0) {
-    throw new Error(
-      "Empty hashline patch. Expected at least one [path#TAG] section.\n" +
-        "Get TAG from a fresh read of the file (or compute via current content fingerprint).",
-    );
-  }
-  return { sections, warnings };
+  return nextLf;
 }
 
 function materializeOps(
@@ -800,24 +436,41 @@ function formatStaleTagError(
 /**
  * Apply a full hashline patch language string. Validates file tags against on-disk content.
  * On stale tags, recovers via recorded read/edit snapshots when anchors still match uniquely.
+ *
+ * Same-path same-tag sections are merged so every op uses the original snapshot.
+ * Writes are deferred until every section parses — a later syntax reject must
+ * not leave earlier files half-written.
  */
 export function applyHashlinePatch(cwd: string, input: string): HashlineResult[] {
-  const { sections, warnings } = parseHashlinePatch(input);
+  const { sections: rawSections, warnings } = parseHashlinePatch(input);
+  const sections = mergeHashlineSections(rawSections);
   const results: HashlineResult[] = [];
+
+  type Pending = {
+    sourceAbs: string;
+    outAbs: string;
+    original: string;
+    nextLf: string;
+  };
+  const pendingByAbs = new Map<string, Pending>();
+  const pendingUnlinks = new Set<string>();
+
+  const readLive = (abs: string): { original: string; lf: string; fromDisk: boolean } | null => {
+    const pending = pendingByAbs.get(abs);
+    if (pending) return { original: pending.original, lf: pending.nextLf, fromDisk: false };
+    if (!existsSync(abs)) return null;
+    const original = readFileSync(abs, "utf8");
+    return { original, lf: normalize(original), fromDisk: true };
+  };
 
   for (const section of sections) {
     const abs = resolvePath(cwd, section.path);
     const isRem = section.ops.some((o) => o.kind === "rem");
     const mvOp = section.ops.find((o): o is Extract<PatchOp, { kind: "mv" }> => o.kind === "mv");
 
-    if (!existsSync(abs) && !isRem) {
-      throw new Error(
-        `File not found: ${section.path}. Hashline edits existing files only — use write to create new files.`,
-      );
-    }
-
     if (isRem) {
-      if (existsSync(abs)) unlinkSync(abs);
+      pendingByAbs.delete(abs);
+      pendingUnlinks.add(abs);
       results.push({
         path: abs,
         applied: 1,
@@ -827,13 +480,19 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
       continue;
     }
 
-    const original = readFileSync(abs, "utf8");
-    const lf = normalize(original);
+    const live = readLive(abs);
+    if (!live) {
+      throw new Error(
+        `File not found: ${section.path}. Hashline edits existing files only — use write to create new files.`,
+      );
+    }
+    const { original, lf, fromDisk } = live;
     const { numbered, hadTrailingNl } = splitNumberedLines(lf);
 
     const liveTag = computeFileTag(lf);
-    // Always retain the live view so a concurrent sibling edit can recover.
-    recordHashlineSnapshot(abs, lf, liveTag);
+    if (fromDisk) {
+      recordHashlineSnapshot(abs, lf, liveTag);
+    }
 
     const contentOps = section.ops.filter((o) => o.kind !== "mv");
     let concrete: PatchOp[];
@@ -845,7 +504,6 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
       concrete = materialized.concrete;
       resolved = materialized.resolved;
     } else {
-      // Head/tail inserts are content-independent — apply despite drift.
       const onlyHeadTail = contentOps.every(
         (o) => o.kind === "ins" && (o.at === "head" || o.at === "tail"),
       );
@@ -874,34 +532,35 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
       }
     }
 
-    const nextLines = concrete.length ? applyOpsToLines(numbered, concrete) : numbered;
-    let nextLf = nextLines.join("\n");
-    if (hadTrailingNl || nextLines.length > 0) {
-      if (!nextLf.endsWith("\n") && nextLines.length > 0) nextLf += "\n";
-    }
+    const join = (rows: string[]) => joinNumberedLines(rows, hadTrailingNl);
+    let nextLines = concrete.length ? applyOpsToLines(numbered, concrete) : numbered;
+    let nextLf = join(nextLines);
 
     const outAbs = mvOp ? resolvePath(cwd, mvOp.dest) : abs;
     const syntax = checkSourceSyntax(outAbs, nextLf, cwd);
     if (!syntax.ok) {
-      throw new Error(formatSyntaxGuardFailure(displayPath(cwd, outAbs), syntax));
-    }
-    if (mvOp) {
-      mkdirSync(dirname(outAbs), { recursive: true });
-    }
-    writeFileSync(outAbs, preserveLineEndings(original, nextLf), "utf8");
-    if (mvOp && outAbs !== abs) {
-      try {
-        unlinkSync(abs);
-      } catch {
-        // if write was in-place rename via write+unlink
+      const repaired = tryExtendShortSwaps({
+        lines: numbered,
+        ops: concrete,
+        resolveBlock: (ls, start) => resolveBlockRange(ls, start),
+        applyOps: applyOpsToLines,
+        joinLines: join,
+        isParsable: (text) => checkSourceSyntax(outAbs, text, cwd).ok,
+      });
+      if (repaired) {
+        concrete = repaired.ops;
+        nextLines = applyOpsToLines(numbered, concrete);
+        nextLf = join(nextLines);
+        recoveryNotes = [...recoveryNotes, ...repaired.notes];
       }
     }
 
-    const newTag = computeFileTag(nextLf);
-    // Retain both pre- and post-edit tags for the next parallel call.
-    recordHashlineSnapshot(abs, lf, liveTag);
-    recordHashlineSnapshot(outAbs, nextLf, newTag);
+    const syntaxAfter = checkSourceSyntax(outAbs, nextLf, cwd);
+    if (!syntaxAfter.ok) {
+      throw new Error(formatSyntaxGuardFailure(displayPath(cwd, outAbs), syntaxAfter, nextLf));
+    }
 
+    const newTag = computeFileTag(nextLf);
     const rel = displayPath(cwd, outAbs);
     const diff = buildUnifiedDiff(
       rel,
@@ -915,6 +574,26 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
       ...(warnings.length ? [`Warnings: ${warnings.join("; ")}`] : []),
       ...(largeFileWarning ? [largeFileWarning] : []),
     ];
+    const preview = buildHashlinePreview({
+      rel,
+      tag: newTag,
+      before: lf,
+      after: nextLf,
+      notes: recoveryNotes,
+    });
+
+    pendingUnlinks.delete(outAbs);
+    pendingByAbs.set(outAbs, {
+      sourceAbs: abs,
+      outAbs,
+      original: pendingByAbs.get(abs)?.original ?? original,
+      nextLf,
+    });
+    if (mvOp && outAbs !== abs) {
+      pendingByAbs.delete(abs);
+      pendingUnlinks.add(abs);
+    }
+
     results.push({
       path: outAbs,
       applied: concrete.length + (mvOp ? 1 : 0),
@@ -923,13 +602,31 @@ export function applyHashlinePatch(cwd: string, input: string): HashlineResult[]
       tag: newTag,
       diff,
       patch: diff,
+      preview,
       resolved: notes,
       largeFileWarning,
       summary:
         `Edited ${rel} (${concrete.length} op(s)) #${section.tag} → #${newTag}` +
         (mvOp ? ` (moved from ${displayPath(cwd, abs)})` : "") +
-        (notes.length ? `\n${notes.join("\n")}` : ""),
+        (notes.length ? `\n${notes.join("\n")}` : "") +
+        `\n\n${preview}`,
     });
+  }
+
+  for (const pending of pendingByAbs.values()) {
+    if (pending.outAbs !== pending.sourceAbs) {
+      mkdirSync(dirname(pending.outAbs), { recursive: true });
+    }
+    writeFileSync(pending.outAbs, preserveLineEndings(pending.original, pending.nextLf), "utf8");
+    recordHashlineSnapshot(pending.outAbs, pending.nextLf, computeFileTag(pending.nextLf));
+  }
+  for (const abs of pendingUnlinks) {
+    if (pendingByAbs.has(abs)) continue;
+    try {
+      if (existsSync(abs)) unlinkSync(abs);
+    } catch {
+      // unlink is best-effort after a successful REM/MV plan
+    }
   }
 
   return results;

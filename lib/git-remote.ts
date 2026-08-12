@@ -9,6 +9,7 @@ import {
   createGithubRepo,
   validateGithubRepoName,
 } from "./github-oauth";
+import { githubGitAuthEnv } from "./git-github-auth";
 import {
   getGitStatus,
   invalidateGitStatusCache,
@@ -66,7 +67,17 @@ export async function publishToGithub(
     throw new Error("The repository has no commits yet — commit first, then publish");
   }
 
-  const { fullName, htmlUrl } = await createGithubRepo(account.token, name, visibility);
+  let created: { fullName: string; htmlUrl: string };
+  try {
+    created = await createGithubRepo(account.token, name, visibility);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // POST /user/repos 422 "already exists" is this user's namespace — reuse.
+    if (!/already exists/i.test(msg)) throw error;
+    const fullName = `${account.login}/${name}`;
+    created = { fullName, htmlUrl: `https://github.com/${fullName}` };
+  }
+  const { fullName, htmlUrl } = created;
 
   try {
     // Re-check remotes (a remote could have appeared between the push attempt
@@ -80,19 +91,13 @@ export async function publishToGithub(
       await runGit(repositoryRoot, ["remote", "add", "origin", originUrl]);
     }
 
-    // Push with the token as http extra header (CI-standard), helpers disabled
-    // so the user's Keychain / gh login is not consulted or modified. The `-c`
-    // flags are per-command only — nothing is persisted to .git/config.
-    const auth = Buffer.from(`${account.token}:x-oauth-basic`).toString("base64");
+    // Token rides in GIT_CONFIG_* env (not argv) so execFile / ps cannot echo it.
     const out = await runGit(
       repositoryRoot,
-      [
-        "-c", "credential.helper=",
-        "-c", `http.extraHeader=Authorization: Basic ${auth}`,
-        "push", "-u", "origin", "HEAD",
-      ],
+      ["push", "-u", "origin", "HEAD"],
       GIT_REMOTE_MAX_BUFFER,
       GIT_NETWORK_TIMEOUT_MS,
+      githubGitAuthEnv(account.token),
     );
 
     invalidateGitStatusCache();

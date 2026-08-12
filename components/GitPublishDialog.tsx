@@ -8,8 +8,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-transport";
 import { useLocale } from "@/hooks/useLocale";
+import { CenteredDialog } from "./CenteredDialog";
 import { Icon } from "./Icon";
-import { ArrowUp, Github, X } from "lucide-react";
+import { ArrowUp, Github } from "lucide-react";
 
 export function GitPublishDialog({
   open,
@@ -52,7 +53,7 @@ export function GitPublishDialog({
       if (!res.ok || data.ok === false) throw new Error(data.error ?? `HTTP ${res.status}`);
       onPublished?.({ fullName: data.fullName ?? "", repoUrl: data.repoUrl ?? "" });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -61,114 +62,66 @@ export function GitPublishDialog({
   if (!open) return null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-shell"
-        style={{ width: 380, maxWidth: "calc(100vw - 32px)", padding: 0 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "12px 16px",
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
-          <Icon icon={Github} size={16} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-            {t("git.publishTitle")}
-          </span>
-          <button
-            type="button"
-            className="icon-btn"
-            style={{ marginLeft: "auto" }}
-            onClick={onClose}
-            aria-label={t("common.close")}
-          >
-            <Icon icon={X} size={14} />
-          </button>
-        </div>
-
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-            {t("git.publishDesc")}
-          </div>
-
-          <label style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {t("git.publishName")}
-            <span style={{ marginLeft: 6, fontStyle: "normal", opacity: 0.7 }}>
-              {t("git.publishSuggestName")}
-            </span>
-          </label>
-          <input
-            className="input-base input-mono"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="my-repository"
-            disabled={busy}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void create();
-            }}
-            autoFocus
-          />
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
-              {t("git.publishVisibility")}
-            </span>
-            <div style={{ display: "flex", gap: 8 }}>
-              {(["private", "public"] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className="btn-ghost"
-                  disabled={busy}
-                  onClick={() => setVisibility(v)}
-                  style={{
-                    flex: 1,
-                    height: 30,
-                    fontSize: 12,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                    background: visibility === v ? "var(--bg-selected)" : undefined,
-                    borderColor: visibility === v ? "var(--ring)" : undefined,
-                    color: visibility === v ? "var(--text)" : undefined,
-                  }}
-                >
-                  {visibility === v ? "✓" : ""}
-                  {v === "private" ? t("git.private") : t("git.public")}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {error && (
-            <div style={{ fontSize: 12, color: "var(--destructive)", lineHeight: 1.4 }}>
-              {error}
-            </div>
-          )}
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
-            <button type="button" className="btn-ghost" disabled={busy} onClick={onClose} style={{ height: 30, padding: "0 12px", fontSize: 12 }}>
-              {t("common.cancel")}
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={busy || !name.trim()}
-              onClick={() => void create()}
-              style={{ height: 30, padding: "0 14px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}
-            >
-              <Icon icon={ArrowUp} size={12} />
-              {busy ? t("git.publishRunning") : t("git.publishCreate")}
-            </button>
-          </div>
-        </div>
+    <CenteredDialog width={380} label={t("git.publishTitle")} onClose={busy ? undefined : onClose}>
+      <div style={{ padding: "14px 14px 8px", display: "flex", alignItems: "center", gap: 8 }}>
+        <Icon icon={Github} size={15} strokeWidth={1.8} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+        <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.02em" }}>{t("git.publishTitle")}</span>
       </div>
-    </div>
+      <p style={{ margin: 0, padding: "0 14px 10px", fontSize: 12, lineHeight: 1.5, color: "var(--text-muted)" }}>
+        {t("git.publishDesc")}
+      </p>
+      <div style={{ padding: "0 14px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+        <label style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          {t("git.publishName")}
+          <span style={{ marginLeft: 6, opacity: 0.7 }}>{t("git.publishSuggestName")}</span>
+        </label>
+        <input
+          className="input-base input-mono"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="my-repository"
+          disabled={busy}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void create();
+          }}
+          autoFocus
+        />
+      </div>
+      <div style={{ padding: "0 4px 4px" }}>
+        {(["private", "public"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            className="menu-row"
+            disabled={busy}
+            onClick={() => setVisibility(v)}
+          >
+            <span style={{ flex: 1 }}>{v === "private" ? t("git.private") : t("git.public")}</span>
+            {visibility === v ? <span style={{ color: "var(--text)" }}>✓</span> : null}
+          </button>
+        ))}
+      </div>
+      {error ? (
+        <div style={{ padding: "4px 14px 8px", fontSize: 12, color: "var(--destructive)", lineHeight: 1.4 }}>
+          {error}
+        </div>
+      ) : null}
+      <div style={{ height: 1, background: "var(--border)" }} />
+      <div style={{ padding: 4 }}>
+        <button
+          type="button"
+          className="menu-row"
+          disabled={busy || !name.trim()}
+          onClick={() => void create()}
+          style={{ opacity: busy || !name.trim() ? 0.45 : 1 }}
+        >
+          <Icon icon={ArrowUp} size={14} strokeWidth={1.8} />
+          <span style={{ flex: 1 }}>{busy ? t("git.publishRunning") : t("git.publishCreate")}</span>
+        </button>
+        <button type="button" className="menu-row" disabled={busy} onClick={onClose}>
+          {t("common.cancel")}
+        </button>
+      </div>
+    </CenteredDialog>
   );
 }

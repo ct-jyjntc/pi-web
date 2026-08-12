@@ -10,6 +10,7 @@ import {
   type ParsedGenericWidget,
 } from "@/lib/extension-widgets";
 import { TodoItemRow } from "./TodoAtoms";
+import { AgentItemRow } from "./AgentAtoms";
 
 const COLLAPSE_KEY = "pi-web-ext-widget-open";
 
@@ -196,8 +197,10 @@ function TodoWidgetCard({ parsed, widgetKey }: { parsed: ParsedTodoWidget; widge
 
 function AgentsWidgetCard({ parsed, widgetKey }: { parsed: ParsedAgentsWidget; widgetKey: string }) {
   const { t } = useLocale();
-  const body = parsed.lines.slice(1).join(" ").replace(/\s+/g, " ").trim();
-  const summary = body || parsed.heading;
+  const running = parsed.items.find((i) => i.status === "running");
+  const summary = running
+    ? running.description
+    : parsed.items[0]?.description || parsed.heading;
 
   return (
     <CompactShell
@@ -206,20 +209,15 @@ function AgentsWidgetCard({ parsed, widgetKey }: { parsed: ParsedAgentsWidget; w
       accent="var(--success)"
       summary={summary}
     >
-      <pre
-        style={{
-          margin: 0,
-          padding: "6px 10px",
-          fontSize: 11,
-          lineHeight: 1.4,
-          fontFamily: "var(--font-mono)",
-          color: "var(--text-muted)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}
-      >
-        {parsed.lines.join("\n")}
-      </pre>
+      {parsed.items.length === 0 ? (
+        <div style={{ padding: "6px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("ext.agentsEmpty")}</div>
+      ) : (
+        <div style={{ padding: "4px 6px 6px" }}>
+          {parsed.items.map((item, i) => (
+            <AgentItemRow key={`${item.type ?? "agent"}-${i}-${item.description.slice(0, 24)}`} item={item} />
+          ))}
+        </div>
+      )}
     </CompactShell>
   );
 }

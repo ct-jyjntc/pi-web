@@ -36,6 +36,10 @@ export async function GET(req: Request) {
         });
 
         const deadline = Date.now() + flow.expiresInSeconds * 1000;
+        // RFC 8628: wait `interval` before the first poll, then keep that
+        // interval (raise on slow_down, cap 10s).
+        let intervalMs = Math.max(5, flow.intervalSeconds) * 1000;
+        await sleep(intervalMs, abort.signal);
         while (Date.now() < deadline) {
           if (abort.signal.aborted) {
             send(controller, { type: "cancelled" });
@@ -64,7 +68,8 @@ export async function GET(req: Request) {
             send(controller, { type: "error", message: result.message });
             return;
           }
-          await sleep(result.retryAfterMs, abort.signal);
+          if (result.slowDown) intervalMs = Math.min(intervalMs + 5_000, 10_000);
+          await sleep(intervalMs, abort.signal);
         }
         send(controller, { type: "error", message: "The login code expired — please try again" });
       } catch (error) {

@@ -1,148 +1,125 @@
-"use client";
-
-import { Fragment, useState, useEffect, useRef, type ReactNode } from "react";
-import type { ExtensionUiRequest } from "@/lib/types";
-import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
-import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { useLocale } from "@/hooks/useLocale";
-
-export type ExtensionDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
-
-/** Split jammed permission titles like "Permission Required Current agent..." into heading + body. */
-export function splitExtensionCopy(title: string, message?: string): { heading: string; body: string } {
-  const full = [title, message].filter((part) => Boolean(part && part.trim())).join("\n\n").trim();
-  const headingMatch = full.match(/^(Permission Required|权限请求|需要权限|批准请求|Allow|Deny)([\s.:：-]*)/i);
-  if (headingMatch) {
-    const heading = headingMatch[1].replace(/\b\w/g, (c) => c.toUpperCase());
-    const body = full.slice(headingMatch[0].length).trim();
-    return { heading: heading || title, body: body || message || "" };
-  }
+ "use client";
+ 
+ import { Fragment, useState, useEffect, useRef, type ReactNode } from "react";
+ import { createPortal } from "react-dom";
+ import type { ExtensionUiRequest } from "@/lib/types";
+ import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
+ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
+ import { formatPermissionPreview } from "@/lib/permission-preview";
+ import { useLocale } from "@/hooks/useLocale";
+ import { CenteredDialog } from "../CenteredDialog";
+ 
+ export type ExtensionDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
+ 
+ /** Split jammed permission titles like "Permission Required Current agent..." into heading + body. */
+ export function splitExtensionCopy(title: string, message?: string): { heading: string; body: string } {
+   const full = [title, message].filter((part) => Boolean(part && part.trim())).join("\n\n").trim();
+   const headingMatch = full.match(/^(Permission Required|权限请求|需要权限|批准请求|Allow|Deny)(?:\s+([a-zA-Z][\w-]+))?(?:[?!.：:\s-]*)/i);
+   if (headingMatch) {
+     const verb = headingMatch[1]!.replace(/\b\w/g, (c) => c.toUpperCase());
+     const tool = headingMatch[2];
+     const heading = tool ? `${verb} ${tool}` : verb;
+     const body = full.slice(headingMatch[0].length).trim();
+     return { heading: heading || title, body: body || message || "" };
+   }
   if (title.length > 72) {
-    return { heading: `${title.slice(0, 48).trim()}…`, body: full };
+    const chip = /^\[([^\]]{1,16})\]\s*/.exec(title);
+    return {
+      heading: chip?.[1] ?? `${title.slice(0, 48).trim()}…`,
+      body: `${chip ? title.slice(chip[0].length) : title}${message ? `\n\n${message}` : ""}`.trim(),
+    };
   }
   return { heading: title, body: (message ?? "").trim() };
 }
-
-export function ExtensionDialog({
-  request,
-  onRespond,
-}: {
-  request: ExtensionDialogRequest;
-  onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
-}) {
-  const { t } = useLocale();
-  const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
-
-  useEffect(() => {
-    setValue(request.method === "editor" ? request.prefill ?? "" : "");
-  }, [request]);
-
-  const submitValue = () => {
-    if (request.method === "confirm") {
-      onRespond(request, { confirmed: true });
-    } else {
-      onRespond(request, { value });
-    }
-  };
-
-  const rawMessage = request.method === "confirm" ? request.message : "";
-  const isPermissionLike =
-    /permission|allow|deny|policy|批准|权限|允许|拒绝|bash|tool|命令|工具/i.test(`${request.title}\n${rawMessage}`);
-  const { heading, body } = splitExtensionCopy(request.title, rawMessage || undefined);
-  const showBodyPanel = Boolean(body) || (request.method === "confirm" && Boolean(rawMessage));
-  const bodyText = body || rawMessage;
-
-  return (
-    <div
-      className="modal-backdrop modal-backdrop-local"
-      style={{ position: "absolute", zIndex: 90, padding: 20 }}
+ 
+ export function ExtensionDialog({
+   request,
+   onRespond,
+ }: {
+   request: ExtensionDialogRequest;
+   onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
+ }) {
+   const { t } = useLocale();
+   const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
+ 
+   useEffect(() => {
+     setValue(request.method === "editor" ? request.prefill ?? "" : "");
+   }, [request]);
+ 
+   const submitValue = () => {
+     if (request.method === "confirm") {
+       onRespond(request, { confirmed: true });
+     } else {
+       onRespond(request, { value });
+     }
+   };
+ 
+   const rawMessage = request.method === "confirm" ? request.message : "";
+   const isPermissionLike =
+     /permission|allow|deny|policy|批准|权限|允许|拒绝|bash|tool|命令|工具/i.test(`${request.title}\n${rawMessage}`)
+     || request.method === "select";
+   const split = splitExtensionCopy(request.title, rawMessage || undefined);
+   const preview = formatPermissionPreview(split.body || rawMessage || request.title);
+   const heading = preview.title && /^allow$/i.test(split.heading)
+     ? `Allow ${preview.title}`
+     : split.heading;
+   const bodyLines = preview.lines.length > 0 ? preview.lines : (split.body ? [split.body] : []);
+ 
+   return (
+    <CenteredDialog
+      width={isPermissionLike ? 440 : 380}
+      label={heading}
+      onClose={() => onRespond(request, { cancelled: true })}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="modal-shell"
-        style={{
-          width: isPermissionLike ? "min(640px, 100%)" : "min(520px, 100%)",
-          maxHeight: "min(80vh, 720px)",
-        }}
-      >
-        {/* Header — strip chrome */}
-        <div className="modal-header" style={{ gap: 10, padding: "0 12px" }}>
-          {isPermissionLike && (
-            <span
-              aria-hidden
-              style={{
-                width: 20,
-                height: 20,
-                borderRadius: "var(--radius-xs)",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: "1px solid var(--border)",
-                background: "var(--bg-subtle)",
-                color: "var(--text-muted)",
-                fontSize: 11,
-                fontWeight: 600,
-                flexShrink: 0,
-              }}
-            >
-              !
-            </span>
-          )}
-          <div className="modal-title" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }} title={heading}>
+      <div className="ext-dialog-scroll">
+        <div style={{ padding: "14px 14px 8px" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.02em", color: "var(--text)" }}>
             {heading}
           </div>
+          {bodyLines.length > 0 ? (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+              {bodyLines.map((line) => (
+                <div
+                  key={line.slice(0, 48)}
+                  style={{
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                    color: "var(--text-muted)",
+                    overflowWrap: "anywhere",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
-        {/* Body */}
-        <div className="modal-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {showBodyPanel && bodyText && (
-            <div
-              className={isPermissionLike ? "ext-dialog-code" : undefined}
-              style={{
-                color: "var(--text)",
-                fontSize: isPermissionLike ? 12 : 13,
-                lineHeight: 1.55,
-                whiteSpace: "pre-wrap",
-                overflowWrap: "anywhere",
-                wordBreak: "break-word",
-                padding: isPermissionLike ? "10px 12px" : 0,
-                borderRadius: isPermissionLike ? "var(--radius-xs)" : 0,
-                background: isPermissionLike ? "var(--bg-panel)" : "transparent",
-                border: isPermissionLike ? "1px solid var(--border)" : "none",
-                fontFamily: isPermissionLike ? "var(--font-mono)" : "inherit",
-                maxHeight: isPermissionLike ? "min(28vh, 220px)" : undefined,
-                overflow: isPermissionLike ? "auto" : undefined,
-              }}
-            >
-              {bodyText}
-            </div>
-          )}
-
-          {request.method === "select" && (
-            <div style={{ display: "flex", flexDirection: "column" }}>
+        {request.method === "select" && (
+          <>
+            <div style={{ height: 1, background: "var(--border)" }} />
+            <div style={{ padding: 4 }}>
               {request.options.map((option) => {
                 const isDeny = /^(no|deny|拒绝|否)/i.test(option.trim());
                 return (
                   <button
                     key={option}
                     type="button"
-                    className={`modal-nav-item${isDeny ? " is-danger-text" : ""}`}
+                    className="menu-row ext-dialog-option"
                     onClick={() => onRespond(request, { value: option })}
-                    style={{
-                      minHeight: 34,
-                      borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
-                      color: isDeny ? "var(--destructive)" : undefined,
-                    }}
+                    style={isDeny ? { color: "var(--destructive)" } : undefined}
                   >
-                    <span className="modal-nav-label">{option}</span>
+                    {option}
                   </button>
                 );
               })}
             </div>
-          )}
+          </>
+        )}
 
-          {request.method === "input" && (
+        {request.method === "input" && (
+          <div style={{ padding: "0 14px 10px" }}>
             <input
               autoFocus
               className="input-base"
@@ -154,9 +131,11 @@ export function ExtensionDialog({
                 if (e.key === "Escape") onRespond(request, { cancelled: true });
               }}
             />
-          )}
+          </div>
+        )}
 
-          {request.method === "editor" && (
+        {request.method === "editor" && (
+          <div style={{ padding: "0 14px 10px" }}>
             <textarea
               autoFocus
               className="input-base input-mono"
@@ -167,49 +146,52 @@ export function ExtensionDialog({
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
               }}
               style={{
-                minHeight: 200,
+                minHeight: 160,
                 resize: "vertical",
                 lineHeight: 1.55,
                 fontFamily: "var(--font-mono)",
               }}
             />
-          )}
-        </div>
+          </div>
+        )}
+      </div>
 
-        {/* Footer strip */}
-        <div className="modal-footer">
-          <button
-            type="button"
-            className="chrome-btn"
-            onClick={() => onRespond(request, { cancelled: true })}
-          >
-            {t("common.cancel")}
-          </button>
+      <div className="ext-dialog-footer">
+        <div style={{ height: 1, background: "var(--border)" }} />
+        <div style={{ padding: 4 }}>
           {request.method === "confirm" ? (
             <>
+              <button type="button" className="menu-row" onClick={submitValue}>
+                {isPermissionLike ? t("ext.allow") : t("window.confirm")}
+              </button>
               {isPermissionLike && (
                 <button
                   type="button"
-                  className="chrome-btn is-danger"
+                  className="menu-row"
                   onClick={() => onRespond(request, { confirmed: false })}
+                  style={{ color: "var(--destructive)" }}
                 >
                   {t("ext.deny")}
                 </button>
               )}
-              <button type="button" className="btn-primary" onClick={submitValue}>
-                {isPermissionLike ? t("ext.allow") : t("window.confirm")}
-              </button>
             </>
           ) : request.method !== "select" ? (
-            <button type="button" className="btn-primary" onClick={submitValue}>
+            <button type="button" className="menu-row" onClick={submitValue}>
               {t("window.submit")}
             </button>
           ) : null}
+          <button
+            type="button"
+            className="menu-row"
+            onClick={() => onRespond(request, { cancelled: true })}
+          >
+            {t("common.cancel")}
+          </button>
         </div>
       </div>
-    </div>
-  );
-}
+    </CenteredDialog>
+   );
+ }
 
 export type ExtensionCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
 
@@ -237,23 +219,27 @@ export function ExtensionCustomPanel({
     inputRef.current?.focus();
   }, [request.id]);
 
-  return (
-    <div
-      className="modal-backdrop modal-backdrop-local"
-      style={{ position: "absolute", zIndex: 95, padding: 20 }}
+   if (typeof document === "undefined") return null;
+   return createPortal(
+     <div
+       className="modal-backdrop"
+       style={{ zIndex: 95 }}
     >
       <div
         role="dialog"
         aria-modal="true"
-        className="modal-shell"
+        className="menu-card"
         onClick={(event) => {
           if (!(event.target as HTMLElement).closest("button")) inputRef.current?.focus();
         }}
         style={{
           position: "relative",
-          width: "min(920px, 100%)",
-          maxHeight: "min(760px, calc(100vh - 40px))",
+          width: "min(720px, 100%)",
+          maxHeight: "min(720px, calc(100vh - 40px))",
           outline: "none",
+          borderRadius: 16,
+          padding: 0,
+          overflow: "hidden",
         }}
       >
         <textarea
@@ -304,13 +290,11 @@ export function ExtensionCustomPanel({
             pointerEvents: "none",
           }}
         />
-        <div className="modal-header" style={{ padding: "0 10px 0 12px" }}>
-          <span className="modal-title">{t("window.extensionPanel")}</span>
-          <button
-            type="button"
-            className="chrome-btn"
-            onClick={() => onInput(request, "\x03")}
-          >
+        <div style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, letterSpacing: "-0.02em" }}>
+            {t("window.extensionPanel")}
+          </span>
+          <button type="button" className="menu-row" style={{ width: "auto" }} onClick={() => onInput(request, "\x03")}>
             {t("common.close")}
           </button>
         </div>
@@ -336,7 +320,7 @@ export function ExtensionCustomPanel({
           ))}
         </pre>
       </div>
-    </div>
-  );
+     </div>,
+     document.body,
+   );
 }
-

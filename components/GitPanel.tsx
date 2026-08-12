@@ -9,24 +9,23 @@ import { DiffView } from "./DiffView";
 import { Icon } from "./Icon";
 import {
   ArrowDown,
-  ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
-  GitBranch,
   GitCommitHorizontal,
   Minus,
   Plus,
   RefreshCw,
-  Split,
   Trash2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-transport";
 import { GitHistory } from "./GitHistory";
 import { GitPanelEmpty } from "./GitPanelEmpty";
+import { GitCommitDialog } from "./GitCommitDialog";
 import { GitPublishDialog } from "./GitPublishDialog";
 import { GithubConnectModal } from "./GithubConnectModal";
+ import { useWebSettings } from "@/lib/web-settings-store";
 
 interface Props {
   cwd: string | null;
@@ -58,6 +57,7 @@ async function fetchStatus(cwd: string): Promise<GitStatusResponse> {
     ...data,
     ahead: data.ahead ?? 0,
     behind: data.behind ?? 0,
+    hasRemote: data.hasRemote ?? true,
     upstream: data.upstream ?? null,
     conflictCount: data.conflictCount ?? 0,
     stagedCount: data.stagedCount ?? 0,
@@ -136,6 +136,7 @@ export function GitPanel({
   const [publishOpen, setPublishOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
 
+   const webSettings = useWebSettings();
   const load = useCallback(async () => {
     if (!cwd) {
       setStatus(null);
@@ -229,12 +230,15 @@ export function GitPanel({
     setPrDiffError(null);
   }, [cwd, status?.branch, linkedPr?.number]);
 
-  // Default: expand all file diffs when status first loads (Codex-style)
-  useEffect(() => {
-    if (!status?.isGitRepository || diffsInitialized) return;
-    setOpenDiffs(new Set(status.files.map((f) => f.filePath)));
-    setDiffsInitialized(true);
-  }, [status, diffsInitialized]);
+   useEffect(() => {
+     if (!status?.isGitRepository || diffsInitialized) return;
+     if (webSettings?.expandReviewDiffs === true) {
+       setOpenDiffs(new Set(status.files.map((f) => f.filePath)));
+     } else {
+       setOpenDiffs(new Set());
+     }
+     setDiffsInitialized(true);
+   }, [status, diffsInitialized, webSettings?.expandReviewDiffs]);
 
   useEffect(() => {
     setDiffsInitialized(false);
@@ -242,19 +246,16 @@ export function GitPanel({
   }, [cwd]);
 
   useEffect(() => {
-    if (!branchOpen && !commitOpen) return;
+    if (!branchOpen) return;
     const onDoc = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (branchOpen && branchRef.current && !branchRef.current.contains(target)) {
+      if (branchRef.current && !branchRef.current.contains(target)) {
         setBranchOpen(false);
-      }
-      if (commitOpen && commitRef.current && !commitRef.current.contains(target)) {
-        setCommitOpen(false);
       }
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [branchOpen, commitOpen]);
+  }, [branchOpen]);
 
   const conflicts = useMemo(() => (status?.files ?? []).filter((f) => f.status === "conflict"), [status]);
   const staged = useMemo(() => (status?.files ?? []).filter((f) => f.staged && f.status !== "conflict"), [status]);
@@ -793,134 +794,6 @@ export function GitPanel({
             <Icon icon={ChevronDown} size={9} strokeWidth={1.6} className="git-panel-commit-chevron" />
           </button>
 
-          {commitOpen && (
-            <div
-              className="menu-card git-panel-commit-menu"
-              style={{
-                position: "absolute",
-                top: "calc(100% + 6px)",
-                right: 0,
-                width: 300,
-                zIndex: 90,
-                padding: 12,
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                  <Icon icon={GitBranch} size={12} style={{ opacity: 0.6, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {status?.branch ?? "—"}
-                  </span>
-                </div>
-                {((status?.insertions ?? 0) > 0 || (status?.deletions ?? 0) > 0) && (
-                  <span style={{ fontSize: 11, fontVariantNumeric: "tabular-nums", display: "inline-flex", gap: 4, flexShrink: 0 }}>
-                    {(status?.insertions ?? 0) > 0 && <span style={{ color: "var(--success)" }}>+{status?.insertions ?? 0}</span>}
-                    {(status?.deletions ?? 0) > 0 && <span style={{ color: "var(--destructive)" }}>-{status?.deletions ?? 0}</span>}
-                  </span>
-                )}
-              </div>
-
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder={t("git.messageOptional")}
-                rows={3}
-                disabled={busy || generating}
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  resize: "vertical",
-                  minHeight: 64,
-                  padding: "8px 10px",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  background: "var(--bg)",
-                  color: "var(--text)",
-                  fontSize: 13,
-                  lineHeight: 1.45,
-                  fontFamily: "inherit",
-                  outline: "none",
-                }}
-              />
-
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <span style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.35 }}>
-                  {t("git.generateHint")}
-                </span>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  disabled={busy || generating || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0))}
-                  onClick={() => void generateMessage()}
-                  style={{ height: 28, padding: "0 10px", fontSize: 12, flexShrink: 0 }}
-                >
-                  {generating ? t("git.generating") : t("git.generateMessage")}
-                </button>
-              </div>
-
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={includeUnstaged}
-                  onChange={(e) => setIncludeUnstaged(e.target.checked)}
-                  style={{ width: 14, height: 14, accentColor: "var(--accent)" }}
-                />
-                {t("git.includeUnstaged")}
-              </label>
-
-              <button
-                type="button"
-                className="chrome-btn"
-                disabled={
-                  busy
-                  || splitPlanning
-                  || conflicts.length > 0
-                  || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0))
-                }
-                onClick={() => void planSplit()}
-                style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
-              >
-                <Icon icon={Split} size={12} />
-                {splitPlanning ? t("git.splitRunning") : t("git.splitCommits")}
-              </button>
-
-              <button
-                type="button"
-                className="chrome-btn"
-                disabled={busy || generating || conflicts.length > 0 || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0))}
-                onClick={() => void runCommit(false)}
-                style={{ width: "100%", height: 34, justifyContent: "space-between", padding: "0 12px", background: "var(--bg-selected)" }}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <Icon icon={GitCommitHorizontal} size={12} strokeWidth={2} />
-                  {busy ? t("git.committing") : t("git.commit")}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="chrome-btn"
-                disabled={busy || generating || conflicts.length > 0 || (staged.length === 0 && !(includeUnstaged && unstaged.length > 0) && (status?.ahead ?? 0) === 0)}
-                onClick={() => void runCommit(true)}
-                style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
-              >
-                <Icon icon={ArrowUp} size={12} />
-                {t("git.commitAndPush")}
-              </button>
-              <button
-                type="button"
-                className="chrome-btn"
-                disabled={busy}
-                onClick={() => void pushOnly()}
-                style={{ width: "100%", height: 34, justifyContent: "flex-start", padding: "0 12px", gap: 8 }}
-              >
-                <Icon icon={ArrowUp} size={12} />
-                {t("git.push")}
-              </button>
-            </div>
-          )}
         </div>
         </div>
       </div>
@@ -945,7 +818,7 @@ export function GitPanel({
               <Icon icon={ChevronDown} size={9} strokeWidth={1.6} style={{ opacity: 0.5, display: "block", flexShrink: 0 }} />
             </button>
             {branchOpen && (
-              <div className="menu-card" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, minWidth: 220, zIndex: 70, maxHeight: 260, overflow: "auto" }}>
+               <div className="menu-card" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, minWidth: 220, zIndex: 70, maxHeight: 260, overflow: "auto", borderRadius: 16, padding: 3 }}>
                 {branches.map((b) => (
                   <button
                     key={b}
@@ -1285,6 +1158,29 @@ export function GitPanel({
         </div>
       )}
       <GitHistory cwd={cwd} historyKey={historyKey} />
+      {commitOpen && (
+        <GitCommitDialog
+          branch={status?.branch ?? null}
+          message={message}
+          onMessageChange={setMessage}
+          includeUnstaged={includeUnstaged}
+          onIncludeUnstagedChange={setIncludeUnstaged}
+          insertions={status?.insertions ?? 0}
+          deletions={status?.deletions ?? 0}
+          busy={busy || generating}
+          generating={generating}
+          splitPlanning={splitPlanning}
+          canCommit={conflicts.length === 0 && (staged.length > 0 || (includeUnstaged && unstaged.length > 0))}
+          canPush={(status?.ahead ?? 0) > 0 || status?.hasRemote === false}
+          publishMode={status?.hasRemote === false}
+          onCommit={() => void runCommit(false)}
+          onCommitAndPush={() => void runCommit(true)}
+          onPush={() => void pushOnly()}
+          onGenerate={() => void generateMessage()}
+          onSplit={() => void planSplit()}
+          onClose={() => setCommitOpen(false)}
+        />
+      )}
       <GitPublishDialog
         open={publishOpen}
         onClose={() => setPublishOpen(false)}

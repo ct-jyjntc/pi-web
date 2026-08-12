@@ -115,7 +115,8 @@ export function SessionItemMenu({
         left: pos.left,
         width: 180,
         zIndex: 90,
-        padding: 4,
+        padding: 3,
+        borderRadius: 16,
       }}
     >
       {items.map((item) => (
@@ -123,7 +124,7 @@ export function SessionItemMenu({
           <button
             type="button"
             role="menuitem"
-            className="sidebar-menu-item"
+            className="menu-row"
             disabled={item.disabled}
             title={item.title}
             onClick={() => {

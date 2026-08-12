@@ -185,8 +185,17 @@ export function getToolPreview(block: ToolCallContent): string {
   if ("command" in input) return String(input.command).slice(0, 120);
   if ("path" in input) return String(input.path).slice(0, 120);
   if ("file_path" in input) return String(input.file_path).slice(0, 120);
-  if ("pattern" in input) return String(input.pattern).slice(0, 120);
   if ("query" in input) return String(input.query).slice(0, 120);
+
+  // Subagent (and similar): prefer the short UI description over the long prompt.
+  if ("description" in input && typeof input.description === "string" && input.description.trim()) {
+    const type = typeof input.subagent_type === "string" ? input.subagent_type.trim() : "";
+    const desc = input.description.trim();
+    return (type ? `${type} · ${desc}` : desc).slice(0, 120);
+  }
+  if ("subagent_type" in input && typeof input.subagent_type === "string" && input.subagent_type.trim()) {
+    return input.subagent_type.trim().slice(0, 120);
+  }
 
   // Nested args object — dig for a readable scalar, never "[object Object]".
   return readableScalar(input[keys[0]]).slice(0, 120);

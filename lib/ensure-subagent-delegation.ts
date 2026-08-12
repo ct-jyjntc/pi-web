@@ -5,25 +5,17 @@ import { formatRoleModelForAgent } from "./model-roles";
 import { readWebSettings, type WebSettings } from "./web-settings";
 
 /**
- * Subagent delegation assets (auto-deployed into ~/.pi/agent on boot).
+ * Subagent type files (auto-deployed into ~/.pi/agent on boot).
  *
- * Why this exists: @gotgenes/pi-subagents ships a neutral tool description
- * ("Launch a new agent to handle complex, multi-step tasks autonomously") with
- * usage guidelines that explain *how* to spawn agents but never *when* to prefer
- * them. Models therefore treat the subagent tool as opt-in and only use it when
- * the user explicitly asks. Claude Code feels "smarter" purely because its Task
- * tool description + system prompt aggressively push proactive delegation.
+ * Native Pi Web subagents read these markdown files for Explore / Plan /
+ * Reviewer / general-purpose. The AGENTS.md block tells the parent model
+ * when to delegate.
+ * This module only writes those files. The native factory in
+ * lib/first-party/subagents reads them at spawn time.
  *
- * This module closes the gap without patching the npm package (which would be
- * overwritten on upgrade):
- *
- *  1. A managed block in the global ~/.pi/agent/AGENTS.md instructs every
- *     session to delegate proactively (loaded by both the pi CLI and Pi Web,
- *     since Pi Web uses the default resource loader).
- *  2. Agent overrides in ~/.pi/agent/agents/*.md replace the built-in
- *     general-purpose / Explore / Plan / Reviewer descriptions with proactive
- *     trigger language. These descriptions are inlined into the subagent tool's
- *     own description ("Available agent types" list).
+ *  1. A managed block in ~/.pi/agent/AGENTS.md tells the parent to delegate.
+ *  2. Agent files in ~/.pi/agent/agents/*.md supply Explore / Plan / Reviewer /
+ *     general-purpose prompts and tool allow-lists.
  *
  * Both mechanisms are idempotent and respect user customization:
  *  - The AGENTS.md block lives between marker comments; content outside the
@@ -59,7 +51,7 @@ Spawn a subagent whenever any of these apply:
 Rules:
 
 - The main loop orchestrates, reviews, and summarizes; delegate heavy reading, searching, and implementation to subagents.
-- Give each subagent a complete, self-contained prompt — it does not see this conversation unless \`inherit_context: true\`.
+- Give each subagent a complete, self-contained prompt — it does not see this conversation.
 - Prefer delegating over doing everything inline. When in doubt, delegate.
 ${AGENTS_BLOCK_END}`;
 

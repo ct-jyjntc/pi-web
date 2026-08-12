@@ -51,7 +51,7 @@ export function ComposerAutocompleteMenus(props: ComposerAutocompleteMenusProps)
   const {
     historyMenuOpen, inputHistory, historyActiveIndex, setHistoryActiveIndex, applyHistoryInput,
     historyMenuRef, historyItemRefs,
-    slashMenuOpen, slashQuery, slashCommandsLoading, slashCommandCountLabel,
+    slashMenuOpen, slashQuery, slashCommandsLoading,
     filteredSlashCommands, groupedSlashCommands, slashActiveIndex, setSlashActiveIndex,
     applySlashCommand, slashItemRefs,
     atMenuOpen, atQuery, atMatches, atActiveIndex, setAtActiveIndex, applyAtCompletion,
@@ -110,104 +110,89 @@ export function ComposerAutocompleteMenus(props: ComposerAutocompleteMenusProps)
           )}
           {slashMenuOpen && slashQuery !== null && (
             <ComposerPalette
-              title={slashCommandsLoading ? t("chat.loadingCommands") : t("chat.slashCommands", { n: slashCommandCountLabel })}
-              hint={t("chat.tabEnter")}
-              maxHeight="min(56vh, 460px)"
-              bodyStyle={{ padding: 10 }}
+              title={slashCommandsLoading ? t("chat.loadingCommands") : undefined}
+              maxHeight="min(48vh, 380px)"
+              bodyStyle={{ padding: 4 }}
             >
                 {!slashCommandsLoading && filteredSlashCommands.length === 0 ? (
-                  <div style={{ padding: "2px 2px 4px", fontSize: 12, color: "var(--text-dim)" }}>
+                  <div style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-dim)" }}>
                     {t("chat.noCommands")}
                   </div>
                 ) : (
                   groupedSlashCommands.map((group) => (
-                    <section key={group.source} style={{ marginBottom: 12 }}>
-                      <div
-                        style={{
-                          position: "sticky",
-                          top: -10,
-                          zIndex: 1,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          padding: "4px 0 6px",
-                          background: "var(--bg)",
-                          color: "var(--text-dim)",
-                          fontSize: 10,
-                          fontWeight: 600,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        <span>{t(SLASH_SOURCE_GROUP_KEYS[group.source])}</span>
-                        <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}>{group.items.length}</span>
-                      </div>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                          gap: 8,
-                        }}
-                      >
-                        {group.items.map(({ command, index }) => {
-                          const active = index === slashActiveIndex;
-                          return (
-                            <button
-                              key={`${command.source}:${command.name}`}
-                              ref={(node) => {
-                                slashItemRefs.current[index] = node;
-                              }}
-                              type="button"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                applySlashCommand(command);
-                              }}
-                              onMouseEnter={() => setSlashActiveIndex(index)}
-                              style={{
-                                width: "100%",
-                                minWidth: 0,
-                                minHeight: 58,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 4,
-                                justifyContent: "center",
-                                padding: "9px 10px",
-                                border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-                                borderRadius: "var(--radius-md)",
-                                background: active ? "var(--bg-selected)" : "var(--bg-panel)",
-                                color: "var(--text)",
-                                cursor: "pointer",
-                                textAlign: "left",
-                                boxShadow: active ? "0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent)" : "none",
-                              }}
-                            >
+                    <section key={group.source} style={{ paddingBottom: 4 }}>
+                      {groupedSlashCommands.length > 1 && (
+                        <div
+                          style={{
+                            padding: "6px 8px 2px",
+                            color: "var(--text-dim)",
+                            fontSize: 12,
+                          }}
+                        >
+                          {t(SLASH_SOURCE_GROUP_KEYS[group.source])}
+                        </div>
+                      )}
+                      {group.items.map(({ command, index }) => {
+                        const active = index === slashActiveIndex;
+                        const label = command.source === "skill" && command.name.startsWith("skill:")
+                          ? command.name.slice("skill:".length)
+                          : command.name;
+                        const description = command.description
+                          ? (command.source === "builtin" && command.description.startsWith("chat.")
+                            ? t(command.description as MessageKey)
+                            : command.description)
+                          : "";
+                        return (
+                          <button
+                            key={`${command.source}:${command.name}`}
+                            ref={(node) => {
+                              slashItemRefs.current[index] = node;
+                            }}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              applySlashCommand(command);
+                            }}
+                            onMouseEnter={() => setSlashActiveIndex(index)}
+                            style={{
+                              width: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              padding: "7px 10px",
+                              border: "none",
+                              borderRadius: "var(--radius-sm)",
+                              background: active ? "var(--bg-selected)" : "transparent",
+                              color: "var(--text)",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            <span style={{
+                              flexShrink: 0,
+                              fontSize: 13,
+                              fontWeight: 500,
+                              whiteSpace: "nowrap",
+                            }}>
+                              {command.source === "skill" ? label : `/${label}`}
+                            </span>
+                            {description ? (
                               <span style={{
-                                fontSize: 13,
-                                fontFamily: "var(--font-mono)",
-                                overflowWrap: "anywhere",
-                                wordBreak: "break-word",
+                                flex: 1,
+                                minWidth: 0,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                fontSize: 12,
+                                color: "var(--text-dim)",
+                                textAlign: "right",
                               }}>
-                                /{command.name}
+                                {description}
                               </span>
-                              {command.description && (
-                                <span style={{
-                                  display: "-webkit-box",
-                                  WebkitBoxOrient: "vertical",
-                                  WebkitLineClamp: 2,
-                                  overflow: "hidden",
-                                  fontSize: 11,
-                                  lineHeight: 1.35,
-                                  color: "var(--text-dim)",
-                                }}>
-                                  {command.source === "builtin" && command.description.startsWith("chat.")
-                                    ? t(command.description as MessageKey)
-                                    : command.description}
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
+                            ) : null}
+                          </button>
+                        );
+                      })}
                     </section>
                   ))
                 )}

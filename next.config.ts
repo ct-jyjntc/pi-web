@@ -37,13 +37,7 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
-    // Heavy first-party agent extensions (JIT-loaded by the SDK from their TS entry).
-    // Thin tools (todo / ask_user) are pure app modules under lib/first-party/.
-    "@gotgenes/pi-permission-system",
-    "@gotgenes/pi-subagents",
-    "pi-mcp-adapter",
-    "web-tree-sitter",
-    "tree-sitter-bash",
+    "@modelcontextprotocol/sdk",
   ],
   allowedDevOrigins: ['192.168.*.*'],
   async headers() {

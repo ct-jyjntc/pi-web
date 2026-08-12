@@ -29,21 +29,18 @@ export async function runGh(
   cwd: string,
   options?: { timeoutMs?: number; env?: NodeJS.ProcessEnv },
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  // A connected Pi Web GitHub account becomes the effective identity for gh
+  // A connected Pi Web GitHub account is the effective identity for gh
   // features (pr:// reads, linked PR, repo view) without touching the user's
-  // own `gh auth login` in hosts.yml. GH_TOKEN from the environment wins.
+  // own `gh auth login` in hosts.yml. The store wins while connected so
+  // Settings login, publish, and gh features stay on one account.
   const accountEnv = options?.env ?? process.env;
-  let env = accountEnv;
-  if (!accountEnv.GH_TOKEN && !accountEnv.GITHUB_TOKEN) {
-    try {
-      const { getGithubAccount } = await import("./accounts-store");
-      const account = getGithubAccount();
-      if (account) {
-        env = { ...accountEnv, GH_TOKEN: account.token };
-      }
-    } catch {
-      // accounts store unreadable — fall back to the caller's env
-    }
+  let env = { ...accountEnv };
+  try {
+    const { getGithubAccount } = await import("./accounts-store");
+    const account = getGithubAccount();
+    if (account) env = { ...env, GH_TOKEN: account.token };
+  } catch {
+    // accounts store unreadable — fall back to the caller's env
   }
   try {
     const { stdout, stderr } = await execFileAsync("gh", args, {

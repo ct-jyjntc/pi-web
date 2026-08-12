@@ -54,3 +54,78 @@ export function validateAgentImages(value: unknown): string | null {
   }
   return null;
 }
+
+export type QueueRecallSnapshot = {
+  steering?: string[];
+  followUp?: string[];
+  steeringImages?: Base64ImageAttachment[];
+  followUpImages?: Base64ImageAttachment[];
+};
+
+/** Pull base64 images from a message content array (nested Anthropic or flat pi-ai). */
+export function extractBase64ImagesFromContent(content: unknown): Base64ImageAttachment[] {
+  if (!Array.isArray(content)) return [];
+  const images: Base64ImageAttachment[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const rec = block as Record<string, unknown>;
+    if (rec.type !== "image") continue;
+    const source = rec.source;
+    let data: unknown = rec.data;
+    let mimeType: unknown = rec.mimeType;
+    if (source && typeof source === "object") {
+      const src = source as Record<string, unknown>;
+      if (src.type === "base64") {
+        data = src.data;
+        mimeType = src.media_type;
+      }
+    }
+    const image = { data, mimeType };
+    if (isBase64ImageWithinLimits(image)) images.push({ data: image.data, mimeType: image.mimeType });
+  }
+  return images;
+}
+
+function imagesFromPendingQueue(queue: unknown): Base64ImageAttachment[] {
+  if (!queue || typeof queue !== "object") return [];
+  const messages = (queue as { messages?: unknown }).messages;
+  if (!Array.isArray(messages)) return [];
+  const images: Base64ImageAttachment[] = [];
+  for (const message of messages) {
+    if (!message || typeof message !== "object") continue;
+    images.push(...extractBase64ImagesFromContent((message as { content?: unknown }).content));
+  }
+  return images;
+}
+
+/**
+ * Read undelivered images from the agent-core queues (runtime-public fields).
+ * Missing / #private queues return empty arrays — recall stays text-only.
+ */
+export function peekAgentQueueImages(agent: unknown): {
+  steering: Base64ImageAttachment[];
+  followUp: Base64ImageAttachment[];
+} {
+  if (!agent || typeof agent !== "object") {
+    return { steering: [], followUp: [] };
+  }
+  const rec = agent as Record<string, unknown>;
+  return {
+    steering: imagesFromPendingQueue(rec.steeringQueue),
+    followUp: imagesFromPendingQueue(rec.followUpQueue),
+  };
+}
+
+/** Flatten steer + follow-up recall into one composer restore payload. */
+export function flattenQueueRecall(result: QueueRecallSnapshot | null | undefined): {
+  text: string;
+  images: Base64ImageAttachment[];
+} {
+  const text = [...(result?.steering ?? []), ...(result?.followUp ?? [])]
+    .filter((item) => item.trim())
+    .join("\n\n");
+  const images = [...(result?.steeringImages ?? []), ...(result?.followUpImages ?? [])]
+    .filter(isBase64ImageWithinLimits)
+    .slice(0, MAX_ATTACHED_IMAGES);
+  return { text, images };
+}
