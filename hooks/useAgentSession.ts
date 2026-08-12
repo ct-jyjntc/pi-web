@@ -392,8 +392,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       // Prefer file estimate immediately so cold open isn't stuck at 0%.
       // Live agent state (below) overwrites when the RPC session is running.
+      // Missing file estimate is not "usage is 0" — keep a previous live
+      // value on background reloads (settlement). Only clear on a fresh open.
       if (d.contextUsage != null) setContextUsage(d.contextUsage);
-      else setContextUsage(null);
+      else if (useLoading) setContextUsage(null);
 
       messagesLoaded = true;
       if (useLoading) setLoading(false);

@@ -2,6 +2,8 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { estimateTokens, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ContextUsage } from "@/lib/pi-types";
+import { resolveCachedModelContextWindow } from "./builtin-provider-models-cache";
+import { getModelOverride } from "./model-overrides";
 
 export type ContextUsageSnapshot = ContextUsage;
 
@@ -77,19 +79,54 @@ export function resolveContextWindowFromModelsJson(
   }
 }
 
-/** Resolve a model's context window without starting a full AgentSession. */
+/** Fast path: SDK models-store.json written by ModelRuntime / GET /api/models. */
+export function resolveContextWindowFromModelsStore(
+  model: { provider: string; modelId: string } | null | undefined,
+): number | null {
+  if (!model?.provider || !model.modelId) return null;
+  try {
+    const path = join(getAgentDir(), "models-store.json");
+    const data = JSON.parse(readFileSync(path, "utf8")) as Record<string, {
+      models?: Array<{ id?: string; contextWindow?: number }>;
+    }>;
+    const entry = data[model.provider]
+      ?? Object.entries(data).find(([key]) => key.toLowerCase() === model.provider.toLowerCase())?.[1];
+    if (!entry?.models?.length) return null;
+    const found = entry.models.find((row) =>
+      row.id === model.modelId
+      || (typeof row.id === "string" && row.id.toLowerCase() === model.modelId.toLowerCase())
+    );
+    return asPositiveInt(found?.contextWindow);
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve a model's context window from on-disk catalogs — never start an AgentSession. */
 export async function resolveModelContextWindow(
   cwd: string,
   model: { provider: string; modelId: string } | null | undefined,
 ): Promise<number | null> {
   if (!model?.provider || !model.modelId) return null;
 
-  // Prefer models.json — reliable in Next.js API routes and does not spin up runtime.
+  // Prefer models.json — custom providers and does not spin up runtime.
   const fromFile = resolveContextWindowFromModelsJson(model);
   if (fromFile) return fromFile;
 
+  // Built-in / OAuth catalogs live in our Settings cache and the SDK models-store,
+  // not in models.json. Cold open must read those files or the ring stays empty
+  // until the next live AgentSession (i.e. the user sends a message).
+  const fromCache = resolveCachedModelContextWindow(model.provider, model.modelId);
+  if (fromCache) return fromCache;
+
+  const fromStore = resolveContextWindowFromModelsStore(model);
+  if (fromStore) return fromStore;
+
+  const fromOverride = asPositiveInt(getModelOverride(model.provider, model.modelId)?.contextWindow);
+  if (fromOverride) return fromOverride;
+
   // Intentionally do NOT fall back to createConfiguredModelRuntime /
-  // createAgentSessionServices here. Session GET runs this on every cold open;
+  // createAgentSessionServices. Session GET runs this on every cold open;
   // spinning the agent services just to read a context window blocked the
   // heavy IPC queue and made "Loading session..." last many seconds.
   // Live AgentSession state overwrites contextUsage once the session is running.

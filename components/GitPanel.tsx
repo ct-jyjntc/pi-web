@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import { useLocale } from "@/hooks/useLocale";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -23,6 +23,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-transport";
+import { GitHistory } from "./GitHistory";
+import { GitPanelEmpty } from "./GitPanelEmpty";
+import { GitPublishDialog } from "./GitPublishDialog";
+import { GithubConnectModal } from "./GithubConnectModal";
 
 interface Props {
   cwd: string | null;
@@ -128,6 +132,9 @@ export function GitPanel({
   const [prDiffError, setPrDiffError] = useState<string | null>(null);
   const branchRef = useRef<HTMLDivElement>(null);
   const commitRef = useRef<HTMLDivElement>(null);
+  const [historyKey, setHistoryKey] = useState(0);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!cwd) {
@@ -275,6 +282,9 @@ export function GitPanel({
         status?: GitStatusResponse;
         commit?: string | null;
         message?: string;
+        /** Repo has no remote — the UI offers the publish flow. */
+        needRemote?: boolean;
+        githubConnected?: boolean;
       };
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
       if (data.status) {
@@ -289,6 +299,7 @@ export function GitPanel({
       } else if (data.message && (path.includes("push") || path.includes("pull"))) {
         setNotice(data.message.split("\n")[0] ?? data.message);
       }
+      setHistoryKey((k) => k + 1);
       return data;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -568,6 +579,22 @@ export function GitPanel({
     }
   }, [cwd, load, onStatusChange, splitGroups, t]);
 
+  const runPush = useCallback(async (): Promise<boolean> => {
+    if (!cwd) return false;
+    const data = await mutate("/api/git/push", { cwd });
+    if (!data) return false;
+    if (data.needRemote) {
+      // VSCode-style publish: no remote → create one, or ask to sign in first.
+      if (data.githubConnected) {
+        setPublishOpen(true);
+      } else {
+        setSignInOpen(true);
+      }
+      return false;
+    }
+    return true;
+  }, [cwd, mutate]);
+
   const runCommit = useCallback(async (alsoPush: boolean) => {
     if (!cwd) return;
     if ((status?.conflictCount ?? 0) > 0) {
@@ -593,14 +620,33 @@ export function GitPanel({
     setMessage("");
     setCommitOpen(false);
     if (alsoPush) {
-      await mutate("/api/git/push", { cwd });
+      await runPush();
     }
-  }, [cwd, includeUnstaged, message, mutate, requestCommitMessage, status?.conflictCount, t, unstaged]);
+  }, [cwd, includeUnstaged, message, mutate, requestCommitMessage, runPush, status?.conflictCount, t, unstaged]);
 
   const pushOnly = useCallback(async () => {
-    await mutate("/api/git/push", { cwd });
     setCommitOpen(false);
-  }, [cwd, mutate]);
+    await runPush();
+  }, [runPush]);
+
+  const publishDefaultName = useMemo(() => {
+    const root = status?.repositoryRoot ?? null;
+    if (!root) return "";
+    return root.split(/[\\/]/).filter(Boolean).pop() ?? "";
+  }, [status?.repositoryRoot]);
+
+  const handlePublished = useCallback((result: { fullName: string; repoUrl: string }) => {
+    setPublishOpen(false);
+    setNotice(t("git.published", { name: result.fullName }));
+    setHistoryKey((k) => k + 1);
+    void load();
+  }, [load, t]);
+
+  const handleSignedIn = useCallback(() => {
+    setSignInOpen(false);
+    // Now connected — re-run the push so the publish dialog opens.
+    void runPush();
+  }, [runPush]);
 
   const openBranches = useCallback(async () => {
     if (!cwd) return;
@@ -631,9 +677,17 @@ export function GitPanel({
     await mutate("/api/git/branches", { cwd, action: "create", branch: name });
   }, [cwd, mutate, newBranch]);
 
-  if (!cwd) return <div style={emptyStyle}>{t("git.noCwd")}</div>;
-  if (loading && !status) return <div style={emptyStyle}>{t("git.loading")}</div>;
-  if (status && !status.isGitRepository) return <div style={emptyStyle}>{t("git.notRepo")}</div>;
+  const handleInitialized = useCallback((next: GitStatusResponse) => {
+    setStatus(next);
+    onStatusChange?.(next);
+    setHistoryKey((k) => k + 1);
+  }, [onStatusChange]);
+
+  if (!cwd) return <GitPanelEmpty kind="no-cwd" cwd={null} />;
+  if (loading && !status) return <GitPanelEmpty kind="loading" cwd={cwd} />;
+  if (status && !status.isGitRepository) {
+    return <GitPanelEmpty kind="not-repo" cwd={cwd} onInitialized={handleInitialized} />;
+  }
 
   const changeCount = (status?.stagedCount ?? 0) + (status?.unstagedCount ?? 0) + (status?.conflictCount ?? 0);
   const insertions = status?.insertions ?? 0;
@@ -1202,7 +1256,7 @@ export function GitPanel({
       {(
         <div className="git-panel-body" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
           {allFiles.length === 0 ? (
-            <div style={{ ...emptyStyle, height: 80 }}>{t("git.clean")}</div>
+            <div className="git-panel-clean">{t("git.clean")}</div>
           ) : (
             allFiles.map((file) => (
               <FileRow
@@ -1230,20 +1284,23 @@ export function GitPanel({
           )}
         </div>
       )}
+      <GitHistory cwd={cwd} historyKey={historyKey} />
+      <GitPublishDialog
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        cwd={cwd}
+        defaultName={publishDefaultName}
+        onPublished={handlePublished}
+      />
+      <GithubConnectModal
+        open={signInOpen}
+        onClose={() => setSignInOpen(false)}
+        onConnected={handleSignedIn}
+      />
     </div>
   );
 }
 
-const emptyStyle: CSSProperties = {
-  height: "100%",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "var(--text-dim)",
-  fontSize: 12,
-  padding: 16,
-  textAlign: "center",
-};
 
 function FileRow({
   file,

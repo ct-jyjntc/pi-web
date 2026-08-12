@@ -27,14 +27,30 @@ function truncate(s: string, max = MAX_OUT): string {
 export async function runGh(
   args: string[],
   cwd: string,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; env?: NodeJS.ProcessEnv },
 ): Promise<{ stdout: string; stderr: string; code: number }> {
+  // A connected Pi Web GitHub account becomes the effective identity for gh
+  // features (pr:// reads, linked PR, repo view) without touching the user's
+  // own `gh auth login` in hosts.yml. GH_TOKEN from the environment wins.
+  const accountEnv = options?.env ?? process.env;
+  let env = accountEnv;
+  if (!accountEnv.GH_TOKEN && !accountEnv.GITHUB_TOKEN) {
+    try {
+      const { getGithubAccount } = await import("./accounts-store");
+      const account = getGithubAccount();
+      if (account) {
+        env = { ...accountEnv, GH_TOKEN: account.token };
+      }
+    } catch {
+      // accounts store unreadable — fall back to the caller's env
+    }
+  }
   try {
     const { stdout, stderr } = await execFileAsync("gh", args, {
       cwd,
       maxBuffer: 8 * 1024 * 1024,
       timeout: options?.timeoutMs ?? 60_000,
-      env: process.env,
+      env,
       encoding: "utf8",
     });
     return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0 };

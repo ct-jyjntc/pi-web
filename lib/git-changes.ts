@@ -17,8 +17,8 @@ import { gitProcessEnv, resolveGitBinary } from "./resolve-git";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
-const GIT_NETWORK_TIMEOUT_MS = 120_000;
 const GIT_STATUS_MAX_BUFFER = 8 * 1024 * 1024;
+
 const BRANCH_HEADER_PREFIX = "## ";
 const DETACHED_HEADER = "HEAD (no branch)";
 const NEWLINE_BYTE = 0x0a;
@@ -39,7 +39,7 @@ type GitStatusSnapshot = {
   head: GitHeadInfo;
 };
 
-async function git(
+export async function runGit(
   cwd: string,
   args: string[],
   maxBuffer = GIT_STATUS_MAX_BUFFER,
@@ -58,6 +58,19 @@ async function git(
     const stdout = typeof err.stdout === "string" ? err.stdout : err.stdout?.toString("utf8") ?? "";
     throw new Error((stderr || stdout || err.message || "git failed").trim());
   }
+}
+
+/** Network-capable git runs (push/pull) need more headroom than local reads. */
+export const GIT_NETWORK_TIMEOUT_MS = 120_000;
+
+// Kept as a thin alias so existing internal call sites stay untouched.
+async function git(
+  cwd: string,
+  args: string[],
+  maxBuffer = GIT_STATUS_MAX_BUFFER,
+  timeout = GIT_TIMEOUT_MS,
+): Promise<string> {
+  return runGit(cwd, args, maxBuffer, timeout);
 }
 
 // ============================================================================
@@ -738,19 +751,32 @@ export async function discardGitFiles(cwd: string, filePaths: string[]): Promise
   return getGitStatus(cwd);
 }
 
-export async function pushGit(cwd: string): Promise<{ message: string; status: GitStatusResponse }> {
+export async function pushGit(cwd: string): Promise<{
+  message: string;
+  status: GitStatusResponse;
+  /** True when the repo has no remotes at all — the UI then offers the
+   *  VSCode-style publish flow (create remote → private/public → push). */
+  needRemote?: boolean;
+}> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) throw new Error("Not a git repository");
   // Push only moves refs, which the index/HEAD fingerprint cannot see — the
   // ahead/behind counters would keep the pre-push numbers without this.
   const run = async (args: string[]): Promise<string> => {
     try {
-      return await git(repositoryRoot, args, GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
+      return await runGit(repositoryRoot, args, GIT_STATUS_MAX_BUFFER, GIT_NETWORK_TIMEOUT_MS);
     } finally {
       invalidateGitStatusCache();
     }
   };
   try {
+    const remotes = (await runGit(repositoryRoot, ["remote"]))
+      .split("\n").map((r) => r.trim()).filter(Boolean);
+    if (remotes.length === 0) {
+      // No remote library at all — nothing to push to. The caller decides
+      // whether the user is signed in and shows the publish dialog.
+      return { message: "", status: await getGitStatus(cwd), needRemote: true };
+    }
     const out = await run(["push"]);
     return {
       message: (out || "Push completed").trim() || "Push completed",

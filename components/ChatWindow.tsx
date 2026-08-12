@@ -913,6 +913,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           addNotice({ type: "error", message: result.error ?? "Failed to switch mode" });
         }
       }}
+      soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}

@@ -30,6 +30,7 @@ export type SettingsSection =
   | "permissions"
   | "usage"
   | "appearance"
+  | "accounts"
   | "models"
   | "skills"
   | "mcp"
@@ -42,6 +43,7 @@ import {
   sectionTitle,
   type LspServerRow,
 } from "./settings/settings-ui";
+import { AccountsSettingsPanel } from "./settings/AccountsSettingsPanel";
 import { ToolsSettingsPanel } from "./settings/ToolsSettingsPanel";
 import { AgentModelsSettingsPanel } from "./settings/AgentModelsSettingsPanel";
 import { ModelThinkingControl } from "./settings/ModelThinkingControl";
@@ -477,6 +479,7 @@ export function SettingsPage({
     {
       label: t("settings.navGroupIntegrations"),
       items: [
+        { id: "accounts", label: t("settings.accounts") },
         { id: "models", label: t("settings.models") },
         {
           id: "skills",
@@ -1123,6 +1126,11 @@ export function SettingsPage({
           )}
           {section === "permissions" && <PermissionsSettingsPanel />}
           {section === "usage" && <UsagePanel />}
+          {section === "accounts" && (
+            <div className="settings-page-general">
+              <AccountsSettingsPanel />
+            </div>
+          )}
           {section === "appearance" && appearancePanel}
           {section === "models" && (
             <ModelsConfig

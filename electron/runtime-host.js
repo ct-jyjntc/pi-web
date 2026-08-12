@@ -64,6 +64,8 @@ const LIGHT_PREFIXES = [
   "/api/permissions",
   "/api/mcp",
   "/api/lsp",
+  // Accounts are pure fs + fetch (device-code OAuth, no SDK):
+  "/api/accounts",
   // models-config subpaths verified free of ModelRuntime / SDK:
   "/api/models-config/free-models",
   "/api/models-config/disabled-models",

@@ -91,6 +91,33 @@ export function readBuiltinProviderModelsCache(
   };
 }
 
+function asPositiveWindow(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * Cheap contextWindow lookup for cold-open estimates.
+ * Does not apply disabled flags and does not start ModelRuntime.
+ */
+export function resolveCachedModelContextWindow(
+  provider: string,
+  modelId: string,
+  options?: { path?: string },
+): number | null {
+  const id = provider.trim();
+  const mid = modelId.trim();
+  if (!id || !mid) return null;
+  const file = readFile(cachePath(options?.path));
+  const entry = file.providers[id]
+    ?? Object.entries(file.providers).find(([key]) => key.toLowerCase() === id.toLowerCase())?.[1];
+  if (!entry?.models?.length) return null;
+  const found = entry.models.find((model) =>
+    model.id === mid
+    || (typeof model.id === "string" && model.id.toLowerCase() === mid.toLowerCase())
+  );
+  return asPositiveWindow(found?.contextWindow);
+}
+
 /** Persist a provider catalog after a successful live refresh (heavy path). */
 export function writeBuiltinProviderModelsCache(
   provider: string,
