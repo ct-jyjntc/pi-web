@@ -3873,6 +3873,32 @@ textarea.input-base:focus-visible {
   line-height: 1.45;
   color: var(--text-muted);
 }
+
+.settings-lsp-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-lsp-path,
+.settings-lsp-tip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.settings-lsp-missing {
+  font-size: 11px;
+}
+.settings-lsp-install {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
 /* Strip segmented control — same grammar as topbar chrome clusters */
 .settings-segmented {
   display: inline-flex;

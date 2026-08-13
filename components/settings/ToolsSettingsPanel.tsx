@@ -1,3 +1,6 @@
+/**
+ * Settings → Tools. One card per LSP server; install command stays a code row.
+ */
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
@@ -50,14 +53,27 @@ export function ToolsSettingsPanel({
         {(lspServers ?? []).map((s) => (
           <SettingsRow
             key={s.id}
+            stacked={!s.available}
             title={s.label}
-            description={[
-              s.available ? (s.resolvedPath ?? s.command) : s.command,
-              s.languages.join(", "),
-              !s.available ? t("settings.lspMissing") : null,
-              !s.available ? s.install : null,
-              !s.available ? s.installTip : null,
-            ].filter(Boolean).join(" · ")}
+            description={(
+              <div className="settings-lsp-meta">
+                <div className="settings-lsp-path">
+                  {s.available ? (s.resolvedPath ?? s.command) : s.command}
+                </div>
+                {s.languages.length > 0 && (
+                  <div>{s.languages.join(", ")}</div>
+                )}
+                {!s.available && (
+                  <div className="settings-lsp-missing">{t("settings.lspMissing")}</div>
+                )}
+                {!s.available && (
+                  <code className="settings-lsp-install">{s.install}</code>
+                )}
+                {!s.available && s.installTip && (
+                  <div className="settings-lsp-tip">{s.installTip}</div>
+                )}
+              </div>
+            )}
             action={
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span

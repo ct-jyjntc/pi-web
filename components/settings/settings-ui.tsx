@@ -98,7 +98,7 @@ export function SettingsRow({
   onClick,
 }: {
   title: ReactNode;
-  description?: string;
+  description?: ReactNode;
   action: ReactNode;
   stacked?: boolean;
   active?: boolean;
@@ -180,5 +180,4 @@ export function SettingsPageHeading({
 export function sectionTitle(text: string) {
   return <div className="settings-section-title">{text}</div>;
 }
-
 
