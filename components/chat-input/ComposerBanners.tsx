@@ -1,38 +1,74 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RefreshCw, Undo2 } from "lucide-react";
 import { Icon } from "../Icon";
 import { useLocale } from "@/hooks/useLocale";
+import type { QueuedMessages } from "@/hooks/useAgentSession";
 
 export function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
   const { t } = useLocale();
   return (
-    <div
-      title={text}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "3px 10px",
-        fontSize: 12,
-        color: "var(--text-muted)",
-        minWidth: 0,
-      }}
-    >
-      <span
-        style={{
-          flexShrink: 0,
-          fontSize: 10,
-          fontFamily: "var(--font-mono)",
-          padding: "1px 7px",
-          borderRadius: "var(--radius-pill)",
-          border: `1px solid ${kind === "steer" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "var(--border)"}`,
-          color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
-        }}
-      >
+    <div className="composer-queue-row" title={text}>
+      <span className={`composer-queue-badge${kind === "steer" ? " is-steer" : ""}`}>
         {kind === "steer" ? t("chat.badgeSteer") : t("chat.badgeFollowUp")}
       </span>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
+    </div>
+  );
+}
+
+export function ComposerQueueBanner({
+  queued,
+  onRecall,
+}: {
+  queued?: QueuedMessages | null;
+  onRecall?: () => void;
+}) {
+  const { t } = useLocale();
+  const n = (queued?.steering.length ?? 0) + (queued?.followUp.length ?? 0);
+  if (n === 0) return null;
+  return (
+    <div className="composer-queue">
+      <div className="composer-queue-head">
+        <span className="composer-queue-label">{t("chat.queued", { n })}</span>
+        {onRecall && (
+          <button
+            type="button"
+            className="chrome-btn"
+            onClick={onRecall}
+            title={t("chat.recallQueueTitle")}
+          >
+            <Icon icon={Undo2} size={13} strokeWidth={2} />
+            <span>{t("chat.recallQueue")}</span>
+          </button>
+        )}
+      </div>
+      {queued?.steering.map((text, i) => (
+        <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
+      ))}
+      {queued?.followUp.map((text, i) => (
+        <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
+      ))}
+    </div>
+  );
+}
+
+export function ComposerRetryBanner({
+  retryInfo,
+}: {
+  retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
+}) {
+  const { t } = useLocale();
+  if (!retryInfo) return null;
+  return (
+    <div className="composer-retry" role="status">
+      <Icon icon={RefreshCw} size={11} strokeWidth={2} style={{ flexShrink: 0 }} />
+      <span>
+        {t("chat.retrying", { n: retryInfo.attempt, m: retryInfo.maxAttempts })}
+        {retryInfo.errorMessage ? (
+          <span className="composer-retry-detail"> — {retryInfo.errorMessage}</span>
+        ) : null}
+      </span>
     </div>
   );
 }
@@ -90,5 +126,4 @@ export function ModelErrorBanner({ error }: { error?: string | null }) {
     </div>
   );
 }
-
 

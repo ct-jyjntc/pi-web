@@ -73,6 +73,7 @@ function fmtShare(share: number): string {
 /** Module-level SWR cache so remounting Usage (leaving & re-entering settings) is instant. */
 const usageClientCache = new Map<number, { data: UsageData; at: number }>();
 const USAGE_CLIENT_TTL_MS = 5 * 60 * 1000;
+const usageListeners = new Set<() => void>();
 
 export function prefetchUsage(days: number = 30): void {
   const hit = usageClientCache.get(days);
@@ -84,6 +85,22 @@ export function prefetchUsage(days: number = 30): void {
       usageClientCache.set(days, { data: json, at: Date.now() });
     })
     .catch(() => {});
+}
+
+/** Drop the client cache so the next load (or a mounted panel) refetches. */
+export function invalidateUsage(): void {
+  usageClientCache.clear();
+  if (usageListeners.size === 0) {
+    void apiFetch("/api/usage?days=30&refresh=1")
+      .then(async (res) => {
+        const json = await res.json() as UsageData & { error?: string };
+        if (!res.ok || json.error) return;
+        usageClientCache.set(30, { data: json, at: Date.now() });
+      })
+      .catch(() => {});
+    return;
+  }
+  for (const listener of usageListeners) listener();
 }
 
 export function UsagePanel() {
@@ -140,6 +157,16 @@ export function UsagePanel() {
 
   useEffect(() => {
     void load(days, false);
+  }, [days, load]);
+
+  useEffect(() => {
+    const onInvalidate = () => {
+      void load(days, true);
+    };
+    usageListeners.add(onInvalidate);
+    return () => {
+      usageListeners.delete(onInvalidate);
+    };
   }, [days, load]);
 
   // Top-N series + "other" bucket for stacked charts.
@@ -229,15 +256,6 @@ export function UsagePanel() {
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              className="btn-ghost btn-compact"
-              disabled={refreshing || (loading && !data)}
-              onClick={() => void load(days, true)}
-              title={t("common.refresh")}
-            >
-              {t("common.refresh")}
-            </button>
           </div>
         }
       />

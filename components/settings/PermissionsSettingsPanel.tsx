@@ -218,7 +218,7 @@ export function PermissionsSettingsPanel() {
         <div className="settings-card-empty">{t("common.loading")}</div>
       ) : (
         <>
-          <SettingsGroup title={t("settings.permYolo")}>
+          <SettingsGroup>
             <SettingsRow
               title={t("settings.permYolo")}
               description={t("settings.permYoloHint")}

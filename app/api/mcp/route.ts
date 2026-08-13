@@ -58,6 +58,8 @@ export async function POST(req: NextRequest) {
       args?: string[] | string;
       url?: string;
       env?: Record<string, string>;
+      headers?: Record<string, string>;
+      cwd?: string;
       disabled?: boolean;
     };
     const name = body.name?.trim() ?? "";
@@ -71,7 +73,14 @@ export async function POST(req: NextRequest) {
     if (args?.length) entry.args = args;
     if (body.url?.trim()) entry.url = body.url.trim();
     if (body.env && typeof body.env === "object") entry.env = body.env;
+    if (body.headers && typeof body.headers === "object") entry.headers = body.headers;
+    if (typeof body.cwd === "string") entry.cwd = body.cwd.trim();
     if (body.disabled === true) entry.disabled = true;
+    if (entry.url && !entry.command) {
+      delete entry.command;
+      delete entry.args;
+    }
+    if (entry.command && !entry.url) delete entry.url;
     const server = upsertAgentMcpServer(name, entry);
     return NextResponse.json({ server });
   } catch (error) {

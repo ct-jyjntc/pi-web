@@ -40,6 +40,7 @@ import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@/lib/app-update-store";
 import type { ProjectTrustStatus, SkillInfo } from "@/lib/api-types";
 import { setDraft } from "@/lib/draft-store";
+import { invalidateUsage } from "./UsagePanel";
 import { formatShortcut, modKeyLabel } from "@/lib/keyboard";
 import { Icon } from "./Icon";
 
@@ -561,6 +562,7 @@ export function AppShell() {
     timers.sessions = setTimeout(() => {
       timers.sessions = null;
       setRefreshKey((k) => k + 1);
+      invalidateUsage();
     }, SESSION_REFRESH_DEBOUNCE_MS);
     // The file tree / git status must show what the agent just wrote, so this
     // only coalesces true bursts instead of adding perceptible latency.

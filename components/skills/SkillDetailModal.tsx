@@ -1,11 +1,11 @@
 /**
- * Overlay for one installed skill: body preview, enable toggle, Try now.
+ * Centered skill detail — same CenteredDialog / menu-card chrome as YOLO and inspect.
  */
 
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageSquare, X } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { apiFetch } from "@/lib/api-transport";
 import type { SkillInfo as Skill, SkillUpdateResult } from "@/lib/api-types";
@@ -13,7 +13,9 @@ import { displaySkillName } from "@/lib/skill-invoke";
 import { Icon } from "../Icon";
 import { MarkdownBody } from "../MarkdownBody";
 import { SettingsToggle } from "../SettingsToggle";
+import { CenteredDialog } from "../CenteredDialog";
 import { SkillIcon } from "./SkillIcon";
+import { previewSkillMarkdown } from "./skill-helpers";
 
 export function SkillDetailModal({
   skill,
@@ -68,108 +70,69 @@ export function SkillDetailModal({
     };
   }, [skill.filePath]);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  const preview = skillBody != null ? previewSkillMarkdown(skillBody) : "";
 
   return (
-    <div
-      className="skill-detail-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="skill-detail-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="skill-detail-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="skill-detail-top">
-          <SkillIcon name={skill.name} size={40} />
-          <div className="skill-detail-top-actions">
-            <SettingsToggle
-              enabled={enabled}
-              loading={toggling}
-              title={
-                enabled
-                  ? t("skills.visibleToModel")
-                  : t("skills.hiddenFromModel")
-              }
-              onChange={() => onToggle(skill)}
-            />
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={onClose}
-              aria-label={t("common.close")}
-            >
-              <Icon icon={X} size={14} strokeWidth={1.8} />
-            </button>
+    <CenteredDialog width={520} zIndex={1300} labelledBy="skill-detail-title" onClose={onClose}>
+      <div style={{ padding: "14px 14px 10px" }}>
+        <div className="skill-detail-head">
+          <SkillIcon name={skill.name} size={22} variant="circle" />
+          <div id="skill-detail-title" className="skill-detail-title">
+            {displaySkillName(skill.name)}
           </div>
+          <SettingsToggle
+            enabled={enabled}
+            loading={toggling}
+            title={
+              enabled
+                ? t("skills.visibleToModel")
+                : t("skills.hiddenFromModel")
+            }
+            onChange={() => onToggle(skill)}
+          />
         </div>
-
-        <div className="skill-detail-heading">
-          <h2 id="skill-detail-title">{displaySkillName(skill.name)}</h2>
-          <span className="skill-detail-badge">{t("skills.badge")}</span>
+        <p className="skill-detail-lede">{skill.description}</p>
+        <div className="skill-detail-trigger">
+          {t("skills.triggerName", { name: skill.name })}
         </div>
-        <p className="skill-detail-lede">
-          {skill.description}
-          <span className="skill-detail-trigger">
-            {t("skills.triggerName", { name: skill.name })}
-          </span>
-        </p>
         {saveError && <div className="skill-detail-error">{saveError}</div>}
-        {updateStatus?.state === "update-available" && (
-          <div className="skill-detail-version">
+        {updateError && <div className="skill-detail-error">{updateError}</div>}
+      </div>
+
+      <div className="ext-dialog-scroll skill-detail-md">
+        {bodyLoading && <div className="skill-detail-muted">{t("common.loading")}</div>}
+        {bodyError && <div className="skill-detail-error">{bodyError}</div>}
+        {!bodyLoading && !bodyError && skillBody !== null && (
+          preview
+            ? <MarkdownBody>{preview}</MarkdownBody>
+            : <div className="skill-detail-muted">{t("skills.skillMdEmpty")}</div>
+        )}
+      </div>
+
+      <div className="ext-dialog-footer">
+        <div style={{ height: 1, background: "var(--border)" }} />
+        <div style={{ padding: 4 }}>
+          {onTryNow && (
+            <button type="button" className="menu-row" onClick={() => onTryNow(skill)}>
+              <Icon icon={MessageSquare} size={13} strokeWidth={2} />
+              {t("skills.tryNow")}
+            </button>
+          )}
+          {updateStatus?.state === "update-available" && (
             <button
               type="button"
-              className="skill-catalog-text-btn"
+              className="menu-row"
               onClick={onUpdate}
               disabled={updating || checkingUpdate}
             >
               {updating ? t("modal.updating") : t("modal.update")}
             </button>
-          </div>
-        )}
-        {updateError && <div className="skill-detail-error">{updateError}</div>}
-
-        <div className="skill-detail-body">
-          {bodyLoading && <div className="skill-detail-muted">{t("common.loading")}</div>}
-          {bodyError && <div className="skill-detail-error">{bodyError}</div>}
-          {!bodyLoading && !bodyError && skillBody !== null && (
-            skillBody.trim()
-              ? (
-                <div className="settings-skill-body skill-detail-markdown">
-                  <MarkdownBody>{skillBody}</MarkdownBody>
-                </div>
-              )
-              : <div className="skill-detail-muted">{t("skills.skillMdEmpty")}</div>
           )}
+          <button type="button" className="menu-row" onClick={onClose}>
+            {t("common.cancel")}
+          </button>
         </div>
-
-        {onTryNow && (
-          <div className="skill-detail-footer">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => onTryNow(skill)}
-            >
-              <Icon icon={MessageSquare} size={13} strokeWidth={2} />
-              {t("skills.tryNow")}
-            </button>
-          </div>
-        )}
       </div>
-    </div>
+    </CenteredDialog>
   );
 }

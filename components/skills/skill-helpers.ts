@@ -26,6 +26,11 @@ export function shortVersion(version?: string): string {
   return version ? version.slice(0, 8) : "unknown";
 }
 
+/** Drop a leading H1 so the detail dialog does not repeat the skill title. */
+export function previewSkillMarkdown(body: string): string {
+  return body.replace(/^\uFEFF?\s*#\s+[^\n]+\n+/, "").trim();
+}
+
 export function displayPath(skill: Skill, cwd: string): string {
   const path = skill.filePath;
   if (skillScope(skill) === "project" && path.startsWith(cwd)) {

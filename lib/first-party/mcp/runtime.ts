@@ -174,7 +174,7 @@ export class NativeMcpRuntime {
           command: config.command!,
           args: Array.isArray(config.args) ? config.args : [],
           env: { ...getDefaultEnvironment(), ...(config.env ?? {}) },
-          cwd: this.cwd,
+          cwd: typeof config.cwd === "string" && config.cwd.trim() ? config.cwd.trim() : this.cwd,
           stderr: "ignore",
         });
     const client = new Client({ name: "pi-web", version: "1.0.0" });

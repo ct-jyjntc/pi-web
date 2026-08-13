@@ -26,7 +26,6 @@ export type AgentModelsSettingsPanelProps = {
   saveModelThinking: (key: "titleModel" | "commitModel", level: ThinkingLevelPref | null) => void | Promise<void>;
   saveRoleModel: (role: AgentModelRole, value: string) => void | Promise<void>;
   saveRoleThinking: (role: AgentModelRole, level: ThinkingLevelPref | null) => void | Promise<void>;
-  setSection: (section: "models") => void;
   saveErrorBlock: ReactNode;
 };
 
@@ -48,7 +47,6 @@ export function AgentModelsSettingsPanel({
   saveModelThinking,
   saveRoleModel,
   saveRoleThinking,
-  setSection,
   saveErrorBlock,
 }: AgentModelsSettingsPanelProps) {
   const { t } = useLocale();
@@ -139,15 +137,6 @@ export function AgentModelsSettingsPanel({
             </div>
           }
         />
-        <div className="settings-row" style={{ padding: "10px 14px" }}>
-          <button
-            type="button"
-            className="btn-ghost btn-compact"
-            onClick={() => setSection("models")}
-          >
-            {t("settings.manageProviders")}
-          </button>
-        </div>
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.utilityModels")}>

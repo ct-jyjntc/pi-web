@@ -8,7 +8,6 @@ import {
   Folder,
   GitBranch,
   Plus,
-  RefreshCw,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -134,8 +133,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   });
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
-  const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
-  const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
@@ -143,8 +140,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   // running state; late /api/sessions responses must not overwrite it.
   const runningPollAuthoritativeRef = useRef(false);
   const RUNNING_SESSIONS_POLL_MS = 2500;
-  const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
   /** User-deleted ids kept out of list applies until DELETE settles (or fail restores). */
   const pendingDeletedIdsRef = useRef<Set<string>>(new Set());
@@ -188,11 +183,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         return next.size === prev.size ? prev : next;
       });
       setError(null);
-      if (!showLoading) {
-        setSessionRefreshDone(true);
-        if (sessionRefreshTimerRef.current) clearTimeout(sessionRefreshTimerRef.current);
-        sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
-      }
     } catch (e) {
       if (gen !== loadSessionsGenRef.current) return;
       setError(String(e));
@@ -312,8 +302,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
       });
     }
 
-    // Frontend left that workspace: ChatWindow is unmounted, so AppShell/sidebar
-    // owns completion notify. Current-session end still fires from ChatWindow.
     if (completedInBackground.length > 0 && previous.size > 0) {
       const prefs = notifyPrefsRef.current;
       if (prefs.desktop) {
@@ -327,10 +315,12 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         });
       }
       if (prefs.notifSound) playDoneSoundRef.current();
+      void loadSessions(false, { force: true });
+      onExplorerRefresh?.();
     }
 
     previousRunningSessionIdsRef.current = runningSessionIds;
-  }, [runningSessionIds, selectedSessionId, allSessions, homeDir]);
+  }, [runningSessionIds, selectedSessionId, allSessions, homeDir, loadSessions, onExplorerRefresh]);
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -744,7 +734,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         className="sidebar-desktop-header"
         style={{ flexShrink: 0 }}
       >
-        {/* Row 1: project path + New + Refresh — height matches app top bar on macOS */}
+        {/* Row 1: project path + New — height matches app top bar on macOS */}
         {/* position:relative on the full row so the project menu spans the whole sidebar (like worktree). */}
         <div
           ref={dropdownRef}
@@ -893,32 +883,16 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
 
           <button
             type="button"
-            className="sidebar-strip-btn sidebar-strip-action titlebar-no-drag"
+            className="sidebar-strip-btn sidebar-strip-icon titlebar-no-drag"
             onClick={() => {
               setDropdownOpen(false);
               handleNewSession();
             }}
             disabled={!selectedCwd}
             title={selectedCwd ? t("sidebar.newSessionIn", { cwd: selectedCwd }) : t("sidebar.selectProjectFirst")}
+            aria-label={t("common.new")}
           >
             <Icon icon={Plus} size={12} strokeWidth={2} />
-            {t("common.new")}
-          </button>
-          <button
-            type="button"
-            className={`sidebar-strip-btn sidebar-strip-icon titlebar-no-drag${sessionRefreshDone ? " is-success" : ""}`}
-            onClick={() => {
-              setDropdownOpen(false);
-              void loadSessions(false, { force: true });
-            }}
-            title={t("common.refresh")}
-            aria-label={t("common.refresh")}
-          >
-            {sessionRefreshDone ? (
-              <Icon icon={Check} size={15} strokeWidth={2.5} />
-            ) : (
-              <Icon icon={RefreshCw} size={15} strokeWidth={1.8} />
-            )}
           </button>
         </div>
 
@@ -1254,25 +1228,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                 <Icon icon={Upload} size={13} strokeWidth={1.8} />
               </button>
             )}
-            <button
-              type="button"
-              className={`sidebar-strip-btn sidebar-strip-icon${explorerRefreshDone ? " is-success" : ""}`}
-              onClick={() => {
-                if (onExplorerRefresh) onExplorerRefresh();
-                else setExplorerKey((k) => k + 1);
-                setExplorerRefreshDone(true);
-                if (explorerRefreshTimerRef.current) clearTimeout(explorerRefreshTimerRef.current);
-                explorerRefreshTimerRef.current = setTimeout(() => setExplorerRefreshDone(false), 2000);
-              }}
-              title={t("sidebar.refreshExplorer")}
-              aria-label={t("sidebar.refreshExplorer")}
-            >
-              {explorerRefreshDone ? (
-                <Icon icon={Check} size={13} strokeWidth={2.5} />
-              ) : (
-                <Icon icon={RefreshCw} size={13} strokeWidth={1.8} />
-              )}
-            </button>
           </div>
           {explorerOpen && (
             <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>

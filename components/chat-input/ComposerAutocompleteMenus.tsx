@@ -1,6 +1,6 @@
 "use client";
 
-import type { MutableRefObject, RefObject } from "react";
+import { useEffect, type MutableRefObject, type RefObject } from "react";
 import { ComposerPalette } from "../ComposerPalette";
 import { FolderIcon, getFileIcon } from "../FileIcons";
 import { useLocale } from "@/hooks/useLocale";
@@ -44,6 +44,7 @@ export type ComposerAutocompleteMenusProps = {
   cwd?: string | null;
   serverResultInUse: boolean;
   needsServerSearch: boolean;
+  onDismissPalettes?: () => void;
 };
 
 export function ComposerAutocompleteMenus(props: ComposerAutocompleteMenusProps) {
@@ -56,7 +57,19 @@ export function ComposerAutocompleteMenus(props: ComposerAutocompleteMenusProps)
     applySlashCommand, slashItemRefs,
     atMenuOpen, atQuery, atMatches, atActiveIndex, setAtActiveIndex, applyAtCompletion,
     atItemRefs, fileIndexLoading, fileIndex, cwd, serverResultInUse, needsServerSearch,
+    onDismissPalettes,
   } = props;
+
+  useEffect(() => {
+    if (!onDismissPalettes || (!slashMenuOpen && !atMenuOpen)) return;
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".composer-shell")) return;
+      onDismissPalettes();
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [atMenuOpen, onDismissPalettes, slashMenuOpen]);
 
   return (
     <>

@@ -16,9 +16,7 @@ import {
   ArrowUp,
   ArrowUpToLine,
   Plus,
-  RefreshCw,
   Square,
-  Undo2,
   X,
 } from "lucide-react";
 import { Icon } from "./Icon";
@@ -32,9 +30,10 @@ import { formatSkillPrompt } from "@/lib/skill-invoke";
 import { ComposerSkillChip } from "./chat-input/ComposerSkillChip";
 import { ContextUsageRing } from "./chat-input/ContextUsageRing";
 import {
+  ComposerQueueBanner,
+  ComposerRetryBanner,
   ModelErrorBanner,
   ModelScopeWarningBanner,
-  QueuedMessageRow,
 } from "./chat-input/ComposerBanners";
 import { ComposerAutocompleteMenus } from "./chat-input/ComposerAutocompleteMenus";
 import { ComposerModelChip } from "./chat-input/ComposerModelChip";
@@ -1055,84 +1054,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
-        {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
-        {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
-          <div style={{
-            marginBottom: 8,
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--bg-panel)",
-            padding: "5px 0",
-          }}>
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-              padding: "2px 8px 4px 10px",
-            }}>
-              <span style={{
-                fontSize: 10,
-                fontFamily: "var(--font-mono)",
-                color: "var(--text-dim)",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}>
-                {t("chat.queued", { n: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) })}
-              </span>
-              {onRecallQueue && (
-                <button
-                  onClick={onRecallQueue}
-                  title={t("chat.recallQueueTitle")}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "4px 12px",
-                    fontSize: 12,
-                    color: "var(--text)",
-                    background: "transparent",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius-md)",
-                    cursor: "pointer",
-                    transition: "background 0.12s, border-color 0.12s",
-                    whiteSpace: "nowrap",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 45%, var(--border))";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.borderColor = "var(--border)";
-                  }}
-                >
-                  <Icon icon={Undo2} size={13} strokeWidth={2} />
-                  {t("chat.recallQueue")}
-                </button>
-              )}
-            </div>
-            {queuedMessages?.steering.map((text, i) => (
-              <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
-            ))}
-            {queuedMessages?.followUp.map((text, i) => (
-              <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
-            ))}
-          </div>
-        )}
-        {/* Retry banner */}
-        {retryInfo && (
-          <div style={{
-            marginBottom: 8, padding: "5px 10px",
-            background: "color-mix(in oklab, var(--text-muted) 10%, transparent)",
-            border: "1px solid color-mix(in oklab, var(--text-muted) 28%, var(--border))",
-            borderRadius: "var(--radius-sm)", fontSize: 12, color: "var(--text)",
-            display: "flex", alignItems: "center", gap: 6,
-          }}>
-            <Icon icon={RefreshCw} size={11} strokeWidth={2} style={{ flexShrink: 0 }} />
-            {t("chat.retrying", { n: retryInfo.attempt, m: retryInfo.maxAttempts })}{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
-          </div>
-        )}
         {/* Image previews */}
         {attachedImages.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
@@ -1194,11 +1115,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             cwd={cwd}
             serverResultInUse={serverResultInUse}
             needsServerSearch={needsServerSearch}
+            onDismissPalettes={() => {
+              setSlashMenuOpen(false);
+              setAtMenuOpen(false);
+            }}
           />
           <div
             className={`composer-shell${isStreaming && (onSteer || onFollowUp) ? " is-streaming" : ""}`}
             style={{ borderRadius: "var(--radius-xl)" }}
           >
+          <ComposerQueueBanner queued={queuedMessages} onRecall={onRecallQueue} />
+          <ComposerRetryBanner retryInfo={retryInfo} />
           {attachedSkill && (
             <ComposerSkillChip
               name={attachedSkill.name}

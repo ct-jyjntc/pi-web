@@ -16,15 +16,17 @@ function nameMix(name: string): number {
 export function SkillIcon({
   name,
   size = 36,
+  variant = "tile",
 }: {
   name: string;
   size?: number;
+  variant?: "tile" | "circle";
 }) {
   const mix = nameMix(name);
   const iconSize = size < 32 ? 13 : 16;
   return (
     <span
-      className="skill-icon"
+      className={`skill-icon${variant === "circle" ? " is-circle" : ""}`}
       style={{
         width: size,
         height: size,

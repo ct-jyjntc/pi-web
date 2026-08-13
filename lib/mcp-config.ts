@@ -175,9 +175,21 @@ export function upsertAgentMcpServer(name: string, entry: McpServerEntry): McpSe
   const file = readMcpConfigFile(path);
   const prev = file.mcpServers[trimmed] ?? {};
   const nextEntry: McpServerEntry = { ...prev, ...entry };
-  // Normalize empty args
   if (Array.isArray(nextEntry.args)) {
     nextEntry.args = nextEntry.args.map(String).filter((a) => a.length > 0);
+  }
+  if (entry.url && !entry.command) {
+    delete nextEntry.command;
+    delete nextEntry.args;
+    delete nextEntry.cwd;
+  }
+  if (entry.command && !entry.url) delete nextEntry.url;
+  if (typeof entry.cwd === "string" && !entry.cwd.trim()) delete nextEntry.cwd;
+  if (entry.env && typeof entry.env === "object" && Object.keys(entry.env).length === 0) {
+    delete nextEntry.env;
+  }
+  if (entry.headers && typeof entry.headers === "object" && Object.keys(entry.headers).length === 0) {
+    delete nextEntry.headers;
   }
   if (!nextEntry.command && !nextEntry.url) {
     throw Object.assign(new Error("Provide a command (stdio) or url (HTTP)"), { status: 400 });

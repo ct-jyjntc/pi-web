@@ -6,10 +6,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ModelsConfig } from "./ModelsConfig";
-import { SkillsConfig } from "./SkillsConfig";
 import type { SkillInfo } from "@/lib/api-types";
-import { McpConfig } from "./McpConfig";
 import { AgentBehaviorSettings } from "./settings/AgentBehaviorSettings";
+import { PluginsSettings } from "./settings/PluginsSettings";
 import { AdvisorSettingsPanel } from "./settings/AdvisorSettingsPanel";
 import { GeneralSettingsPanel } from "./settings/GeneralSettingsPanel";
 import { UsagePanel, prefetchUsage } from "./UsagePanel";
@@ -35,6 +34,7 @@ export type SettingsSection =
   | "appearance"
   | "accounts"
   | "models"
+  | "plugins"
   | "skills"
   | "mcp"
   | "tools";
@@ -76,7 +76,9 @@ export function SettingsPage({
   const appearance = useAppearance();
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
-  const [section, setSection] = useState<SettingsSection>(initialSection);
+  const [section, setSection] = useState<SettingsSection>(
+    initialSection === "skills" || initialSection === "mcp" ? "plugins" : initialSection,
+  );
   const [lspServers, setLspServers] = useState<LspServerRow[] | null>(null);
   const [lspMeta, setLspMeta] = useState<{ availableCount: number; total: number; builtinNote?: string } | null>(null);
   const [lspLoading, setLspLoading] = useState(false);
@@ -477,13 +479,10 @@ export function SettingsPage({
         { id: "accounts", label: t("settings.accounts") },
         { id: "models", label: t("settings.models") },
         {
-          id: "skills",
-          label: t("settings.skills"),
-          // Keep selectable so users see the empty-state CTA instead of a dead nav row.
+          id: "plugins",
+          label: t("settings.plugins"),
           title: skillsDisabled ? t("settings.skillsNeedCwd") : undefined,
         },
-        { id: "mcp", label: t("settings.mcp") },
-        // Content is LSP health only — label matches the panel, not generic "Tools".
         { id: "tools", label: t("settings.lsp") },
       ],
     },
@@ -573,7 +572,6 @@ export function SettingsPage({
       saveModelThinking={saveModelThinking}
       saveRoleModel={saveRoleModel}
       saveRoleThinking={saveRoleThinking}
-      setSection={setSection}
       saveErrorBlock={saveErrorBlock}
     />
   );
@@ -685,8 +683,8 @@ export function SettingsPage({
         background: "var(--bg-panel)",
         padding: "8px 0",
       };
-  // Content pages scroll here; dual-pane models/skills manage their own overflow.
-  const mainScrolls = section !== "models" && section !== "skills";
+  // Content pages scroll here; models keeps its own dual-pane overflow.
+  const mainScrolls = section !== "models";
 
   const toolsPanel = (
     <ToolsSettingsPanel
@@ -834,16 +832,13 @@ export function SettingsPage({
               }}
             />
           )}
-          {section === "skills" && cwd && (
-            <SkillsConfig embedded cwd={cwd} onClose={onClose} onTrySkill={onTrySkill} />
-          )}
-          {section === "skills" && !cwd && (
-            <div className="settings-page-empty">
-              {t("settings.skillsNeedCwd")}
-            </div>
-          )}
-          {section === "mcp" && (
-            <McpConfig embedded cwd={cwd} onClose={onClose} />
+          {(section === "plugins" || section === "skills" || section === "mcp") && (
+            <PluginsSettings
+              cwd={cwd}
+              initialTab={initialSection === "mcp" ? "mcp" : "skills"}
+              onClose={onClose}
+              onTrySkill={onTrySkill}
+            />
           )}
           {section === "tools" && toolsPanel}
         </main>

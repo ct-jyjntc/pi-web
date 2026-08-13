@@ -13,6 +13,7 @@ import { Icon } from "../Icon";
 import { SettingsToggle } from "../SettingsToggle";
 import { SettingsGroup, SettingsPageHeading, SettingsRow } from "../settings/settings-ui";
 import { skillScope, updateKey } from "./skill-helpers";
+import { SkillIcon } from "./SkillIcon";
 
 export type SkillCatalogTab = "all" | "personal" | "project";
 
@@ -26,6 +27,7 @@ export function SkillCatalog({
   onTabChange,
   addMode,
   onAddMode,
+  hideHeading = false,
   updateStatuses,
   checkingAll,
   canCheckUpdates,
@@ -44,6 +46,7 @@ export function SkillCatalog({
   onTabChange: (tab: SkillCatalogTab) => void;
   addMode: boolean;
   onAddMode: (next: boolean) => void;
+  hideHeading?: boolean;
   updateStatuses: Record<string, SkillUpdateResult>;
   checkingAll: boolean;
   canCheckUpdates: boolean;
@@ -69,34 +72,43 @@ export function SkillCatalog({
     });
   }, [query, skills, tab]);
 
+  const scopeLabel = (skill: Skill) => {
+    const scope = skillScope(skill);
+    if (scope === "global") return t("skills.tabPersonal");
+    if (scope === "project") return t("skills.tabProject");
+    return t("skills.groupPath");
+  };
+
   return (
-    <div className="settings-page-general">
-      <SettingsPageHeading
-        title={t("modal.skills")}
-        description={t("skills.subtitle")}
-        action={addMode ? undefined : (
-          <div className="usage-header-actions">
-            <button
-              type="button"
-              className="btn-primary btn-compact"
-              onClick={() => onAddMode(true)}
-            >
-              <Icon icon={Plus} size={12} strokeWidth={2} />
-              {t("skills.addSkill")}
-            </button>
-            {canCheckUpdates && (
+    <div className={hideHeading ? "plugin-catalog" : "settings-page-general plugin-catalog"}>
+      {!hideHeading && (
+        <SettingsPageHeading
+          title={t("modal.skills")}
+          description={t("skills.subtitle")}
+          action={addMode ? undefined : (
+            <div className="usage-header-actions">
               <button
                 type="button"
-                className="btn-ghost btn-compact"
-                onClick={onCheckUpdates}
-                disabled={checkingAll}
+                className="btn-primary btn-compact"
+                onClick={() => onAddMode(true)}
               >
-                {checkingAll ? t("skills.checking") : t("skills.checkUpdates")}
+                <Icon icon={Plus} size={12} strokeWidth={2} />
+                {t("skills.addSkill")}
               </button>
-            )}
-          </div>
-        )}
-      />
+              {canCheckUpdates && (
+                <button
+                  type="button"
+                  className="btn-ghost btn-compact"
+                  onClick={onCheckUpdates}
+                  disabled={checkingAll}
+                >
+                  {checkingAll ? t("skills.checking") : t("skills.checkUpdates")}
+                </button>
+              )}
+            </div>
+          )}
+        />
+      )}
 
       {addMode ? children : (
         <>
@@ -112,8 +124,8 @@ export function SkillCatalog({
           </label>
 
           <SettingsGroup
-            title={tab === "all" ? t("skills.installed") : tab === "personal" ? t("skills.tabPersonal") : t("skills.tabProject")}
-            action={
+            title={hideHeading ? undefined : (tab === "all" ? t("skills.installed") : tab === "personal" ? t("skills.tabPersonal") : t("skills.tabProject"))}
+            action={hideHeading ? undefined : (
               <div className="settings-segmented" style={{ minWidth: 0 }}>
                 {([
                   ["all", t("skills.tabAll")],
@@ -131,7 +143,7 @@ export function SkillCatalog({
                   </button>
                 ))}
               </div>
-            }
+            )}
           >
             {loading ? (
               <div className="settings-card-empty">{t("modal.loading")}</div>
@@ -146,22 +158,30 @@ export function SkillCatalog({
                 return (
                   <SettingsRow
                     key={skill.filePath}
-                    title={displaySkillName(skill.name) + (updateAvailable ? " ↑" : "")}
+                    title={(
+                      <span className="plugin-row-title">
+                        <SkillIcon name={skill.name} size={22} variant="circle" />
+                        <span>{displaySkillName(skill.name) + (updateAvailable ? " ↑" : "")}</span>
+                      </span>
+                    )}
                     description={skill.description}
                     onClick={() => onSelect(skill)}
                     action={
-                      onToggle ? (
-                        <SettingsToggle
-                          enabled={!skill.disableModelInvocation}
-                          loading={toggling?.has(skill.filePath) ?? false}
-                          title={
-                            skill.disableModelInvocation
-                              ? t("skills.hiddenFromModel")
-                              : t("skills.visibleToModel")
-                          }
-                          onChange={() => onToggle(skill)}
-                        />
-                      ) : null
+                      <span className="plugin-row-meta">
+                        <span className="skill-scope-chip">{scopeLabel(skill)}</span>
+                        {onToggle ? (
+                          <SettingsToggle
+                            enabled={!skill.disableModelInvocation}
+                            loading={toggling?.has(skill.filePath) ?? false}
+                            title={
+                              skill.disableModelInvocation
+                                ? t("skills.hiddenFromModel")
+                                : t("skills.visibleToModel")
+                            }
+                            onChange={() => onToggle(skill)}
+                          />
+                        ) : null}
+                      </span>
                     }
                   />
                 );

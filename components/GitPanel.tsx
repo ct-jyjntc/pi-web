@@ -16,7 +16,6 @@ import {
   GitCommitHorizontal,
   Minus,
   Plus,
-  RefreshCw,
   Trash2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-transport";
@@ -696,7 +695,7 @@ export function GitPanel({
 
   return (
     <div className="git-panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, flex: 1, background: "var(--bg)" }}>
-      {/* Header strip — changes stats + collapse/refresh/commit (icon-only when narrow) */}
+      {/* Header strip — changes stats + collapse/commit (icon-only when narrow) */}
       <div className="git-panel-toolbar">
         <div className="git-panel-title">
           <span className="git-panel-title-label">{t("git.changes")}</span>
@@ -763,17 +762,6 @@ export function GitPanel({
           ) : (
             <Icon icon={Plus} size={14} />
           )}
-        </button>
-
-        <button
-          type="button"
-          className="chrome-btn is-icon"
-          onClick={() => void load()}
-          disabled={busy || loading}
-          title={t("git.refresh")}
-          aria-label={t("git.refresh")}
-        >
-          <Icon icon={RefreshCw} size={13} />
         </button>
 
         <div ref={commitRef} style={{ position: "relative", flexShrink: 0, display: "flex", flexDirection: "row", height: "100%" }}>

@@ -15,13 +15,21 @@ export function SkillsConfig({
   cwd,
   onClose,
   embedded = false,
+  hideHeading = false,
   onTrySkill,
+  onCountChange,
+  onAddModeChange,
+  addRequestKey = 0,
 }: {
   cwd: string;
   onClose: () => void;
   /** When true, render as a full-height settings page panel (no modal chrome). */
   embedded?: boolean;
+  hideHeading?: boolean;
   onTrySkill?: (skill: Skill) => void;
+  onCountChange?: (n: number) => void;
+  onAddModeChange?: (open: boolean) => void;
+  addRequestKey?: number;
 }) {
   const { t } = useLocale();
   const isMobile = useIsMobile();
@@ -64,6 +72,20 @@ export function SkillsConfig({
     setAddMode(false);
     void loadSkills();
   }, [cwd, loadSkills]);
+
+  useEffect(() => {
+    onCountChange?.(skills.length);
+  }, [onCountChange, skills.length]);
+
+  useEffect(() => {
+    onAddModeChange?.(addMode);
+  }, [addMode, onAddModeChange]);
+
+  useEffect(() => () => onAddModeChange?.(false), [onAddModeChange]);
+
+  useEffect(() => {
+    if (addRequestKey > 0) setAddMode(true);
+  }, [addRequestKey]);
 
   const checkForUpdates = useCallback(async (skill?: Skill) => {
     const targets = skill
@@ -202,6 +224,7 @@ export function SkillsConfig({
       onTabChange={setTab}
       addMode={addMode}
       onAddMode={setAddMode}
+      hideHeading={hideHeading}
       updateStatuses={updateStatuses}
       checkingAll={checkingAll}
       canCheckUpdates={skills.some((skill) => Boolean(skill.install))}

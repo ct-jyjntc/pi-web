@@ -38,11 +38,11 @@ export type ChatInputModeMenuProps = {
 const ROW: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
-  gap: 10,
+  gap: 8,
   width: "100%",
   padding: "6px 8px",
   border: "none",
-   borderRadius: "var(--radius-sm)",
+  borderRadius: "var(--radius-sm)",
   background: "transparent",
   cursor: "pointer",
   font: "inherit",
@@ -58,7 +58,7 @@ export function ChatInputModeMenu({ style, mode, onModeChange }: ChatInputModeMe
         ...style,
         display: "flex",
         flexDirection: "column",
-        minWidth: 268,
+        minWidth: 220,
         padding: 3,
         borderRadius: "var(--radius-md)",
         overflow: "hidden",
@@ -84,16 +84,17 @@ export function ChatInputModeMenu({ style, mode, onModeChange }: ChatInputModeMe
           >
             <Icon
               icon={IconComponent}
-              size={15}
+              size={13}
               strokeWidth={1.8}
-              style={{ flexShrink: 0, marginTop: 2, color: danger ? "var(--destructive)" : "var(--text-muted)" }}
+              style={{ flexShrink: 0, marginTop: 1, color: danger ? "var(--destructive)" : "var(--text-muted)" }}
             />
             <span style={{ flex: 1, minWidth: 0 }}>
               <span
                 style={{
                   display: "block",
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  lineHeight: 1.3,
                   color: danger ? "var(--destructive)" : "var(--text)",
                 }}
               >
@@ -102,9 +103,9 @@ export function ChatInputModeMenu({ style, mode, onModeChange }: ChatInputModeMe
               <span
                 style={{
                   display: "block",
-                  fontSize: 12,
+                  fontSize: 11,
                   color: danger ? "var(--destructive)" : "var(--text-dim)",
-                  marginTop: 2,
+                  marginTop: 1,
                   fontWeight: 400,
                   lineHeight: 1.35,
                   opacity: danger ? 0.85 : 1,
@@ -116,9 +117,9 @@ export function ChatInputModeMenu({ style, mode, onModeChange }: ChatInputModeMe
             {isActive ? (
               <Icon
                 icon={Check}
-                size={14}
+                size={12}
                 strokeWidth={2}
-                style={{ flexShrink: 0, marginTop: 2, color: danger ? "var(--destructive)" : "var(--text-muted)" }}
+                style={{ flexShrink: 0, marginTop: 1, color: danger ? "var(--destructive)" : "var(--text-muted)" }}
               />
             ) : null}
           </button>
