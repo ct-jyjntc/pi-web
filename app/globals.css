@@ -1948,6 +1948,24 @@ textarea.input-base:focus-visible {
   min-width: 28px;
   max-width: 180px;
 }
+.composer-toolbar .chrome-controls > .composer-model-chip {
+  flex: 0 1 auto;
+  min-width: 72px;
+}
+.composer-toolbar .composer-model-btn {
+  max-width: 220px;
+  min-width: 0;
+}
+.composer-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.composer-model-thinking {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
 .composer-toolbar-spacer {
   flex: 1 1 0;
   min-width: 0;
@@ -1955,20 +1973,27 @@ textarea.input-base:focus-visible {
 .composer-toolbar .chrome-divider {
   display: none;
 }
-/* Progressive collapse: long zh labels (完全访问 / 压缩) overflow first */
+/* Progressive collapse: long zh labels (完全访问 / 压缩) overflow first.
+   The model chip is text-only — never hide both spans or it becomes an empty pill. */
 @container composer (max-width: 680px) {
-  .composer-toolbar-end .chrome-btn > span {
+  .composer-toolbar-end .chrome-btn:not(.composer-model-btn) > span {
     display: none;
   }
-  .composer-toolbar-end .chrome-btn:not(.is-icon) {
+  .composer-toolbar-end .chrome-btn:not(.is-icon):not(.composer-model-btn) {
     padding: 0 8px;
     gap: 0;
     flex-shrink: 0;
+  }
+  .composer-model-thinking {
+    display: none;
   }
 }
 @container composer (max-width: 560px) {
   .composer-toolbar-start .chrome-btn:not(.is-icon) {
     max-width: 120px;
+  }
+  .composer-toolbar .composer-model-btn {
+    max-width: 140px;
   }
 }
 @container composer (max-width: 440px) {
@@ -1981,8 +2006,19 @@ textarea.input-base:focus-visible {
     max-width: 28px;
     flex-shrink: 0;
   }
+  .composer-toolbar .chrome-controls > .composer-model-chip {
+    min-width: 56px;
+  }
+  .composer-toolbar .composer-model-btn {
+    max-width: 96px;
+  }
   .composer-toolbar .chrome-divider {
     display: none;
+  }
+}
+@media (max-width: 640px) {
+  .composer-toolbar .composer-model-btn {
+    max-width: 160px;
   }
 }
 

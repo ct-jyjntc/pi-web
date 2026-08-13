@@ -158,23 +158,22 @@ export function ComposerModelChip({
   };
 
   return (
-    <div ref={rootRef} style={{ position: "relative", minWidth: 0 }}>
+    <div ref={rootRef} className="composer-model-chip" style={{ position: "relative" }}>
       <button
         type="button"
-        className={`chrome-btn${open ? " is-active" : ""}`}
+        className={`chrome-btn composer-model-btn${open ? " is-active" : ""}`}
         onClick={openMenu}
         disabled={isStreaming}
         title={`${currentName} · ${thinkingLabel}`}
         aria-label={`${currentName} · ${thinkingLabel}`}
         aria-expanded={open}
         aria-haspopup="menu"
-        style={{ maxWidth: isMobile ? 160 : 220, minWidth: 0 }}
       >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+        <span className="composer-model-name">
           {currentName}
         </span>
         {showThinking ? (
-          <span style={{ color: "var(--text-dim)", flexShrink: 0 }}>{thinkingLabel}</span>
+          <span className="composer-model-thinking">{thinkingLabel}</span>
         ) : null}
       </button>
 
