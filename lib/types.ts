@@ -6,6 +6,9 @@ export const MEMORY_CONTEXT_CUSTOM_TYPE = "memory-context";
 /** customType of the hidden agent-mode briefing (see lib/agent-mode-brief.ts). */
 export const AGENT_MODE_BRIEF_CUSTOM_TYPE = "agent-mode-brief";
 
+/** customType of auto-injected uncollected subagent results (see lib/first-party/subagents). */
+export const SUBAGENT_RESULTS_CUSTOM_TYPE = "subagent-results";
+
 export interface SessionHeader {
   type: "session";
   version?: number;

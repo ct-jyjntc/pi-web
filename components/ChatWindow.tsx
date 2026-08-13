@@ -27,6 +27,7 @@ import { clearSessionMetrics, setChromeWidgetsMetric, setContextUsageMetric, set
 import { deriveTodoWidgetLines } from "@/lib/todo-from-transcript";
 import { setCompactHandlers } from "@/lib/compact-action-store";
 import { setSessionNavHandlers } from "@/lib/session-nav-store";
+import { invalidateProjectMemory } from "@/lib/project-memory-store";
 import { useWebSettings } from "@/lib/web-settings-store";
 import {
   CHAT_COLUMN_PADDING,
@@ -176,6 +177,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     // counter decides whether this turn actually triggers a review.
     const memoryCwd = session?.cwd ?? newSessionCwd;
     const memorySessionId = session?.id ?? sessionIdForReviewRef.current;
+    // Mid-turn memory_retain is already on disk; bump so Settings → Memory refetches.
+    invalidateProjectMemory();
     if (memoryCwd && memorySessionId) {
       void apiFetch("/api/memory-review", {
         method: "POST",
@@ -188,6 +191,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           const count = data.saved?.length ?? 0;
           if (count > 0) {
             addNoticeRef.current({ type: "success", message: t("memory.savedNotice", { count }) });
+            invalidateProjectMemory();
           }
         })
         .catch(() => {});

@@ -12,6 +12,8 @@ import { shouldDismissMenuOnScroll } from "@/lib/menu-dismiss";
 export type SessionMenuAction =
   | "rename"
   | "generateTitle"
+  | "branches"
+  | "systemPrompt"
   | "copyTitle"
   | "copyId"
   | "copyPath"
@@ -57,6 +59,8 @@ export function SessionItemMenu({
       title: !canGenerateTitle ? t("shell.titleNeedMessage") : t("shell.titleGenerate"),
       separatorAfter: true,
     },
+    { id: "branches", label: t("branch.branches") },
+    { id: "systemPrompt", label: t("shell.systemPrompt"), separatorAfter: true },
     { id: "copyTitle", label: t("sidebar.copyTitle") },
     { id: "copyId", label: t("sidebar.copySessionId") },
     { id: "copyPath", label: t("sidebar.copySessionPath") },

@@ -15,7 +15,7 @@ import type { ExtensionWidgetItem } from "@/lib/types";
 import { AgentItemRow } from "./AgentAtoms";
 import { TodoItemRow } from "./TodoAtoms";
 
- export const CHROME_WIDGET_POPOVER_WIDTH = 252;
+ export const CHROME_WIDGET_POPOVER_WIDTH = 280;
  
  const EMPTY: CSSProperties = {
    padding: "8px 10px",

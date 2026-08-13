@@ -4,6 +4,7 @@
  * Shared "Connect GitHub" device-code modal — single owner for the in-app
  * GitHub OAuth UX. Used by Settings → Accounts and the Git panel's publish
  * flow (when a repo has no remote and the user is not signed in).
+ * Stacks at z-index 1300 so it paints over Settings (1200), not the workspace.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiStream } from "@/lib/api-transport";
@@ -138,7 +139,7 @@ export function GithubConnectModal({
     `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   return (
-    <CenteredDialog width={380} label={t("accounts.connectGithubTitle")} onClose={onClose}>
+    <CenteredDialog width={380} zIndex={1300} label={t("accounts.connectGithubTitle")} onClose={onClose}>
       <div style={{ padding: "14px 14px 8px", display: "flex", alignItems: "center", gap: 8 }}>
         <Icon icon={Github} size={15} strokeWidth={1.8} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
         <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.02em" }}>

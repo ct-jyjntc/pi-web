@@ -18,6 +18,10 @@ export type AgentItem = {
   description: string;
   activity?: string;
   detail?: string;
+  tokens?: number;
+  percent?: number;
+  startedAt?: number;
+  elapsed?: string;
   queuedCount?: number;
 };
 
@@ -88,18 +92,44 @@ export function parseAgentHeader(line: string): AgentItem | null {
   if (!rest) return null;
   const status = applyStatusSuffix(glyphStatus, rest);
   const [head, ...statParts] = rest.split(/\s+·\s+/);
-  const detail = statParts
-    .join(" · ")
-    .replace(/\s+(\(turn limit\)|error(?::\s*.*)?|stopped|aborted)\s*$/i, "")
-    .trim();
+  const cleaned = statParts.map((part) =>
+    part.replace(/\s+(\(turn limit\)|error(?::\s*.*)?|stopped|aborted)\s*$/i, "").trim(),
+  ).filter(Boolean);
+  const stats = parseAgentStats(cleaned);
   const { type, description } = splitTypeAndDescription((head ?? "").trim());
   if (!description && !type) return null;
   return {
     status,
     type,
     description: description || type || raw,
-    detail: detail || undefined,
+    detail: cleaned.join(" · ") || undefined,
+    ...stats,
   };
+}
+
+function parseAgentStats(parts: string[]): Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed"> {
+  const out: Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed"> = {};
+  for (const part of parts) {
+    const started = /^@(\d{11,})$/.exec(part);
+    if (started) {
+      out.startedAt = Number(started[1]);
+      continue;
+    }
+    const pct = /^(\d+(?:\.\d+)?)%$/.exec(part);
+    if (pct) {
+      out.percent = Number(pct[1]);
+      continue;
+    }
+    const tok = /^(\d+(?:\.\d+)?)k$/i.exec(part);
+    if (tok) {
+      out.tokens = Number(tok[1]) * 1000;
+      continue;
+    }
+    if (/^\d+(?:\.\d+)?(s|ms)$/.test(part) || /^\d+:\d{2}$/.test(part)) {
+      out.elapsed = part;
+    }
+  }
+  return out;
 }
 
 /** Turn stripped widget body lines into one row per agent. */

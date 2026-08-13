@@ -23,7 +23,7 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { TabBar, type Tab } from "./TabBar";
 import { hydrateAppearanceFromServer } from "@/lib/appearance-store";
-import { BranchNavigator } from "./BranchNavigator";
+import { SessionInspectDialogs } from "./session-inspect/SessionInspectDialogs";
 import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { getFileName } from "@/lib/file-paths";
@@ -41,7 +41,6 @@ import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@
 import type { ProjectTrustStatus, SkillInfo } from "@/lib/api-types";
 import { setDraft } from "@/lib/draft-store";
 import { formatShortcut, modKeyLabel } from "@/lib/keyboard";
-import { sendAgentCommand } from "@/lib/agent-client";
 import { Icon } from "./Icon";
 
 import {
@@ -66,7 +65,6 @@ import {
   SIDEBAR_WIDTH_KEY,
 } from "./app-shell/app-shell-constants";
 import { ShellStyles } from "./app-shell/ShellStyles";
-import { measureTopPanelBox } from "./app-shell/top-panel-box";
 import { WORKSPACE_TABS } from "./app-shell/terminal-tabs";
 import { useAppShellTerminal } from "@/hooks/useAppShellTerminal";
 import { usePersistedPanelWidth } from "@/hooks/usePersistedPanelWidth";
@@ -193,7 +191,6 @@ export function AppShell() {
     };
   }, []);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
-  const topBarRef = useRef<HTMLDivElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -211,7 +208,6 @@ export function AppShell() {
   }, []);
 
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
-  const systemBtnRef = useRef<HTMLButtonElement>(null);
 
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
     setSystemPrompt(prompt);
@@ -235,49 +231,9 @@ export function AppShell() {
     };
   }, []);
 
-  // Single active panel — only one dropdown open at a time
-  type TopPanel = "branches" | "system";
-  const [activeTopPanel, setActiveTopPanel] = useState<TopPanel | null>(null);
-  const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  const toggleTopPanel = useCallback((panel: TopPanel) => {
-    if (isMobile) setSidebarOpen(false);
-    setActiveTopPanel((cur) => cur === panel ? null : panel);
-  }, [isMobile]);
-
-  useEffect(() => {
-    if (activeTopPanel !== "system" || systemPrompt !== null) return;
-    const sid = selectedSession?.id;
-    if (!sid) return;
-    let cancelled = false;
-    void sendAgentCommand<{ systemPrompt?: string }>(sid, { type: "get_state" })
-      .then((data) => {
-        if (cancelled || typeof data?.systemPrompt !== "string") return;
-        setSystemPrompt(data.systemPrompt);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTopPanel, selectedSession?.id, systemPrompt]);
-
   const handleSidebarToggle = useCallback(() => {
-    if (isMobile) setActiveTopPanel(null);
     setSidebarOpen((open) => !open);
-  }, [isMobile]);
-
-  useEffect(() => {
-    if (!activeTopPanel || !topBarRef.current) return;
-    const update = () => {
-      const bar = topBarRef.current;
-      if (!bar) return;
-      setTopPanelPos(measureTopPanelBox(bar));
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(topBarRef.current);
-    return () => ro.disconnect();
-  }, [activeTopPanel]);
+  }, []);
 
   // Right panel — workspace tabs + drag-resizable width (left sidebar stays fixed)
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
@@ -467,13 +423,11 @@ export function AppShell() {
       setBranchTree([]);
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
-      setActiveTopPanel(null);
       router.replace("/", { scroll: false });
     } else {
       setBranchTree([]);
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
-      setActiveTopPanel(null);
     }
   }, [router, selectedSession]);
 
@@ -499,6 +453,9 @@ export function AppShell() {
       // Different session must bump the epoch so the chat surface remounts.
       setSessionKey((k) => k + 1);
       setSystemPrompt(null);
+      setBranchTree([]);
+      setBranchActiveLeafId(null);
+      branchLeafChangeFnRef.current = null;
     }
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
@@ -529,7 +486,6 @@ export function AppShell() {
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
-    setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace("/", { scroll: false });
   }, [router, isMobile]);
@@ -654,7 +610,6 @@ export function AppShell() {
       setBranchTree([]);
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
-      setActiveTopPanel(null);
       router.replace("/", { scroll: false });
     }
   }, [selectedSession, router]);
@@ -872,7 +827,6 @@ export function AppShell() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
         <div
-          ref={topBarRef}
           className="app-topbar titlebar-drag desktop-top-chrome"
           style={{
             display: "flex",
@@ -941,35 +895,6 @@ export function AppShell() {
             <div className="chrome-cluster titlebar-no-drag app-topbar-actions">
               {/* Todo + subagents — quiet status capsules (own popovers) */}
               <TopBarChromeWidgets />
-              <BranchNavigator
-                tree={branchTree}
-                activeLeafId={branchActiveLeafId}
-                onLeafChange={handleBranchLeafChange}
-                inline
-                compact={isMobile}
-                containerRef={topBarRef}
-                open={activeTopPanel === "branches"}
-                onToggle={() => toggleTopPanel("branches")}
-                hasSession
-              />
-              <button
-                type="button"
-                ref={systemBtnRef}
-                className={`chrome-btn${activeTopPanel === "system" ? " is-active" : ""}`}
-                onClick={() => toggleTopPanel("system")}
-                title={t("shell.systemPrompt")}
-                aria-label={t("shell.systemPrompt")}
-                aria-pressed={activeTopPanel === "system"}
-                style={activeTopPanel === "system" ? { boxShadow: "inset 0 -2px 0 0 var(--accent)" } : undefined}
-              >
-                <Icon
-                  icon={FileText}
-                  size={12}
-                  strokeWidth={2}
-                  style={{ color: systemPrompt ? "var(--text)" : "var(--text-dim)", flexShrink: 0 }}
-                />
-                {!isMobile && <span>{t("shell.system")}</span>}
-              </button>
             </div>
           )}
           </div>
@@ -990,48 +915,6 @@ export function AppShell() {
           </div>
           {/* Custom Windows/Linux caption buttons — only when this bar is rightmost. */}
           {!rightPanelOpen && <WindowControls />}
-          {/* Top panel dropdown — shared, only one active at a time */}
-          {activeTopPanel && topPanelPos && (
-            <div style={{
-              position: "fixed",
-              top: topPanelPos.top,
-              left: topPanelPos.left,
-              width: topPanelPos.width,
-              maxHeight: `calc(100dvh - ${topPanelPos.top}px)`,
-              overflowY: "auto",
-              zIndex: 500,
-            }}>
-              {activeTopPanel === "system" && (
-                <div style={{
-                  background: "var(--bg-panel)",
-                  borderBottom: "1px solid var(--border)",
-                }}>
-                  {systemPrompt ? (
-                    <div style={{
-                      maxHeight: "min(600px, 75vh)",
-                      overflowY: "auto",
-                      padding: "12px 16px",
-                      color: "var(--text-muted)",
-                      fontSize: 12,
-                      lineHeight: 1.6,
-                      whiteSpace: "pre-wrap",
-                      fontFamily: "var(--font-mono)",
-                    }}>
-                      {systemPrompt}
-                    </div>
-                  ) : systemPrompt === "" ? (
-                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      {t("shell.systemPromptEmpty")}
-                    </div>
-                  ) : (
-                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      {t("shell.systemPromptLoad")}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
 
         </div>
 
@@ -1480,6 +1363,14 @@ export function AppShell() {
         onConfirm={() => void handleTrustProject()}
       />
     )}
+    <SessionInspectDialogs
+      selectedSessionId={selectedSession?.id ?? null}
+      tree={branchTree}
+      activeLeafId={branchActiveLeafId}
+      onLeafChange={handleBranchLeafChange}
+      systemPrompt={systemPrompt}
+      onSystemPrompt={setSystemPrompt}
+    />
     <ShortcutsHelpDialog
       open={shortcutsHelpOpen}
       onClose={() => setShortcutsHelpOpen(false)}

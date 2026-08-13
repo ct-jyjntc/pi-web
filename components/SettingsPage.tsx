@@ -23,6 +23,7 @@ import {
 import { defaultLeanModeSettings, type LeanModeSettings } from "@/lib/lean-mode-settings";
 import { useAgentModelThinkingSettings, type AgentModelSaveKey } from "@/hooks/use-agent-model-thinking-settings";
 import { Icon } from "./Icon";
+import { WindowControls } from "./WindowControls";
 import { ChevronLeft } from "lucide-react";
 
 export type SettingsSection =
@@ -148,12 +149,6 @@ export function SettingsPage({
   });
   const [leanMode, setLeanMode] = useState<LeanModeSettings>(() => defaultLeanModeSettings());
   const [advisorModelRef, setAdvisorModelRef] = useState("");
-  const [memoryFacts, setMemoryFacts] = useState<Array<{ id: string; text: string }>>([]);
-  const [newMemoryText, setNewMemoryText] = useState("");
-  const [memoryBusy, setMemoryBusy] = useState(false);
-  const [memoryReflectBusy, setMemoryReflectBusy] = useState(false);
-  const [memoryReflectText, setMemoryReflectText] = useState<string | null>(null);
-  const [memoryReflectMeta, setMemoryReflectMeta] = useState<string | null>(null);
   const [restartHint, setRestartHint] = useState(false);
   const isDesktop = typeof window !== "undefined" && Boolean(window.piDesktop?.isDesktop);
 
@@ -261,20 +256,6 @@ export function SettingsPage({
           try { localStorage.setItem("pi-sound-enabled", String(s.soundEnabled)); } catch { /* ignore */ }
         }
 
-        if (cwd) {
-          void apiFetch(`/api/project-memory?cwd=${encodeURIComponent(cwd)}`)
-            .then(async (r) => {
-              const mem = await r.json() as { facts?: Array<{ id: string; text: string }> };
-              if (!cancelled && Array.isArray(mem.facts)) {
-                setMemoryFacts(mem.facts.map((f) => ({ id: f.id, text: f.text })));
-              }
-            })
-            .catch(() => {
-              if (!cancelled) setMemoryFacts([]);
-            });
-        } else if (!cancelled) {
-          setMemoryFacts([]);
-        }
       };
 
       // force only after a models mutation (modelsCatalogKey > 0) so disabled/
@@ -612,18 +593,6 @@ export function SettingsPage({
       setPrefs={setPrefs}
       patchPref={patchPref}
       cwd={cwd}
-      memoryFacts={memoryFacts}
-      setMemoryFacts={setMemoryFacts}
-      newMemoryText={newMemoryText}
-      setNewMemoryText={setNewMemoryText}
-      memoryBusy={memoryBusy}
-      setMemoryBusy={setMemoryBusy}
-      memoryReflectBusy={memoryReflectBusy}
-      setMemoryReflectBusy={setMemoryReflectBusy}
-      memoryReflectText={memoryReflectText}
-      setMemoryReflectText={setMemoryReflectText}
-      memoryReflectMeta={memoryReflectMeta}
-      setMemoryReflectMeta={setMemoryReflectMeta}
       setSaveError={setSaveError}
       saveErrorBlock={saveErrorBlock}
     />
@@ -786,6 +755,7 @@ export function SettingsPage({
           {t("settings.title")}
         </div>
         <div className="titlebar-drag" style={{ flex: 1, minWidth: 0 }} />
+        <WindowControls />
       </div>
 
       <div className={`settings-page-body${isMobile ? " is-mobile" : ""}`} style={bodyStyle}>

@@ -53,6 +53,7 @@ Rules:
 - The main loop orchestrates, reviews, and summarizes; delegate heavy reading, searching, and implementation to subagents.
 - Give each subagent a complete, self-contained prompt — it does not see this conversation.
 - Prefer delegating over doing everything inline. When in doubt, delegate.
+- \`run_in_background\` only unblocks that tool call so you can launch several in parallel. Call \`get_subagent_result\` with \`wait: true\` when you need a result mid-turn. Do not write the final user-facing answer until results are in — if you stop early, the runtime delivers uncollected results and continues the turn.
 ${AGENTS_BLOCK_END}`;
 
 // ── Agent override files ─────────────────────────────────────────────────────

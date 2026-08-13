@@ -188,6 +188,9 @@ hooks/
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
+### Background subagents cannot settle the parent turn
+`run_in_background` only unblocks that tool call. `lib/first-party/subagents` waits on `agent_end` and injects uncollected results as a hidden `subagent-results` follow-up so the parent loop continues. Do not add a second poller or an `isRunning()` child check for this.
+
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
 

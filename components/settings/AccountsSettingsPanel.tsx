@@ -13,6 +13,7 @@ import {
   type GithubAccountStatus,
 } from "../GithubConnectModal";
 import { Icon } from "../Icon";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { Github, Link2, Unplug } from "lucide-react";
 
 export function AccountsSettingsPanel() {
@@ -21,6 +22,7 @@ export function AccountsSettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -47,13 +49,13 @@ export function AccountsSettingsPanel() {
   }, [load]);
 
   const disconnect = useCallback(async () => {
-    if (!window.confirm(t("accounts.disconnectConfirm"))) return;
     setBusy(true);
     setError(null);
     try {
       const res = await apiFetch("/api/accounts/github/disconnect", { method: "POST" });
       const data = await res.json() as { ok?: boolean; error?: string };
       if (!res.ok || data.ok === false) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setDisconnectOpen(false);
       setStatus((prev) => ({
         connected: false,
         login: null,
@@ -66,7 +68,7 @@ export function AccountsSettingsPanel() {
     } finally {
       setBusy(false);
     }
-  }, [t]);
+  }, []);
 
   const connected = status?.connected === true;
 
@@ -116,7 +118,7 @@ export function AccountsSettingsPanel() {
                 type="button"
                 className="btn-ghost"
                 disabled={busy}
-                onClick={() => void disconnect()}
+                onClick={() => setDisconnectOpen(true)}
                 style={{ height: 30, padding: "0 12px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}
               >
                 <Icon icon={Unplug} size={12} />
@@ -152,6 +154,19 @@ export function AccountsSettingsPanel() {
           void load();
         }}
       />
+      {disconnectOpen && (
+        <ConfirmDialog
+          title={t("accounts.disconnect")}
+          body={t("accounts.disconnectConfirm")}
+          confirmLabel={t("accounts.disconnect")}
+          destructive
+          busy={busy}
+          onConfirm={() => void disconnect()}
+          onCancel={() => {
+            if (!busy) setDisconnectOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -785,9 +785,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                   {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
                 </span>
               )}
-              {selectedActivity?.running ? (
-                <RunningSessionIndicator />
-              ) : selectedActivity?.unread ? (
+              {selectedActivity?.unread ? (
                 <UnreadSessionIndicator />
               ) : otherWorkspaceActivity ? (
                 <span

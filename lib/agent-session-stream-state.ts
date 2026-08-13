@@ -84,13 +84,19 @@ export function applyAssistantDelta(
         streamingMessage: ensureBlock(base, index, { type: "thinking", thinking: String(event.content ?? "") }),
       };
     case "toolcall_start": {
-      const rec = event as { id?: unknown; toolName?: unknown };
+      const rec = event as { id?: unknown; toolCallId?: unknown; toolName?: unknown; name?: unknown };
+      const id = typeof rec.id === "string" && rec.id
+        ? rec.id
+        : (typeof rec.toolCallId === "string" ? rec.toolCallId : "");
+      const toolName = typeof rec.toolName === "string" && rec.toolName
+        ? rec.toolName
+        : (typeof rec.name === "string" ? rec.name : "");
       return {
         isStreaming: true,
         streamingMessage: ensureBlock(base, index, {
           type: "toolCall",
-          toolCallId: typeof rec.id === "string" ? rec.id : "",
-          toolName: typeof rec.toolName === "string" ? rec.toolName : "",
+          toolCallId: id,
+          toolName,
           input: {},
         }),
       };

@@ -65,11 +65,13 @@ export function usePersistedPanelWidth(options: {
     try {
       const stored = parseStoredPanelWidth(window.localStorage.getItem(storageKey));
       if (stored == null) return;
-      setWidth(clampPanelWidth(stored, minWidth, capMax()));
+      const next = clampPanelWidth(stored, minWidth, capMax());
+      setWidth(next);
+      document.documentElement.style.setProperty(cssVar, `${next}px`);
     } catch {
       // ignore
     }
-  }, [capMax, minWidth, storageKey]);
+  }, [capMax, cssVar, minWidth, storageKey]);
 
   useEffect(() => {
     if (skipPersistRef.current) {
@@ -78,7 +80,8 @@ export function usePersistedPanelWidth(options: {
     }
     if (width == null) return;
     persist(width);
-  }, [persist, width]);
+    document.documentElement.style.setProperty(cssVar, `${width}px`);
+  }, [cssVar, persist, width]);
 
   useEffect(() => () => {
     const dragged = draggingRef.current ? widthRef.current : null;
@@ -116,6 +119,7 @@ export function usePersistedPanelWidth(options: {
       if (next === widthRef.current) return;
       widthRef.current = next;
       container?.style.setProperty(cssVar, `${next}px`);
+      document.documentElement.style.setProperty(cssVar, `${next}px`);
       handle.setAttribute("aria-valuenow", String(next));
     };
 

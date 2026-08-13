@@ -297,9 +297,8 @@ export function AssistantMessageView({
         {displayItems.map((item) =>
           item.kind === "run" ? (
             <ToolRunGroup
-              // Keyed by the first call's id, never by position: live streaming and
-              // rehydrated history must agree on which calls belong to the group.
-              key={`${entryId ?? "stream"}-run-${(item.items[0]!.block as ToolCallContent).toolCallId}`}
+              // Keyed by first block index, never by possibly-empty toolCallId.
+              key={`${entryId ?? "stream"}-run-${item.items[0]!.originalIndex}`}
               items={item.items}
               toolResults={toolResults}
               toolCallDurations={toolCallDurations}
@@ -412,4 +411,3 @@ export function AssistantMessageView({
     </MessageHoverShell>
   );
 }
-

@@ -37,6 +37,10 @@ export type SubagentRecord = {
   result?: string;
   error?: string;
   activity?: string;
+  /** Child context used, 0–100. Omitted until the child session reports usage. */
+  contextPercent?: number;
+  /** Child context tokens used. Omitted until the child session reports usage. */
+  contextTokens?: number;
   startedAt: number;
   completedAt?: number;
   note?: string;

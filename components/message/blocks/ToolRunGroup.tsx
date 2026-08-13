@@ -152,19 +152,21 @@ export const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, too
       </button>
       {expanded && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-          {runs.map((tc) => (
-            <ToolCallBlock
-              key={tc.toolCallId}
-              block={tc}
-              result={toolResults?.get(tc.toolCallId)}
-              duration={toolCallDurations?.get(tc.toolCallId)}
-              isStreaming={isStreaming && !toolResults?.get(tc.toolCallId)}
-              nested
-            />
-          ))}
+          {items.map((item) => {
+            const tc = item.block as ToolCallContent;
+            return (
+              <ToolCallBlock
+                key={item.originalIndex}
+                block={tc}
+                result={toolResults?.get(tc.toolCallId)}
+                duration={toolCallDurations?.get(tc.toolCallId)}
+                isStreaming={isStreaming && !toolResults?.get(tc.toolCallId)}
+                nested
+              />
+            );
+          })}
         </div>
       )}
     </div>
   );
 });
-

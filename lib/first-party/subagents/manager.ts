@@ -22,11 +22,23 @@ type LiveRecord = SubagentRecord & {
   ctx: ExtensionContext;
   modelSpec?: string;
   thinkingSpec?: string;
+  epoch: number;
+  collected: boolean;
 };
 
 export class NativeSubagentManager {
   private readonly records = new Map<string, LiveRecord>();
   private onChange: (() => void) | null = null;
+  private promptEpoch = 0;
+
+  get epoch(): number {
+    return this.promptEpoch;
+  }
+
+  beginPrompt(): void {
+    this.promptEpoch += 1;
+    this.emit();
+  }
 
   setOnChange(handler: () => void): void {
     this.onChange = handler;
@@ -34,6 +46,14 @@ export class NativeSubagentManager {
 
   list(): SubagentRecord[] {
     return [...this.records.values()]
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .map(publicRecord);
+  }
+
+  /** Chrome: this user turn only — not the whole session. */
+  listCurrent(): SubagentRecord[] {
+    return [...this.records.values()]
+      .filter((record) => record.epoch === this.promptEpoch)
       .sort((a, b) => b.startedAt - a.startedAt)
       .map(publicRecord);
   }
@@ -49,6 +69,42 @@ export class NativeSubagentManager {
       if (record.status === "running") count += 1;
     }
     return count;
+  }
+
+  markCollected(id: string): void {
+    const record = this.records.get(id);
+    if (!record || !isTerminal(record.status)) return;
+    record.collected = true;
+  }
+
+  uncollectedInEpoch(epoch: number): SubagentRecord[] {
+    return [...this.records.values()]
+      .filter((record) => record.epoch === epoch && !record.collected)
+      .map(publicRecord);
+  }
+
+  async waitUncollectedInEpoch(epoch: number, signal?: AbortSignal): Promise<"ok" | "aborted"> {
+    const live = [...this.records.values()].filter(
+      (record) => record.epoch === epoch && !record.collected && !isTerminal(record.status),
+    );
+    if (live.length === 0) return "ok";
+    if (signal?.aborted) return "aborted";
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result: "ok" | "aborted") => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        resolve(result);
+      };
+      const onAbort = () => finish("aborted");
+      const onDone = () => {
+        if (live.every((record) => isTerminal(record.status))) finish("ok");
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      for (const record of live) record.waiters.push(onDone);
+      onDone();
+    });
   }
 
   spawn(input: {
@@ -77,6 +133,8 @@ export class NativeSubagentManager {
       ctx: input.ctx,
       modelSpec: input.modelSpec,
       thinkingSpec: input.thinkingSpec,
+      epoch: this.promptEpoch,
+      collected: false,
     };
     this.records.set(id, record);
     this.emit();
@@ -133,9 +191,12 @@ export class NativeSubagentManager {
       const run = await createChildRun(record.ctx, record.typeConfig, record.modelSpec, record.thinkingSpec);
       record.run = run;
       run.setActivity((text) => {
-        record.activity = text;
+        if (text) record.activity = text;
+        snapshotUsage(record);
         this.emit();
       });
+      snapshotUsage(record);
+      this.emit();
       const result = await run.prompt(prompt);
       this.finish(record, "completed", result);
     } catch (error) {
@@ -157,6 +218,7 @@ export class NativeSubagentManager {
     record.error = error;
     record.completedAt = Date.now();
     record.activity = undefined;
+    snapshotUsage(record);
     try {
       record.run?.dispose();
     } catch {
@@ -199,8 +261,22 @@ function publicRecord(record: LiveRecord): SubagentRecord {
     result: record.result,
     error: record.error,
     activity: record.activity,
+    contextPercent: record.contextPercent,
+    contextTokens: record.contextTokens,
     startedAt: record.startedAt,
     completedAt: record.completedAt,
     note: record.note,
   };
+}
+
+function snapshotUsage(record: LiveRecord): void {
+  const usage = record.run?.getContextUsage();
+  const percent = usage?.percent;
+  if (typeof percent === "number" && Number.isFinite(percent)) {
+    record.contextPercent = Math.max(0, Math.min(100, percent));
+  }
+  const tokens = usage?.tokens;
+  if (typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0) {
+    record.contextTokens = tokens;
+  }
 }

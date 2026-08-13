@@ -16,6 +16,7 @@ import { Icon } from "../Icon";
 import { RunningSessionIndicator, UnreadSessionIndicator } from "./SessionIndicators";
 import { SessionItemMenu, type SessionMenuAction } from "./SessionItemMenu";
 import { apiFetch } from "@/lib/api-transport";
+import { requestSessionInspect } from "@/lib/session-inspect-store";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 
 export const SessionItem = memo(function SessionItem({
@@ -165,6 +166,12 @@ export const SessionItem = memo(function SessionItem({
       case "generateTitle":
         void handleGenerateTitle();
         break;
+      case "branches":
+      case "systemPrompt":
+        setMenuOpen(false);
+        if (!isSelected) onClick();
+        requestSessionInspect(session.id, id === "branches" ? "branches" : "system");
+        break;
       case "copyTitle":
         setMenuOpen(false);
         void copyText(title);
@@ -185,7 +192,7 @@ export const SessionItem = memo(function SessionItem({
         void performDelete();
         break;
     }
-  }, [startRename, handleGenerateTitle, title, session.id, session.path, session.cwd, performDelete]);
+  }, [startRename, handleGenerateTitle, isSelected, onClick, title, session.id, session.path, session.cwd, performDelete]);
 
   // Fixed-height single-line row — content swaps in place so the list never reflows
   const ITEM_HEIGHT = 32;

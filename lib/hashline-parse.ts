@@ -20,18 +20,29 @@ export type PatchSection = {
 };
 
 const SECTION_RE = /^\[(.+?)#([0-9A-Fa-f]{4})\]\s*$/;
-// SWAP 3: / SWAP 3.=5: / SWAP.BLK 3: / SWAP.BLK 3.=8: (range on BLK is tolerated; resolve still from start)
-const SWAP_RE = /^SWAP(?:\.BLK\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?|\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)\s*:?\s*$/i;
-// DEL 3 / DEL 3.=5 / DEL.BLK 3 — trailing colon tolerated (models mirror SWAP N.=M: style)
-const DEL_RE = /^DEL(?:\.BLK\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?|\s+(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)\s*:?\s*$/i;
+// Inclusive range separators: .= .. : - – — or whitespace. Trailing : on the op is separate.
+const RANGE_SEP = "(?:\\.?=|\\.{2}|:|-|–|—|\\s+)";
+// SWAP 3: / SWAP 3.=5: / SWAP 3:5: / SWAP.BLK 3:
+const SWAP_RE = new RegExp(
+  `^SWAP(?:\\.BLK\\s+(\\d+)(?:${RANGE_SEP}(\\d+))?|\\s+(\\d+)(?:${RANGE_SEP}(\\d+))?)\\s*:?\\s*$`,
+  "i",
+);
+const DEL_RE = new RegExp(
+  `^DEL(?:\\.BLK\\s+(\\d+)(?:${RANGE_SEP}(\\d+))?|\\s+(\\d+)(?:${RANGE_SEP}(\\d+))?)\\s*:?\\s*$`,
+  "i",
+);
 const INS_RE = /^INS\.(PRE|POST|HEAD|TAIL|BLK\.POST)(?:\s+(\d+))?\s*:?\s*$/i;
 const REM_RE = /^REM\s*$/i;
 const MV_RE = /^MV\s+(.+?)\s*$/i;
-// Current omp verbs: PUT N.=M: / PUT N*: / PUT <N: / PUT >N: / PUT >$: / PUT >N*:
-const PUT_RE = /^PUT(?:\s+(<|>)?(\d+|\$)(\*)?(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)?\s*:?\s*$/i;
-const CUT_RE = /^CUT(?:\s+(\d+)(\*)?(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?)?\s*:?\s*$/i;
-// Bare `10.=12:` at op level (omp treats this as PUT).
-const BARE_RANGE_RE = /^(\d+)(?:(?:\.?=|\.\.|-|–|—|\s+)(\d+))?\s*:\s*$/;
+const PUT_RE = new RegExp(
+  `^PUT(?:\\s+(<|>)?(\\d+|\\$)(\\*)?(?:${RANGE_SEP}(\\d+))?)?\\s*:?\\s*$`,
+  "i",
+);
+const CUT_RE = new RegExp(
+  `^CUT(?:\\s+(\\d+)(\\*)?(?:${RANGE_SEP}(\\d+))?)?\\s*:?\\s*$`,
+  "i",
+);
+const BARE_RANGE_RE = new RegExp(`^(\\d+)(?:${RANGE_SEP}(\\d+))?\\s*:\\s*$`);
 
 function normalize(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -72,24 +83,37 @@ export function parseRange(
 
 function parseBodyRow(line: string): string | null {
   if (line.startsWith("+")) return line.slice(1);
-  // bare body row (omp auto-pipes)
   if (line.trim() === "") return "";
   return line;
 }
 
-function collectBody(lines: string[], startAt: number): { body: string[]; next: number } {
+/** Drop unified-diff `-old` rows when the body also has `+new` (omp). Keep `+- item`. */
+function finalizeBody(raw: string[]): string[] {
+  const hasPlus = raw.some((l) => l.startsWith("+"));
+  const kept = hasPlus
+    ? raw.filter((l) => !l.startsWith("-") || l.startsWith("+-"))
+    : raw;
   const body: string[] = [];
+  for (const line of kept) {
+    const row = parseBodyRow(line);
+    if (row !== null) body.push(row);
+  }
+  return body;
+}
+
+function collectBody(lines: string[], startAt: number): { body: string[]; next: number } {
+  const raw: string[] = [];
   let i = startAt;
   while (i < lines.length) {
     const bl = lines[i]!;
     const trimmed = bl.trim();
-    if (isHashlineOpLine(trimmed) && !bl.startsWith("+")) break;
+    if (isHashlineOpLine(trimmed) && !bl.startsWith("+") && !bl.startsWith("-")) break;
     if (
       bl.startsWith("+")
+      || bl.startsWith("-")
       || (trimmed !== "" && !SECTION_RE.test(trimmed) && !isHashlineOpLine(trimmed))
     ) {
-      const row = parseBodyRow(bl);
-      if (row !== null) body.push(row);
+      raw.push(bl);
       i++;
       continue;
     }
@@ -99,7 +123,7 @@ function collectBody(lines: string[], startAt: number): { body: string[]; next: 
     }
     break;
   }
-  return { body, next: i };
+  return { body: finalizeBody(raw), next: i };
 }
 
 function putToOp(

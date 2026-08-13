@@ -5,31 +5,22 @@ import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { listEnabledTypeNames, loadAgentTypes, resolveAgentType } from "./catalog";
 import { NativeSubagentManager } from "./manager";
-import type { SubagentRecord } from "./types";
 import { formatAgentWidgetLines } from "./widget";
+import {
+  deliverUncollectedOnAgentEnd,
+  formatRecord,
+  SUBAGENT_RESULTS_CUSTOM_TYPE,
+} from "./settle";
 
 const DESCRIPTION = [
   "Launch a specialized subagent for a self-contained task.",
   "Available types: Explore, Plan, Reviewer, general-purpose (plus any ~/.pi/agent/agents or <cwd>/.pi/agents).",
   "Use Explore for read-only search, Plan for design, Reviewer for git/patch review, general-purpose for multi-file work.",
-  "Set run_in_background=true to run agents in parallel. Give each agent a complete prompt.",
+  "Set run_in_background=true to run agents in parallel during this turn. The parent turn still collects results before it can finish.",
 ].join(" ");
 
 function textResult(text: string, details: Record<string, unknown> = {}) {
   return { content: [{ type: "text" as const, text }], details };
-}
-
-function formatRecord(record: SubagentRecord): string {
-  const lines = [
-    record.note,
-    `Agent ID: ${record.id}`,
-    `Type: ${record.displayName}`,
-    `Status: ${record.status}`,
-    record.description ? `Description: ${record.description}` : "",
-  ].filter(Boolean);
-  if (record.error) lines.push(`Error: ${record.error}`);
-  if (record.result) lines.push("", record.result);
-  return lines.join("\n");
 }
 
 export function createSubagentsInlineExtension(): InlineExtension {
@@ -40,7 +31,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
       let widgetCtx: ExtensionContext | undefined;
 
       const publish = (): void => {
-        const lines = formatAgentWidgetLines(manager.list());
+        const lines = formatAgentWidgetLines(manager.listCurrent());
         try {
           widgetCtx?.ui.setWidget("agents", lines);
         } catch {
@@ -52,6 +43,22 @@ export function createSubagentsInlineExtension(): InlineExtension {
       pi.on("session_start", (_event, ctx) => {
         widgetCtx = ctx;
         publish();
+      });
+      pi.on("input", (_event, ctx) => {
+        if (!ctx.isIdle()) return;
+        manager.beginPrompt();
+      });
+      pi.on("agent_end", async (event, ctx) => {
+        const delivered = await deliverUncollectedOnAgentEnd({
+          manager,
+          messages: event.messages,
+          signal: ctx.signal,
+        });
+        if (!delivered) return;
+        pi.sendMessage(
+          { customType: SUBAGENT_RESULTS_CUSTOM_TYPE, content: delivered, display: false },
+          { deliverAs: "followUp" },
+        );
       });
       pi.on("session_shutdown", () => {
         void manager.abortAll();
@@ -66,6 +73,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
         promptGuidelines: [
           "Use the subagent tool proactively for exploration, planning, review, or work that touches 3+ files.",
           "Launch independent subtasks in parallel with run_in_background=true.",
+          "Call get_subagent_result with wait=true when you need a result mid-turn. Do not treat a background launch as fire-and-forget.",
           "Each prompt must be self-contained. The child does not see this conversation.",
         ],
         parameters: Type.Object({
@@ -77,7 +85,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
           model: Type.Optional(Type.String({ description: "Optional provider/modelId override." })),
           thinking: Type.Optional(Type.String({ description: "Thinking level override." })),
           run_in_background: Type.Optional(Type.Boolean({
-            description: "Return immediately and run in the background.",
+            description: "Return immediately so other work in this turn can run in parallel. The parent turn still collects the result before it can finish.",
           })),
           resume: Type.Optional(Type.String({ description: "Existing agent id to continue." })),
         }),
@@ -96,6 +104,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
           if (params.resume) {
             const existing = manager.get(params.resume);
             if (!existing) return textResult(`Agent not found: "${params.resume}".`);
+            manager.markCollected(params.resume);
             return textResult(formatRecord(existing));
           }
 
@@ -129,11 +138,13 @@ export function createSubagentsInlineExtension(): InlineExtension {
               `Type: ${resolved.type.displayName}`,
               `Description: ${params.description}`,
               `Available types: ${names}`,
-              "Use get_subagent_result to collect the result.",
+              "Use get_subagent_result (wait: true) to collect the result mid-turn. If you finish without collecting, results are delivered automatically and the turn continues.",
             ].filter(Boolean).join("\n"));
           }
 
-          return textResult(formatRecord(await started));
+          const record = await started;
+          manager.markCollected(id);
+          return textResult(formatRecord(record));
         },
       });
 
@@ -151,6 +162,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
           const current = manager.get(params.agent_id);
           if (!current) return textResult(`Agent not found: "${params.agent_id}".`);
           const record = params.wait ? await manager.wait(params.agent_id) : current;
+          manager.markCollected(params.agent_id);
           return textResult(formatRecord(record));
         },
       });

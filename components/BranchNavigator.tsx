@@ -1,36 +1,26 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { ChevronDown, GitBranch } from "lucide-react";
+/**
+ * Conversation-branch tree for in-session navigate_tree.
+ * Shown in the session inspect dialog — not a top-bar control.
+ */
+
+import { useCallback, useMemo } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import type { SessionEntry, SessionTreeNode } from "@/lib/types";
-import { Icon } from "./Icon";
-import { measureTopPanelBox } from "./app-shell/top-panel-box";
 
-interface Props {
+interface BranchTreeProps {
   tree: SessionTreeNode[];
   activeLeafId: string | null;
   onLeafChange: (leafId: string | null) => void;
-  /** When true, renders as a compact inline button for embedding in a top bar */
-  inline?: boolean;
-  /** When inline, use this ref's bounding rect to size/position the dropdown */
-  containerRef?: React.RefObject<HTMLElement | null>;
-  /** Controlled open state for inline mode */
-  open?: boolean;
-  /** Called when the button is clicked in inline mode */
-  onToggle?: () => void;
-  /** Whether a session is currently active (used to show appropriate empty reason) */
   hasSession?: boolean;
-  /** When inline, render icon-only (no text label) to save horizontal space */
-  compact?: boolean;
 }
 
-// Find the visible entry IDs on the path from root to activeLeafId.
 function buildActivePath(nodes: SessionTreeNode[], targetId: string | null): Set<string> {
   if (!targetId) return new Set();
   const target = targetId;
-  function search(nodes: SessionTreeNode[], path: string[]): string[] | null {
-    for (const node of nodes) {
+  function search(list: SessionTreeNode[], path: string[]): string[] | null {
+    for (const node of list) {
       const next = [...path, node.entry.id];
       if (node.entry.id === target || node.compressedEntryIds?.includes(target)) {
         return next;
@@ -43,8 +33,6 @@ function buildActivePath(nodes: SessionTreeNode[], targetId: string | null): Set
   return new Set(search(nodes, []) ?? []);
 }
 
-// Compress a visible linear chain into the first branching/leaf node.
-// Server-side compressed IDs also count as skipped nodes.
 function compress(node: SessionTreeNode): { node: SessionTreeNode; skipped: number } {
   let current = node;
   let skipped = current.compressedEntryIds?.length ?? 0;
@@ -88,7 +76,6 @@ function firstUserLabel(node: SessionTreeNode): string {
   return node.entry.type;
 }
 
-// Does the tree have any branching at all?
 function hasBranch(nodes: SessionTreeNode[]): boolean {
   for (const node of nodes) {
     if (node.children.length > 1) return true;
@@ -102,7 +89,7 @@ interface TreeNodeProps {
   activePathIds: Set<string>;
   depth: number;
   isLast: boolean;
-  parentLines: boolean[]; // whether ancestor at each depth has more siblings after
+  parentLines: boolean[];
   onSelect: (id: string) => void;
 }
 
@@ -117,7 +104,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
 
   return (
     <div>
-      {/* This node row */}
       <div
         style={{
           display: "flex",
@@ -127,7 +113,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
         }}
         onClick={() => onSelect(rep.entry.id)}
       >
-        {/* Indent guide lines */}
         {parentLines.map((hasLine, i) => (
           <div key={i} style={{ width: 16, flexShrink: 0, position: "relative", height: "100%", alignSelf: "stretch" }}>
             {hasLine && (
@@ -143,9 +128,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           </div>
         ))}
 
-        {/* Branch connector */}
         <div style={{ width: 16, flexShrink: 0, position: "relative", height: "100%", alignSelf: "stretch" }}>
-          {/* vertical line up (to parent) */}
           <div style={{
             position: "absolute",
             left: 7,
@@ -154,7 +137,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
             width: 1,
             background: "var(--border)",
           }} />
-          {/* horizontal line to node */}
           <div style={{
             position: "absolute",
             left: 7,
@@ -165,7 +147,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           }} />
         </div>
 
-        {/* Node dot */}
         <div style={{
           width: 7,
           height: 7,
@@ -177,7 +158,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           transition: "background 0.12s",
         }} />
 
-        {/* Role badge */}
         {role && (
           <span style={{
             fontSize: 9,
@@ -195,14 +175,12 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           </span>
         )}
 
-        {/* Skipped indicator */}
         {skipped > 0 && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginRight: 5, flexShrink: 0 }}>
             +{skipped}
           </span>
         )}
 
-        {/* Label */}
         <span style={{
           fontSize: 11,
           color: isActive ? "var(--text)" : isOnPath ? "var(--text-muted)" : "var(--text-dim)",
@@ -217,7 +195,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
         </span>
       </div>
 
-      {/* Children */}
       {rep.children.map((child, idx) => (
         <TreeNodeView
           key={child.entry.id}
@@ -233,31 +210,12 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact }: Props) {
+export function BranchTree({ tree, activeLeafId, onLeafChange, hasSession }: BranchTreeProps) {
   const { t } = useLocale();
-  const [openInternal, setOpenInternal] = useState(false);
-  const open = openProp !== undefined ? openProp : openInternal;
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  useEffect(() => {
-    if (!open || !inline) return;
-    const anchor = containerRef?.current ?? btnRef.current;
-    if (!anchor) return;
-    const update = () => {
-      const anchor = containerRef?.current ?? btnRef.current;
-      if (!anchor) return;
-      setDropdownPos(measureTopPanelBox(anchor));
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(anchor);
-    return () => ro.disconnect();
-  }, [open, inline, containerRef]);
 
   const activePathIds = useMemo(
     () => buildActivePath(tree, activeLeafId),
-    [tree, activeLeafId]
+    [tree, activeLeafId],
   );
 
   const handleSelect = useCallback((id: string) => {
@@ -270,142 +228,31 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
       ? t("branch.noBranches")
       : null;
 
-  // Find first meaningful node (skip pure linear prefix)
   const compressed = tree.length > 0 ? compress(tree[0]) : null;
   const firstNode = compressed?.node ?? null;
   const hasContent = !noBranchReason && firstNode && firstNode.children.length > 1;
 
-  const branchIcon = (
-    <Icon
-      icon={GitBranch}
-      size={12}
-      strokeWidth={2}
-      style={{ color: hasContent ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}
-    />
-  );
-
-  const chevron = (
-    <Icon
-      icon={ChevronDown}
-      size={10}
-      strokeWidth={1.6}
-      style={{
-        marginLeft: 2,
-        color: "var(--text-dim)",
-        transform: open ? "rotate(180deg)" : "none",
-        transition: "transform 0.15s",
-      }}
-    />
-  );
-
-
-  if (inline) {
+  if (hasContent && firstNode) {
     return (
-      <div style={{ height: "100%", display: "flex", alignItems: "stretch" }}>
-        <button
-          ref={btnRef}
-          type="button"
-          className={`chrome-btn${open ? " is-active" : ""}`}
-          onClick={() => onToggle ? onToggle() : setOpenInternal((v) => !v)}
-          style={open ? { boxShadow: "inset 0 -2px 0 0 var(--accent)" } : undefined}
-          title={t("branch.branches")}
-          aria-label={t("branch.branches")}
-          aria-pressed={open}
-        >
-          {branchIcon}
-          {!compact && <span>{t("branch.branches")}</span>}
-        </button>
-        {open && dropdownPos && (
-          <div style={{
-            position: "fixed",
-            top: dropdownPos.top,
-            left: dropdownPos.left,
-            width: dropdownPos.width,
-            background: "var(--bg-panel)",
-            borderBottom: "1px solid var(--border)",
-            zIndex: 500,
-          }}>
-            {hasContent && firstNode ? (
-              <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>
-                {firstNode.children.map((child, idx) => (
-                  <TreeNodeView
-                    key={child.entry.id}
-                    node={child}
-                    activePathIds={activePathIds}
-                    depth={0}
-                    isLast={idx === firstNode.children.length - 1}
-                    parentLines={[]}
-                    onSelect={handleSelect}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                {noBranchReason}
-              </div>
-            )}
-          </div>
-        )}
+      <div>
+        {firstNode.children.map((child, idx) => (
+          <TreeNodeView
+            key={child.entry.id}
+            node={child}
+            activePathIds={activePathIds}
+            depth={0}
+            isLast={idx === firstNode.children.length - 1}
+            parentLines={[]}
+            onSelect={handleSelect}
+          />
+        ))}
       </div>
     );
   }
 
   return (
-    <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, position: "relative" }}>
-      {/* Header toggle */}
-      <button
-        onClick={() => setOpenInternal((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          width: "100%",
-          padding: "5px 12px",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          color: "var(--text-muted)",
-          fontSize: 11,
-          textAlign: "left",
-        }}
-      >
-        {branchIcon}
-        <span style={{ color: "var(--text-muted)" }}>{t("branch.branches")}</span>
-        {chevron}
-      </button>
-
-      {/* Tree panel - overlay */}
-      {open && (
-        <div className="menu-card" style={{
-          position: "absolute",
-          top: "100%",
-          left: 0,
-          right: 0,
-          marginTop: 4,
-          zIndex: 100,
-          borderRadius: "var(--radius-xl)",
-        }}>
-          {hasContent && firstNode ? (
-            <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>
-              {firstNode.children.map((child, idx) => (
-                <TreeNodeView
-                  key={child.entry.id}
-                  node={child}
-                  activePathIds={activePathIds}
-                  depth={0}
-                  isLast={idx === firstNode.children.length - 1}
-                  parentLines={[]}
-                  onSelect={handleSelect}
-                />
-              ))}
-            </div>
-          ) : (
-            <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-              {noBranchReason ?? t("branch.noBranches")}
-            </div>
-          )}
-        </div>
-      )}
+    <div style={{ fontSize: 12, lineHeight: 1.45, color: "var(--text-muted)" }}>
+      {noBranchReason ?? t("branch.noBranches")}
     </div>
   );
 }

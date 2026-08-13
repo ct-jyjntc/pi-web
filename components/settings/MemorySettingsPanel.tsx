@@ -1,48 +1,34 @@
 "use client";
 
- 
 /* Prefs/report shapes are owned by SettingsPage; keep panel props loose. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { useState, type ReactNode } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { SettingsToggle } from "../SettingsToggle";
 import { SettingsGroup, SettingsRow } from "./settings-ui";
 import { apiFetch } from "@/lib/api-transport";
+import { invalidateProjectMemory, useProjectMemoryFacts } from "@/lib/project-memory-store";
 
 export type MemorySettingsPanelProps = {
   prefs: any;
   setPrefs: (value: any | ((prev: any) => any)) => void;
   patchPref: (patch: Record<string, unknown>) => void | Promise<void>;
   cwd: string | null;
-  memoryFacts: Array<{ id: string; text: string }>;
-  setMemoryFacts: Dispatch<SetStateAction<Array<{ id: string; text: string }>>>;
-  newMemoryText: string;
-  setNewMemoryText: (v: string) => void;
-  memoryBusy: boolean;
-  setMemoryBusy: (v: boolean) => void;
-  memoryReflectBusy: boolean;
-  setMemoryReflectBusy: (v: boolean) => void;
-  memoryReflectText: string | null;
-  setMemoryReflectText: (v: string | null) => void;
-  memoryReflectMeta: string | null;
-  setMemoryReflectMeta: (v: string | null) => void;
   setSaveError: (v: string | null) => void;
   saveErrorBlock: ReactNode;
 };
 
 export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
   const { t } = useLocale();
-  const {
-    prefs, setPrefs, patchPref, cwd,
-    memoryFacts, setMemoryFacts,
-    newMemoryText, setNewMemoryText,
-    memoryBusy, setMemoryBusy,
-    memoryReflectBusy, setMemoryReflectBusy,
-    memoryReflectText, setMemoryReflectText,
-    memoryReflectMeta, setMemoryReflectMeta,
-    setSaveError, saveErrorBlock,
-  } = props;
+  const { prefs, setPrefs, patchPref, cwd, setSaveError, saveErrorBlock } = props;
+  const memoryFacts = useProjectMemoryFacts(cwd);
+  const [newMemoryText, setNewMemoryText] = useState("");
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const [memoryReflectBusy, setMemoryReflectBusy] = useState(false);
+  const [memoryReflectText, setMemoryReflectText] = useState<string | null>(null);
+  const [memoryReflectMeta, setMemoryReflectMeta] = useState<string | null>(null);
+
   return (
     <>
       <SettingsGroup title={t("settings.memory")}>
@@ -120,7 +106,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
             {memoryFacts.length === 0 ? (
               <div className="settings-card-empty">{t("settings.projectMemoryEmpty")}</div>
             ) : (
-              memoryFacts.map((f: any) => (
+              memoryFacts.map((f) => (
                 <SettingsRow
                   key={f.id}
                   title={f.text}
@@ -139,7 +125,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
                           .then(async (res) => {
                             const data = await res.json() as { error?: string };
                             if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                            setMemoryFacts((prev) => prev.filter((x) => x.id !== f.id));
+                            invalidateProjectMemory();
                           })
                           .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
                           .finally(() => setMemoryBusy(false));
@@ -172,7 +158,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
                     .then(async (res) => {
                       const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
                       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                      if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev]);
+                      invalidateProjectMemory();
                       setNewMemoryText("");
                     })
                     .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
@@ -284,9 +270,9 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
                         }),
                       })
                         .then(async (res) => {
-                          const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
+                          const data = await res.json() as { error?: string };
                           if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                          if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev.filter((x) => x.id !== data.fact!.id)]);
+                          invalidateProjectMemory();
                         })
                         .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
                         .finally(() => setMemoryBusy(false));

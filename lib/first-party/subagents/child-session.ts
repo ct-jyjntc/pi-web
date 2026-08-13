@@ -23,7 +23,8 @@ export type ChildRun = {
   steer: (text: string) => Promise<void>;
   abort: () => Promise<void>;
   dispose: () => void;
-  setActivity: (listener: (text: string) => void) => void;
+  setActivity: (listener: (text?: string) => void) => void;
+  getContextUsage: () => { percent?: number | null; tokens?: number | null } | undefined;
 };
 
 let sharedRuntime: Promise<ModelRuntime> | null = null;
@@ -126,16 +127,22 @@ export async function createChildRun(
     excludeTools: [...SUBAGENT_TOOL_NAMES],
   });
 
-  let activityListener: ((text: string) => void) | undefined;
+  let activityListener: ((text?: string) => void) | undefined;
   let assistantTurns = 0;
   const unsubscribe = session.subscribe((event) => {
     const rec = event as { type?: string; toolName?: string; name?: string; message?: { role?: string } };
     if (rec.type === "tool_execution_start" || rec.type === "tool_call") {
       activityListener?.(rec.toolName || rec.name || "working");
     }
-    if (rec.type === "message_end" && rec.message?.role === "assistant" && type.maxTurns && type.maxTurns > 0) {
-      assistantTurns += 1;
-      if (assistantTurns >= type.maxTurns) void session.abort();
+    if (rec.type === "tool_execution_end" || rec.type === "tool_result") {
+      activityListener?.();
+    }
+    if (rec.type === "message_end" && rec.message?.role === "assistant") {
+      activityListener?.();
+      if (type.maxTurns && type.maxTurns > 0) {
+        assistantTurns += 1;
+        if (assistantTurns >= type.maxTurns) void session.abort();
+      }
     }
   });
 
@@ -157,6 +164,13 @@ export async function createChildRun(
     },
     setActivity(listener) {
       activityListener = listener;
+    },
+    getContextUsage() {
+      try {
+        return (session as { getContextUsage?: () => { percent?: number | null; tokens?: number | null } }).getContextUsage?.();
+      } catch {
+        return undefined;
+      }
     },
   };
 }
