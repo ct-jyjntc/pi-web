@@ -17,6 +17,7 @@ import { getAgentDir } from "./agent-dir";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { isRecord } from "./type-guards";
+import { skillExpansionToCommand } from "./slash-display";
 
 // ============================================================================
 // Session archive index.
@@ -169,7 +170,8 @@ async function readSessionFileFacts(file: SessionFileStat): Promise<SessionFileF
       if (firstMessage) continue;
       const message = entry.message;
       if (!isRecord(message) || !("content" in message) || message.role !== "user") continue;
-      firstMessage = messageText(message);
+      const raw = messageText(message);
+      firstMessage = skillExpansionToCommand(raw) ?? raw;
     }
   } catch {
     return null;

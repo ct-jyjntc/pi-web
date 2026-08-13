@@ -76,6 +76,32 @@ export function getRecentProjects(sessions: SessionInfo[]): string[] {
     .map(([root]) => root);
 }
 
+export type ProjectActivity = { running: boolean; unread: boolean };
+
+/** Per-project running/unread for the workspace selector (worktrees collapse to projectRoot). */
+export function getProjectActivity(
+  sessions: SessionInfo[],
+  runningIds: Set<string>,
+  unreadIds: Set<string>,
+): Map<string, ProjectActivity> {
+  const byRoot = new Map<string, ProjectActivity>();
+  for (const s of sessions) {
+    const root = s.projectRoot ?? s.cwd;
+    if (!root) continue;
+    const running = runningIds.has(s.id);
+    const unread = unreadIds.has(s.id);
+    if (!running && !unread) continue;
+    const prev = byRoot.get(root);
+    if (!prev) {
+      byRoot.set(root, { running, unread });
+      continue;
+    }
+    if (running) prev.running = true;
+    if (unread) prev.unread = true;
+  }
+  return byRoot;
+}
+
 /** Substitute the home dir prefix with ~ (no path truncation — see PathLabel) */
 
 export function displayCwd(cwd: string, homeDir?: string): string {

@@ -15,7 +15,7 @@ import type {
   ToolResultMessage,
 } from "@/lib/types";
 import {
-  estimateStreamChars,
+  estimateStreamTokens,
   formatTime,
   formatUsage,
 } from "./message-view-utils";
@@ -23,6 +23,8 @@ import { MessageHoverShell } from "./MessageHoverShell";
 import { BlockView } from "./blocks/BlockView";
 import { ToolRunGroup } from "./blocks/ToolRunGroup";
 import { groupRunBlocks } from "./tool-run-meta";
+import { turnWrittenFiles } from "@/lib/turn-written-files";
+import { getFileName } from "@/lib/file-paths";
 
 export function AssistantMessageView({
   message,
@@ -132,10 +134,9 @@ export function AssistantMessageView({
 
   // Streamed character estimate — computed once per render and reused by the
   // tps interval, so no tick re-scans the blocks.
-  const estChars = useMemo(() => (isStreaming ? estimateStreamChars(blocks) : 0), [isStreaming, blocks]);
-  const estCharsRef = useRef(estChars);
-  estCharsRef.current = estChars;
-  const estTokens = Math.round(estChars / 4);
+  const estTokens = useMemo(() => (isStreaming ? estimateStreamTokens(blocks) : 0), [isStreaming, blocks]);
+  const estTokensRef = useRef(estTokens);
+  estTokensRef.current = estTokens;
 
   const reviewReport = useMemo(
     () => (!isStreaming && !isProcess ? parseReviewReport(textContent) : null),
@@ -187,12 +188,12 @@ export function AssistantMessageView({
         return changed ? next : prev;
       });
 
-      const chars = estCharsRef.current;
-      if (chars === 0) return;
+      const tokens = estTokensRef.current;
+      if (tokens === 0) return;
       if (streamStartRef.current === null) streamStartRef.current = now;
       const elapsed = (now - streamStartRef.current) / 1000;
       if (elapsed <= 0.5) return;
-      const next = chars / 4 / elapsed;
+      const next = tokens / elapsed;
       // Only re-render when the displayed (one decimal) value actually moves.
       setTps((prev) => (prev !== null && Math.round(prev * 10) === Math.round(next * 10) ? prev : next));
     };
@@ -322,6 +323,17 @@ export function AssistantMessageView({
           ),
         )}
         {reviewReport && !isProcess && <ReviewSummaryCard report={reviewReport} />}
+        {!isStreaming && !isProcess && onOpenFile && turnWrittenFiles(message, toolResults).map((path) => (
+          <button
+            key={path}
+            type="button"
+            className="chrome-btn"
+            onClick={() => onOpenFile(path)}
+            style={{ marginTop: 8, marginRight: 6, fontSize: 11, fontFamily: "var(--font-mono)" }}
+          >
+            {getFileName(path)}
+          </button>
+        ))}
       </div>
 
       {providerError && !isProcess && (

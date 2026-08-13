@@ -5,7 +5,7 @@
 
 import { useLocale } from "@/hooks/useLocale";
 import { SettingsToggle } from "../SettingsToggle";
-import { SettingsRow, sectionTitle } from "./settings-ui";
+import { SettingsGroup, SettingsRow } from "./settings-ui";
 
 export function AgentBehaviorSettings({
   prefs,
@@ -28,9 +28,7 @@ export function AgentBehaviorSettings({
 }) {
   const { t } = useLocale();
   return (
-    <>
-      {sectionTitle(t("settings.agentBehavior"))}
-
+    <SettingsGroup title={t("settings.agentBehavior")}>
       <SettingsRow
         stacked
         title={t("settings.defaultThinking")}
@@ -113,6 +111,6 @@ export function AgentBehaviorSettings({
           />
         }
       />
-    </>
+    </SettingsGroup>
   );
 }

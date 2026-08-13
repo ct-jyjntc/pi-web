@@ -165,7 +165,8 @@ export async function GET(req: Request) {
   try {
     if (force) invalidateModelsCache();
     return Response.json(await loadModelsWithCache(cwd, () => loadModels(cwd)));
-  } catch {
-    return Response.json(EMPTY_MODELS);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Response.json(withModelRuntimeError(EMPTY_MODELS, message));
   }
 }

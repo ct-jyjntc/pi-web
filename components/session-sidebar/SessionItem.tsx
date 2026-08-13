@@ -16,6 +16,7 @@ import { Icon } from "../Icon";
 import { RunningSessionIndicator, UnreadSessionIndicator } from "./SessionIndicators";
 import { SessionItemMenu, type SessionMenuAction } from "./SessionItemMenu";
 import { apiFetch } from "@/lib/api-transport";
+import { skillExpansionToCommand } from "@/lib/slash-display";
 
 export const SessionItem = memo(function SessionItem({
   session,
@@ -57,7 +58,9 @@ export const SessionItem = memo(function SessionItem({
   const inputRef = useRef<HTMLInputElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
-  const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+  const rawTitle = session.name || session.firstMessage || "";
+  const compactTitle = skillExpansionToCommand(rawTitle) ?? rawTitle;
+  const title = compactTitle.slice(0, 50) || session.id.slice(0, 12);
   const canGenerateTitle = session.messageCount > 0;
 
   const startRename = useCallback(() => {

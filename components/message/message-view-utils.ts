@@ -107,6 +107,35 @@ export function estimateStreamChars(blocks: AssistantContentBlock[]): number {
   return chars;
 }
 
+/** CJK ideographs count ~1 token; latin/other stay ~4 chars/token. */
+export function estimateTokensFromChars(text: string): number {
+  let cjk = 0;
+  let other = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (
+      (code >= 0x3400 && code <= 0x9fff)
+      || (code >= 0xf900 && code <= 0xfaff)
+      || (code >= 0x20000 && code <= 0x2ceaf)
+    ) {
+      cjk += 1;
+    } else {
+      other += 1;
+    }
+  }
+  return Math.max(0, Math.round(cjk + other / 4));
+}
+
+export function estimateStreamTokens(blocks: AssistantContentBlock[]): number {
+  let tokens = 0;
+  for (const b of blocks) {
+    if (b.type === "text") tokens += estimateTokensFromChars((b as TextContent).text ?? "");
+    else if (b.type === "thinking") tokens += estimateTokensFromChars((b as ThinkingContent).thinking ?? "");
+    else if (b.type === "toolCall") tokens += Math.round(approxJsonLength((b as ToolCallContent).input ?? {}, 0) / 4);
+  }
+  return tokens;
+}
+
 export function getMessageText(content: CustomMessage["content"] | UserMessage["content"]): string {
   if (typeof content === "string") return content;
   return content

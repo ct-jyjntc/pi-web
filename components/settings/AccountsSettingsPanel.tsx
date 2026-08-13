@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-transport";
 import { useLocale } from "@/hooks/useLocale";
-import { SettingsRow, sectionTitle } from "./settings-ui";
+import { SettingsGroup, SettingsPageHeading, SettingsRow } from "./settings-ui";
 import {
   GithubConnectModal,
   type GithubAccountStatus,
@@ -72,17 +72,14 @@ export function AccountsSettingsPanel() {
 
   return (
     <div className="settings-page-general">
-      {sectionTitle(t("accounts.title"))}
-      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 16 }}>
-        {t("accounts.description")}
-      </div>
-
+      <SettingsPageHeading title={t("settings.accounts")} description={t("accounts.description")} />
       {error && (
         <div style={{ fontSize: 12, color: "var(--destructive)", marginBottom: 10, lineHeight: 1.4 }}>
           {error}
         </div>
       )}
 
+      <SettingsGroup>
       <SettingsRow
         title={t("accounts.github")}
         description={
@@ -140,6 +137,7 @@ export function AccountsSettingsPanel() {
           </div>
         }
       />
+      </SettingsGroup>
 
       <div style={{ marginTop: 18, display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-dim)" }}>
         <Icon icon={Link2} size={12} />

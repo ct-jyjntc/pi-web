@@ -859,20 +859,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
-  // Coalesce high-frequency streaming updates: dispatch at most once per
-  // 80ms window (leading + trailing) so each SSE token doesn't re-render
-  // the whole chat tree.
-  const pendingStreamUpdateRef = useRef<Partial<AgentMessage> | null>(null);
-  const streamUpdateTimerRef = useRef<number | null>(null);
-  const clearPendingStreamUpdate = useCallback(() => {
-    pendingStreamUpdateRef.current = null;
-    if (streamUpdateTimerRef.current !== null) {
-      window.clearTimeout(streamUpdateTimerRef.current);
-      streamUpdateTimerRef.current = null;
-    }
-  }, []);
-  useEffect(() => clearPendingStreamUpdate, [clearPendingStreamUpdate]);
-
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     handleAgentSessionEvent(event, {
       agentRunningRef,
@@ -882,8 +868,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       optimisticUserMessageKeyRef,
       sseReconnectAttemptRef,
       sseReconnectTimerRef,
-      pendingStreamUpdateRef,
-      streamUpdateTimerRef,
       setAgentRunning,
       setAgentPhase,
       setRetryInfo,
@@ -894,7 +878,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setCompactResult,
       setContextUsage,
       dispatchStream: dispatch,
-      clearPendingStreamUpdate,
       closeEvents,
       finishPromptWithoutStream,
       loadSession,
@@ -903,7 +886,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice,
       t,
     });
-  }, [addNotice, clearPendingStreamUpdate, closeEvents, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, waitForPromptSettlement, t]);
+  }, [addNotice, closeEvents, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, waitForPromptSettlement, t]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1149,35 +1132,40 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     rememberLastChatModel({ provider, modelId, thinkingLevel: nextThinking });
 
+    const nextModel = { provider, modelId };
+    const previousOverride = currentModelOverride;
+    setPendingModel(nextModel);
     if (isNew) {
-      const nextModel = { provider, modelId };
       setNewSessionModel(nextModel);
       newSessionModelRef.current = nextModel;
-      setPendingModel(nextModel);
-      const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-      if (!sid) return;
-      try {
-        await sendAgentCommand(sid, { type: "set_model", provider, modelId });
-        if (nextThinking !== "auto") {
-          await sendAgentCommand(sid, { type: "set_thinking_level", level: nextThinking });
-        }
-      } catch (e) {
-        console.error("Failed to set model:", e);
-      }
+    } else {
+      setCurrentModelOverride(nextModel);
+    }
+    const sid = isNew
+      ? (sessionIdRef.current ?? await ensuringNewSessionRef.current)
+      : sessionIdRef.current;
+    if (!sid) {
+      setPendingModel(null);
       return;
     }
-    const sid = sessionIdRef.current;
-    if (!sid) return;
     try {
       await sendAgentCommand(sid, { type: "set_model", provider, modelId });
-      setCurrentModelOverride({ provider, modelId });
       if (nextThinking !== "auto") {
         await sendAgentCommand(sid, { type: "set_thinking_level", level: nextThinking });
       }
     } catch (e) {
       console.error("Failed to set model:", e);
+      if (isNew) {
+        setNewSessionModel(null);
+        newSessionModelRef.current = null;
+      } else {
+        setCurrentModelOverride(previousOverride);
+      }
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setPendingModel(null);
     }
-  }, [isNew, modelThinkingLevels, setNewSessionModel, thinkingLevel]);
+  }, [addNotice, currentModelOverride, isNew, modelThinkingLevels, setNewSessionModel, thinkingLevel]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;

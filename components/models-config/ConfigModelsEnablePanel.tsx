@@ -5,7 +5,7 @@
  * The caller owns persistence; this component only renders the list and emits
  * a model id + desired enabled state.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { SettingsToggle } from "../SettingsToggle";
 import { normalizeModelEntry, type ModelEntry } from "./models-config-types";
@@ -17,6 +17,7 @@ export function ConfigModelsEnablePanel({
   onToggleAllModels,
   loading = false,
   error = null,
+  toolbar = null,
 }: {
   models: readonly ModelEntry[];
   onChangeModels?: (models: ModelEntry[]) => void;
@@ -25,6 +26,7 @@ export function ConfigModelsEnablePanel({
   onToggleAllModels?: (enabled: boolean) => void | Promise<void>;
   loading?: boolean;
   error?: string | null;
+  toolbar?: ReactNode;
 }) {
   const { t } = useLocale();
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -67,39 +69,25 @@ export function ConfigModelsEnablePanel({
         flexShrink: 0,
       }}
     >
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexShrink: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{t("models.providerModels")}</div>
+      <div className="models-enable-head">
+        <div className="settings-group-title" style={{ margin: 0 }}>{t("models.providerModels")}</div>
         <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
           {loading
             ? t("models.loadingProviderModels")
-            : (
-              <>
-                {models.length} {t("models.freeModelCount")}
-                {" · "}
-                {enabledCount} {t("models.enabledCount")}
-              </>
-            )}
+            : `${models.length} ${t("models.freeModelCount")} · ${enabledCount} ${t("models.enabledCount")}`}
         </div>
       </div>
 
       {models.length > 0 ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            flexShrink: 0,
-            minWidth: 0,
-          }}
-        >
+        <div className="models-enable-toolbar">
           <input
             className="input-base"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("models.searchModelsPlaceholder")}
             aria-label={t("models.searchModelsPlaceholder")}
-            style={{ fontSize: 12, flex: 1, minWidth: 0 }}
           />
+          {toolbar}
           {(onToggleAllModels || onChangeModels) ? (
             <>
               <button
@@ -108,7 +96,6 @@ export function ConfigModelsEnablePanel({
                 disabled={busy || loading || enabledCount === models.length}
                 onClick={() => runBulk(true)}
                 title={t("models.enableAllHint")}
-                style={{ flexShrink: 0 }}
               >
                 {bulkPending ? t("models.working") : t("models.enableAll")}
               </button>
@@ -118,7 +105,6 @@ export function ConfigModelsEnablePanel({
                 disabled={busy || loading || enabledCount === 0}
                 onClick={() => runBulk(false)}
                 title={t("models.disableAllHint")}
-                style={{ flexShrink: 0 }}
               >
                 {bulkPending ? t("models.working") : t("models.disableAll")}
               </button>

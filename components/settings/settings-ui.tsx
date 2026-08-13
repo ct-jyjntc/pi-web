@@ -94,20 +94,86 @@ export function SettingsRow({
   description,
   action,
   stacked = false,
+  active = false,
+  onClick,
 }: {
-  title: string;
+  title: ReactNode;
   description?: string;
   action: ReactNode;
   stacked?: boolean;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <div className={`settings-row${stacked ? " is-stacked" : ""}`}>
-      <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+    <div
+      className={`settings-row${stacked ? " is-stacked" : ""}${onClick ? " is-clickable" : ""}${active ? " is-active" : ""}`}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      } : undefined}
+    >
+      <div className="settings-row-copy">
         <div className="settings-row-title">{title}</div>
         {description && <div className="settings-row-desc">{description}</div>}
       </div>
-      <div style={{ flexShrink: 0, width: stacked ? "100%" : undefined }}>{action}</div>
+      <div
+        className="settings-row-action"
+        onClick={onClick ? (event) => event.stopPropagation() : undefined}
+        onKeyDown={onClick ? (event) => event.stopPropagation() : undefined}
+      >
+        {action}
+      </div>
     </div>
+  );
+}
+
+export function SettingsGroup({
+  title,
+  action,
+  framed = true,
+  children,
+}: {
+  title?: string;
+  action?: ReactNode;
+  /** When false, title sits above children with no card shell (sparse charts). */
+  framed?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section className="settings-group">
+      {(title || action) ? (
+        <div className="settings-group-head">
+          {title ? <h3 className="settings-group-title">{title}</h3> : <span />}
+          {action}
+        </div>
+      ) : null}
+      {framed ? <div className="settings-card">{children}</div> : children}
+    </section>
+  );
+}
+
+export function SettingsPageHeading({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <header className={`settings-page-heading${action ? " is-split" : ""}`}>
+      <div className="settings-page-heading-copy">
+        <h2>{title}</h2>
+        {description ? <p>{description}</p> : null}
+      </div>
+      {action}
+    </header>
   );
 }
 

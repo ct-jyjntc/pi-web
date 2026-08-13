@@ -62,6 +62,16 @@ export function clearHashlineSnapshots(): void {
   versionsByPath.clear();
 }
 
+const pathIdleHooks = new Set<(absPath: string) => void>();
+
+/** Fired when the last waiter on a path lock finishes (queue drained). */
+export function registerHashlinePathIdleHook(hook: (absPath: string) => void): () => void {
+  pathIdleHooks.add(hook);
+  return () => {
+    pathIdleHooks.delete(hook);
+  };
+}
+
 /**
  * Serialize async work per absolute path. Parallel edit tool calls on the same
  * file become a queue so the second call sees the first write and can recover.
@@ -84,6 +94,7 @@ export async function withHashlinePathLock<T>(
     release();
     if (pathGates.get(absPath) === chained) {
       pathGates.delete(absPath);
+      for (const hook of pathIdleHooks) hook(absPath);
     }
   }
 }

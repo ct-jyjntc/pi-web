@@ -7,7 +7,7 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import { SettingsToggle } from "../SettingsToggle";
-import { SettingsRow, sectionTitle } from "./settings-ui";
+import { SettingsGroup, SettingsRow } from "./settings-ui";
 import { apiFetch } from "@/lib/api-transport";
 
 export type MemorySettingsPanelProps = {
@@ -45,7 +45,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
   } = props;
   return (
     <>
-      {sectionTitle(t("settings.memory"))}
+      <SettingsGroup title={t("settings.memory")}>
 
       <SettingsRow
         title={t("settings.projectMemory")}
@@ -106,6 +106,7 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
           />
         }
       />
+      </SettingsGroup>
 
       {!cwd && (
         <div className="settings-row-desc" style={{ marginTop: 4, marginBottom: 8 }}>
@@ -114,211 +115,203 @@ export function MemorySettingsPanel(props: MemorySettingsPanelProps) {
       )}
 
       {cwd && prefs.projectMemoryEnabled && (
-        <div style={{ marginTop: 8, marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("settings.projectMemoryFacts")}</div>
-          {memoryFacts.length === 0 ? (
-            <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>{t("settings.projectMemoryEmpty")}</div>
-          ) : (
-            <ul style={{ margin: "0 0 8px", padding: 0, listStyle: "none" }}>
-              {memoryFacts.map((f: any) => (
-                <li key={f.id} className="settings-list-row" style={{ alignItems: "center" }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere" }}>{f.text}</span>
+        <>
+          <SettingsGroup title={t("settings.projectMemoryFacts")}>
+            {memoryFacts.length === 0 ? (
+              <div className="settings-card-empty">{t("settings.projectMemoryEmpty")}</div>
+            ) : (
+              memoryFacts.map((f: any) => (
+                <SettingsRow
+                  key={f.id}
+                  title={f.text}
+                  action={
+                    <button
+                      type="button"
+                      className="btn-ghost btn-compact"
+                      disabled={memoryBusy}
+                      onClick={() => {
+                        setMemoryBusy(true);
+                        void apiFetch("/api/project-memory", {
+                          method: "DELETE",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ cwd, id: f.id }),
+                        })
+                          .then(async (res) => {
+                            const data = await res.json() as { error?: string };
+                            if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                            setMemoryFacts((prev) => prev.filter((x) => x.id !== f.id));
+                          })
+                          .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
+                          .finally(() => setMemoryBusy(false));
+                      }}
+                    >
+                      {t("settings.projectMemoryDelete")}
+                    </button>
+                  }
+                />
+              ))
+            )}
+            <div className="settings-card-footer">
+              <input
+                className="input-base"
+                value={newMemoryText}
+                onChange={(e) => setNewMemoryText(e.target.value)}
+                placeholder={t("settings.projectMemoryAdd")}
+              />
+              <button
+                type="button"
+                className="btn-primary btn-compact"
+                disabled={memoryBusy || !newMemoryText.trim()}
+                onClick={() => {
+                  setMemoryBusy(true);
+                  void apiFetch("/api/project-memory", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ cwd, text: newMemoryText.trim() }),
+                  })
+                    .then(async (res) => {
+                      const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
+                      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                      if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev]);
+                      setNewMemoryText("");
+                    })
+                    .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
+                    .finally(() => setMemoryBusy(false));
+                }}
+              >
+                {t("settings.projectMemoryAdd")}
+              </button>
+            </div>
+          </SettingsGroup>
+
+          <SettingsGroup title={t("settings.projectMemoryReflect")}>
+            <div className="settings-card-footer" style={{ borderTop: "none", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn-ghost btn-compact"
+                disabled={memoryReflectBusy || memoryBusy || memoryFacts.length === 0}
+                title={t("settings.projectMemoryReflectDesc")}
+                onClick={() => {
+                  setMemoryReflectBusy(true);
+                  setMemoryReflectText(null);
+                  setMemoryReflectMeta(null);
+                  void apiFetch("/api/project-memory", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ cwd, action: "reflect", useModel: true, limit: 40 }),
+                  })
+                    .then(async (res) => {
+                      const data = await res.json() as {
+                        reflection?: { summary?: string; mode?: string; factCount?: number; model?: string };
+                        error?: string;
+                      };
+                      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                      const r = data.reflection;
+                      setMemoryReflectText(r?.summary ?? "");
+                      setMemoryReflectMeta(
+                        r
+                          ? `${r.mode ?? "?"} · ${r.factCount ?? 0} facts${r.model ? ` · ${r.model}` : ""}`
+                          : null,
+                      );
+                    })
+                    .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
+                    .finally(() => setMemoryReflectBusy(false));
+                }}
+              >
+                {memoryReflectBusy ? t("settings.projectMemoryReflecting") : t("settings.projectMemoryReflect")}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost btn-compact"
+                disabled={memoryReflectBusy || memoryBusy || memoryFacts.length === 0}
+                onClick={() => {
+                  setMemoryReflectBusy(true);
+                  setMemoryReflectText(null);
+                  setMemoryReflectMeta(null);
+                  void apiFetch("/api/project-memory", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ cwd, action: "reflect", heuristicOnly: true, limit: 40 }),
+                  })
+                    .then(async (res) => {
+                      const data = await res.json() as {
+                        reflection?: { summary?: string; mode?: string; factCount?: number };
+                        error?: string;
+                      };
+                      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+                      const r = data.reflection;
+                      setMemoryReflectText(r?.summary ?? "");
+                      setMemoryReflectMeta(r ? `${r.mode ?? "heuristic"} · ${r.factCount ?? 0} facts` : null);
+                    })
+                    .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
+                    .finally(() => setMemoryReflectBusy(false));
+                }}
+              >
+                {t("settings.projectMemoryReflectFast")}
+              </button>
+            </div>
+            {memoryReflectText && (
+              <div className="settings-row is-stacked">
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  {memoryReflectMeta && (
+                    <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                      {memoryReflectMeta}
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="btn-ghost btn-compact"
-                    disabled={memoryBusy}
+                    disabled={memoryBusy || memoryReflectBusy || !memoryReflectText.trim()}
+                    style={{ marginLeft: "auto" }}
+                    title={t("settings.projectMemoryRetainReflectDesc")}
                     onClick={() => {
+                      const lines = memoryReflectText
+                        .split("\n")
+                        .map((l) => l.trim())
+                        .filter((l) => l && !l.startsWith("#") && !l.startsWith("---") && !l.startsWith("mode:") && !l.startsWith("facts"));
+                      const pick = lines.find((l) => l.startsWith("-") || l.match(/^\d+\./)) ?? lines[0] ?? "";
+                      const text = pick.replace(/^[-*\d.\s]+/, "").trim().slice(0, 360);
+                      if (!text) return;
                       setMemoryBusy(true);
                       void apiFetch("/api/project-memory", {
-                        method: "DELETE",
+                        method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ cwd, id: f.id }),
+                        body: JSON.stringify({
+                          cwd,
+                          text: `Reflect: ${text}`,
+                          tags: ["reflect"],
+                          importance: 0.7,
+                        }),
                       })
                         .then(async (res) => {
-                          const data = await res.json() as { error?: string };
+                          const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
                           if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                          setMemoryFacts((prev) => prev.filter((x) => x.id !== f.id));
+                          if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev.filter((x) => x.id !== data.fact!.id)]);
                         })
                         .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
                         .finally(() => setMemoryBusy(false));
                     }}
-                    style={{ flexShrink: 0 }}
                   >
-                    {t("settings.projectMemoryDelete")}
+                    {t("settings.projectMemoryRetainReflect")}
                   </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              className="input-base"
-              value={newMemoryText}
-              onChange={(e) => setNewMemoryText(e.target.value)}
-              placeholder={t("settings.projectMemoryAdd")}
-              style={{ flex: 1 }}
-            />
-            <button
-              type="button"
-              className="btn-primary btn-compact"
-              disabled={memoryBusy || !newMemoryText.trim()}
-              onClick={() => {
-                setMemoryBusy(true);
-                void apiFetch("/api/project-memory", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ cwd, text: newMemoryText.trim() }),
-                })
-                  .then(async (res) => {
-                    const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
-                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                    if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev]);
-                    setNewMemoryText("");
-                  })
-                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                  .finally(() => setMemoryBusy(false));
-              }}
-            >
-              {t("settings.projectMemoryAdd")}
-            </button>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="btn-ghost btn-compact"
-              disabled={memoryReflectBusy || memoryBusy || memoryFacts.length === 0}
-              title={t("settings.projectMemoryReflectDesc")}
-              onClick={() => {
-                setMemoryReflectBusy(true);
-                setMemoryReflectText(null);
-                setMemoryReflectMeta(null);
-                void apiFetch("/api/project-memory", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ cwd, action: "reflect", useModel: true, limit: 40 }),
-                })
-                  .then(async (res) => {
-                    const data = await res.json() as {
-                      reflection?: { summary?: string; mode?: string; factCount?: number; model?: string };
-                      error?: string;
-                    };
-                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                    const r = data.reflection;
-                    setMemoryReflectText(r?.summary ?? "");
-                    setMemoryReflectMeta(
-                      r
-                        ? `${r.mode ?? "?"} · ${r.factCount ?? 0} facts${r.model ? ` · ${r.model}` : ""}`
-                        : null,
-                    );
-                  })
-                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                  .finally(() => setMemoryReflectBusy(false));
-              }}
-            >
-              {memoryReflectBusy ? t("settings.projectMemoryReflecting") : t("settings.projectMemoryReflect")}
-            </button>
-            <button
-              type="button"
-              className="btn-ghost btn-compact"
-              disabled={memoryReflectBusy || memoryBusy || memoryFacts.length === 0}
-              onClick={() => {
-                setMemoryReflectBusy(true);
-                setMemoryReflectText(null);
-                setMemoryReflectMeta(null);
-                void apiFetch("/api/project-memory", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ cwd, action: "reflect", heuristicOnly: true, limit: 40 }),
-                })
-                  .then(async (res) => {
-                    const data = await res.json() as {
-                      reflection?: { summary?: string; mode?: string; factCount?: number };
-                      error?: string;
-                    };
-                    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                    const r = data.reflection;
-                    setMemoryReflectText(r?.summary ?? "");
-                    setMemoryReflectMeta(r ? `${r.mode ?? "heuristic"} · ${r.factCount ?? 0} facts` : null);
-                  })
-                  .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                  .finally(() => setMemoryReflectBusy(false));
-              }}
-            >
-              {t("settings.projectMemoryReflectFast")}
-            </button>
-          </div>
-          {memoryReflectText && (
-            <div
-              style={{
-                marginTop: 10,
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-md)",
-                background: "var(--bg-subtle)",
-                padding: "10px 12px",
-                maxHeight: 280,
-                overflow: "auto",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                {memoryReflectMeta && (
-                  <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                    {memoryReflectMeta}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="btn-ghost btn-compact"
-                  disabled={memoryBusy || memoryReflectBusy || !memoryReflectText.trim()}
-                  style={{ marginLeft: "auto", height: 22, minHeight: 22, padding: "0 8px", fontSize: 11 }}
-                  title={t("settings.projectMemoryRetainReflectDesc")}
-                  onClick={() => {
-                    // Store a short durable pointer (first meaningful non-heading line)
-                    const lines = memoryReflectText
-                      .split("\n")
-                      .map((l) => l.trim())
-                      .filter((l) => l && !l.startsWith("#") && !l.startsWith("---") && !l.startsWith("mode:") && !l.startsWith("facts"));
-                    const pick = lines.find((l) => l.startsWith("-") || l.match(/^\d+\./)) ?? lines[0] ?? "";
-                    const text = pick.replace(/^[-*\d.\s]+/, "").trim().slice(0, 360);
-                    if (!text) return;
-                    setMemoryBusy(true);
-                    void apiFetch("/api/project-memory", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        cwd,
-                        text: `Reflect: ${text}`,
-                        tags: ["reflect"],
-                        importance: 0.7,
-                      }),
-                    })
-                      .then(async (res) => {
-                        const data = await res.json() as { fact?: { id: string; text: string }; error?: string };
-                        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-                        if (data.fact) setMemoryFacts((prev) => [data.fact!, ...prev.filter((x) => x.id !== data.fact!.id)]);
-                      })
-                      .catch((e) => setSaveError(e instanceof Error ? e.message : String(e)))
-                      .finally(() => setMemoryBusy(false));
+                </div>
+                <pre
+                  style={{
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                    color: "var(--text-muted)",
+                    fontFamily: "var(--font-mono)",
                   }}
                 >
-                  {t("settings.projectMemoryRetainReflect")}
-                </button>
+                  {memoryReflectText}
+                </pre>
               </div>
-              <pre
-                style={{
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                  color: "var(--text-muted)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {memoryReflectText}
-              </pre>
-            </div>
-          )}
-        </div>
+            )}
+          </SettingsGroup>
+        </>
       )}
 
       {saveErrorBlock}

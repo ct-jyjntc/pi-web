@@ -6,6 +6,7 @@
 import { SettingsToggle } from "@/components/SettingsToggle";
 import type { MessageKey } from "@/lib/i18n/messages";
 import type { LeanIntensity, LeanModeSettings } from "@/lib/lean-mode-settings";
+import { SettingsGroup, SettingsRow } from "./settings-ui";
 
 type Translate = (key: MessageKey) => string;
 
@@ -19,28 +20,22 @@ export function LeanModeSettingsSection({
   t: Translate;
 }) {
   return (
-    <>
-      <div className="settings-section-title">{t("settings.leanSection")}</div>
-
-      <div className="settings-row">
-        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-          <div className="settings-row-title">{t("settings.leanMode")}</div>
-          <div className="settings-row-desc">{t("settings.leanModeDesc")}</div>
-        </div>
-        <div style={{ flexShrink: 0 }}>
+    <SettingsGroup title={t("settings.leanSection")}>
+      <SettingsRow
+        title={t("settings.leanMode")}
+        description={t("settings.leanModeDesc")}
+        action={
           <SettingsToggle
             enabled={leanMode.enabled}
             onChange={(next) => onPatch({ enabled: next })}
           />
-        </div>
-      </div>
-
-      <div className="settings-row is-stacked">
-        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-          <div className="settings-row-title">{t("settings.leanIntensity")}</div>
-          <div className="settings-row-desc">{t("settings.leanIntensityDesc")}</div>
-        </div>
-        <div style={{ flexShrink: 0, width: "100%" }}>
+        }
+      />
+      <SettingsRow
+        stacked
+        title={t("settings.leanIntensity")}
+        description={t("settings.leanIntensityDesc")}
+        action={
           <select
             className="input-base"
             value={leanMode.intensity}
@@ -53,12 +48,11 @@ export function LeanModeSettingsSection({
             <option value="review">{t("settings.leanIntensityReview")}</option>
             <option value="hard">{t("settings.leanIntensityHard")}</option>
           </select>
-        </div>
-      </div>
-
-      <div className="settings-row-desc" style={{ margin: "4px 0 12px", color: "var(--text-dim)" }}>
+        }
+      />
+      <div className="settings-row-desc" style={{ padding: "0 14px 12px", color: "var(--text-dim)" }}>
         {t("settings.leanSessionReloadNote")}
       </div>
-    </>
+    </SettingsGroup>
   );
 }

@@ -27,7 +27,6 @@ import {
 } from "./edit-syntax-guard";
 import { formatFileOnDisk } from "./format-file";
 import {
-  applyHashlineEdits,
   applyHashlinePatch,
   collectHashlineLockPaths,
   computeFileTag,
@@ -39,6 +38,7 @@ import {
   type HashlineHunk,
   type HashlineResult,
 } from "./hashline-edit";
+import { applyBatchedHashlineEdits, clearBatchedHashlineEdits } from "./hashline-hunk-batch";
 import { buildHashlinePreview } from "./hashline-preview";
 import {
   recordHashlineSnapshot,
@@ -329,6 +329,7 @@ export function createPiWebEditToolDefinition(
           const input = String(args.input);
           const paths = collectHashlineLockPaths(cwd, input);
           return mutateLocked(paths, async (beforeMap) => {
+            for (const p of paths) clearBatchedHashlineEdits(p);
             const results = applyHashlinePatch(cwd, input);
             await formatEditedFiles(results.map((r) => r.path));
             for (const r of results) {
@@ -361,7 +362,7 @@ export function createPiWebEditToolDefinition(
               ...h,
               hash: h.hash || hashBlock(h.oldText),
             }));
-            const result = applyHashlineEdits(cwd, String(args.path), hunks);
+            const result = applyBatchedHashlineEdits(cwd, String(args.path), hunks);
             await formatEditedFiles([result.path]);
             refreshHashlineAfterFormat(cwd, [result], beforeMap);
             recordSnapshots(getSessionId?.(), beforeMap);
@@ -391,7 +392,7 @@ export function createPiWebEditToolDefinition(
                 oldText: e.oldText,
                 newText: e.newText,
               }));
-              const result = applyHashlineEdits(cwd, path, hunks);
+              const result = applyBatchedHashlineEdits(cwd, path, hunks);
               await formatEditedFiles([result.path]);
               recordSnapshots(getSessionId?.(), beforeMap);
               refreshHashlineAfterFormat(cwd, [result], beforeMap);
@@ -413,7 +414,7 @@ export function createPiWebEditToolDefinition(
               };
             } catch (strictError) {
               const strictMsg = strictError instanceof Error ? strictError.message : String(strictError);
-              if (/overlap/i.test(strictMsg)) throw strictError;
+              if (/overlap|would leave unparsable/i.test(strictMsg)) throw strictError;
               try {
                 const abs = absClassic;
                 const before = abs ? beforeMap.get(abs) ?? null : null;

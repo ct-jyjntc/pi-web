@@ -65,7 +65,7 @@ export function AddProviderPicker({
   return (
      <CenteredDialog
        width={720}
-       zIndex={1100}
+       zIndex={1300}
        label={t("models.searchProviders")}
        onClose={onClose}
        style={{ maxHeight: "min(72vh, calc(100vh - 32px))", display: "flex", flexDirection: "column" }}

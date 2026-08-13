@@ -9,9 +9,9 @@ import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import type { SkillInfo } from "@/lib/api-types";
 import { McpConfig } from "./McpConfig";
-import { SettingsToggle } from "./SettingsToggle";
-import { LeanModeSettingsSection } from "./settings/LeanModeSettingsSection";
- import { AgentBehaviorSettings } from "./settings/AgentBehaviorSettings";
+import { AgentBehaviorSettings } from "./settings/AgentBehaviorSettings";
+import { AdvisorSettingsPanel } from "./settings/AdvisorSettingsPanel";
+import { GeneralSettingsPanel } from "./settings/GeneralSettingsPanel";
 import { UsagePanel, prefetchUsage } from "./UsagePanel";
 import { setAppearanceSnapshot, useAppearance } from "@/lib/appearance-store";
 import { getAppUpdateInfo, setAppUpdateInfo, subscribeAppUpdate } from "@/lib/app-update-store";
@@ -39,16 +39,12 @@ export type SettingsSection =
   | "tools";
 
 import {
-  ModelSelect,
-  SegmentedOption,
-  SettingsRow,
-  sectionTitle,
+  SettingsPageHeading,
   type LspServerRow,
 } from "./settings/settings-ui";
 import { AccountsSettingsPanel } from "./settings/AccountsSettingsPanel";
 import { ToolsSettingsPanel } from "./settings/ToolsSettingsPanel";
 import { AgentModelsSettingsPanel } from "./settings/AgentModelsSettingsPanel";
-import { ModelThinkingControl } from "./settings/ModelThinkingControl";
 import { MemorySettingsPanel } from "./settings/MemorySettingsPanel";
 import { AppearanceSettingsPanel } from "./settings/AppearanceSettingsPanel";
 import { PermissionsSettingsPanel } from "./settings/PermissionsSettingsPanel";
@@ -74,7 +70,7 @@ export function SettingsPage({
    * (section, models, prefs) survives. */
   visible?: boolean;
 }) {
-  const { t, locale, setLocale } = useLocale();
+  const { t } = useLocale();
   const { isDark, setThemeMode, themeMode } = useTheme();
   const appearance = useAppearance();
   const isMobile = useIsMobile();
@@ -562,32 +558,19 @@ export function SettingsPage({
     </div>
   ) : null;
 
-  const generalHeadPanel = (
-    <>
-      {sectionTitle(t("settings.general"))}
-
-      <SettingsRow
-        title={t("settings.language")}
-        description={t("settings.languageDesc")}
-        action={
-          <div className="settings-segmented">
-            <SegmentedOption
-              active={locale === "en"}
-              label={t("settings.languageEn")}
-              title={t("shell.switchToEn")}
-              onClick={() => setLocale("en")}
-            />
-            <SegmentedOption
-              active={locale === "zh"}
-              label={t("settings.languageZh")}
-              title={t("shell.switchToZh")}
-              onClick={() => setLocale("zh")}
-            />
-          </div>
-        }
-      />
-
-    </>
+  const generalPanel = (
+    <GeneralSettingsPanel
+      prefs={prefs}
+      onTerminalFont={(value) => setPrefs((p) => ({ ...p, terminalFont: value }))}
+      patchPref={patchPref}
+      isDesktop={isDesktop}
+      restartHint={restartHint}
+      currentVersion={currentVersion}
+      updateStatus={updateStatus}
+      updateChecking={updateChecking}
+      checkForAppUpdate={checkForAppUpdate}
+      saveErrorBlock={saveErrorBlock}
+    />
   );
 
   const agentModelsPanel = (
@@ -614,103 +597,6 @@ export function SettingsPage({
     />
   );
 
-
-  const generalSystemPanel = (
-    <>
-      {sectionTitle(t("settings.terminalSection"))}
-
-      <SettingsRow
-        title={t("settings.inheritTerminalEnv")}
-        description={t("settings.inheritTerminalEnvDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.inheritTerminalEnv}
-            onChange={(next) => void patchPref({ inheritTerminalEnv: next })}
-          />
-        }
-      />
-      <SettingsRow
-        stacked
-        title={t("settings.terminalFont")}
-        description={t("settings.terminalFontDesc")}
-        action={
-          <input
-            className="input-base input-mono"
-            value={prefs.terminalFont}
-            placeholder={t("settings.terminalFontPlaceholder")}
-            onChange={(e) => setPrefs((p) => ({ ...p, terminalFont: e.target.value }))}
-            onBlur={() => void patchPref({ terminalFont: prefs.terminalFont })}
-            style={{ width: "100%" }}
-          />
-        }
-      />
-
-      {sectionTitle(t("settings.notificationsSection"))}
-
-      <SettingsRow
-        title={t("settings.desktopNotifications")}
-        description={t("settings.desktopNotificationsDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.desktopNotifications}
-            onChange={(next) => {
-              void (async () => {
-                if (next) {
-                  const desktop = typeof window !== "undefined" ? window.piDesktop : undefined;
-                  if (desktop?.isDesktop && typeof desktop.notify === "function") {
-                    // Probe Electron notification path with a short sample.
-                    // force: show even while Settings is focused (normal agent-end skips focused).
-                    void desktop.notify({
-                      title: "Pi Web",
-                      body: t("notify.taskComplete"),
-                      silent: !prefs.notificationSound,
-                      force: true,
-                    });
-                  } else if (typeof Notification !== "undefined") {
-                    if (Notification.permission === "default") {
-                      await Notification.requestPermission();
-                    }
-                    if (Notification.permission === "granted") {
-                      try {
-                        new Notification("Pi Web", {
-                          body: t("notify.taskComplete"),
-                          silent: !prefs.notificationSound,
-                        });
-                      } catch {
-                        // ignore
-                      }
-                    }
-                  }
-                }
-                void patchPref({ desktopNotifications: next });
-              })();
-            }}
-          />
-        }
-      />
-      <SettingsRow
-        title={t("settings.soundEnabled")}
-        description={t("settings.soundEnabledDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.soundEnabled}
-            onChange={(next) => void patchPref({ soundEnabled: next })}
-          />
-        }
-      />
-      <SettingsRow
-        title={t("settings.notificationSound")}
-        description={t("settings.notificationSoundDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.notificationSound}
-            onChange={(next) => void patchPref({ notificationSound: next })}
-          />
-        }
-      />
-
-    </>
-  );
 
    const agentBehaviorPanel = (
      <AgentBehaviorSettings
@@ -744,175 +630,29 @@ export function SettingsPage({
   );
 
   const agentAdvisorPanel = (
-    <>
-      {sectionTitle(t("settings.advisorSection"))}
-
-      <SettingsRow
-        title={t("settings.advisor")}
-        description={t("settings.advisorDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.advisorEnabled}
-            onChange={(next) => {
-              setPrefs((p) => ({ ...p, advisorEnabled: next }));
-              void patchPref({ advisorEnabled: next });
-            }}
-          />
-        }
-      />
-      <SettingsRow
-        stacked
-        title={t("settings.advisorModel")}
-        description={t("settings.advisorModelDesc")}
-        action={
-          <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minWidth: 0 }}>
-            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
-              <ModelSelect
-                value={advisorModelRef}
-                models={models}
-                loading={loadingModels}
-                disabled={!prefs.advisorEnabled || savingKey === "advisorModel"}
-                placeholder={loadingModels ? t("common.loading") : t("settings.advisorModelDefault")}
-                ariaLabel={t("settings.advisorModel")}
-                unavailableLabel={t("settings.modelUnavailable")}
-                onChange={(value) => {
-                  setAdvisorModelRef(value);
-                  setSavingKey("advisorModel");
-                  void patchPref({ advisorModel: value || null }).finally(() => setSavingKey(null));
-                }}
-              />
-            </div>
-            <ModelThinkingControl
-              modelRef={advisorModelRef}
-              models={models}
-              level={advisorModelThinking}
-              disabled={!prefs.advisorEnabled || savingKey === "advisorModel"}
-              onChange={(level) => void saveModelThinking("advisorModel", level)}
-            />
-          </div>
-        }
-      />
-
-      <LeanModeSettingsSection
-        leanMode={leanMode}
-        t={t}
-        onPatch={(partial) => {
-          setLeanMode((prev) => {
-            const next: LeanModeSettings = { ...prev, ...partial };
-            void patchPref({ leanMode: next });
-            return next;
-          });
-        }}
-      />
-    </>
+    <AdvisorSettingsPanel
+      advisorEnabled={prefs.advisorEnabled}
+      advisorModelRef={advisorModelRef}
+      advisorModelThinking={advisorModelThinking}
+      models={models}
+      loadingModels={loadingModels}
+      savingKey={savingKey}
+      setAdvisorEnabled={(next) => setPrefs((p) => ({ ...p, advisorEnabled: next }))}
+      setAdvisorModelRef={setAdvisorModelRef}
+      setSavingKey={setSavingKey}
+      patchPref={patchPref}
+      saveModelThinking={saveModelThinking}
+      leanMode={leanMode}
+      onLeanPatch={(partial) => {
+        setLeanMode((prev) => {
+          const next = { ...prev, ...partial };
+          void patchPref({ leanMode: next });
+          return next;
+        });
+      }}
+    />
   );
 
-  const generalAboutPanel = (
-    <>
-      {isDesktop && (
-        <>
-          {sectionTitle(t("settings.desktopSection"))}
-          <SettingsRow
-            title={t("settings.disableGpu")}
-            description={t("settings.disableGpuDesc")}
-            action={
-              <SettingsToggle
-                enabled={prefs.disableHardwareAcceleration}
-                onChange={(next) => void patchPref({ disableHardwareAcceleration: next }, { restart: true })}
-              />
-            }
-          />
-        </>
-      )}
-
-      {sectionTitle(t("settings.updatesSection"))}
-      <SettingsRow
-        title={t("settings.autoCheckUpdates")}
-        description={t("settings.autoCheckUpdatesDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.autoCheckUpdates}
-            onChange={(next) => void patchPref({ autoCheckUpdates: next })}
-          />
-        }
-      />
-      <SettingsRow
-        title={t("settings.autoDownloadUpdates")}
-        description={t("settings.autoDownloadUpdatesDesc")}
-        action={
-          <SettingsToggle
-            enabled={prefs.autoDownloadUpdates}
-            onChange={(next) => void patchPref({ autoDownloadUpdates: next })}
-          />
-        }
-      />
-
-      {restartHint && (
-        <div
-          className="settings-status-card"
-          style={{ marginTop: 14, color: "var(--text-muted)" }}
-        >
-          {t("settings.restartRequired")}
-        </div>
-      )}
-
-      {sectionTitle(t("settings.about"))}
-
-      <SettingsRow
-        title={t("settings.version")}
-        description={
-          currentVersion
-            ? t("settings.versionCurrent", { version: currentVersion })
-            : t("common.loading")
-        }
-        action={
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {updateStatus.kind === "available" && (
-              <button
-                type="button"
-                className="btn-primary btn-compact"
-                onClick={() => {
-                  window.open(updateStatus.releaseUrl, "_blank", "noopener,noreferrer");
-                }}
-              >
-                {t("settings.updateOpen")}
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn-ghost btn-compact"
-              onClick={() => void checkForAppUpdate()}
-              disabled={updateChecking}
-            >
-              {updateChecking ? t("settings.checkingUpdate") : t("settings.checkUpdate")}
-            </button>
-          </div>
-        }
-      />
-
-      {updateStatus.kind === "available" && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "var(--success)", lineHeight: 1.4 }}>
-          {t("settings.updateAvailable", { version: updateStatus.version })}
-        </div>
-      )}
-      {updateStatus.kind === "latest" && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.4 }}>
-          {t("settings.updateLatest")}
-        </div>
-      )}
-      {updateStatus.kind === "empty" && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.4 }}>
-          {t("settings.updateNoReleases")}
-        </div>
-      )}
-      {updateStatus.kind === "error" && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "var(--destructive)", lineHeight: 1.4 }}>
-          {t("settings.updateError")}: {updateStatus.message}
-        </div>
-      )}
-      {saveErrorBlock}
-    </>
-  );
 
   const appearancePanel = (
     <AppearanceSettingsPanel
@@ -1089,13 +829,12 @@ export function SettingsPage({
         <main className={`settings-page-main${mainScrolls ? " is-scroll" : ""}`} style={mainStyle}>
           {section === "general" && (
             <div className="settings-page-general">
-              {generalHeadPanel}
-              {generalSystemPanel}
-              {generalAboutPanel}
+              {generalPanel}
             </div>
           )}
           {section === "agent" && (
             <div className="settings-page-general">
+              <SettingsPageHeading title={t("settings.agent")} />
               {agentModelsPanel}
               {agentBehaviorPanel}
               {agentAdvisorPanel}
@@ -1103,6 +842,7 @@ export function SettingsPage({
           )}
           {section === "memory" && (
             <div className="settings-page-general">
+              <SettingsPageHeading title={t("settings.memory")} />
               {memoryPanel}
             </div>
           )}

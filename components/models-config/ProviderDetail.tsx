@@ -256,6 +256,44 @@ export function ProviderDetail({
           </Field>
         )}
 
+        {!managed && (
+          <Field label={t("models.customHeaders")}>
+            <textarea
+              className="input-base input-mono"
+              rows={3}
+              value={Object.entries(provider.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join("\n")}
+              onChange={(e) => {
+                const headers: Record<string, string> = {};
+                for (const line of e.target.value.split("\n")) {
+                  const idx = line.indexOf(":");
+                  if (idx <= 0) continue;
+                  const key = line.slice(0, idx).trim();
+                  const value = line.slice(idx + 1).trim();
+                  if (key) headers[key] = value;
+                }
+                set("headers", Object.keys(headers).length ? headers : undefined);
+              }}
+              placeholder="X-Api-Extra: value"
+            />
+          </Field>
+        )}
+
+        {!managed && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text)" }}>
+            <input
+              type="checkbox"
+              checked={provider.compat?.developerRole === true || provider.compat?.useDeveloperRole === true}
+              onChange={(e) => {
+                const compat = { ...(provider.compat ?? {}) };
+                if (e.target.checked) compat.developerRole = true;
+                else delete compat.developerRole;
+                set("compat", Object.keys(compat).length ? compat : undefined);
+              }}
+            />
+            {t("models.developerRole")}
+          </label>
+        )}
+
         <ConfigModelsEnablePanel
           models={enableModels}
           onChangeModels={handleEnableModelsChange}

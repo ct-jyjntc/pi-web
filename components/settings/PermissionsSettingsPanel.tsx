@@ -17,7 +17,8 @@ import {
 } from "@/lib/permission-policy-rows";
 import type { PermissionAction } from "@/lib/permission-policy";
 import { Icon } from "../Icon";
-import { sectionTitle } from "./settings-ui";
+import { SettingsGroup, SettingsPageHeading, SettingsRow } from "./settings-ui";
+import { SettingsToggle } from "../SettingsToggle";
 import { apiFetch } from "@/lib/api-transport";
 
 type PolicyDoc = {
@@ -211,165 +212,119 @@ export function PermissionsSettingsPanel() {
 
   return (
     <div className="settings-page-general">
-      {sectionTitle(t("settings.permissions"))}
-      <div className="settings-row-desc" style={{ marginBottom: 12 }}>
-        {t("settings.permissionsDesc")}
-      </div>
+      <SettingsPageHeading title={t("settings.permissions")} description={t("settings.permissionsDesc")} />
 
       {loading ? (
-        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("common.loading")}</div>
+        <div className="settings-card-empty">{t("common.loading")}</div>
       ) : (
         <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              marginBottom: 14,
-              flexWrap: "wrap",
-            }}
-          >
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={yoloMode}
-                onChange={(e) => void toggleYolo(e.target.checked)}
-              />
-              {t("settings.permYolo")}
-            </label>
-            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
-              {t("settings.permYoloHint")}
-            </span>
-          </div>
+          <SettingsGroup title={t("settings.permYolo")}>
+            <SettingsRow
+              title={t("settings.permYolo")}
+              description={t("settings.permYoloHint")}
+              action={
+                <SettingsToggle
+                  enabled={yoloMode}
+                  onChange={(next) => void toggleYolo(next)}
+                />
+              }
+            />
+          </SettingsGroup>
 
-          <div
-            style={{
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-              color: "var(--text-dim)",
-              marginBottom: 10,
-              wordBreak: "break-all",
-            }}
-          >
-            {policyPath}
-            {!policyExists ? ` · ${t("settings.permNotOnDisk")}` : ""}
-          </div>
-
-          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-            <button
-              type="button"
-              className={mode === "table" ? "btn-primary btn-compact" : "btn-ghost btn-compact"}
-              onClick={() => switchMode("table")}
-            >
-              {t("settings.permModeTable")}
-            </button>
-            <button
-              type="button"
-              className={mode === "json" ? "btn-primary btn-compact" : "btn-ghost btn-compact"}
-              onClick={() => switchMode("json")}
-            >
-              {t("settings.permModeJson")}
-            </button>
-          </div>
-
-          {mode === "table" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "minmax(100px, 1.1fr) minmax(120px, 1.4fr) 88px minmax(80px, 1fr) 36px",
-                  gap: 6,
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
-                  fontWeight: 600,
-                  padding: "0 2px",
-                }}
-              >
-                <span>{t("settings.permColSurface")}</span>
-                <span>{t("settings.permColPattern")}</span>
-                <span>{t("settings.permColAction")}</span>
-                <span>{t("settings.permColReason")}</span>
-                <span />
-              </div>
-              {rows.map((row) => (
-                <div
-                  key={row.id}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(100px, 1.1fr) minmax(120px, 1.4fr) 88px minmax(80px, 1fr) 36px",
-                    gap: 6,
-                    alignItems: "center",
-                  }}
+          <SettingsGroup
+            title={t("settings.permModeTable")}
+            action={
+              <div className="settings-segmented" style={{ minWidth: 0 }}>
+                <button
+                  type="button"
+                  className={`chrome-btn${mode === "table" ? " is-active" : ""}`}
+                  aria-pressed={mode === "table"}
+                  onClick={() => switchMode("table")}
                 >
-                  <input
-                    className="input-base"
-                    list="perm-surfaces"
-                    value={row.surface}
-                    onChange={(e) => updateRow(row.id, { surface: e.target.value })}
-                    style={{ fontSize: 12, fontFamily: "var(--font-mono)" }}
-                    spellCheck={false}
-                  />
-                  <input
-                    className="input-base"
-                    value={row.pattern}
-                    placeholder="*"
-                    onChange={(e) => updateRow(row.id, { pattern: e.target.value })}
-                    style={{ fontSize: 12, fontFamily: "var(--font-mono)" }}
-                    spellCheck={false}
-                    title={t("settings.permPatternHint")}
-                  />
-                  <select
-                    className="input-base"
-                    value={row.action}
-                    onChange={(e) => updateRow(row.id, { action: e.target.value as PermissionAction })}
-                    style={{ fontSize: 12 }}
-                  >
-                    {PERMISSION_ACTIONS.map((a) => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
-                  </select>
-                  <input
-                    className="input-base"
-                    value={row.reason ?? ""}
-                    onChange={(e) => updateRow(row.id, { reason: e.target.value })}
-                    style={{ fontSize: 12 }}
-                    placeholder="—"
-                  />
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => removeRow(row.id)}
-                    title={t("common.delete")}
-                    aria-label={t("common.delete")}
-                  >
-                    <Icon icon={Trash2} size="sm" />
+                  {t("settings.permModeTable")}
+                </button>
+                <button
+                  type="button"
+                  className={`chrome-btn${mode === "json" ? " is-active" : ""}`}
+                  aria-pressed={mode === "json"}
+                  onClick={() => switchMode("json")}
+                >
+                  {t("settings.permModeJson")}
+                </button>
+              </div>
+            }
+          >
+            {mode === "table" ? (
+              <>
+                <div className="settings-perm-head">
+                  <span>{t("settings.permColSurface")}</span>
+                  <span>{t("settings.permColPattern")}</span>
+                  <span>{t("settings.permColAction")}</span>
+                  <span>{t("settings.permColReason")}</span>
+                  <span />
+                </div>
+                {rows.map((row) => (
+                  <div key={row.id} className="settings-perm-row">
+                    <input
+                      className="input-base"
+                      list="perm-surfaces"
+                      value={row.surface}
+                      onChange={(e) => updateRow(row.id, { surface: e.target.value })}
+                      style={{ fontSize: 12, fontFamily: "var(--font-mono)" }}
+                      spellCheck={false}
+                    />
+                    <input
+                      className="input-base"
+                      value={row.pattern}
+                      placeholder="*"
+                      onChange={(e) => updateRow(row.id, { pattern: e.target.value })}
+                      style={{ fontSize: 12, fontFamily: "var(--font-mono)" }}
+                      spellCheck={false}
+                      title={t("settings.permPatternHint")}
+                    />
+                    <select
+                      className="input-base"
+                      value={row.action}
+                      onChange={(e) => updateRow(row.id, { action: e.target.value as PermissionAction })}
+                      style={{ fontSize: 12 }}
+                    >
+                      {PERMISSION_ACTIONS.map((a) => (
+                        <option key={a} value={a}>{a}</option>
+                      ))}
+                    </select>
+                    <input
+                      className="input-base"
+                      value={row.reason ?? ""}
+                      onChange={(e) => updateRow(row.id, { reason: e.target.value })}
+                      style={{ fontSize: 12 }}
+                      placeholder="—"
+                    />
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => removeRow(row.id)}
+                      title={t("common.delete")}
+                      aria-label={t("common.delete")}
+                    >
+                      <Icon icon={Trash2} size="sm" />
+                    </button>
+                  </div>
+                ))}
+                <datalist id="perm-surfaces">
+                  {COMMON_SURFACES.map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+                <div className="settings-card-footer">
+                  <button type="button" className="btn-ghost btn-compact" onClick={addRow}>
+                    <Icon icon={Plus} size="sm" />
+                    {t("settings.permAddRule")}
                   </button>
                 </div>
-              ))}
-              <datalist id="perm-surfaces">
-                {COMMON_SURFACES.map((s) => (
-                  <option key={s} value={s} />
-                ))}
-              </datalist>
-              <button
-                type="button"
-                className="btn-ghost btn-compact"
-                onClick={addRow}
-                style={{ alignSelf: "flex-start", marginTop: 4 }}
-              >
-                <Icon icon={Plus} size="sm" />
-                {t("settings.permAddRule")}
-              </button>
-            </div>
-          ) : (
-            <>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
-                {t("settings.permJsonLabel")}
-              </div>
+              </>
+            ) : (
               <textarea
-                className="input-base"
+                className="input-base settings-perm-json"
                 value={jsonText}
                 onChange={(e) => {
                   setJsonText(e.target.value);
@@ -378,53 +333,40 @@ export function PermissionsSettingsPanel() {
                 }}
                 spellCheck={false}
                 rows={18}
-                style={{
-                  width: "100%",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                  resize: "vertical",
-                  minHeight: 220,
-                }}
+                aria-label={t("settings.permJsonLabel")}
               />
-            </>
-          )}
+            )}
+          </SettingsGroup>
 
-          <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
             <button
               type="button"
-              className="btn-primary"
+              className="btn-primary btn-compact"
               disabled={saving || !dirty}
               onClick={() => void save()}
             >
               {saving ? t("common.loading") : t("settings.permSave")}
             </button>
-            <button
-              type="button"
-              className="btn-ghost"
-              disabled={saving}
-              onClick={() => void load()}
-            >
+            <button type="button" className="btn-ghost btn-compact" disabled={saving} onClick={() => void load()}>
               {t("settings.permReload")}
             </button>
-            <button
-              type="button"
-              className="btn-ghost"
-              disabled={saving}
-              onClick={() => void resetDefaults()}
-            >
+            <button type="button" className="btn-ghost btn-compact" disabled={saving} onClick={() => void resetDefaults()}>
               {t("settings.permResetDefaults")}
             </button>
           </div>
 
           {error && (
-            <div style={{ color: "var(--destructive)", fontSize: 12, marginTop: 12 }}>{error}</div>
+            <div style={{ color: "var(--destructive)", fontSize: 12, marginBottom: 10 }}>{error}</div>
           )}
           {notice && !error && (
-            <div style={{ color: "var(--success)", fontSize: 12, marginTop: 12 }}>{notice}</div>
+            <div style={{ color: "var(--success)", fontSize: 12, marginBottom: 10 }}>{notice}</div>
           )}
 
-          <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 16, lineHeight: 1.5 }}>
+          <div className="settings-row-desc" style={{ color: "var(--text-dim)" }}>
+            {policyPath}
+            {!policyExists ? ` · ${t("settings.permNotOnDisk")}` : ""}
+          </div>
+          <div className="settings-row-desc" style={{ marginTop: 8, color: "var(--text-dim)" }}>
             {t("settings.permHelp")}
           </div>
         </>

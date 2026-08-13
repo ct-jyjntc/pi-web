@@ -12,9 +12,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 import { useLocale } from "@/hooks/useLocale";
 
-import { useIsMobile } from "@/hooks/useIsMobile";
-
-import { ConfigPanelBackdrop, ConfigPanelShell } from "../ConfigPanelShell";
+import { ConfigPanelBackdrop } from "../ConfigPanelShell";
  import { CenteredDialog } from "../CenteredDialog";
 
 import {
@@ -32,14 +30,6 @@ import {
   type FreeProviderId,
 
 } from "@/lib/free-providers";
-
-import { Icon } from "../Icon";
-
-import { Check as CheckIcon, Cpu } from "lucide-react";
-
-
-
-import { navRowClass } from "./form-fields";
 
 import {
 
@@ -61,7 +51,7 @@ import {
 
 } from "./models-config-types";
 
-import { ProviderIcon } from "./provider-icons";
+
 
 import { ProviderDetail } from "./ProviderDetail";
 
@@ -74,6 +64,7 @@ import { OAuthDetail } from "./OAuthDetail";
 import { ApiKeyDetail } from "./ApiKeyDetail";
 
 import { AddProviderPicker } from "./AddProviderPicker";
+import { ModelsSettingsView } from "./ModelsSettingsView";
 
 import { loadBuiltinProviderModelCatalog } from "./load-builtin-provider-models";
 
@@ -104,8 +95,6 @@ export function ModelsConfig({
 }) {
 
   const { t } = useLocale();
-
-  const isMobile = useIsMobile();
 
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
 
@@ -1232,382 +1221,26 @@ export function ModelsConfig({
 
 
   const panel = (
-
-      <ConfigPanelShell
-
-        embedded={embedded}
-
-        title={t("modal.models")}
-
-        subtitle="~/.pi/agent/models.json"
-
-        onClose={requestClose}
-
-        closeAriaLabel={t("common.close")}
-
-        style={embedded ? undefined : {
-
-          width: isMobile ? "calc(100vw - 16px)" : 860,
-
-          maxWidth: "calc(100vw - 16px)",
-
-          height: isMobile ? "calc(100dvh - 16px)" : "78vh",
-
-          maxHeight: "calc(100dvh - 16px)",
-
-        }}
-
-      >
-
-        <div className="modal-body" style={{ flexDirection: isMobile ? "column" : "row", flex: 1, minHeight: 0 }}>
-
-
-
-          {/* Left: tree */}
-
-          <div className="modal-sidebar" style={isMobile ? { width: "100%", maxHeight: "40vh" } : undefined}>
-
-            <div className="modal-sidebar-scroll">
-
-              {/* Active subscriptions + models */}
-
-              {activeBuiltinProviders.map((p) => {
-
-                const isSelected = p.type === "oauth"
-
-                  ? selection?.type === "oauth" && selection.providerId === p.id
-
-                  : selection?.type === "apikey" && selection.providerId === p.id;
-
-                // Sidebar is navigation for enabled models; toggles live on provider details.
-
-                const models = (builtinModelsByProvider[p.id] ?? []).filter((m) => !m.disabled);
-
-                return (
-
-                  <div key={p.id}>
-
-                    <div
-
-                      role="button"
-
-                      tabIndex={0}
-
-                      onClick={() => setSelection(p.type === "oauth"
-
-                        ? { type: "oauth", providerId: p.id }
-
-                        : { type: "apikey", providerId: p.id })}
-
-                      className={navRowClass(isSelected)}
-
-                    >
-
-                      <ProviderIcon id={p.id} size={16} />
-
-                      <span className={`modal-nav-label${isSelected ? " is-strong" : ""}`}>{p.label}</span>
-
-                    </div>
-
-                    {models.map((m) => {
-
-                      const isModelSelected = selection?.type === "builtin-model"
-
-                        && selection.providerId === p.id
-
-                        && selection.modelId === m.id;
-
-                      return (
-
-                        <div
-
-                          key={m.id}
-
-                          role="button"
-
-                          tabIndex={0}
-
-                          onClick={() => setSelection({ type: "builtin-model", providerId: p.id, modelId: m.id })}
-
-                          className={navRowClass(isModelSelected, true)}
-
-                        >
-
-                          <span className="modal-nav-label is-mono">{m.id}</span>
-
-                          {m.reasoning && (
-
-                            <span style={{ fontSize: 9, padding: "1px 5px", border: "1px solid var(--border)", color: "var(--text-dim)", borderRadius: "var(--radius-xs)", flexShrink: 0 }}>T</span>
-
-                          )}
-
-                        </div>
-
-                      );
-
-                    })}
-
-                  </div>
-
-                );
-
-              })}
-
-
-
-              {/* Divider before custom providers, only when there are active managed providers */}
-
-              {(activeOAuth.length > 0 || activeApiKey.length > 0) && providers.length > 0 && (
-
-                <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
-
-              )}
-
-
-
-              {/* Custom providers */}
-
-              {loading ? (
-
-                <div style={{ padding: "10px 10px", fontSize: 12, color: "var(--text-muted)" }}>{t("modal.loading")}</div>
-
-              ) : providers.map(([pName, pData]) => {
-
-                const isProviderSelected = selection?.type === "provider" && selection.name === pName;
-
-                const models = pData.models ?? [];
-
-                const freeDef = getFreeProvider(typeof pData.managed === "string" ? pData.managed : undefined);
-
-                const managed = !!freeDef;
-
-                const providerLabel = freeDef?.displayName ?? pName;
-
-                return (
-
-                  <div key={pName}>
-
-                    {/* Provider row */}
-
-                    <div
-
-                      role="button"
-
-                      tabIndex={0}
-
-                      onClick={() => setSelection({ type: "provider", name: pName })}
-
-                      className={navRowClass(isProviderSelected)}
-
-                    >
-
-                      {managed ? (
-
-                        <ProviderIcon id={freeDef.iconId} size={14} />
-
-                      ) : (
-
-                        <Icon icon={Cpu} size={11} strokeWidth={2} style={{ color: "var(--text-dim)", flexShrink: 0 }} />
-
-                      )}
-
-                      <span className={`modal-nav-label${managed ? "" : " is-mono"}${isProviderSelected ? " is-strong" : ""}`}>{providerLabel}</span>
-
-                      {managed && (
-
-                        <span className="settings-badge" style={{ flexShrink: 0 }}>{t("models.free")}</span>
-
-                      )}
-
-                    </div>
-
-
-
-                    {/* Model rows — only enabled (or empty draft); enable more on provider page */}
-
-                    {models.map((m, i) => {
-
-                      if (m.disabled && m.id) return null;
-
-                      const isModelSelected = selection?.type === "model" && selection.providerName === pName && selection.index === i;
-
-                      return (
-
-                        <div
-
-                          key={i}
-
-                          role="button"
-
-                          tabIndex={0}
-
-                          onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-
-                          className={navRowClass(isModelSelected, true)}
-
-                        >
-
-                          <span className="modal-nav-label is-mono" style={{ color: m.id ? undefined : "var(--text-dim)" }}>
-
-                            {m.id || t("models.newModel")}
-
-                          </span>
-
-                          {m.reasoning && (
-
-                            <span style={{ fontSize: 9, padding: "1px 5px", border: "1px solid var(--border)", color: "var(--text-dim)", borderRadius: "var(--radius-xs)", flexShrink: 0 }}>T</span>
-
-                          )}
-
-                        </div>
-
-                      );
-
-                    })}
-
-
-
-                    {/* Add model button — not for free/managed providers */}
-
-                    {!managed && (
-
-                      <div
-
-                        role="button"
-
-                        tabIndex={0}
-
-                        onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-
-                        className={navRowClass(false, true)}
-
-                      >
-
-                        <span className="modal-nav-label">{t("models.addModel")}</span>
-
-                      </div>
-
-                    )}
-
-                  </div>
-
-                );
-
-              })}
-
-            </div>
-
-
-
-            {/* Add provider — strip footer action */}
-
-            <div className="modal-sidebar-footer">
-
-              <button
-
-                type="button"
-
-                onClick={() => setPickerOpen(true)}
-
-                className="chrome-btn"
-
-              >
-
-                {t("modal.addProvider")}
-
-              </button>
-
-            </div>
-
-          </div>
-
-
-
-          {/* Right: detail */}
-
-          <div className="modal-main">
-
-            {loading ? null : detailContent ?? (
-
-              <div className="modal-empty">{t("models.selectHint")}</div>
-
-            )}
-
-          </div>
-
-        </div>
-
-
-
-        {/* Footer — strip chrome */}
-
-        <div className="modal-footer" style={embedded ? { borderRadius: 0 } : undefined}>
-
-          {saveError && <span style={{ fontSize: 12, color: "var(--destructive)", flex: 1, minWidth: 0 }}>{saveError}</span>}
-
-          {!embedded && (
-
-            <button type="button" onClick={requestClose} className="chrome-btn">
-
-              {t("common.cancel")}
-
-            </button>
-
-          )}
-
-          <button
-
-            type="button"
-
-            className="btn-primary"
-
-            onClick={handleSave}
-
-            disabled={saving || savedOk}
-
-            style={{
-
-              minWidth: 88,
-
-              background: savedOk ? "var(--success)" : undefined,
-
-              animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-
-            }}
-
-          >
-
-            {savedOk && (
-
-              <Icon
-
-                icon={CheckIcon}
-
-                size={14}
-
-                strokeWidth={3}
-
-                style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}
-
-              />
-
-            )}
-
-            <span>{savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}</span>
-
-          </button>
-
-        </div>
-
-      </ConfigPanelShell>
-
+    <ModelsSettingsView
+      loading={loading}
+      saving={saving}
+      savedOk={savedOk}
+      saveError={saveError}
+      selection={selection}
+      setSelection={setSelection}
+      detailContent={detailContent}
+      activeBuiltinProviders={activeBuiltinProviders}
+      builtinModelsByProvider={builtinModelsByProvider}
+      providers={providers}
+      onAddProvider={() => setPickerOpen(true)}
+      onAddModel={addModel}
+      onSave={() => void handleSave()}
+    />
   );
-
-
 
   return (
 
-    <>
+    <div className="models-settings-root">
 
     {embedded ? panel : (
 
@@ -1620,7 +1253,7 @@ export function ModelsConfig({
     )}
 
      {confirmDiscard && (
-       <CenteredDialog width={360} zIndex={1100} label={t("models.unsavedChanges")} onClose={() => setConfirmDiscard(false)}>
+       <CenteredDialog width={360} zIndex={1300} label={t("models.unsavedChanges")} onClose={() => setConfirmDiscard(false)}>
          <div style={{ padding: "14px 14px 10px", fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
            {t("models.unsavedChanges")}
          </div>
@@ -1667,7 +1300,7 @@ export function ModelsConfig({
 
     )}
 
-    </>
+    </div>
 
   );
 

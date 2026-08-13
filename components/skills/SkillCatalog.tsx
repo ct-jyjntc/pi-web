@@ -1,5 +1,5 @@
 /**
- * Installed-skill catalog: search, personal/project tabs, two-column cards.
+ * Installed-skill catalog: search, personal/project tabs, settings rows.
  */
 
 "use client";
@@ -8,8 +8,10 @@ import { Plus, Search } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { useLocale } from "@/hooks/useLocale";
 import type { SkillInfo as Skill, SkillUpdateResult } from "@/lib/api-types";
+import { displaySkillName } from "@/lib/skill-invoke";
 import { Icon } from "../Icon";
-import { SkillCard } from "./SkillCard";
+import { SettingsToggle } from "../SettingsToggle";
+import { SettingsGroup, SettingsPageHeading, SettingsRow } from "../settings/settings-ui";
 import { skillScope, updateKey } from "./skill-helpers";
 
 export type SkillCatalogTab = "all" | "personal" | "project";
@@ -29,6 +31,8 @@ export function SkillCatalog({
   canCheckUpdates,
   onCheckUpdates,
   onSelect,
+  onToggle,
+  toggling,
   children,
 }: {
   skills: Skill[];
@@ -45,6 +49,8 @@ export function SkillCatalog({
   canCheckUpdates: boolean;
   onCheckUpdates: () => void;
   onSelect: (skill: Skill) => void;
+  onToggle?: (skill: Skill) => void;
+  toggling?: ReadonlySet<string>;
   children?: ReactNode;
 }) {
   const { t } = useLocale();
@@ -64,25 +70,12 @@ export function SkillCatalog({
   }, [query, skills, tab]);
 
   return (
-    <div className="skill-catalog">
-      <header className="skill-catalog-header">
-        <h1 className="skill-catalog-title">{t("modal.skills")}</h1>
-        <p className="skill-catalog-lede">{t("skills.subtitle")}</p>
-      </header>
-
-      {addMode ? children : (
-        <>
-          <div className="skill-catalog-toolbar">
-            <label className="skill-catalog-search">
-              <Icon icon={Search} size={14} strokeWidth={1.8} />
-              <input
-                value={query}
-                onChange={(event) => onQueryChange(event.target.value)}
-                placeholder={t("skills.searchInstalled")}
-                className="input-base"
-                type="search"
-              />
-            </label>
+    <div className="settings-page-general">
+      <SettingsPageHeading
+        title={t("modal.skills")}
+        description={t("skills.subtitle")}
+        action={addMode ? undefined : (
+          <div className="usage-header-actions">
             <button
               type="button"
               className="btn-primary btn-compact"
@@ -102,59 +95,79 @@ export function SkillCatalog({
               </button>
             )}
           </div>
+        )}
+      />
 
-          <div className="skill-catalog-tabs" role="tablist" aria-label={t("modal.skills")}>
-            {([
-              ["all", t("skills.tabAll")],
-              ["personal", t("skills.tabPersonal")],
-              ["project", t("skills.tabProject")],
-            ] as const).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={tab === id}
-                className={`skill-catalog-tab${tab === id ? " is-active" : ""}`}
-                onClick={() => onTabChange(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+      {addMode ? children : (
+        <>
+          <label className="skill-catalog-search" style={{ marginBottom: 16 }}>
+            <Icon icon={Search} size={14} strokeWidth={1.8} />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder={t("skills.searchInstalled")}
+              className="input-base"
+              type="search"
+            />
+          </label>
 
-          <div className="skill-catalog-section-title">
-            {tab === "all" ? t("skills.installed") : tab === "personal" ? t("skills.tabPersonal") : t("skills.tabProject")}
-          </div>
-
-          {loading ? (
-            <div className="skill-catalog-empty">{t("modal.loading")}</div>
-          ) : error ? (
-            <div className="skill-catalog-empty is-error">{error}</div>
-          ) : filtered.length === 0 ? (
-            <div className="skill-catalog-empty">{t("skills.noSkills")}</div>
-          ) : (
-            <div
-              className="skill-catalog-grid"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: "4px 28px",
-                width: "100%",
-              }}
-            >
-              {filtered.map((skill) => {
+          <SettingsGroup
+            title={tab === "all" ? t("skills.installed") : tab === "personal" ? t("skills.tabPersonal") : t("skills.tabProject")}
+            action={
+              <div className="settings-segmented" style={{ minWidth: 0 }}>
+                {([
+                  ["all", t("skills.tabAll")],
+                  ["personal", t("skills.tabPersonal")],
+                  ["project", t("skills.tabProject")],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`chrome-btn${tab === id ? " is-active" : ""}`}
+                    aria-pressed={tab === id}
+                    onClick={() => onTabChange(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            {loading ? (
+              <div className="settings-card-empty">{t("modal.loading")}</div>
+            ) : error ? (
+              <div className="settings-card-empty" style={{ color: "var(--destructive)" }}>{error}</div>
+            ) : filtered.length === 0 ? (
+              <div className="settings-card-empty">{t("skills.noSkills")}</div>
+            ) : (
+              filtered.map((skill) => {
                 const key = updateKey(skill);
+                const updateAvailable = key ? updateStatuses[key]?.state === "update-available" : false;
                 return (
-                  <SkillCard
+                  <SettingsRow
                     key={skill.filePath}
-                    skill={skill}
-                    updateAvailable={key ? updateStatuses[key]?.state === "update-available" : false}
-                    onSelect={onSelect}
+                    title={displaySkillName(skill.name) + (updateAvailable ? " ↑" : "")}
+                    description={skill.description}
+                    onClick={() => onSelect(skill)}
+                    action={
+                      onToggle ? (
+                        <SettingsToggle
+                          enabled={!skill.disableModelInvocation}
+                          loading={toggling?.has(skill.filePath) ?? false}
+                          title={
+                            skill.disableModelInvocation
+                              ? t("skills.hiddenFromModel")
+                              : t("skills.visibleToModel")
+                          }
+                          onChange={() => onToggle(skill)}
+                        />
+                      ) : null
+                    }
                   />
                 );
-              })}
-            </div>
-          )}
+              })
+            )}
+          </SettingsGroup>
         </>
       )}
     </div>

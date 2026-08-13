@@ -334,6 +334,10 @@ export function ContextPanel() {
     if (tokens.output > 0) usageRows.push([t("shell.output"), tokens.output.toLocaleString()]);
     if (tokens.cacheRead > 0) usageRows.push([t("shell.cacheRead"), tokens.cacheRead.toLocaleString()]);
     if (tokens.cacheWrite > 0) usageRows.push([t("shell.cacheWrite"), tokens.cacheWrite.toLocaleString()]);
+    const billed = tokens.input + tokens.cacheRead;
+    if (billed > 0 && tokens.cacheRead > 0) {
+      usageRows.push([t("shell.cacheHit"), `${((tokens.cacheRead / billed) * 100).toFixed(1)}%`]);
+    }
     if (tokens.total > 0) usageRows.push([t("shell.total"), tokens.total.toLocaleString()]);
   }
 

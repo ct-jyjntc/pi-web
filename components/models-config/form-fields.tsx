@@ -165,7 +165,7 @@ export function DetailStrip({
 }) {
   return (
     <div className="modal-detail-strip">
-      <SectionTitle>{title}</SectionTitle>
+      <div className="settings-group-title" style={{ margin: 0 }}>{title}</div>
       {actions ? <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>{actions}</div> : null}
     </div>
   );

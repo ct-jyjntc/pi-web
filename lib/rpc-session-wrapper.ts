@@ -183,6 +183,14 @@ export class AgentSessionWrapper {
     return this._alive && (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
+  get isStreaming(): boolean {
+    return Boolean(this._alive && this.inner.isStreaming);
+  }
+
+  get streamingMessage(): unknown {
+    return this.inner.agent?.state?.streamingMessage;
+  }
+
   start(): void {
     // Only a subset of events should touch the idle timer. Streaming token
     // updates are frequent; resetting the 10-minute idle window on every one
@@ -534,6 +542,7 @@ export class AgentSessionWrapper {
           },
           contextUsage,
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
+          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
           mode: this.mode,
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),

@@ -1,17 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
-import {
-  Calendar,
-  Flame,
-  MessageSquare,
-  MessagesSquare,
-  Package,
-  Zap,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
-import { Icon } from "./Icon";
+import { SettingsGroup, SettingsPageHeading, SettingsRow } from "./settings/settings-ui";
 import { apiFetch } from "@/lib/api-transport";
 
 type UsageData = {
@@ -77,43 +68,6 @@ function seriesColor(i: number): string {
 function fmtShare(share: number): string {
   if (share > 0 && share < 0.095) return `${(share * 100).toFixed(1)}%`;
   return `${Math.round(share * 100)}%`;
-}
-
-function StatIcon({ icon }: { icon: LucideIcon }) {
-  return <Icon icon={icon} size={11} strokeWidth={1.8} />;
-}
-
-function StatCard({ icon, label, value, sub }: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  /** Corner badge in the label row — never a third line. */
-  sub?: string;
-}) {
-  const valueRef = useRef<HTMLSpanElement | null>(null);
-
-  // Long values (e.g. model ids) must stay on one line: shrink the font to fit
-  // the card instead of wrapping — stat cards are always two rows. Short values
-  // keep the shared 18px stat font, so all cards read consistently.
-  useLayoutEffect(() => {
-    const el = valueRef.current;
-    if (!el) return;
-    el.style.fontSize = "";
-    if (el.scrollWidth <= el.clientWidth + 1) return;
-    const fitted = Math.max((el.clientWidth / el.scrollWidth) * 18, 11);
-    el.style.fontSize = `${fitted}px`;
-  }, [value]);
-
-  return (
-    <div className="usage-stat-card">
-      <span className="usage-stat-label">
-        {icon}
-        {label}
-        {sub && <span className="usage-stat-sub-inline">{sub}</span>}
-      </span>
-      <span ref={valueRef} className="usage-stat-value" title={value}>{value}</span>
-    </div>
-  );
 }
 
 /** Module-level SWR cache so remounting Usage (leaving & re-entering settings) is instant. */
@@ -240,9 +194,15 @@ export function UsagePanel() {
 
   const heatLevel = (n: number) => (n <= 0 ? 0 : Math.min(4, Math.ceil((n / heatMax) * 4)));
 
+  const trendDays = useMemo(() => {
+    if (!data) return [];
+    const first = data.trend.findIndex((d) => d.tokens > 0);
+    return first <= 0 ? data.trend : data.trend.slice(first);
+  }, [data]);
+
   const trendMax = useMemo(
-    () => Math.max(1, ...(data?.trend.map((d) => d.tokens) ?? [1])),
-    [data],
+    () => Math.max(1, ...trendDays.map((d) => d.tokens), 1),
+    [trendDays],
   );
   const trendUsablePx = TREND_TRACK_PX - TREND_MIN_SEG_PX * Math.max(1, series.length);
 
@@ -250,39 +210,37 @@ export function UsagePanel() {
 
   return (
     <div className="settings-page-general">
-      <div className="usage-header">
-        <div className="usage-header-title">
-          <div className="settings-section-title">{t("settings.usage")}</div>
-          {refreshing && data && (
-            <span className="usage-header-status">{t("common.loading")}</span>
-          )}
-        </div>
-        <div className="usage-header-actions">
-          <div className="settings-segmented" style={{ minWidth: 0 }}>
-            {([7, 30] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                className={`chrome-btn${days === d ? " is-active" : ""}`}
-                aria-pressed={days === d}
-                disabled={loading && !data}
-                onClick={() => setDays(d)}
-              >
-                {t(d === 7 ? "usage.range7" : "usage.range30")}
-              </button>
-            ))}
+      <SettingsPageHeading
+        title={t("settings.usage")}
+        description={refreshing && data ? t("common.loading") : undefined}
+        action={
+          <div className="usage-header-actions">
+            <div className="settings-segmented" style={{ minWidth: 0 }}>
+              {([7, 30] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className={`chrome-btn${days === d ? " is-active" : ""}`}
+                  aria-pressed={days === d}
+                  disabled={loading && !data}
+                  onClick={() => setDays(d)}
+                >
+                  {t(d === 7 ? "usage.range7" : "usage.range30")}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              disabled={refreshing || (loading && !data)}
+              onClick={() => void load(days, true)}
+              title={t("common.refresh")}
+            >
+              {t("common.refresh")}
+            </button>
           </div>
-          <button
-            type="button"
-            className="btn-ghost btn-compact"
-            disabled={refreshing || (loading && !data)}
-            onClick={() => void load(days, true)}
-            title={t("common.refresh")}
-          >
-            {t("common.refresh")}
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {loading && !data ? (
         <div className="usage-state">
@@ -303,42 +261,43 @@ export function UsagePanel() {
         </div>
       ) : (
         <>
-          <div className="usage-stat-grid">
-            <StatCard
-              icon={<StatIcon icon={Flame} />}
-              label={t("usage.tokens")}
-              value={fmtTokens(data.totals.tokens, locale)}
+          <SettingsGroup>
+            <SettingsRow
+              title={t("usage.tokens")}
+              action={<span className="settings-row-metric">{fmtTokens(data.totals.tokens, locale)}</span>}
             />
-            <StatCard
-              icon={<StatIcon icon={MessageSquare} />}
-              label={t("usage.sessions")}
-              value={data.totals.sessions.toLocaleString()}
+            <SettingsRow
+              title={t("usage.sessions")}
+              action={<span className="settings-row-metric">{data.totals.sessions.toLocaleString()}</span>}
             />
-            <StatCard
-              icon={<StatIcon icon={MessagesSquare} />}
-              label={t("usage.messages")}
-              value={data.totals.messages.toLocaleString()}
+            <SettingsRow
+              title={t("usage.messages")}
+              action={<span className="settings-row-metric">{data.totals.messages.toLocaleString()}</span>}
             />
-            <StatCard
-              icon={<StatIcon icon={Calendar} />}
-              label={t("usage.activeDays")}
-              value={String(data.totals.activeDays)}
+            <SettingsRow
+              title={t("usage.activeDays")}
+              action={<span className="settings-row-metric">{data.totals.activeDays}</span>}
             />
-            <StatCard
-              icon={<StatIcon icon={Zap} />}
-              label={t("usage.streak")}
-              value={String(data.streak)}
+            <SettingsRow
+              title={t("usage.streak")}
+              action={<span className="settings-row-metric">{data.streak}</span>}
             />
-            <StatCard
-              icon={<StatIcon icon={Package} />}
-              label={t("usage.topModel")}
-              value={data.topModel?.id ?? "—"}
-              sub={data.topModel ? t("usage.shareOfTokens", { pct: Math.round(data.topModel.share * 100) }) : undefined}
+            <SettingsRow
+              title={t("usage.topModel")}
+              action={
+                <span className="settings-row-metric">
+                  {data.topModel?.id ?? "—"}
+                  {data.topModel ? (
+                    <span className="settings-row-metric-sub">
+                      {t("usage.shareOfTokens", { pct: Math.round(data.topModel.share * 100) })}
+                    </span>
+                  ) : null}
+                </span>
+              }
             />
-          </div>
+          </SettingsGroup>
 
-          <div className="usage-section">
-            <div className="settings-section-title">{t("usage.heatmap")}</div>
+          <SettingsGroup title={t("usage.heatmap")} framed={false}>
             <div className="usage-heatmap-scroll">
               <div className="usage-heatmap">
                 {heatWeeks.map((week, wi) => (
@@ -362,124 +321,81 @@ export function UsagePanel() {
               ))}
               <span>{t("usage.more")}</span>
             </div>
-          </div>
+          </SettingsGroup>
 
-          <div className="usage-section">
-            <div className="settings-section-title">{t("usage.trend")}</div>
-            <div className="usage-trend-chart">
-              <div className={`usage-trend-bars${days === 7 ? " is-week" : ""}`}>
-                {data.trend.map((day) => {
-                  const dm = dayModels(day);
-                  const painted = series
-                    .map((id, i) => ({ id, i, v: dm[id] ?? 0 }))
-                    .filter((s) => s.v > 0);
-                  return (
-                    <div
-                      key={day.date}
-                      className="usage-trend-col"
-                      title={`${day.date} · ${fmtTokens(day.tokens, locale)} ${t("usage.tokens")}`}
-                    >
-                      <div className="usage-trend-bar">
-                        {painted.map((s) => (
-                          <div
-                            key={s.id}
-                            className="usage-trend-seg"
-                            style={{
-                              height: Math.max(TREND_MIN_SEG_PX, (s.v / trendMax) * trendUsablePx),
-                              background: seriesColor(s.i),
-                            }}
-                          />
-                        ))}
+          <SettingsGroup title={t("usage.trend")}>
+            <div className="usage-card-body">
+              <div className="usage-trend-chart">
+                <div className={`usage-trend-bars${days === 7 ? " is-week" : ""}`}>
+                  {trendDays.map((day) => {
+                    const dm = dayModels(day);
+                    const painted = series
+                      .map((id, i) => ({ id, i, v: dm[id] ?? 0 }))
+                      .filter((s) => s.v > 0);
+                    return (
+                      <div
+                        key={day.date}
+                        className="usage-trend-col"
+                        title={`${day.date} · ${fmtTokens(day.tokens, locale)} ${t("usage.tokens")}`}
+                      >
+                        <div className="usage-trend-bar">
+                          {painted.map((s) => (
+                            <div
+                              key={s.id}
+                              className="usage-trend-seg"
+                              style={{
+                                height: Math.max(TREND_MIN_SEG_PX, (s.v / trendMax) * trendUsablePx),
+                                background: seriesColor(s.i),
+                              }}
+                            />
+                          ))}
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className={`usage-trend-labels${days === 7 ? " is-week" : ""}`}>
+                {trendDays.map((day, i) => {
+                  const step = Math.ceil(trendDays.length / 6);
+                  const show = i % step === 0 || i === trendDays.length - 1;
+                  return (
+                    <div key={day.date} className="usage-trend-label">
+                      {show ? fmtDayLabel(day.date, locale) : ""}
                     </div>
                   );
                 })}
               </div>
-            </div>
-            <div className={`usage-trend-labels${days === 7 ? " is-week" : ""}`}>
-              {data.trend.map((day, i) => {
-                const step = Math.ceil(data.trend.length / 6);
-                const show = i % step === 0 || i === data.trend.length - 1;
-                return (
-                  <div key={day.date} className="usage-trend-label">
-                    {show ? fmtDayLabel(day.date, locale) : ""}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="usage-series-legend">
-              {series.map((id, i) => (
-                <span key={id} className="usage-series-item">
-                  <span className="usage-series-dot" style={{ background: seriesColor(i) }} />
-                  <span className="usage-series-name">{modelLabel(id)}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="usage-section">
-            <div className="settings-section-title">{t("usage.modelUsage")}</div>
-            <div className="usage-model-split">
-              <svg
-                className="usage-donut"
-                width="128"
-                height="128"
-                viewBox="0 0 128 128"
-                role="img"
-                aria-label={t("usage.modelUsage")}
-              >
-                <circle cx="64" cy="64" r="50" fill="none" style={{ stroke: "var(--bg-subtle)" }} strokeWidth="16" />
-                {(() => {
-                  const C = 2 * Math.PI * 50;
-                  let acc = 0;
-                  return donutSegments.map((m, i) => {
-                    const frac = data.totals.tokens > 0 ? m.tokens / data.totals.tokens : 0;
-                    if (frac <= 0) return null;
-                    const dash = frac * C;
-                    const offset = -acc * C;
-                    acc += frac;
-                    return (
-                      <circle
-                        key={m.id}
-                        cx="64"
-                        cy="64"
-                        r="50"
-                        fill="none"
-                        style={{ stroke: seriesColor(i) }}
-                        strokeWidth="16"
-                        strokeDasharray={`${dash} ${C - dash}`}
-                        strokeDashoffset={offset}
-                        transform="rotate(-90 64 64)"
-                      />
-                    );
-                  });
-                })()}
-                <text
-                  x="64"
-                  y="60"
-                  textAnchor="middle"
-                  style={{ fill: "var(--text)", fontSize: 15, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}
-                >
-                  {fmtTokens(data.totals.tokens, locale)}
-                </text>
-                <text x="64" y="76" textAnchor="middle" style={{ fill: "var(--text-dim)", fontSize: 10 }}>
-                  {t("usage.tokens")}
-                </text>
-              </svg>
-              <div className="usage-model-list">
-                {donutSegments.map((m, i) => (
-                  <div key={m.id} className="usage-model-row">
+              <div className="usage-series-legend">
+                {series.map((id, i) => (
+                  <span key={id} className="usage-series-item">
                     <span className="usage-series-dot" style={{ background: seriesColor(i) }} />
-                    <span className="usage-model-name" title={modelLabel(m.id)}>{modelLabel(m.id)}</span>
-                    <span className="usage-model-tokens">
-                      {fmtTokens(m.tokens, locale)}
-                    </span>
-                    <span className="usage-model-share">{fmtShare(m.share)}</span>
-                  </div>
+                    <span className="usage-series-name">{modelLabel(id)}</span>
+                  </span>
                 ))}
               </div>
             </div>
-          </div>
+          </SettingsGroup>
+
+          <SettingsGroup title={t("usage.modelUsage")}>
+            {donutSegments.map((m, i) => (
+              <SettingsRow
+                key={m.id}
+                title={(
+                  <>
+                    <span className="usage-series-dot" style={{ background: seriesColor(i) }} />
+                    {modelLabel(m.id)}
+                  </>
+                )}
+                action={
+                  <span className="settings-row-metric">
+                    {fmtTokens(m.tokens, locale)}
+                    <span className="settings-row-metric-sub">{fmtShare(m.share)}</span>
+                  </span>
+                }
+              />
+            ))}
+          </SettingsGroup>
         </>
       )}
     </div>

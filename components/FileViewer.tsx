@@ -38,6 +38,7 @@ interface Props {
   sourceSessionId?: string | null;
   onOpenFile?: (filePath: string) => void;
   onMentionLines?: (relativePath: string, startLine: number, endLine: number) => void;
+  onMentionFile?: (relativePath: string) => void;
   gitRefreshKey?: number;
   /** 1-based line to scroll/highlight when opening from debug stack, etc. */
   focusLine?: number | null;
@@ -117,6 +118,8 @@ interface FileData {
 }
 
 type DisplayMode = "source" | "preview" | "diff";
+
+const viewerModeByPath = new Map<string, DisplayMode>();
 
 const DISPLAY_MODE_LABELS: Record<DisplayMode, MessageKey> = {
   source: "viewer.source",
@@ -597,7 +600,7 @@ function DocumentViewer({
   );
 }
 
-export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey, focusLine }: Props) {
+export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, onMentionFile, gitRefreshKey, focusLine }: Props) {
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
@@ -607,10 +610,10 @@ export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMenti
   if (isDocumentPreviewPath(filePath)) {
     return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
-  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} onMentionLines={onMentionLines} gitRefreshKey={gitRefreshKey} focusLine={focusLine} />;
+  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} onMentionLines={onMentionLines} onMentionFile={onMentionFile} gitRefreshKey={gitRefreshKey} focusLine={focusLine} />;
 }
 
-function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey, focusLine }: Props) {
+function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, onMentionFile, gitRefreshKey, focusLine }: Props) {
   const { t } = useLocale();
   const { isDark } = useTheme();
   const appearance = useAppearance();
@@ -618,7 +621,11 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [displayMode, setDisplayMode] = useState<DisplayMode>("source");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>(() => viewerModeByPath.get(filePath) ?? "source");
+  const setViewerMode = (mode: DisplayMode) => {
+    viewerModeByPath.set(filePath, mode);
+    setDisplayMode(mode);
+  };
   const [wrapLines, setWrapLines] = useState(true);
   const [watching, setWatching] = useState(false);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
@@ -751,7 +758,9 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
     }
 
     fetchContent(filePath).then((d) => {
-      if (d?.language === "markdown") setDisplayMode("preview");
+      const saved = viewerModeByPath.get(filePath);
+      if (saved) setDisplayMode(saved);
+      else if (d?.language === "markdown" || d?.language === "html") setDisplayMode("preview");
     }).finally(() => setLoading(false));
     void fetchDiagnostics(filePath);
 
@@ -842,8 +851,12 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   }, [cwd, filePath, onMentionLines]);
 
   const handleMentionSelectedLines = useCallback(() => {
-    mentionLineRange(selectedLineRange);
-  }, [mentionLineRange, selectedLineRange]);
+    if (selectedLineRange) {
+      mentionLineRange(selectedLineRange);
+      return;
+    }
+    onMentionFile?.(getRelativeFilePath(filePath, cwd));
+  }, [mentionLineRange, selectedLineRange, onMentionFile]);
 
   useEffect(() => {
     if (!onMentionLines || displayMode !== "source") return;
@@ -959,7 +972,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
                   <button
                     key={mode}
                     type="button"
-                    onClick={() => setDisplayMode(mode)}
+                    onClick={() => setViewerMode(mode)}
                     title={mode === "diff" ? t("viewer.compareHead") : undefined}
                     aria-pressed={active}
                     className="file-viewer-mode-button"
@@ -999,14 +1012,13 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
                     <Icon icon={X} size={14} strokeWidth={2} />
                   </button>
                 )}
-                {onMentionLines && !editMode && (
+                {(onMentionLines || onMentionFile) && !editMode && (
                   <button
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={handleMentionSelectedLines}
-                    title={t("viewer.mentionLinesShortcut")}
-                    aria-label={t("viewer.mentionLines")}
-                    disabled={!selectedLineRange}
+                    title={selectedLineRange ? t("viewer.mentionLinesShortcut") : t("viewer.mentionFile")}
+                    aria-label={selectedLineRange ? t("viewer.mentionLines") : t("viewer.mentionFile")}
                     className="file-viewer-icon-button"
                   >
                     <MentionIcon />

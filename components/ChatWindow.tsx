@@ -53,6 +53,7 @@ import {
   ExtensionDialog,
 } from "./chat-window/ExtensionPanels";
 import { apiFetch } from "@/lib/api-transport";
+import { notifyDesktop } from "@/lib/desktop-notify";
 
 type Props = Pick<
   UseAgentSessionOptions,
@@ -114,29 +115,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       playDoneSoundRef.current();
     }
     // System / desktop notification (separate preference).
-    if (notifyPrefsRef.current.desktop && typeof window !== "undefined") {
-      const body = t("notify.taskComplete");
-      const silent = !notifyPrefsRef.current.notifSound;
-      const desktop = window.piDesktop as
-        | { isDesktop?: boolean; notify?: (p: { title: string; body: string; silent?: boolean }) => Promise<unknown> }
-        | undefined;
-      if (desktop?.isDesktop && typeof desktop.notify === "function") {
-        void desktop.notify({ title: "Pi Web", body, silent });
-      } else if (typeof Notification !== "undefined") {
-        const show = () => {
-          try {
-            new Notification("Pi Web", { body, silent });
-          } catch {
-            // ignore
-          }
-        };
-        if (Notification.permission === "granted") show();
-        else if (Notification.permission === "default") {
-          void Notification.requestPermission().then((p) => {
-            if (p === "granted") show();
-          });
-        }
-      }
+    if (notifyPrefsRef.current.desktop) {
+      notifyDesktop({
+        body: t("notify.taskComplete"),
+        silent: !notifyPrefsRef.current.notifSound,
+      });
     }
 
     // Optional advisor review of the latest turn.
@@ -204,7 +187,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           const data = await res.json() as { saved?: Array<{ scope: string; text: string }> };
           const count = data.saved?.length ?? 0;
           if (count > 0) {
-            addNoticeRef.current({ type: "info", message: t("memory.savedNotice", { count }) });
+            addNoticeRef.current({ type: "success", message: t("memory.savedNotice", { count }) });
           }
         })
         .catch(() => {});

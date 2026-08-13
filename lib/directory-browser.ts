@@ -33,6 +33,21 @@ export async function resolveDirectory(directory: string): Promise<string> {
   return realpath(normalizeDirectory(directory));
 }
 
+export async function listWindowsDrives(): Promise<BrowsableDirectory[]> {
+  if (process.platform !== "win32") return [];
+  const found: BrowsableDirectory[] = [];
+  for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+    const drivePath = `${letter}:\\`;
+    try {
+      await stat(drivePath);
+      found.push({ name: `${letter}:`, path: drivePath });
+    } catch {
+      // skip missing drive letters
+    }
+  }
+  return found;
+}
+
 export async function listDirectories(directory: string): Promise<BrowsableDirectory[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   // Ignore broken, inaccessible, or non-directory symlinks.

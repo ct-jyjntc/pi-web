@@ -5,6 +5,7 @@ import { ChevronDown, GitBranch } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import type { SessionEntry, SessionTreeNode } from "@/lib/types";
 import { Icon } from "./Icon";
+import { measureTopPanelBox } from "./app-shell/top-panel-box";
 
 interface Props {
   tree: SessionTreeNode[];
@@ -54,24 +55,37 @@ function compress(node: SessionTreeNode): { node: SessionTreeNode; skipped: numb
   return { node: current, skipped };
 }
 
-function getLabel(entry: SessionEntry): string {
+function entryText(entry: SessionEntry): { role?: string; text: string } {
   if (entry.type === "message" && "message" in entry) {
     const msg = entry.message as { role: string; content: unknown };
     const content = msg.content;
     let text = "";
-    if (typeof content === "string") {
-      text = content;
-    } else if (Array.isArray(content)) {
+    if (typeof content === "string") text = content;
+    else if (Array.isArray(content)) {
       text = content
         .filter((b): b is { type: "text"; text: string } => b.type === "text")
         .map((b) => b.text)
         .join(" ");
     }
-    if (text.length > 40) text = text.slice(0, 40) + "…";
-    if (text) return text;
-    if (msg.role === "assistant") return "[assistant]";
+    return { role: msg.role, text };
   }
-  return entry.type;
+  return { text: "" };
+}
+
+function firstUserLabel(node: SessionTreeNode): string {
+  const self = entryText(node.entry);
+  if (self.role === "user" && self.text.trim()) {
+    const text = self.text.trim();
+    return text.length > 40 ? `${text.slice(0, 40)}…` : text;
+  }
+  for (const child of node.children) {
+    const found = firstUserLabel(child);
+    if (found) return found;
+  }
+  const fallback = self.text.trim();
+  if (fallback) return fallback.length > 40 ? `${fallback.slice(0, 40)}…` : fallback;
+  if (self.role === "assistant") return "[assistant]";
+  return node.entry.type;
 }
 
 // Does the tree have any branching at all?
@@ -96,7 +110,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   const { node: rep, skipped } = compress(node);
   const isActive = activePathIds.has(rep.entry.id);
   const isOnPath = activePathIds.has(node.entry.id) || activePathIds.has(rep.entry.id);
-  const label = getLabel(rep.entry);
+  const label = firstUserLabel(node);
   const role = rep.entry.type === "message" && "message" in rep.entry
     ? (rep.entry.message as { role: string }).role
     : null;
@@ -231,8 +245,9 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
     const anchor = containerRef?.current ?? btnRef.current;
     if (!anchor) return;
     const update = () => {
-      const rect = anchor.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom, left: rect.left, width: rect.width });
+      const anchor = containerRef?.current ?? btnRef.current;
+      if (!anchor) return;
+      setDropdownPos(measureTopPanelBox(anchor));
     };
     update();
     const ro = new ResizeObserver(update);

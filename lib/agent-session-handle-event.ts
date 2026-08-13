@@ -18,6 +18,7 @@ import {
   type AgentPhase,
 } from "@/lib/agent-session-phase";
 import type { QueuedMessages } from "@/lib/agent-session-live-apply";
+import type { ClientAssistantMessageEvent } from "@/lib/agent-event-wire";
 import type { StreamAction } from "@/lib/agent-session-stream-state";
 import { EVENT_STREAM_RECONNECT_MAX_ATTEMPTS } from "@/lib/agent-run-lifecycle";
 
@@ -34,9 +35,6 @@ export type AgentEventHandleContext = {
   optimisticUserMessageKeyRef: { current: string | null };
   sseReconnectAttemptRef: { current: number };
   sseReconnectTimerRef: { current: ReturnType<typeof setTimeout> | null };
-  pendingStreamUpdateRef: { current: Partial<AgentMessage> | null };
-  streamUpdateTimerRef: { current: number | null };
-
   setAgentRunning: (v: boolean) => void;
   setAgentPhase: (v: AgentPhase | ((prev: AgentPhase) => AgentPhase)) => void;
   setRetryInfo: (v: { attempt: number; maxAttempts: number; errorMessage?: string } | null) => void;
@@ -48,7 +46,6 @@ export type AgentEventHandleContext = {
   setContextUsage: (updater: (prev: ContextUsage | null) => ContextUsage | null) => void;
   dispatchStream: (action: StreamAction) => void;
 
-  clearPendingStreamUpdate: () => void;
   closeEvents: () => void;
   finishPromptWithoutStream: (sid: string | null, runId?: number) => Promise<void>;
   loadSession: (sid: string, showLoading?: boolean, includeState?: boolean) => Promise<unknown>;
@@ -58,8 +55,6 @@ export type AgentEventHandleContext = {
   /** Only the two keys this dispatcher reads. */
   t: (key: "agent.commandFailed" | "agent.extensionFailed") => string;
 };
-
-const STREAM_COALESCE_MS = 100;
 
 export function handleAgentSessionEvent(
   event: AgentSessionEvent,
@@ -95,6 +90,10 @@ export function handleAgentSessionEvent(
       ctx.agentRunningRef.current = true;
       ctx.setAgentRunning(true);
       ctx.setAgentPhase({ kind: "waiting_model" });
+      // Banner is only for the backoff wait. SDK auto_retry_end waits until
+      // the retried assistant message finishes — hide as soon as this attempt
+      // is in flight (continue() → agent_start).
+      ctx.setRetryInfo(null);
       ctx.dispatchStream({ type: "start" });
       break;
     }
@@ -108,7 +107,6 @@ export function handleAgentSessionEvent(
       // Only touch streaming UI if this still matches the generation that
       // accepted stream events. Late ends from a prior run are ignored.
       if (runId !== ctx.streamAcceptRunIdRef.current) break;
-      ctx.clearPendingStreamUpdate();
       ctx.setAgentPhase(null);
       ctx.setRetryInfo(null);
       ctx.dispatchStream({ type: "end" });
@@ -147,38 +145,33 @@ export function handleAgentSessionEvent(
         message: (event.error as string | undefined) ?? ctx.t("agent.extensionFailed"),
       });
       break;
-    case "message_start":
-    case "message_update": {
-      // Ignore streaming events arriving after this run already finished
-      // (e.g. SSE data buffered while the tab was frozen, flushed after
-      // reconcile) — they would resurrect a ghost streaming bubble.
-      // Also drop events that do not belong to the generation that last
-      // saw agent_start / local send (late events after a new run began).
+    case "connected":
+      if (event.isStreaming === true && ctx.agentRunningRef.current) {
+        ctx.setAgentPhase({ kind: "waiting_model" });
+      } else {
+        ctx.dispatchStream({ type: "end" });
+      }
+      break;
+    case "message_start": {
       if (!ctx.agentRunningRef.current) break;
       if (ctx.promptRunIdRef.current !== ctx.streamAcceptRunIdRef.current) break;
-      const msg = event.message as Partial<AgentMessage> | undefined;
-      if (msg?.role === "user") {
-        break;
+      const startMsg = event.message as Partial<AgentMessage> | undefined;
+      if (startMsg?.role === "assistant") {
+        ctx.dispatchStream({ type: "snapshot", message: normalizeToolCalls(startMsg as AgentMessage) });
+        ctx.setAgentPhase(null);
       }
-      if (msg) {
-        if (ctx.streamUpdateTimerRef.current === null) {
-          ctx.dispatchStream({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
-          ctx.streamUpdateTimerRef.current = window.setTimeout(() => {
-            ctx.streamUpdateTimerRef.current = null;
-            const pending = ctx.pendingStreamUpdateRef.current;
-            ctx.pendingStreamUpdateRef.current = null;
-            if (pending && ctx.agentRunningRef.current) {
-              ctx.dispatchStream({ type: "update", message: normalizeToolCalls(pending as AgentMessage) });
-            }
-          }, STREAM_COALESCE_MS);
-        } else {
-          // Keep the raw event message: only the last one inside the coalesce
-          // window ever reaches React, so normalizing here would allocate a
-          // new content array per token for a result that gets overwritten.
-          ctx.pendingStreamUpdateRef.current = msg;
+      break;
+    }
+    case "message_update": {
+      if (!ctx.agentRunningRef.current) break;
+      if (ctx.promptRunIdRef.current !== ctx.streamAcceptRunIdRef.current) break;
+      const delta = event.assistantMessageEvent as ClientAssistantMessageEvent | undefined;
+      if (delta && typeof delta === "object") {
+        ctx.dispatchStream({ type: "delta", event: delta });
+        if (delta.type !== "toolcall_start" && delta.type !== "toolcall_delta") {
+          ctx.setAgentPhase(null);
         }
       }
-      ctx.setAgentPhase(null);
       break;
     }
     case "message_end": {
@@ -187,7 +180,6 @@ export function handleAgentSessionEvent(
       // appending it again would duplicate it.
       if (!ctx.agentRunningRef.current) break;
       if (ctx.promptRunIdRef.current !== ctx.streamAcceptRunIdRef.current) break;
-      ctx.clearPendingStreamUpdate();
       const completed = event.message as AgentMessage | undefined;
       if (completed && completed.role === "user") {
         // Delivered steering/follow-up messages surface here as user
@@ -201,7 +193,7 @@ export function handleAgentSessionEvent(
       } else if (completed) {
         ctx.setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
       }
-      ctx.dispatchStream({ type: "reset" });
+      ctx.dispatchStream({ type: "end" });
       ctx.setAgentPhase({ kind: "waiting_model" });
       break;
     }

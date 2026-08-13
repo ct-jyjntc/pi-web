@@ -8,6 +8,7 @@ import { getSupportedThinkingLevels, type Model, type ModelThinkingLevel } from 
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { pickLowestThinkingLevel } from "./utility-model";
 import type { ThinkingLevelPref } from "./web-settings";
+import { skillExpansionToCommand } from "./slash-display";
 
 const TITLE_TIMEOUT_MS = 90_000;
 const MAX_TITLE_LENGTH = 80;
@@ -217,6 +218,22 @@ export function sanitizeTitleMessages(messages: AgentMessage[]): AgentMessage[] 
     }
 
     expectedToolResultIds = undefined;
+    if (message.role === "user") {
+      if (typeof message.content === "string") {
+        sanitized.push({ ...message, content: skillExpansionToCommand(message.content) ?? message.content });
+        continue;
+      }
+      if (Array.isArray(message.content)) {
+        sanitized.push({
+          ...message,
+          content: message.content.map((block) => {
+            if (block.type !== "text") return block;
+            return { ...block, text: skillExpansionToCommand(block.text) ?? block.text };
+          }),
+        });
+        continue;
+      }
+    }
     sanitized.push(message);
   }
 

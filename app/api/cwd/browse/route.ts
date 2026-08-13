@@ -4,6 +4,7 @@ import {
   getBrowseStartDirectory,
   getParentDirectory,
   listDirectories,
+  listWindowsDrives,
   resolveDirectory,
 } from "@/lib/directory-browser";
 
@@ -25,12 +26,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Path is not a directory" }, { status: 400 });
     }
 
+    const parentPath = getParentDirectory(resolved);
     const directories = await listDirectories(resolved);
-
+    const drives = parentPath === null ? await listWindowsDrives() : [];
+    const seen = new Set(directories.map((d) => d.path.toLowerCase()));
+    const merged = [
+      ...drives.filter((d) => !seen.has(d.path.toLowerCase())),
+      ...directories,
+    ];
     return NextResponse.json({
       path: resolved,
-      parentPath: getParentDirectory(resolved),
-      directories,
+      parentPath,
+      directories: merged,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

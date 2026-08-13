@@ -210,6 +210,8 @@ export function SkillsConfig({
         setSelected(skill.filePath);
         setSaveError(null);
       }}
+      onToggle={toggle}
+      toggling={toggling}
     >
       <AddSkillPanel
         cwd={cwd}

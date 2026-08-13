@@ -173,22 +173,50 @@ export function OAuthDetail({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0, overflow: "auto" }}>
       <DetailStrip
-        title={t("models.subscription")}
+        title={provider.name}
         actions={(
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "var(--success)" : "var(--border)", display: "inline-block" }} />
             <span style={{ fontSize: 11, color: provider.loggedIn ? "var(--success)" : "var(--text-dim)" }}>
               {provider.loggedIn ? t("models.statusConnected") : t("models.statusNotConnected")}
             </span>
+            {isWorking ? (
+              <button
+                type="button"
+                className="btn-ghost btn-compact"
+                onClick={() => { eventSourceRef.current?.close(); setLoginState({ phase: "idle" }); }}
+              >
+                {t("common.cancel")}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={provider.loggedIn ? "btn-ghost btn-compact" : "btn-primary btn-compact"}
+                  onClick={handleLogin}
+                >
+                  {provider.loggedIn ? t("modal.relogin") : t("modal.login")}
+                </button>
+                {provider.loggedIn && (
+                  <button
+                    type="button"
+                    className="btn-ghost btn-compact"
+                    onClick={handleLogout}
+                    style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
+                  >
+                    {t("modal.disconnect")}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       />
 
-      {/* Status */}
-      <div style={{ minHeight: 48 }}>
-        {loginState.phase === "idle" && (
+      <div>
+        {loginState.phase === "idle" && !provider.loggedIn && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-            {provider.loggedIn ? t("models.alreadyConnected") : t("models.connectAccount", { name: provider.name })}
+            {t("models.connectAccount", { name: provider.name })}
           </p>
         )}
         {loginState.phase === "connecting" && (
@@ -245,7 +273,7 @@ export function OAuthDetail({
                 disabled={!inputValue.trim()}
                 style={{ flexShrink: 0 }}
               >
-                Submit
+                {t("common.save")}
               </button>
             </div>
           </div>
@@ -277,43 +305,15 @@ export function OAuthDetail({
         )}
       </div>
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 8 }}>
-        {isWorking ? (
-          <button
-            type="button"
-            className="btn-ghost btn-compact"
-            onClick={() => { eventSourceRef.current?.close(); setLoginState({ phase: "idle" }); }}
-          >
-            Cancel
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              className="btn-primary btn-compact"
-              onClick={handleLogin}
-            >
-              {provider.loggedIn ? t("modal.relogin") : t("modal.login")}
-            </button>
-            {provider.loggedIn && (
-              <button
-                type="button"
-                className="btn-ghost btn-compact"
-                onClick={handleLogout}
-                style={{ color: "var(--destructive)", borderColor: "var(--destructive-border)" }}
-              >
-                Disconnect
-              </button>
-            )}
-          </>
-        )}
-      </div>
-
       {provider.loggedIn && (
         <>
-          {onRefreshModels && (
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <ConfigModelsEnablePanel
+            models={models}
+            loading={modelsLoading && models.length === 0}
+            error={modelsError}
+            onToggleModel={onToggleModel}
+            onToggleAllModels={onToggleAllModels}
+            toolbar={onRefreshModels ? (
               <button
                 type="button"
                 className="btn-ghost btn-compact"
@@ -325,14 +325,7 @@ export function OAuthDetail({
                   ? t("models.refreshingModels")
                   : t("models.refreshModels")}
               </button>
-            </div>
-          )}
-          <ConfigModelsEnablePanel
-            models={models}
-            loading={modelsLoading && models.length === 0}
-            error={modelsError}
-            onToggleModel={onToggleModel}
-            onToggleAllModels={onToggleAllModels}
+            ) : null}
           />
         </>
       )}

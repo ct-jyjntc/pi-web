@@ -302,8 +302,10 @@ function normalizeInlineLatexMath(line: string): string {
 // micromark-extension-math) and stays static: it only turns `$…$` into
 // `<code class="language-math …">` nodes. The renderer half — KaTeX — is the
 // expensive one and loads on demand, see `loadKatexRehypePlugin`.
-export const markdownRemarkPlugins: MarkdownRemarkPlugins = [remarkGfm, remarkMath];
-export const markdownPreviewRemarkPlugins: MarkdownRemarkPlugins = [remarkGfm];
+// singleTilde:false — a lone `~` in CJK ranges (`5~7U`, `100~200倍`) must not become strikethrough.
+const gfm: MarkdownRemarkPlugins[number] = [remarkGfm, { singleTilde: false }];
+export const markdownRemarkPlugins: MarkdownRemarkPlugins = [gfm, remarkMath];
+export const markdownPreviewRemarkPlugins: MarkdownRemarkPlugins = [gfm];
 
 /**
  * Base rehype pipeline. KaTeX is deliberately absent: a static `rehype-katex`

@@ -30,8 +30,13 @@ interface MarkdownBodyProps {
   onOpenFile?: (filePath: string) => void;
 }
 
+const MAX_MARKDOWN_CHARS = 100_000;
+
 export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
-  const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
+  const { t } = useLocale();
+  const oversized = children.length > MAX_MARKDOWN_CHARS;
+  const renderSource = oversized ? `${children.slice(0, MAX_MARKDOWN_CHARS)}\n\n…` : children;
+  const normalizedMarkdown = useMemo(() => normalizeDisplayMath(renderSource), [renderSource]);
 
   // While streaming, split the document at the last "safe" paragraph boundary
   // and render the stable prefix as a memoized segment. Each 100ms stream tick
@@ -163,6 +168,11 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
+      {oversized && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
+          {t("md.truncated")}
+        </div>
+      )}
       <MarkdownSegment text={stable} components={components} rehypePlugins={rehypePlugins} />
       {tail && <MarkdownSegment text={tail} components={components} rehypePlugins={rehypePlugins} />}
     </div>

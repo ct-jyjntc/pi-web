@@ -41,6 +41,7 @@ import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@
 import type { ProjectTrustStatus, SkillInfo } from "@/lib/api-types";
 import { setDraft } from "@/lib/draft-store";
 import { formatShortcut, modKeyLabel } from "@/lib/keyboard";
+import { sendAgentCommand } from "@/lib/agent-client";
 import { Icon } from "./Icon";
 
 import {
@@ -59,10 +60,16 @@ import {
   RIGHT_PANEL_MIN,
   RIGHT_PANEL_WIDTH_KEY,
   SESSION_REFRESH_DEBOUNCE_MS,
+  SIDEBAR_MAX,
+  SIDEBAR_MAX_VIEWPORT_FRACTION,
+  SIDEBAR_MIN,
+  SIDEBAR_WIDTH_KEY,
 } from "./app-shell/app-shell-constants";
 import { ShellStyles } from "./app-shell/ShellStyles";
+import { measureTopPanelBox } from "./app-shell/top-panel-box";
 import { WORKSPACE_TABS } from "./app-shell/terminal-tabs";
 import { useAppShellTerminal } from "@/hooks/useAppShellTerminal";
+import { usePersistedPanelWidth } from "@/hooks/usePersistedPanelWidth";
 import { apiFetch } from "@/lib/api-transport";
 
 
@@ -238,6 +245,22 @@ export function AppShell() {
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, [isMobile]);
 
+  useEffect(() => {
+    if (activeTopPanel !== "system" || systemPrompt !== null) return;
+    const sid = selectedSession?.id;
+    if (!sid) return;
+    let cancelled = false;
+    void sendAgentCommand<{ systemPrompt?: string }>(sid, { type: "get_state" })
+      .then((data) => {
+        if (cancelled || typeof data?.systemPrompt !== "string") return;
+        setSystemPrompt(data.systemPrompt);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTopPanel, selectedSession?.id, systemPrompt]);
+
   const handleSidebarToggle = useCallback(() => {
     if (isMobile) setActiveTopPanel(null);
     setSidebarOpen((open) => !open);
@@ -246,8 +269,9 @@ export function AppShell() {
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
-      const rect = topBarRef.current!.getBoundingClientRect();
-      setTopPanelPos({ top: rect.bottom, left: rect.left, width: rect.width });
+      const bar = topBarRef.current;
+      if (!bar) return;
+      setTopPanelPos(measureTopPanelBox(bar));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -259,17 +283,37 @@ export function AppShell() {
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  // Default must match SSR; hydrate width from localStorage after mount.
-  const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT);
-
-  const [rightPanelResizing, setRightPanelResizing] = useState(false);
-  const rightPanelContainerRef = useRef<HTMLDivElement | null>(null);
-  const rightPanelResizeCleanupRef = useRef<(() => void) | null>(null);
-  const rightPanelDraggingRef = useRef(false);
-  const rightPanelWidthRef = useRef(rightPanelWidth);
-  // A live drag owns the width and writes it straight to the CSS variable, so
-  // an unrelated re-render must not snap the ref back to the committed value.
-  if (!rightPanelDraggingRef.current) rightPanelWidthRef.current = rightPanelWidth;
+  const {
+    displayWidth: sidebarWidth,
+    resizing: sidebarResizing,
+    containerRef: sidebarContainerRef,
+    handleResizeStart: handleSidebarResizeStart,
+    cssVarStyle: sidebarWidthStyle,
+  } = usePersistedPanelWidth({
+    storageKey: SIDEBAR_WIDTH_KEY,
+    cssVar: "--sidebar-width",
+    minWidth: SIDEBAR_MIN,
+    maxWidth: SIDEBAR_MAX,
+    maxViewportFraction: SIDEBAR_MAX_VIEWPORT_FRACTION,
+    dragSign: 1,
+    enabled: !isMobile && sidebarOpen,
+  });
+  const {
+    displayWidth: rightPanelWidth,
+    resizing: rightPanelResizing,
+    containerRef: rightPanelContainerRef,
+    handleResizeStart: handleRightPanelResizeStart,
+    cssVarStyle: rightPanelWidthStyle,
+  } = usePersistedPanelWidth({
+    storageKey: RIGHT_PANEL_WIDTH_KEY,
+    cssVar: "--right-panel-width",
+    minWidth: RIGHT_PANEL_MIN,
+    maxWidth: RIGHT_PANEL_MAX,
+    maxViewportFraction: 0.72,
+    dragSign: -1,
+    enabled: !isMobile && rightPanelOpen,
+    defaultWidth: RIGHT_PANEL_DEFAULT,
+  });
   const workspaceTabs = WORKSPACE_TABS;
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string>("review");
   // Workspace panels stay mounted behind display:none once opened so they keep
@@ -644,121 +688,6 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
-  // Load persisted width after mount (avoid SSR hydration mismatch)
-  useEffect(() => {
-    // Clear any stuck resize cursor from a previous half-finished drag
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    try {
-      const raw = window.localStorage.getItem(RIGHT_PANEL_WIDTH_KEY);
-      const n = raw ? Number(raw) : NaN;
-      if (!Number.isFinite(n)) return;
-      const max = Math.min(RIGHT_PANEL_MAX, Math.floor(window.innerWidth * 0.72));
-      setRightPanelWidth(Math.min(max, Math.max(RIGHT_PANEL_MIN, Math.round(n))));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Persist right panel width
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(rightPanelWidth));
-    } catch {
-      // ignore quota / private mode
-    }
-  }, [rightPanelWidth]);
-
-  // Always clear a half-finished resize on unmount
-  useEffect(() => () => {
-    // A live drag keeps the width in a ref, so the commit in cleanup() lands on
-    // an unmounted tree — persist it here instead of losing it.
-    const draggedWidth = rightPanelDraggingRef.current ? rightPanelWidthRef.current : null;
-    rightPanelResizeCleanupRef.current?.();
-    rightPanelResizeCleanupRef.current = null;
-    if (draggedWidth !== null) {
-      try {
-        window.localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(draggedWidth));
-      } catch {
-        // ignore quota / private mode
-      }
-    }
-  }, []);
-
-  const handleRightPanelResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (isMobile || !rightPanelOpen) return;
-    if (e.button !== 0 && e.pointerType === "mouse") return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    // End any previous drag first
-    rightPanelResizeCleanupRef.current?.();
-
-    const startX = e.clientX;
-    const startW = rightPanelWidthRef.current;
-    const handle = e.currentTarget;
-    const container = rightPanelContainerRef.current;
-    const pointerId = e.pointerId;
-    rightPanelDraggingRef.current = true;
-    setRightPanelResizing(true);
-
-    try {
-      handle.setPointerCapture(pointerId);
-    } catch {
-      // ignore
-    }
-
-    const onMove = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId) return;
-      // Left edge: drag left → wider, drag right → narrower
-      const delta = startX - ev.clientX;
-      const max = Math.min(RIGHT_PANEL_MAX, Math.floor(window.innerWidth * 0.72));
-      const next = Math.min(max, Math.max(RIGHT_PANEL_MIN, Math.round(startW + delta)));
-      if (next === rightPanelWidthRef.current) return;
-      rightPanelWidthRef.current = next;
-      // Width only feeds a CSS variable, so drive it straight from the DOM.
-      // A setState here would re-render the whole shell on every pointer frame
-      // (session tree, open file + syntax highlighting) and freeze the window.
-      container?.style.setProperty("--right-panel-width", `${next}px`);
-      handle.setAttribute("aria-valuenow", String(next));
-    };
-
-    const cleanup = () => {
-      if (!rightPanelDraggingRef.current) return;
-      rightPanelDraggingRef.current = false;
-      setRightPanelResizing(false);
-      // Commit once at the end: React state drives persistence and the inline
-      // style, and matches the value already written to the DOM (no jump).
-      setRightPanelWidth(rightPanelWidthRef.current);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
-      handle.removeEventListener("pointercancel", onUp);
-      window.removeEventListener("blur", onUp);
-      try {
-        if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
-      } catch {
-        // ignore
-      }
-      if (rightPanelResizeCleanupRef.current === cleanup) {
-        rightPanelResizeCleanupRef.current = null;
-      }
-    };
-
-    const onUp = (ev: Event) => {
-      if (ev instanceof PointerEvent && ev.pointerId !== pointerId) return;
-      cleanup();
-    };
-
-    rightPanelResizeCleanupRef.current = cleanup;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
-    handle.addEventListener("pointercancel", onUp);
-    window.addEventListener("blur", onUp);
-  }, [isMobile, rightPanelOpen]);
 
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null);
@@ -911,7 +840,8 @@ export function AppShell() {
 
       {/* Left sidebar */}
       <div
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
+        ref={sidebarContainerRef}
+        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizing ? " is-resizing" : ""}`}
         style={{
           background: "var(--bg-panel)",
           borderRight: "1px solid var(--border)",
@@ -919,9 +849,23 @@ export function AppShell() {
           flexDirection: "column",
           flexShrink: 0,
           zIndex: 200,
+          ...sidebarWidthStyle,
         }}
       >
         {sidebarContent}
+        {sidebarOpen && !isMobile && (
+          <div
+            className={`sidebar-edge-resizer titlebar-no-drag${sidebarResizing ? " is-active" : ""}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={SIDEBAR_MIN}
+            aria-valuemax={SIDEBAR_MAX}
+            aria-label={t("shell.resizeSidebar")}
+            title={t("shell.resizeSidebar")}
+            onPointerDown={handleSidebarResizeStart}
+          />
+        )}
       </div>
 
       {/* Center: chat */}
@@ -1243,7 +1187,7 @@ export function AppShell() {
           background: "var(--bg)",
           position: "relative",
           overflow: "hidden",
-          ["--right-panel-width" as string]: `${rightPanelWidth}px`,
+          ...rightPanelWidthStyle,
         }}
       >
         {/* Workspace tabs: Review | Files | Context | Terminal — all permanent */}
@@ -1355,6 +1299,7 @@ export function AppShell() {
                   focusLine={activeFileTab.focusLine}
                   gitRefreshKey={explorerRefreshKey}
                   onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+                  onMentionFile={rightPanelOpen ? (rel) => handleAtMention(rel, false) : undefined}
                   onOpenFile={(filePath) => handleOpenFile(
                     filePath,
                     getFileName(filePath),

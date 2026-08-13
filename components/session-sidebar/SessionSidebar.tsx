@@ -20,6 +20,7 @@ import { Icon } from "../Icon";
 import {
   buildSessionTree,
   displayCwd,
+  getProjectActivity,
   getRecentProjects,
   groupSessionTreeByTime,
   loadUnreadSessionIds,
@@ -31,7 +32,11 @@ import {
 } from "./session-sidebar-helpers";
 import { AnimatedDropdown, PathLabel } from "./sidebar-ui";
 import { SessionTreeItem } from "./SessionTreeItem";
+import { RunningSessionIndicator, UnreadSessionIndicator } from "./SessionIndicators";
 import { apiFetch } from "@/lib/api-transport";
+import { notifyDesktop } from "@/lib/desktop-notify";
+import { useAudio } from "@/hooks/useAudio";
+import { useWebSettings } from "@/lib/web-settings-store";
 
 declare global {
   interface Window {
@@ -86,6 +91,17 @@ export interface SessionSidebarProps {
 
 export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, onSessionRenamed, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: SessionSidebarProps) {
   const { t } = useLocale();
+  const { playDoneSound } = useAudio();
+  const webSettings = useWebSettings();
+  const notifyPrefsRef = useRef({ desktop: true, notifSound: true });
+  notifyPrefsRef.current = {
+    desktop: webSettings?.desktopNotifications !== false,
+    notifSound: webSettings?.notificationSound !== false,
+  };
+  const playDoneSoundRef = useRef(playDoneSound);
+  playDoneSoundRef.current = playDoneSound;
+  const tRef = useRef(t);
+  tRef.current = t;
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +128,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const [worktreeLoadingCwd, setWorktreeLoadingCwd] = useState<string | null>(null);
   const wtDropdownRef = useRef<HTMLDivElement>(null);
   const wtNewInputRef = useRef<HTMLInputElement>(null);
-  const [explorerOpen, setExplorerOpen] = useState(true);
+  const [explorerOpen, setExplorerOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("pi-explorer-open") !== "false";
+  });
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
@@ -197,6 +216,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   useEffect(() => {
     saveUnreadSessionIds(unreadSessionIds);
   }, [unreadSessionIds]);
+
+  useEffect(() => {
+    window.localStorage.setItem("pi-explorer-open", String(explorerOpen));
+  }, [explorerOpen]);
 
   useEffect(() => {
     // Visible-tab polling instead of a long-lived running SSE: multi-window setups
@@ -289,8 +312,25 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
       });
     }
 
+    // Frontend left that workspace: ChatWindow is unmounted, so AppShell/sidebar
+    // owns completion notify. Current-session end still fires from ChatWindow.
+    if (completedInBackground.length > 0 && previous.size > 0) {
+      const prefs = notifyPrefsRef.current;
+      if (prefs.desktop) {
+        const first = allSessions.find((s) => s.id === completedInBackground[0]);
+        const workspace = first ? displayCwd(first.projectRoot ?? first.cwd, homeDir) : "";
+        notifyDesktop({
+          body: workspace
+            ? tRef.current("notify.taskCompleteInWorkspace", { workspace })
+            : tRef.current("notify.taskComplete"),
+          silent: !prefs.notifSound,
+        });
+      }
+      if (prefs.notifSound) playDoneSoundRef.current();
+    }
+
     previousRunningSessionIdsRef.current = runningSessionIds;
-  }, [runningSessionIds, selectedSessionId]);
+  }, [runningSessionIds, selectedSessionId, allSessions, homeDir]);
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -599,6 +639,18 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = useMemo(() => projectRootFor(selectedCwd), [projectRootFor, selectedCwd]);
+  const projectActivity = useMemo(
+    () => getProjectActivity(allSessions, runningSessionIds, unreadSessionIds),
+    [allSessions, runningSessionIds, unreadSessionIds],
+  );
+  const selectedActivity = selectedProject ? projectActivity.get(selectedProject) : undefined;
+  const otherWorkspaceActivity = useMemo(() => {
+    for (const [root, activity] of projectActivity) {
+      if (root === selectedProject) continue;
+      if (activity.running || activity.unread) return activity;
+    }
+    return undefined;
+  }, [projectActivity, selectedProject]);
   const filteredSessions = useMemo(() => (
     selectedProject
       ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
@@ -733,6 +785,24 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                   {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
                 </span>
               )}
+              {selectedActivity?.running ? (
+                <RunningSessionIndicator />
+              ) : selectedActivity?.unread ? (
+                <UnreadSessionIndicator />
+              ) : otherWorkspaceActivity ? (
+                <span
+                  title={otherWorkspaceActivity.running ? t("sidebar.otherWorkspaceRunning") : t("sidebar.otherWorkspaceUnread")}
+                  aria-label={otherWorkspaceActivity.running ? t("sidebar.otherWorkspaceRunning") : t("sidebar.otherWorkspaceUnread")}
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "var(--radius-pill)",
+                    background: otherWorkspaceActivity.running ? "var(--accent)" : "var(--text)",
+                    opacity: otherWorkspaceActivity.running ? 1 : 0.55,
+                    flexShrink: 0,
+                  }}
+                />
+              ) : null}
               <Icon icon={ChevronDown} size={9} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.55 }} />
             </button>
           </div>
@@ -783,6 +853,11 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                     title={project}
                   >
                      <PathLabel text={displayCwd(project, homeDir)} style={{ flex: 1 }} />
+                     {projectActivity.get(project)?.running ? (
+                       <RunningSessionIndicator />
+                     ) : projectActivity.get(project)?.unread ? (
+                       <UnreadSessionIndicator />
+                     ) : null}
                      {project === selectedProject ? (
                        <Icon icon={Check} size={12} strokeWidth={2} style={{ color: "var(--text)", flexShrink: 0 }} />
                      ) : null}

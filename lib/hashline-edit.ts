@@ -210,7 +210,7 @@ export function applyHashlineEdits(
   const rel = displayPath(cwd, abs);
   const syntax = checkSourceSyntax(abs, next, cwd);
   if (!syntax.ok) {
-    throw new Error(formatSyntaxGuardFailure(rel, syntax));
+    throw new Error(formatSyntaxGuardFailure(rel, syntax, next));
   }
 
   writeFileSync(abs, preserveLineEndings(original, next), "utf8");

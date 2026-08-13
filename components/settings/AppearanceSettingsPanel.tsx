@@ -11,8 +11,9 @@ import { setAppearanceSnapshot } from "@/lib/appearance-store";
 import type { CodeThemeId, ThemeMode } from "@/lib/web-settings";
 import {
   SegmentedOption,
+  SettingsGroup,
+  SettingsPageHeading,
   SettingsRow,
-  sectionTitle,
 } from "./settings-ui";
 
 export type AppearanceSettingsPanelProps = {
@@ -33,14 +34,13 @@ export function AppearanceSettingsPanel({
   patchPref,
 }: AppearanceSettingsPanelProps) {
   const { t } = useLocale();
-  const previewCode = `const themePreview = {
-  surface: "sidebar",
-  accent: "#339CFF",
-  contrast: 45,
-};`;
+  const previewCode = `export function greet(name: string) {
+  return \`hello, \${name}\`;
+}`;
   return (
     <div className="settings-page-general">
-      {sectionTitle(t("settings.appearanceUi"))}
+      <SettingsPageHeading title={t("settings.appearance")} />
+      <SettingsGroup title={t("settings.appearanceUi")}>
 
       <SettingsRow
         title={t("settings.themeMode")}
@@ -95,7 +95,9 @@ export function AppearanceSettingsPanel({
         }
       />
 
-      {sectionTitle(t("settings.appearanceCode"))}
+      </SettingsGroup>
+
+      <SettingsGroup title={t("settings.appearanceCode")}>
 
       <SettingsRow
         stacked
@@ -177,94 +179,41 @@ export function AppearanceSettingsPanel({
         }
       />
 
-      {sectionTitle(t("settings.codePreview"))}
-      <div className="settings-row-desc" style={{ marginBottom: 10 }}>
+      </SettingsGroup>
+
+      <h3 className="settings-group-title">{t("settings.codePreview")}</h3>
+      <p className="settings-row-desc" style={{ margin: "-4px 0 12px" }}>
         {t("settings.codePreviewDesc")}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+      </p>
+      <div className="code-preview-grid" style={{ gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr" }}>
         {([
-          {
-            id: appearance.codeThemeLight,
-            label: t("settings.previewLight"),
-            dark: false,
-          },
-          {
-            id: appearance.codeThemeDark,
-            label: t("settings.previewDark"),
-            dark: true,
-            // Fixed light/dark preview chrome comes from .code-preview in globals.css.
-          },
+          { id: appearance.codeThemeLight, file: t("settings.previewLight"), dark: false },
+          { id: appearance.codeThemeDark, file: t("settings.previewDark"), dark: true },
         ] as const).map((preview) => {
           const active = isDark === preview.dark;
           const themeStyle = getCodeThemeStyle(preview.id, preview.dark);
+          const themeName = CODE_THEME_OPTIONS.find((o) => o.id === preview.id)?.label;
           const themeBg =
             (themeStyle["pre[class*=\"language-\"]"] as { backgroundColor?: string } | undefined)?.backgroundColor
             || (themeStyle.pre as { backgroundColor?: string } | undefined)?.backgroundColor
             || "var(--preview-code-bg)";
           return (
-            <div
+            <article
               key={String(preview.dark)}
               className={`code-preview ${preview.dark ? "is-dark" : "is-light"}`}
-              style={{
-                border: "1px solid var(--preview-chrome-border)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--preview-chrome-bg)",
-                overflow: "hidden",
-              }}
+              aria-label={`${preview.file}${active ? ` · ${t("settings.previewActive")}` : ""}`}
             >
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-                padding: "8px 10px",
-                borderBottom: "1px solid var(--preview-chrome-border)",
-                fontSize: 11,
-                color: "var(--preview-chrome-fg)",
-                background: "var(--preview-chrome-bg)",
-              }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                  <span style={{ fontWeight: 600, color: "var(--preview-title-fg)" }}>{preview.label}</span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>
-                    {CODE_THEME_OPTIONS.find((o) => o.id === preview.id)?.label}
-                  </span>
-                </div>
-                <span style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-                  {active && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        lineHeight: "18px",
-                        height: 18,
-                        padding: "0 7px",
-                        borderRadius: "var(--radius-xs)",
-                        border: "1px solid var(--preview-chrome-border)",
-                        color: "var(--preview-title-fg)",
-                        background: "var(--preview-active-bg)",
-                      }}
-                    >
-                      {t("settings.previewActive")}
-                    </span>
-                  )}
-                  {!active && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        lineHeight: "18px",
-                        height: 18,
-                        padding: "0 7px",
-                        borderRadius: "var(--radius-xs)",
-                        border: "1px solid var(--preview-chrome-border)",
-                        color: "var(--preview-chrome-fg)",
-                      }}
-                    >
-                      {preview.dark ? t("settings.themeDark") : t("settings.themeLight")}
-                    </span>
-                  )}
+              <header className="code-preview-bar">
+                <span className="code-preview-dots" aria-hidden>
+                  <i /><i /><i />
                 </span>
-              </div>
-              <div style={{ padding: 10, background: themeBg }}>
+                <span className="code-preview-file">{preview.file}</span>
+                <span className="code-preview-meta">
+                  {active ? <span className="code-preview-live" title={t("settings.previewActive")} /> : null}
+                  {themeName}
+                </span>
+              </header>
+              <div className="code-preview-body" style={{ background: themeBg }}>
                 <SyntaxHighlighter
                   language="typescript"
                   style={themeStyle}
@@ -272,10 +221,10 @@ export function AppearanceSettingsPanel({
                   wrapLongLines={appearance.wrapCodeLines}
                   customStyle={{
                     margin: 0,
-                    padding: "10px 12px",
+                    padding: 0,
                     fontSize: appearance.codeFontSize,
-                    backgroundColor: themeBg,
-                    borderRadius: "var(--radius-xs)",
+                    background: "transparent",
+                    border: "none",
                   }}
                   codeTagProps={{
                     style: {
@@ -288,7 +237,7 @@ export function AppearanceSettingsPanel({
                   {previewCode}
                 </SyntaxHighlighter>
               </div>
-            </div>
+            </article>
           );
         })}
       </div>
