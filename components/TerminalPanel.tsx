@@ -19,34 +19,76 @@ interface Props {
 }
 
 type ThemeVars = {
-  bg: string;
-  panel: string;
-  text: string;
-  muted: string;
-  dim: string;
-  accent: string;
-  destructive: string;
-  border: string;
+  background: string;
+  foreground: string;
   cursor: string;
+  cursorAccent: string;
+  selectionBackground: string;
+  selectionInactiveBackground: string;
+  black: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  cyan: string;
+  white: string;
+  brightBlack: string;
+  brightRed: string;
+  brightGreen: string;
+  brightYellow: string;
+  brightBlue: string;
+  brightMagenta: string;
+  brightCyan: string;
+  brightWhite: string;
 };
 
-function readTheme(el: HTMLElement | null): ThemeVars {
-  const style = el ? getComputedStyle(el) : getComputedStyle(document.documentElement);
-  const get = (name: string, fallback: string) => {
-    const v = style.getPropertyValue(name).trim();
-    return v || fallback;
-  };
+function resolveCssColor(host: HTMLElement, value: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  host.appendChild(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color || value;
+}
+
+function readTerminalTheme(host: HTMLElement): ThemeVars {
+  const color = (value: string) => resolveCssColor(host, value);
   return {
-    bg: get("--bg", "#0f1115"),
-    panel: get("--bg-panel", "#151821"),
-    text: get("--text", "#e8eaed"),
-    muted: get("--text-muted", "#a0a6b0"),
-    dim: get("--text-dim", "#6b7280"),
-    accent: get("--accent", "#7aa2f7"),
-    destructive: get("--destructive", "#f7768e"),
-    border: get("--border", "#2a2f3a"),
-    cursor: get("--accent", "#7aa2f7"),
+    background: color("var(--bg-panel)"),
+    foreground: color("var(--text)"),
+    cursor: color("var(--text)"),
+    cursorAccent: color("var(--bg-panel)"),
+    selectionBackground: color("color-mix(in oklab, var(--text) 18%, transparent)"),
+    selectionInactiveBackground: color("color-mix(in oklab, var(--text) 10%, transparent)"),
+    black: color("color-mix(in oklab, var(--text) 32%, var(--bg-panel))"),
+    red: color("var(--destructive)"),
+    green: color("var(--success)"),
+    yellow: color("var(--text-muted)"),
+    blue: color("var(--text)"),
+    magenta: color("var(--text-muted)"),
+    cyan: color("var(--text-muted)"),
+    white: color("var(--text)"),
+    brightBlack: color("var(--text-dim)"),
+    brightRed: color("var(--destructive)"),
+    brightGreen: color("var(--success)"),
+    brightYellow: color("var(--text)"),
+    brightBlue: color("var(--text)"),
+    brightMagenta: color("var(--text-muted)"),
+    brightCyan: color("var(--text-muted)"),
+    brightWhite: color("var(--text)"),
   };
+}
+
+function resolveTerminalFont(host: HTMLElement, override?: string | null): string {
+  const fallback = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+  if (override?.trim()) return `${override.trim()}, ${fallback}`;
+  const probe = document.createElement("span");
+  probe.style.fontFamily = "var(--font-mono)";
+  host.appendChild(probe);
+  const resolved = getComputedStyle(probe).fontFamily;
+  probe.remove();
+  return resolved || fallback;
 }
 
 export function TerminalPanel({
@@ -65,6 +107,7 @@ export function TerminalPanel({
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
 
   useEffect(() => {
     disposedRef.current = false;
@@ -73,58 +116,32 @@ export function TerminalPanel({
 
     if (!cwd && !attachSessionId) {
       setError(null);
+      setBanner(null);
       setStatus(t("git.terminalNoCwd"));
       return;
     }
 
     setError(null);
+    setBanner(null);
     setStatus(t("git.terminalConnecting"));
 
-    const theme = readTheme(host);
-    let terminalFont =
-      "var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+    const theme = readTerminalTheme(host);
+    let cachedOverride: string | null = null;
     try {
-      // Sync read is not available; font is applied after settings fetch below via option reload.
-      const cached = typeof window !== "undefined"
-        ? localStorage.getItem("pi-terminal-font")
-        : null;
-      if (cached && cached.trim()) {
-        terminalFont = `${cached.trim()}, ${terminalFont}`;
-      }
+      cachedOverride = typeof window !== "undefined" ? localStorage.getItem("pi-terminal-font") : null;
     } catch {
-      // ignore
+      cachedOverride = null;
     }
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: "bar",
       fontSize: 12.5,
-      lineHeight: 1.35,
-      fontFamily: terminalFont,
+      lineHeight: 1.28,
+      fontFamily: resolveTerminalFont(host, cachedOverride),
       scrollback: 5000,
       convertEol: false,
-      theme: {
-        background: theme.bg,
-        foreground: theme.text,
-        cursor: theme.cursor,
-        cursorAccent: theme.bg,
-        selectionBackground: theme.accent + "59",
-        black: "#1b1f27",
-        red: theme.destructive,
-        green: "#9ece6a",
-        yellow: "#e0af68",
-        blue: theme.accent,
-        magenta: "#bb9af7",
-        cyan: "#7dcfff",
-        white: theme.text,
-        brightBlack: theme.dim,
-        brightRed: theme.destructive,
-        brightGreen: "#9ece6a",
-        brightYellow: "#e0af68",
-        brightBlue: theme.accent,
-        brightMagenta: "#bb9af7",
-        brightCyan: "#7dcfff",
-        brightWhite: theme.text,
-      },
+      allowTransparency: true,
+      theme,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -163,13 +180,18 @@ export function TerminalPanel({
 
     const sendResize = () => {
       if (!sessionId || cleanExit || !fitRef.current || !termRef.current) return;
+      const el = hostRef.current;
+      // Collapsed / display:none hosts report ~0 size. Fitting that shrinks
+      // the PTY to 2 columns and wraps the prompt; skip until visible again.
+      if (!el || el.clientWidth < 80 || el.clientHeight < 48) return;
       try {
         fitRef.current.fit();
       } catch {
-        // ignore
+        return;
       }
       const cols = termRef.current.cols;
       const rows = termRef.current.rows;
+      if (cols < 20 || rows < 5) return;
       void apiFetch(`/api/cwd/pty/${sessionId}/resize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -199,13 +221,11 @@ export function TerminalPanel({
       cleanExit = false;
       setStatus(null);
       setError(null);
-      const label = sourceLabel
-        || (meta?.command ? `${t("git.terminalAgent")} · ${meta.command}` : null);
-      if (label) {
-        term.writeln(`\x1b[90m${label}\x1b[0m`);
-      } else {
-        term.writeln(`\x1b[90m${meta?.shell ?? "shell"} · ${meta?.cwd ?? cwd ?? ""}\x1b[0m`);
-      }
+      setBanner(
+        sourceLabel
+          || (meta?.command ? `${t("git.terminalAgent")} · ${meta.command}` : null)
+          || `${meta?.shell ?? "shell"} · ${meta?.cwd ?? cwd ?? ""}`,
+      );
 
       es = apiStream(`/api/cwd/pty/${id}/events`);
       esRef.current = es;
@@ -314,8 +334,7 @@ export function TerminalPanel({
         } catch {
           // ignore
         }
-        termRef.current.options.fontFamily =
-          `${font}, var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+        termRef.current.options.fontFamily = resolveTerminalFont(host, font);
         try {
           fitRef.current?.fit();
         } catch {
@@ -340,48 +359,15 @@ export function TerminalPanel({
   }, [cwd, attachSessionId, persistRemoteOnUnmount, sourceLabel, t]);
 
   return (
-    <div
-      className="terminal-panel"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        minHeight: 0,
-        flex: 1,
-        background: "var(--bg)",
-        position: "relative",
-      }}
-    >
-      {(status || error) && (
-        <div
-          className="terminal-status"
-          style={{
-            flexShrink: 0,
-            minHeight: 28,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "0 12px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            color: error ? "var(--destructive)" : "var(--text-dim)",
-            fontSize: 11,
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {error || status}
+    <div className="terminal-panel">
+      {(error || status || banner) && (
+        <div className={`terminal-status${error ? " is-error" : ""}`}>
+          {error || status || banner}
         </div>
       )}
       <div
         ref={hostRef}
         className="terminal-xterm-host"
-        style={{
-          flex: 1,
-          minHeight: 0,
-          width: "100%",
-          padding: "8px 10px 10px",
-          overflow: "hidden",
-        }}
         onClick={() => termRef.current?.focus()}
       />
     </div>

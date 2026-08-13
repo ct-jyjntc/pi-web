@@ -30,7 +30,6 @@ test("light routes never touch the agent SDK graph", () => {
     "/api/models-config/provider-models?provider=openai",
     "/api/default-cwd",
     "/api/github?cwd=x",
-    "/api/checkpoints?sessionId=1",
     "/api/workspace-journal?sessionId=1",
     "/api/debug/sessions",
     "/api/skills/install",

@@ -54,14 +54,6 @@ export function ContextPanel() {
     getCompactHandlers,
     () => null,
   );
-  const [checkpoints, setCheckpoints] = useState<Array<{
-    id: string;
-    name: string;
-    summary: string;
-    entryId?: string;
-    createdAt: string;
-  }>>([]);
-  const [checkpointBusy, setCheckpointBusy] = useState(false);
   const [collabBusy, setCollabBusy] = useState(false);
   const [collabUrl, setCollabUrl] = useState<string | null>(null);
   const [journal, setJournal] = useState<{
@@ -100,23 +92,12 @@ export function ContextPanel() {
   useEffect(() => {
     const sid = sessionStats?.sessionId;
     if (!sid) {
-      setCheckpoints([]);
       setJournal({ canUndo: false, canRedo: false, undoCount: 0, redoCount: 0, lastTurn: null });
       return;
     }
-    let cancelled = false;
-    void apiFetch(`/api/checkpoints?sessionId=${encodeURIComponent(sid)}`)
-      .then(async (res) => {
-        const data = await res.json() as { checkpoints?: typeof checkpoints };
-        if (!cancelled && Array.isArray(data.checkpoints)) setCheckpoints(data.checkpoints);
-      })
-      .catch(() => {
-        if (!cancelled) setCheckpoints([]);
-      });
     // Re-fetch journal when message/tool counts change — agent turns seal after
     // toolCalls/totalMessages update, not only when sessionId flips.
     void refreshJournal(sid);
-    return () => { cancelled = true; };
   }, [
     sessionStats?.sessionId,
     sessionStats?.toolCalls,
@@ -221,31 +202,6 @@ export function ContextPanel() {
     }
   }, [sessionStats?.sessionFile, sessionStats?.sessionId, sessionStats?.sessionName]);
 
-  const rewindTo = useCallback(async (entryId: string | undefined) => {
-    const sid = sessionStats?.sessionId;
-    if (!sid || !entryId) return;
-    setCheckpointBusy(true);
-    try {
-      // Prefer live chat navigation so the transcript reloads for the leaf.
-      const navigated = await requestNavigateToLeaf(sid, entryId);
-      if (navigated) return;
-      const res = await apiFetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "navigate_tree", targetId: entryId }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(data.error ?? `HTTP ${res.status}`);
-      }
-      // Soft reload so the chat tree reflects the navigated leaf.
-      window.location.reload();
-    } catch {
-      // ignore — user can still switch branch manually
-    } finally {
-      setCheckpointBusy(false);
-    }
-  }, [sessionStats?.sessionId]);
 
   const extensionRows = useMemo(
     () => visibleExtensionStatuses(extensionStatuses),
@@ -692,57 +648,6 @@ export function ContextPanel() {
                   )}
                 </div>
 
-                {sectionHeader(t("shell.checkpoints"))}
-                {checkpoints.length === 0 ? (
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-dim)",
-                      padding: "8px 12px",
-                      borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
-                    }}
-                  >
-                    {t("shell.checkpointsEmpty")}
-                  </div>
-                ) : (
-                  <div>
-                    {checkpoints.slice(0, 8).map((cp) => (
-                      <div
-                        key={cp.id}
-                        className="context-panel-row"
-                        style={{
-                          padding: "6px 12px",
-                          borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
-                          fontSize: 12,
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 24 }}>
-                          <strong style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cp.name}</strong>
-                          <span style={{ color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)", flexShrink: 0 }}>
-                            {cp.id}
-                          </span>
-                          {cp.entryId && (
-                            <span className="git-file-actions" style={{ marginLeft: "auto" }}>
-                              <button
-                                type="button"
-                                className="chrome-btn"
-                                disabled={checkpointBusy}
-                                onClick={() => void rewindTo(cp.entryId)}
-                              >
-                                {t("shell.checkpointRewind")}
-                              </button>
-                            </span>
-                          )}
-                        </div>
-                        {cp.summary && (
-                          <div style={{ color: "var(--text-muted)", marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>
-                            {cp.summary}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </>
             )}
           </>

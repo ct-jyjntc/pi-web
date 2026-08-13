@@ -98,7 +98,7 @@ npm run dev          # http://127.0.0.1:30141
 - **Worktrees** — list / switch / create / remove ([guide](./docs/worktrees.md))
 - **Files** — explorer CRUD, fuzzy index, Monaco edit, Markdown / image / audio / PDF / DOCX preview, diff vs HEAD
 - **Terminals** — multi-tab PTY (xterm + node-pty) at project cwd
-- **Context panel** — tokens & cost, compact, checkpoints / rewind, workspace undo·redo
+- **Context panel** — tokens & cost, compact, workspace undo·redo
 - **Debug tab** — Node inspect lite (optional / power-user)
 
 ### Models, skills, desktop polish

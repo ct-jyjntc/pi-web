@@ -13,7 +13,6 @@ import { createAdvancedTools } from "./agent-advanced-tools";
 import { createCodeIntelTools } from "./agent-code-intel-tools";
 import { createDebugTools } from "./agent-debug-tools";
 import {
-  createCheckpointTools,
   createDiagnosticsTool,
   createWebTools,
 } from "./agent-extra-tools";
@@ -173,20 +172,6 @@ export async function startRpcSession(
           ...createAdvancedTools({
             cwd,
             getSessionId,
-          }),
-          ...createCheckpointTools({
-            getSessionId,
-            getLeafId: () => {
-              try {
-                // Prefer the current branch leaf so rewind navigates correctly.
-                const leaf = (sessionManager as { getLeafId?: () => string | null }).getLeafId?.();
-                if (leaf) return leaf;
-                const leafEntry = (sessionManager as { getLeafEntry?: () => { id?: string } | null }).getLeafEntry?.();
-                return leafEntry?.id;
-              } catch {
-                return undefined;
-              }
-            },
           }),
         ]
       : [];

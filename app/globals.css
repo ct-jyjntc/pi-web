@@ -3471,11 +3471,42 @@ textarea.input-base:focus-visible {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg);
+  background: var(--bg-panel);
+}
+.terminal-status {
+  flex-shrink: 0;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-status.is-error {
+  color: var(--destructive);
 }
 .terminal-xterm-host {
   flex: 1;
   min-height: 0;
+  width: 100%;
+  padding: 8px 10px 10px;
+  overflow: hidden;
+  background: var(--bg-panel);
+  letter-spacing: 0;
+}
+.terminal-xterm-host,
+.terminal-xterm-host .xterm,
+.terminal-xterm-host .xterm-char-measure-element,
+.terminal-xterm-host .xterm-rows {
+  letter-spacing: 0 !important;
+  font-variant-ligatures: none;
 }
 .terminal-xterm-host .xterm {
   height: 100%;
@@ -3483,8 +3514,8 @@ textarea.input-base:focus-visible {
 }
 .terminal-xterm-host .xterm-viewport {
   overflow-y: auto !important;
+  background-color: transparent !important;
 }
-/* Hide native scrollbar chrome; match app rail */
 .terminal-xterm-host .xterm-viewport::-webkit-scrollbar {
   width: 8px;
 }

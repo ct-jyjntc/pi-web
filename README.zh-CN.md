@@ -98,7 +98,7 @@ npm run dev          # http://127.0.0.1:30141
 - **Worktree** — 列表 / 切换 / 创建 / 删除（[说明](./docs/worktrees.zh-CN.md)）
 - **文件** — 资源管理器 CRUD、模糊索引、Monaco 编辑、Markdown / 图片 / 音频 / PDF / DOCX 预览、相对 HEAD diff
 - **终端** — 多标签 PTY（xterm + node-pty），跟随项目 cwd
-- **Context 面板** — token 与花费、压缩、checkpoint / rewind、工作区 undo·redo
+- **Context 面板** — token 与花费、压缩、工作区 undo·redo
 - **Debug 页** — Node inspect 轻量调试（可选 / 进阶）
 
 ### 模型、技能与桌面体验

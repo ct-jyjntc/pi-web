@@ -2,7 +2,7 @@
  * Single owner for agent workspace turn undo/redo.
  *
  * Records successful edit/write mutations during an agent turn; /undo restores
- * on-disk files to the pre-turn snapshot. Conversation checkpoints stay separate.
+ * on-disk files to the pre-turn snapshot. Conversation branches stay in the session tree.
  *
  * v1 scope: edit + write tools only (not bash-side file changes).
  */

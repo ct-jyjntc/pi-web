@@ -1,14 +1,8 @@
 /**
- * Extra agent tools: diagnostics, web_fetch, web_search, checkpoint, rewind, advisor note helpers.
+ * Extra agent tools: diagnostics, web_fetch, web_search.
  */
 import { Type } from "typebox";
 import { collectDiagnostics, formatDiagnosticsForAgent } from "./diagnostics";
-import {
-  createCheckpoint,
-  listCheckpoints,
-  formatCheckpointsForAgent,
-  type CheckpointStore,
-} from "./session-checkpoint";
 import { webFetch, webSearch } from "./web-tools";
 import { errorResult, type ToolDefinitionLike } from "./agent-tool-types";
 
@@ -90,62 +84,4 @@ export function createWebTools(): ToolDefinitionLike[] {
   };
 
   return [fetchTool, searchTool];
-}
-
-export function createCheckpointTools(options: {
-  getSessionId: () => string | undefined;
-  getLeafId?: () => string | undefined;
-}): ToolDefinitionLike[] {
-  const retain: ToolDefinitionLike = {
-    name: "checkpoint",
-    label: "checkpoint",
-    description:
-      "Mark a named checkpoint in this session so you can rewind later. Include a short summary of state. Optionally pass entryId of the current leaf message.",
-    promptSnippet: "Save a named session checkpoint",
-    parameters: Type.Object({
-      name: Type.String({ description: "Short checkpoint name" }),
-      summary: Type.Optional(Type.String({ description: "What was accomplished / current state" })),
-      entryId: Type.Optional(Type.String({ description: "Optional message entry id to rewind to" })),
-    }),
-    async execute(_id, args) {
-      const sessionId = options.getSessionId();
-      if (!sessionId) {
-        return { content: [{ type: "text", text: "No active session id" }], isError: true };
-      }
-      const entryId =
-        typeof args.entryId === "string" && args.entryId.trim()
-          ? args.entryId.trim()
-          : options.getLeafId?.();
-      const cp = createCheckpoint(sessionId, {
-        name: String(args.name ?? "checkpoint"),
-        summary: typeof args.summary === "string" ? args.summary : "",
-        entryId,
-      });
-      return {
-        content: [{ type: "text", text: `Checkpoint saved: ${cp.name} (${cp.id})${entryId ? ` entry=${entryId}` : ""}` }],
-        details: cp,
-      };
-    },
-  };
-
-  const list: ToolDefinitionLike = {
-    name: "checkpoint_list",
-    label: "checkpoint_list",
-    description: "List checkpoints for the current session.",
-    promptSnippet: "List session checkpoints",
-    parameters: Type.Object({}),
-    async execute() {
-      const sessionId = options.getSessionId();
-      if (!sessionId) {
-        return { content: [{ type: "text", text: "No active session id" }], isError: true };
-      }
-      const items = listCheckpoints(sessionId);
-      return {
-        content: [{ type: "text", text: formatCheckpointsForAgent(items) }],
-        details: { checkpoints: items } satisfies { checkpoints: CheckpointStore["checkpoints"] },
-      };
-    },
-  };
-
-  return [retain, list];
 }

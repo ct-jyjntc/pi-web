@@ -62,10 +62,9 @@ structural `rpc-running` reader), or utility-model completion. Chat content
 | `/api/files/*`, `/api/git/*`, `/api/cwd/*`, `/api/worktrees` | workspace chrome |
 | `/api/usage`, `/api/app-update`, `/api/commands`, `/api/diagnostics`, `/api/file-index` | chrome |
 | `/api/permissions`, `/api/mcp`, `/api/lsp` | settings panels (on-disk / PATH) |
-| `/api/default-cwd`, `/api/github`, `/api/checkpoints`, `/api/workspace-journal` | fs / gh |
+| `/api/default-cwd`, `/api/github`, `/api/workspace-journal` | fs / gh |
 | `/api/accounts` | GitHub account store + device-code OAuth (pure fs + fetch) |
 | `/api/models-config/free-models`, `/catalog`, `/disabled-models` | external HTTP / denylist fs; no SDK |
-| `/api/default-cwd`, `/api/github`, `/api/checkpoints`, `/api/workspace-journal` | fs / gh |
 | `/api/network/test`, `/api/debug/sessions` | network / inspector |
 | `/api/skills/install`, `/api/skills/search` | npx wrappers only |
 
