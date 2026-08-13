@@ -70,6 +70,7 @@ import { WORKSPACE_TABS } from "./app-shell/terminal-tabs";
 import { useAppShellTerminal } from "@/hooks/useAppShellTerminal";
 import { usePersistedPanelWidth } from "@/hooks/usePersistedPanelWidth";
 import { apiFetch } from "@/lib/api-transport";
+import { subscribeWorkspaceFilesChanged } from "@/lib/workspace-change-notify";
 
 
 export function AppShell() {
@@ -554,6 +555,21 @@ export function AppShell() {
     }
   }, [router, hydrateSelectedSession]);
 
+  const scheduleExplorerRefresh = useCallback(() => {
+    const timers = agentEndTimersRef.current;
+    // Coalesce write/edit bursts and post-turn refresh through one timer.
+    if (timers.explorer) clearTimeout(timers.explorer);
+    timers.explorer = setTimeout(() => {
+      timers.explorer = null;
+      setExplorerRefreshKey((k) => k + 1);
+    }, EXPLORER_REFRESH_DEBOUNCE_MS);
+  }, []);
+
+  useEffect(
+    () => subscribeWorkspaceFilesChanged(scheduleExplorerRefresh),
+    [scheduleExplorerRefresh],
+  );
+
   const handleAgentEnd = useCallback(() => {
     const timers = agentEndTimersRef.current;
     // The session list only carries messageCount / mtime here — running badges
@@ -564,14 +580,8 @@ export function AppShell() {
       setRefreshKey((k) => k + 1);
       invalidateUsage();
     }, SESSION_REFRESH_DEBOUNCE_MS);
-    // The file tree / git status must show what the agent just wrote, so this
-    // only coalesces true bursts instead of adding perceptible latency.
-    if (timers.explorer) clearTimeout(timers.explorer);
-    timers.explorer = setTimeout(() => {
-      timers.explorer = null;
-      setExplorerRefreshKey((k) => k + 1);
-    }, EXPLORER_REFRESH_DEBOUNCE_MS);
-  }, []);
+    scheduleExplorerRefresh();
+  }, [scheduleExplorerRefresh]);
 
   const handleSessionRenamed = useCallback((sessionId: string, name: string) => {
     setSelectedSession((current) => (current?.id === sessionId ? { ...current, name } : current));
@@ -584,6 +594,7 @@ export function AppShell() {
   const handleExplorerRefresh = useCallback(() => {
     setExplorerRefreshKey((k) => k + 1);
   }, []);
+
 
   const handleSessionForked = useCallback((newSessionId: string) => {
     setRefreshKey((k) => k + 1);

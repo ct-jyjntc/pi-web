@@ -6,17 +6,19 @@ import { getGitFileDiff } from "@/lib/git-changes";
 
 export async function GET(request: NextRequest) {
   try {
-    const filePath = request.nextUrl.searchParams.get("path")?.trim() ?? "";
+    const params = request.nextUrl.searchParams;
+    const filePath = params.get("path")?.trim() ?? "";
     if (!filePath || !isAbsolutePath(filePath)) {
       return NextResponse.json({ error: "path must be an absolute path" }, { status: 400 });
     }
 
-    const allowed = await assertAllowedCwd(request.nextUrl.searchParams.get("cwd"));
+    const allowed = await assertAllowedCwd(params.get("cwd"));
     if (isCwdDenied(allowed)) return allowed;
     const deniedPaths = assertAllowedPaths([filePath], allowed.roots);
     if (deniedPaths) return deniedPaths;
 
-    return NextResponse.json(await getGitFileDiff(allowed.cwd, filePath));
+    const allowCached = params.get("fresh") !== "1";
+    return NextResponse.json(await getGitFileDiff(allowed.cwd, filePath, { allowCached }));
   } catch (error) {
     return jsonError(error);
   }

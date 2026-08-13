@@ -21,6 +21,13 @@ import type { QueuedMessages } from "@/lib/agent-session-live-apply";
 import type { ClientAssistantMessageEvent } from "@/lib/agent-event-wire";
 import type { StreamAction } from "@/lib/agent-session-stream-state";
 import { EVENT_STREAM_RECONNECT_MAX_ATTEMPTS } from "@/lib/agent-run-lifecycle";
+import {
+  isWorkspaceMutatingTool,
+  notifyWorkspaceFilesChanged,
+} from "@/lib/workspace-change-notify";
+
+/** Write/edit toolCallIds seen on start, so end can refresh explorer mid-turn. */
+const pendingMutatingToolIds = new Set<string>();
 
 export type AgentSessionEvent = {
   type: string;
@@ -62,6 +69,7 @@ export function handleAgentSessionEvent(
 ): void {
   switch (event.type) {
     case "session_destroyed":
+      pendingMutatingToolIds.clear();
       // Wrapper gone (idle/fork/delete). Stop reconnect thrash and finish the
       // local run if we still think it's active — do not leave a ghost stream.
       ctx.sseReconnectAttemptRef.current = EVENT_STREAM_RECONNECT_MAX_ATTEMPTS + 1;
@@ -200,11 +208,13 @@ export function handleAgentSessionEvent(
     case "tool_execution_start": {
       const id = event.toolCallId as string;
       const name = event.toolName as string;
+      if (id && isWorkspaceMutatingTool(name)) pendingMutatingToolIds.add(id);
       ctx.setAgentPhase((prev) => phaseWithToolStart(prev, id, name));
       break;
     }
     case "tool_execution_end": {
       const id = event.toolCallId as string;
+      if (id && pendingMutatingToolIds.delete(id)) notifyWorkspaceFilesChanged();
       ctx.setAgentPhase((prev) => phaseWithToolEnd(prev, id));
       break;
     }

@@ -35,8 +35,13 @@ export function createWebTools(): ToolDefinitionLike[] {
   const fetchTool: ToolDefinitionLike = {
     name: "web_fetch",
     label: "web_fetch",
-    description: "Fetch a URL and return readable text/markdown (HTML stripped). For public http(s) pages.",
-    promptSnippet: "Read a web page or API URL as text",
+    description:
+      "Fetch a URL and return readable text/markdown (HTML stripped). For public http(s) pages. " +
+      "Not a browser: cannot click, log in, run JavaScript, or take screenshots.",
+    promptSnippet: "Read a public web page as text (not a browser)",
+    promptGuidelines: [
+      "web_fetch is read-only text. For screenshots or clicking, use a live MCP browser server — do not invent one via bash.",
+    ],
     parameters: Type.Object({
       url: Type.String({ description: "http(s) URL" }),
       maxChars: Type.Optional(Type.Number({ description: "Max characters to return (default 12000)" })),
@@ -60,8 +65,10 @@ export function createWebTools(): ToolDefinitionLike[] {
   const searchTool: ToolDefinitionLike = {
     name: "web_search",
     label: "web_search",
-    description: "Search the public web (DuckDuckGo). Returns titled results with URLs and snippets.",
-    promptSnippet: "Search the web for documentation or answers",
+    description:
+      "Search the public web (DuckDuckGo). Returns titled results with URLs and snippets. " +
+      "Not a browser and cannot open or screenshot pages — follow up with web_fetch for page text.",
+    promptSnippet: "Search the public web (not a browser)",
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
       limit: Type.Optional(Type.Number({ description: "Max results (default 5, max 10)" })),

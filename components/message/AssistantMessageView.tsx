@@ -11,13 +11,14 @@ import { parseReviewReport } from "@/lib/review-report";
 import type {
   AssistantMessage,
   TextContent,
-  ToolCallContent,
   ToolResultMessage,
 } from "@/lib/types";
 import {
   estimateStreamTokens,
   formatTime,
   formatUsage,
+  slidingWindowTps,
+  type StreamTpsSample,
 } from "./message-view-utils";
 import { MessageHoverShell } from "./MessageHoverShell";
 import { BlockView } from "./blocks/BlockView";
@@ -82,7 +83,7 @@ export function AssistantMessageView({
   const providerError = getAssistantErrorMessage(message, { isStreaming });
   const [copied, setCopied] = useState(false);
   const [errorOpen, setErrorOpen] = useState(false);
-  const streamStartRef = useRef<number | null>(null);
+  const tpsSamplesRef = useRef<StreamTpsSample[]>([]);
   const [tps, setTps] = useState<number | null>(null);
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
@@ -158,7 +159,7 @@ export function AssistantMessageView({
         }
         return changed ? next : prev;
       });
-      streamStartRef.current = null;
+      tpsSamplesRef.current = [];
       setTps(null);
       return;
     }
@@ -190,13 +191,12 @@ export function AssistantMessageView({
 
       const tokens = estTokensRef.current;
       if (tokens === 0) return;
-      if (streamStartRef.current === null) streamStartRef.current = now;
-      const elapsed = (now - streamStartRef.current) / 1000;
-      if (elapsed <= 0.5) return;
-      const next = tokens / elapsed;
+      const next = slidingWindowTps(tpsSamplesRef.current, now, tokens);
+      if (next === null) return;
       // Only re-render when the displayed (one decimal) value actually moves.
       setTps((prev) => (prev !== null && Math.round(prev * 10) === Math.round(next * 10) ? prev : next));
     };
+    tick();
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
   }, [isStreaming]);

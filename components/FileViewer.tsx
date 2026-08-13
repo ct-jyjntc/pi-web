@@ -673,7 +673,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
     }
 
     try {
-      const params = new URLSearchParams({ cwd, path: targetPath });
+      const params = new URLSearchParams({ cwd, path: targetPath, fresh: "1" });
       const response = await apiFetch(`/api/git/diff?${params.toString()}`);
       const next = await response.json() as GitFileDiffResponse & { error?: string };
       if (requestId !== gitDiffRequestRef.current) return;

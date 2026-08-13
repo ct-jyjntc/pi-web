@@ -37,7 +37,7 @@ export async function fetchEntries(dirPath: string): Promise<FileNode[]> {
 }
 
 export async function fetchGitStatus(cwd: string): Promise<GitStatusResponse> {
-  const params = new URLSearchParams({ cwd });
+  const params = new URLSearchParams({ cwd, fresh: "1" });
   const res = await apiFetch(`/api/git/status?${params.toString()}`);
   if (!res.ok) throw new Error(`Failed to load Git status (HTTP ${res.status})`);
   return res.json() as Promise<GitStatusResponse>;

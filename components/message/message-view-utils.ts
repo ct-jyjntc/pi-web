@@ -1,5 +1,5 @@
 /**
- * Pure helpers for message rendering (time, previews, usage, thinking fetch cache).
+ * Pure helpers for message rendering (time, previews, usage, stream t/s, thinking fetch cache).
  */
 import type { MessageKey, TranslateParams } from "@/lib/i18n/messages";
 import type {
@@ -134,6 +134,37 @@ export function estimateStreamTokens(blocks: AssistantContentBlock[]): number {
     else if (b.type === "toolCall") tokens += Math.round(approxJsonLength((b as ToolCallContent).input ?? {}, 0) / 4);
   }
   return tokens;
+}
+
+export const STREAM_TPS_WINDOW_MS = 2000;
+export const STREAM_TPS_MIN_DT_S = 0.3;
+
+export type StreamTpsSample = { t: number; tokens: number };
+
+/**
+ * Instantaneous estimated-token rate over a recent window.
+ * Mutates `samples` as a small ring; null until `minDtS` of history exists.
+ * A drop in `tokens` (identity change) resets the ring.
+ */
+export function slidingWindowTps(
+  samples: StreamTpsSample[],
+  now: number,
+  tokens: number,
+  windowMs = STREAM_TPS_WINDOW_MS,
+  minDtS = STREAM_TPS_MIN_DT_S,
+): number | null {
+  const last = samples[samples.length - 1];
+  if (last && tokens < last.tokens) samples.length = 0;
+  samples.push({ t: now, tokens });
+  while (samples.length > 2 && samples[1]!.t <= now - windowMs) {
+    samples.shift();
+  }
+  if (samples.length < 2) return null;
+  const first = samples[0]!;
+  const newest = samples[samples.length - 1]!;
+  const dt = (newest.t - first.t) / 1000;
+  if (dt < minDtS) return null;
+  return (newest.tokens - first.tokens) / dt;
 }
 
 export function getMessageText(content: CustomMessage["content"] | UserMessage["content"]): string {

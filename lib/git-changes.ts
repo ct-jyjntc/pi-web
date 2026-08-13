@@ -93,8 +93,8 @@ async function git(
 //      index/HEAD, so writes this module does not perform (git-conflict.ts,
 //      git-merge.ts, a `git add` typed into the built-in terminal) are picked
 //      up immediately,
-//   3. the TTL is 1s, so whatever the first two miss (a plain worktree edit)
-//      appears on the next poll.
+//   3. GET ?fresh=1 (explorer / review after write/edit) skips the stored
+//      value; the 1s TTL only covers accidental repeat reads.
 // ============================================================================
 
 const GIT_CACHE_TTL_MS = 1_000;
@@ -574,7 +574,10 @@ function toStatusFiles(
   });
 }
 
-export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
+export async function getGitStatus(
+  cwd: string,
+  options?: { allowCached?: boolean },
+): Promise<GitStatusResponse> {
   return withGitCache(getGitCacheState().status, cwd, async () => {
     const repositoryRoot = await findRepositoryRoot(cwd);
     if (!repositoryRoot) {
@@ -620,7 +623,7 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
       forgetRepositoryRoot(cwd);
       throw error;
     }
-  });
+  }, { allowCached: options?.allowCached });
 }
 
 function resolveRepoPaths(repositoryRoot: string, filePaths: string[]): string[] {
@@ -1103,7 +1106,11 @@ async function createTrackedFilePatch(
   }
 }
 
-export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
+export async function getGitFileDiff(
+  cwd: string,
+  filePath: string,
+  options?: { allowCached?: boolean },
+): Promise<GitFileDiffResponse> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot || !isWithinPath(repositoryRoot, filePath)) return { supported: false };
 
@@ -1119,7 +1126,9 @@ export async function getGitFileDiff(cwd: string, filePath: string): Promise<Git
   const relativePath = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
   // Shared snapshot: expanding N files in the Git panel fires N diff requests
   // that used to run a full-repository status each.
-  const { entries } = await readStatusSnapshot(repositoryRoot);
+  const { entries } = await readStatusSnapshot(repositoryRoot, {
+    allowCached: options?.allowCached,
+  });
   const entry = entries.find((candidate) => candidate.path === relativePath);
   if (!entry) return { supported: false };
 

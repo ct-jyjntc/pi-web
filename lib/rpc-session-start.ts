@@ -18,6 +18,7 @@ import {
 } from "./agent-extra-tools";
 import { createProjectMemoryTools } from "./agent-memory-tools";
 import { buildMemoryInjectBlock } from "./project-memory";
+import { buildCapabilityBrief } from "./capability-brief";
 import { buildLeanPolicyText } from "./lean-policy";
 import { resolveLeanMode } from "./lean-settings";
 import { createConfiguredModelRuntime } from "./model-runtime";
@@ -115,12 +116,13 @@ export async function startRpcSession(
     // its .pi/extensions code automatically (see lib/project-trust.ts).
     const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
     const toolsFullyDisabled = toolNames?.length === 0;
+    const capabilityBlock = !toolsFullyDisabled ? buildCapabilityBrief() : null;
     const memoryBlock = !toolsFullyDisabled ? buildMemoryInjectBlock(cwd) : null;
     // Lean Mode: portable anti-bloat policy (opt-in). Same appendSystemPromptOverride
-    // as memory — do not add a second inject path.
+    // as memory / capability — do not add a second inject path.
     const lean = !toolsFullyDisabled ? resolveLeanMode() : null;
     const leanBlock = lean?.enabled ? buildLeanPolicyText(lean.intensity) : null;
-    const systemPromptExtras = [memoryBlock, leanBlock].filter(
+    const systemPromptExtras = [capabilityBlock, memoryBlock, leanBlock].filter(
       (block): block is string => Boolean(block),
     );
     const modelRuntime = await createConfiguredModelRuntime();

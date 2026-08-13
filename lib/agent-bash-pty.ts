@@ -189,10 +189,11 @@ const PI_WEB_BASH_DESCRIPTION =
 const PI_WEB_BASH_PROMPT_GUIDELINES = [
   "Start dev servers / watchers with bash background: true — they keep running in the user's Terminal panel; foreground server commands are rejected.",
   "After starting a background service, report the URL and move on; do not poll, kill, or restart it unless the user asks.",
+  "Use bash for terminal work (git, builds, installs). Do not use it for cat/sed/file search, and do not launch Playwright or Chrome as a stand-in for MCP.",
 ];
-
 type BashToolDefinitionLike = {
   description: string;
+  promptSnippet?: string;
   promptGuidelines?: string[];
   parameters: { properties: Record<string, unknown> };
   execute: (
@@ -227,6 +228,7 @@ export function createPiWebBashToolDefinition(
 
   // 2. Description + system-prompt guidelines carry the foreground/background rules.
   def.description = PI_WEB_BASH_DESCRIPTION;
+  def.promptSnippet = "Run shell commands (builds, git, installs — not file reads or a browser)";
   def.promptGuidelines = PI_WEB_BASH_PROMPT_GUIDELINES;
 
   // 3. Wrap execute: reject misused foreground calls with corrective guidance,

@@ -48,7 +48,7 @@ const STATUS_COLORS: Record<GitFileStatusKind, string> = {
 };
 
 async function fetchStatus(cwd: string): Promise<GitStatusResponse> {
-  const params = new URLSearchParams({ cwd });
+  const params = new URLSearchParams({ cwd, fresh: "1" });
   const res = await apiFetch(`/api/git/status?${params.toString()}`);
   const data = await res.json() as GitStatusResponse & { error?: string };
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -1245,7 +1245,7 @@ function FileRow({
         if (!cancelled) setDiffLoading(false);
       });
     return () => { cancelled = true; };
-  }, [cwd, expanded, file.filePath, file.status, t]);
+  }, [cwd, expanded, file.filePath, file.status, file.insertions, file.deletions, t]);
 
   return (
     <div className="git-file-row" style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 70%, transparent)" }}>
