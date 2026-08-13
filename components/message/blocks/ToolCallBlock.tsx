@@ -85,9 +85,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const pending = Boolean(isStreaming) && !result;
 
   const [scaffoldUserOpen, setScaffoldUserOpen] = useState<boolean | null>(null);
-   const [cardExpanded, setCardExpanded] = useState(isEditTool);
+  const [cardUserOpen, setCardUserOpen] = useState<boolean | null>(null);
   // Errors stay folded by default — the red title marks the row; click to unfold.
   const scaffoldExpanded = scaffoldUserOpen ?? false;
+  const cardExpanded = cardUserOpen ?? (isEditTool && !isError);
   const showScaffoldArgs = !isCard && scaffoldExpanded;
   const showCardArgs = isCard && cardExpanded && !isEditTool;
   const showInputArgs = showScaffoldArgs || showCardArgs;
@@ -99,8 +100,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const editFailureKind = isEditTool && isError ? parseEditFailureKind(resultText) : null;
   const meta = toolDisplayMeta(block.toolName);
   const longResult = (resultText?.length ?? 0) > 1200;
-  const forceExpandError = isError && isEditTool;
-  const showResultCollapsed = isCard && !cardExpanded && !forceExpandError && result && longResult && !resultDiff;
+  const showResultCollapsed = isCard && !cardExpanded && !isError && result && longResult && !resultDiff;
 
   // ── Hermes scaffold row for activity tools (read/bash/grep/…) ──────────
   // Default collapsed one-liner; expand for args/result. Cards (edit/write/ask)
@@ -239,8 +239,6 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   }
 
   // ── Card tools (edit / write / ask) — keep full chrome + diffs ─────────
-  const expanded = cardExpanded;
-
   return (
     <div
       style={{
@@ -252,7 +250,9 @@ export const ToolCallBlock = memo(function ToolCallBlock({
       }}
     >
       <button
-        onClick={() => setCardExpanded((v) => !v)}
+        type="button"
+        aria-expanded={cardExpanded}
+        onClick={() => setCardUserOpen(!cardExpanded)}
         style={{
           display: "flex",
           alignItems: "center",
@@ -342,7 +342,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
           style={{
             flexShrink: 0,
             color: "var(--text-dim)",
-            transform: expanded ? "rotate(180deg)" : "none",
+            transform: cardExpanded ? "rotate(180deg)" : "none",
             transition: "transform 0.15s",
           }}
         />
@@ -367,7 +367,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         </pre>
       )}
 
-       {result && (expanded || forceExpandError || (!longResult && !resultDiff)) && (
+      {result && (cardExpanded || (!isError && !longResult && !resultDiff)) && (
         resultDiff ? (
           <PairedDiffResult diff={resultDiff} />
         ) : (
