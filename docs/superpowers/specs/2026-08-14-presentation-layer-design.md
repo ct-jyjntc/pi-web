@@ -1,7 +1,7 @@
 # Presentation Layer Design — Host Cards, Transcript Nodes, Host Projections
 
 **Date:** 2026-08-14
-**Status:** Conversation-approved; spec-review loop (3) last hole closed — awaiting user review
+**Status:** User-approved — implementation plan: [`../plans/2026-08-14-presentation-layer.md`](../plans/2026-08-14-presentation-layer.md)
 **Parent:** [`2026-08-02-declutter-design.md`](./2026-08-02-declutter-design.md)  
 **Related:** [`AGENTS.md` § AI Coding Constraints](../../../AGENTS.md), [`2026-08-02-agent-run-lifecycle.md`](./2026-08-02-agent-run-lifecycle.md)
 
