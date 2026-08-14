@@ -26,12 +26,11 @@ export function agentModeWantsYolo(mode: AgentMode): boolean {
 /**
  * Per-mode surface overrides layered on top of the user's own policy.
  *
- * These name *tool surfaces*, not files. The permission extension runs the
- * `path` and `external_directory` gates before the per-tool gate
- * (handlers/gates/tool-call-gate-pipeline.ts), so `edit: "allow"` still cannot
- * touch a `path`-denied file (`.env`, `~/.ssh`) and still prompts for writes
- * outside the working directory. That is what makes "auto" narrower than yolo:
- * edits land without a prompt, bash and outside-cwd access keep asking.
+ * These name *tool surfaces*, not files. The permission extension still runs
+ * `path` and `external_directory` gates, so `edit: "allow"` still cannot touch a
+ * `path`-denied file (`.env`, `~/.ssh`) and still prompts for writes outside
+ * the working directory. That is what makes "auto" narrower than yolo: edits
+ * land without a prompt, bash and outside-cwd access keep asking.
  *
  * A surface listed here replaces that surface in the base policy wholesale —
  * a mode is a coarse intent, not a pattern-level merge.
@@ -41,9 +40,8 @@ export const AGENT_MODE_PERMISSION_OVERLAY: Record<AgentMode, Record<string, "al
   ask: {},
   // Auto-approve file mutations only.
   auto: { edit: "allow", write: "allow" },
-  // Belt and braces: plan also strips edit/write from the tool list, but a deny
-  // here holds even in the window before the client's first set_tools lands.
-  plan: { edit: "deny", write: "deny" },
+  // Plan is owned by the tool strip + brief, not a permission deny overlay.
+  plan: {},
   // yoloMode already rewrites every ask→allow; no surface overlay needed.
   yolo: {},
 };

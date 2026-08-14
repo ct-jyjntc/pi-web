@@ -33,10 +33,7 @@ export function syncGlobalAgentModeEffects(mode: AgentMode): void {
   }
 }
 
-/**
- * Persist agent mode to pi-web.json and keep permission + live wrappers in lockstep.
- * Permission-system extension hot-reads the config on the next before_agent_start.
- */
+/** Persist agent mode to pi-web.json and keep permission + live wrappers in lockstep. */
 export function persistGlobalAgentMode(mode: AgentMode): AgentMode {
   const next = parseAgentMode(mode);
   try {

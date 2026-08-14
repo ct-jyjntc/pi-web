@@ -14,8 +14,9 @@
  *     config.json. Derived, never hand-edited.
  *
  * AgentMode therefore composes rather than gating twice: `auto` layers
- * `edit/write: allow` over the base, `plan` layers `edit/write: deny`, and only
- * `yolo` sets the extension's global `yoloMode` ask→allow rewrite.
+ * `edit/write: allow` over the base, `plan` does not overlay deny (strip +
+ * brief own plan), and only `yolo` sets the extension's global `yoloMode`
+ * ask→allow rewrite.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
