@@ -1,7 +1,7 @@
 # Presentation Layer Design — Host Cards, Transcript Nodes, Host Projections
 
-**Date:** 2026-08-14  
-**Status:** Approved (conversation) — pending spec review  
+**Date:** 2026-08-14
+**Status:** Conversation-approved; spec-review loop (3) last hole closed — awaiting user review
 **Parent:** [`2026-08-02-declutter-design.md`](./2026-08-02-declutter-design.md)  
 **Related:** [`AGENTS.md` § AI Coding Constraints](../../../AGENTS.md), [`2026-08-02-agent-run-lifecycle.md`](./2026-08-02-agent-run-lifecycle.md)
 
@@ -110,7 +110,7 @@ jsonl stays `{ type, toolCallId, toolName, input }` (plus SDK on-disk aliases, s
 | Tool name(s) | Module | `card` |
 |---|---|---|
 | `edit` | `tool-presenters/edit.ts` | `diff` (always; empty `patch` if missing) |
-| `write` | `tool-presenters/write.ts` | `diff` when `details.patch`/`details.diff` exist, else `generic` |
+| `write` | `tool-presenters/write.ts` | `diff` when `patchFromToolDetails(details)` is non-empty, else `generic` |
 | `read` | `tool-presenters/read.ts` | `read` |
 | `bash` | `tool-presenters/bash.ts` | `terminal` |
 | `grep`, `find`, `ls`, `glob` | `tool-presenters/explore.ts` | `search` |
@@ -147,7 +147,6 @@ type ConversationNode =
       processIndices: number[];
       processCount: number;
       hasAnswer: boolean;
-      live?: boolean;
     }
   | { kind: "answer"; id: string; idx: number; message: AssistantMessage }
   | { kind: "compaction"; id: string; idx: number }
@@ -156,7 +155,7 @@ type ConversationNode =
   | { kind: "stream"; id: string };
 ```
 
-`kind: "message"` is the current flat `RenderPlanItem` `"message"` row: render `messages[idx]` through existing `MessageView` (default variant, not process/answer chrome).
+`kind: "message"` is the **row type** (today’s flat `RenderPlanItem` `"message"`), not a `MessageView` variant. Transcript still passes the current live-tail process-variant rule: while `busy || streaming`, after the last user, a historical assistant that is not the last historical row and has process parts uses `variant="process"`. Do not use `kind: "answer"` until the turn has settled. That is the same heuristic `ChatWindow` uses today — do not invent a new one.
 
 | Today’s plan row | Node |
 |---|---|
@@ -222,24 +221,31 @@ One data capsule: `ProjectionTodo[]`. Chrome reads `projections.todos` from `ses
 
 1. Heavy `buildSessionContext` → `attachPresentationToMessages`.
 2. Same handler → `foldProjections`.
-3. `loadSession` sets `messages` (already presented) and writes projections into `session-metrics-store`.
-4. `Transcript` calls `assembleTranscript` and windows nodes (`FIRST_PAINT_RENDER_ITEMS`, `VISIBLE_PAGE_SIZE`, `LIVE_TAIL_RENDER_ITEMS` unchanged).
+3. `loadSession` / `loadContext` set `messages` (already presented) and write projections into `session-metrics-store`.
+4. `Transcript` calls `assembleTranscript` and windows nodes (`FIRST_PAINT_RENDER_ITEMS`, `VISIBLE_PAGE_SIZE`, `LIVE_TAIL_RENDER_ITEMS` unchanged). The `is-live` CSS class stays a **window-index** mark on the last N nodes, not a node field.
 
 ### Live stream
+
+Pi emits the assistant `message_end` first (stream closes; `toolCall` is already in `messages[]`). The matching `toolResult` is a later `message_end`.
 
 1. `toClientAgentEvent` looks up `presenterFor(toolName)` and attaches `presentation`:
    - `toolcall_start`: `presentCall({})` when args are missing.
    - `toolcall_end`: `presentCall(args)`.
-   - outbound `toolResult` / `message_end` with a tool result: `presentResult(args, result)`.
-2. `agent-session-stream-state` copies `event.presentation` onto the matching `toolCall` block. It does not call `present*`.
+   - outbound `toolResult` / tool-result `message_end`: `presentResult(args, result)`.
+2. Client **copies** `event.presentation` onto the matching `toolCall` by `toolCallId`:
+   - while the stream bubble is open: `agent-session-stream-state`
+   - after the assistant is committed: `handleAgentSessionEvent` updates that block in `messages[]`
+   - Client never calls `present*`.
 3. `Transcript` appends `{ kind: "stream", id: "stream:${promptRunId}" }`.
-4. Existing settle / `loadSession` rebase drops the stream node; historical nodes use entry ids.
+4. Existing settle / `loadSession` rebase drops the stream node; historical nodes use entry ids (presentation already on disk-backed messages via `attachPresentationToMessages`).
+
+Without step 2, mid-turn edit/write cards stay at `presentCall` until rebase: empty patches, `write` stuck on `generic`, grouping flip at settle.
 
 `promptRunId` still gates late SSE. A stale event that happens to carry `presentation` is dropped like any other stale event.
 
 ### Live projections
 
-No new SSE type. After todo mutations the next `get_state` (settle, existing reconcile, mid-stream reconnect) carries `projections.todos`. Until then the todo store + widget view may already show the list in-process; the **authoritative** client chrome snapshot is whatever last arrived as `projections`.
+No new SSE type and no extra in-process chrome path. Mid-turn todo chrome updates when the next `get_state` arrives (settle, existing reconcile, mid-stream reconnect). Todo checklist comes from `session-metrics-store.todos`, not parsed widget lines. `chromeWidgets` still carries non-todo capsules (subagents). `clearSessionMetrics` clears both.
 
 ### Session switch, idle destroy, fork
 
@@ -252,9 +258,9 @@ No new SSE type. After todo mutations the next `get_state` (settle, existing rec
 | Failure | Behavior |
 |---|---|
 | Unknown / MCP tool | Default `generic` (`title = toolName`, `preview` = first string arg if any). |
-| `edit`/`write` missing patch | Still `card: "diff"` for `edit`; `write` without patch is `generic`. Card does not fall back to scaffold via name. |
+| `edit`/`write` missing patch | `edit` stays `card: "diff"`; `write` is `generic` when `patchFromToolDetails` is empty. Card does not fall back to scaffold via name. |
 | Presenter throws | `attachPresentationToMessages` / wire attach catch **that presenter only**, emit `generic` + `title = toolName`, `console.warn` once. Session GET stays 200. |
-| Partial `toolcall_start` | `presentCall(name, {})`; `toolcall_end` overwrites. |
+| Partial `toolcall_start` | `presenterFor(name).presentCall({})`; `toolcall_end` overwrites with `presentCall(args)`. |
 | `foldProjections` throws on one field | That field `null`; other fields still returned; GET 200. |
 | Old in-memory messages without `presentation` | Treat as `generic` at render (`presentation?.card ?? "generic"`). Do not revive name regex. Desktop ships renderer + runtime together. |
 
@@ -296,25 +302,27 @@ Keep:
 **Existing tests to update**
 
 - `lib/agent-event-wire` — `toolcall_end` includes `presentation`
+- `lib/agent-session-handle-event` — tool-result `message_end` copies `presentation` onto the committed `toolCall`
 - `lib/todo-from-transcript.test.mjs` — drop `deriveTodoWidgetLines` cases; keep format cases
-- tool-run-meta / message-view tests — grouping by `card`
 
 **Modified (call sites only; no logic piles)**
 
 - `lib/types.ts` — optional `presentation`
 - `lib/session-entries.ts` — attach after UI messages are built
 - `lib/agent-event-wire.ts` — attach on toolcall start/end and tool results
-- `lib/agent-session-stream-state.ts` — copy `presentation`
+- `lib/agent-session-stream-state.ts` — copy `presentation` onto the live toolCall
+- `lib/agent-session-handle-event.ts` — on tool-result `message_end`, copy `presentation` onto the committed assistant `toolCall` by id
 - `lib/rpc-session-wrapper.ts` — `get_state` adds `projections: foldProjections(...)` only
 - `lib/agent-live-state.ts` / `lib/agent-session-live-apply.ts` — pass projections through
 - `app/api/sessions/[id]/route.ts` and `.../context/route.ts` — include `projections`
-- `hooks/useAgentSession.ts` — apply host tokenUsage; delete local chrome walk (net shrink)
+- `hooks/useAgentSession.ts` — apply host tokenUsage on `loadSession` **and** `loadContext`; delete local chrome walk (net shrink)
 - `components/ChatWindow.tsx` — render `Transcript`; delete plan/todo derive (net shrink)
 - `components/message/tool-run-meta.ts` — group by card; scaffold group from card table
-- `components/message/blocks/ToolCallBlock.tsx` — switch on `presentation.card`; patch from `presentation.patch`
+- `components/message/blocks/ToolCallBlock.tsx` — switch on `presentation.card`; patch from `presentation.patch`. Compaction / custom / bash stay `MessageView` dispatches; no new renderers
 - `lib/todo-from-transcript.ts` — delete `deriveTodoWidgetLines`
 - `lib/first-party/todo-extension.ts` — export `peekTodoState` (no insert)
-- `lib/session-metrics-store.ts` — add `todos: ProjectionTodo[] | null`
+- `lib/session-metrics-store.ts` — add `todos: ProjectionTodo[] | null`; `clearSessionMetrics` clears it
+- `components/TopBarChromeWidgets.tsx` — todo checklist from store `todos`; keep subagent capsules on `chromeWidgets`
 - `AGENTS.md` file map — add the three owners; stop saying `rpc-manager.ts` owns the wrapper
 
 Do not add a `globalThis.__pi*` bag.
