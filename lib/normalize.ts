@@ -3,6 +3,9 @@ import type { AgentMessage, AssistantMessage, ToolCallContent } from "./types";
 
 function normalizeToolCallBlock(block: unknown): ToolCallContent | null {
   if (!isRecord(block) || block.type !== "toolCall") return null;
+  const presentation = isRecord(block.presentation)
+    ? block.presentation as ToolCallContent["presentation"]
+    : undefined;
   return {
     type: "toolCall",
     toolCallId: typeof block.toolCallId === "string" ? block.toolCallId : (typeof block.id === "string" ? block.id : ""),
@@ -12,6 +15,7 @@ function normalizeToolCallBlock(block: unknown): ToolCallContent | null {
       : (typeof block.arguments === "object" && block.arguments !== null && !Array.isArray(block.arguments)
         ? block.arguments as Record<string, unknown>
         : {}),
+    ...(presentation ? { presentation } : {}),
   };
 }
 

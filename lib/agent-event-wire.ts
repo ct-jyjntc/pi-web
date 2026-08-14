@@ -33,7 +33,7 @@ export function toClientAgentEvent(event: AgentEventLike): AgentEventLike | null
     return null;
   }
   if (event.type === "message_end") {
-    return attachToolResultPresentation(event);
+    return attachMessageEndPresentation(event);
   }
   if (event.type !== "message_update") return event;
 
@@ -71,11 +71,51 @@ function presentationForDelta(delta: Record<string, unknown>): ToolPresentation 
   return undefined;
 }
 
-function attachToolResultPresentation(event: AgentEventLike): AgentEventLike {
+function attachMessageEndPresentation(event: AgentEventLike): AgentEventLike {
   const message = event.message;
-  if (!isRecord(message) || message.role !== "toolResult") return event;
+  if (!isRecord(message)) return event;
+  if (message.role === "toolResult") return attachToolResultPresentation(event, message);
+  if (message.role === "assistant") return attachAssistantPresentCall(event, message);
+  return event;
+}
+
+function attachAssistantPresentCall(
+  event: AgentEventLike,
+  message: Record<string, unknown>,
+): AgentEventLike {
+  const content = message.content;
+  if (!Array.isArray(content)) return event;
+  let changed = false;
+  const nextContent = content.map((block) => {
+    if (!isRecord(block) || block.type !== "toolCall") return block;
+    const name = typeof block.toolName === "string" && block.toolName
+      ? block.toolName
+      : (typeof block.name === "string" ? block.name : "");
+    if (!name) return block;
+    const args = isRecord(block.input)
+      ? block.input
+      : (isRecord(block.arguments) ? block.arguments : {});
+    let presentation: ToolPresentation;
+    try {
+      presentation = presenterFor(name).presentCall(args);
+    } catch {
+      // One presenter must not fail the whole hydrate.
+      presentation = { card: "generic", title: name };
+    }
+    changed = true;
+    return { ...block, presentation };
+  });
+  if (!changed) return event;
+  return { ...event, message: { ...message, content: nextContent } };
+}
+
+function attachToolResultPresentation(
+  event: AgentEventLike,
+  message: Record<string, unknown>,
+): AgentEventLike {
   const toolName = typeof message.toolName === "string" ? message.toolName : "";
   if (!toolName) return event;
+  // Missing args still run presentResult so patch/card can land; title merge is on copy.
   const args = isRecord(message.arguments)
     ? message.arguments
     : (isRecord(message.input) ? message.input : {});

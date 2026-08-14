@@ -96,6 +96,22 @@ export function attachPresentationToMessages(messages: AgentMessage[]): AgentMes
   });
 }
 
+function mergePresentation(
+  existing: ToolPresentation | undefined,
+  incoming: ToolPresentation,
+  toolName: string,
+): ToolPresentation {
+  if (!existing) return incoming;
+  const merged: ToolPresentation = { ...existing, ...incoming };
+  // presentResult with empty args falls back to title = toolName; keep presentCall fields.
+  if (incoming.title === toolName) {
+    if (existing.title) merged.title = existing.title;
+    if (existing.command !== undefined) merged.command = existing.command;
+    if (existing.locations) merged.locations = existing.locations;
+  }
+  return merged;
+}
+
 export function copyPresentationOntoToolCall(
   messages: AgentMessage[],
   toolCallId: string,
@@ -111,7 +127,7 @@ export function copyPresentationOntoToolCall(
       const tc = block as ToolCallContent;
       if (tc.toolCallId !== toolCallId) return block;
       changed = true;
-      return { ...tc, presentation };
+      return { ...tc, presentation: mergePresentation(tc.presentation, presentation, tc.toolName) };
     });
     return changed ? { ...assistant, content } : msg;
   });

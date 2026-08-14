@@ -3,6 +3,9 @@ import { readSessionHeader, resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-registry";
 import type { AgentEvent, AgentSessionWrapper } from "@/lib/rpc-session-wrapper";
 import { toClientAgentEvent } from "@/lib/agent-event-wire";
+import { normalizeToolCalls } from "@/lib/normalize";
+import { attachPresentationToMessages } from "@/lib/tool-presentation";
+import type { AgentMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -86,8 +89,11 @@ export async function GET(
 
       const snapshot = session.streamingMessage;
       encode({ type: "connected", sessionId: id, isStreaming: session.isStreaming });
-      if (snapshot) {
-        encode({ type: "message_start", message: snapshot });
+      if (snapshot && typeof snapshot === "object") {
+        const presented = attachPresentationToMessages([
+          normalizeToolCalls(snapshot as AgentMessage),
+        ])[0];
+        encode({ type: "message_start", message: presented });
       }
       ready = true;
       for (const event of pending) {
