@@ -1,7 +1,7 @@
 # Tool Execute Contract Design — Name the Existing Waterfall
 
 **Date:** 2026-08-15  
-**Status:** Conversation-approved — pending spec review  
+**Status:** User-approved — implementation plan: [`../plans/2026-08-15-tool-execute-contract.md`](../plans/2026-08-15-tool-execute-contract.md)
 **Parent:** [`2026-08-14-presentation-layer-design.md`](./2026-08-14-presentation-layer-design.md) (slice 1 done)  
 **Related:** [`AGENTS.md` § AI Coding Constraints](../../../AGENTS.md)
 
