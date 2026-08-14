@@ -147,6 +147,8 @@ lib/
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      façade — re-exports wrapper / registry / startRpcSession
   rpc-session-wrapper.ts  AgentSessionWrapper (send, fork destroy, events)
+  rpc-session-commands.ts  RPC send switch
+  rpc-session-tool-adoption.ts  startRpcSession toolNames → allow-list seed
   rpc-registry.ts     globalThis session registry + idle timeout
   rpc-session-start.ts  startRpcSession() — creates AgentSession in the heavy runtime
   tool-presentation.ts     tool cards + attachPresentationToMessages
