@@ -48,7 +48,7 @@ function asTodos(value: unknown): ProjectionTodo[] | null {
 
 function foldTodos(sessionId: string, messages: AgentMessage[]): ProjectionTodo[] | null {
   const live = peekTodoState(sessionId);
-  if (live && live.tasks.length > 0) return asTodos(live.tasks);
+  if (live !== undefined) return asTodos(live.tasks);
   let lastUser = -1;
   for (let i = 0; i < messages.length; i++) {
     if (messages[i]?.role === "user") lastUser = i;
@@ -59,9 +59,8 @@ function foldTodos(sessionId: string, messages: AgentMessage[]): ProjectionTodo[
     if (msg?.role !== "toolResult") continue;
     const tr = msg as ToolResultMessage;
     if (tr.toolName && tr.toolName !== "todo") continue;
-    if (!isRecord(tr.details)) continue;
-    const todos = asTodos(tr.details.tasks);
-    if (todos) return todos;
+    if (!isRecord(tr.details) || !Array.isArray(tr.details.tasks)) continue;
+    return asTodos(tr.details.tasks);
   }
   return null;
 }
