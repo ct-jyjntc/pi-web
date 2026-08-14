@@ -1,20 +1,16 @@
 "use client";
 
 /**
- * Windowed historical transcript list. Owns RenderPlanItem construction and MessageView dispatch.
+ * Windowed conversation node list. Dispatches MessageView by ConversationNode.kind.
  */
 import { useMemo, type ReactNode, type RefObject } from "react";
 import type { AgentMessage, AssistantMessage, ToolResultMessage, UserMessage } from "@/lib/types";
-import { isHiddenContextMessage } from "@/lib/message-display";
+import { assembleTranscript, getFinalAssistantParts, type ConversationNode } from "@/lib/conversation-nodes";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 import { MessageView } from "../MessageView";
 import {
   LIVE_TAIL_RENDER_ITEMS,
-  findFinalAssistantIndex,
-  getFinalAssistantParts,
   getTurnToolCallCount,
-  hasDisplayableProcessMessage,
-  type RenderPlanItem,
 } from "../chat-window/chat-window-helpers";
 import { ProcessDetailsGroup } from "../chat-window/ProcessDetailsGroup";
 
@@ -22,6 +18,7 @@ export type TranscriptProps = {
   messages: AgentMessage[];
   entryIds: string[];
   streamState: { isStreaming: boolean; streamingMessage: Partial<AgentMessage> | null };
+  promptRunId: number;
   sessionBusy: boolean;
   isNew: boolean;
   visibleCount: number;
@@ -42,6 +39,7 @@ export function useTranscriptNodes({
   messages,
   entryIds,
   streamState,
+  promptRunId,
   sessionBusy,
   isNew,
   visibleCount,
@@ -72,7 +70,9 @@ export function useTranscriptNodes({
     return map;
   }, [messages]);
 
-  return useMemo(() => {
+  const hasStream = streamState.isStreaming && streamState.streamingMessage != null;
+
+  const planned = useMemo(() => {
     let lastUserIdx = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user") { lastUserIdx = i; break; }
@@ -86,86 +86,32 @@ export function useTranscriptNodes({
       }
     });
 
-    // Pass 1 — plan every render item. ChatMinimap walks the full message list
-    // and keeps its own running ref index, so `visibleRefIndexByMessage` above
-    // must stay global; only element creation below is windowed.
-    const plan: RenderPlanItem[] = [];
-    for (let idx = 0; idx < messages.length;) {
-      const msg = messages[idx];
-      // Hidden model-only context messages never get a render item.
-      if (isHiddenContextMessage(msg)) {
-        idx += 1;
-        continue;
-      }
-      if (msg.role !== "user") {
-        plan.push({ kind: "message", idx });
-        idx += 1;
-        continue;
-      }
+    const nodes = assembleTranscript({
+      messages,
+      entryIds,
+      // Truthiness only — stream tokens must not rebuild the historical tree.
+      stream: hasStream ? { role: "assistant" } : null,
+      promptRunId,
+      busy: sessionBusy,
+    });
 
-      const userIdx = idx;
-      let endIdx = userIdx + 1;
-      while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1;
-
-      const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
-      // Turns with no assistant answer, and the still-running tail, stay flat:
-      // one item per message, no process grouping.
-      const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastUserIdx;
-      if (finalAssistantIdx === -1 || isLiveTail) {
-        for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-          if (renderIdx !== userIdx && isHiddenContextMessage(messages[renderIdx])) continue;
-          plan.push({ kind: "message", idx: renderIdx });
-        }
-        idx = endIdx;
-        continue;
-      }
-
-      plan.push({ kind: "message", idx: userIdx });
-
-      const processIndices: number[] = [];
-      for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
-        if (hasDisplayableProcessMessage(messages[processIdx])) processIndices.push(processIdx);
-      }
-      const finalSplit = getFinalAssistantParts(messages[finalAssistantIdx] as AssistantMessage);
-      const finalAnswerMessage = finalSplit.answerMessage;
-
-      const processCount = processIndices.length + (finalSplit.processMessage ? 1 : 0);
-      if (processCount > 0) {
-        plan.push({
-          kind: "process",
-          userIdx,
-          finalAssistantIdx,
-          processIndices,
-          processCount,
-          hasAnswer: finalAnswerMessage !== null,
-        });
-      }
-
-      if (finalAnswerMessage) {
-        plan.push({ kind: "answer", idx: finalAssistantIdx, message: finalAnswerMessage });
-      }
-      for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
-        if (isHiddenContextMessage(messages[renderIdx])) continue;
-        plan.push({ kind: "message", idx: renderIdx });
-      }
-      idx = endIdx;
-    }
-
-    // Same window arithmetic as before — `visibleCount` counts render items,
-    // not messages and not turns — but applied before elements exist.
-    const { startIndex, hasMore } = getVisibleRenderWindow(plan.length, visibleCount);
+    const { startIndex, hasMore } = getVisibleRenderWindow(nodes.length, visibleCount);
 
     const attachVisibleRef = (refIndex: number) => (el: HTMLDivElement | null) => {
       messageRefs.current[refIndex] = el;
     };
 
-    const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; liveTail?: boolean; variant?: "answer" | "process" } = {}): ReactNode => {
+    const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; rowKey?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; liveTail?: boolean; variant?: "answer" | "process" } = {}): ReactNode => {
       const msg = options.messageOverride ?? messages[idx];
       const prevAssistantEntryId =
         msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
           ? entryIds[idx - 1]
           : undefined;
-      const isVisible = msg.role === "user" || msg.role === "assistant";
+      const isVisible =
+        msg.role === "user"
+        || msg.role === "assistant"
+        || msg.role === "custom"
+        || msg.role === "bashExecution";
       const currentRefIdx = visibleRefIndexByMessage.get(idx);
       const keyPrefix = options.keyPrefix ?? "message";
       let showTimestamp = false;
@@ -229,7 +175,7 @@ export function useTranscriptNodes({
       const attachRef = options.attachRef !== false && currentRefIdx !== undefined;
       return (
         <div
-          key={`${keyPrefix}-${idx}`}
+          key={options.rowKey ?? `${keyPrefix}-${idx}`}
           className={options.liveTail ? "chat-message-item is-live" : "chat-message-item"}
           ref={attachRef ? attachVisibleRef(currentRefIdx!) : undefined}
           data-entry-id={entryId || undefined}
@@ -239,7 +185,7 @@ export function useTranscriptNodes({
       );
     };
 
-    const renderProcessGroup = (item: Extract<RenderPlanItem, { kind: "process" }>, liveTail = false): ReactNode => {
+    const renderProcessGroup = (item: Extract<ConversationNode, { kind: "process" }>, liveTail = false): ReactNode => {
       const finalAssistant = messages[item.finalAssistantIdx] as AssistantMessage;
       const finalSplit = getFinalAssistantParts(finalAssistant);
       const processRefIdx = item.processIndices
@@ -264,7 +210,7 @@ export function useTranscriptNodes({
       );
       return (
         <div
-          key={`process-group-${item.userIdx}-${item.finalAssistantIdx}`}
+          key={item.id}
           className={liveTail ? "chat-message-item is-live" : "chat-message-item"}
           ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
         >
@@ -273,23 +219,26 @@ export function useTranscriptNodes({
       );
     };
 
-    // Pass 2 — build elements for the visible window only. The newest few
-    // render items (the live tail) stay fully laid out: content-visibility
-    // only remembers a row's size AFTER it renders, so virtualizing a row
-    // that can still grow snaps it to a stale height when skipped and drifts
-    // the scroll lock. Older rows keep the .chat-message-item virtualization.
-    const liveTailStartIndex = Math.max(startIndex, plan.length - LIVE_TAIL_RENDER_ITEMS);
+    const liveTailStartIndex = Math.max(startIndex, nodes.length - LIVE_TAIL_RENDER_ITEMS);
     const rendered: ReactNode[] = [];
-    for (let planIdx = startIndex; planIdx < plan.length; planIdx++) {
-      const item = plan[planIdx];
+    for (let planIdx = startIndex; planIdx < nodes.length; planIdx++) {
+      const item = nodes[planIdx];
       const liveTail = planIdx >= liveTailStartIndex;
-      if (item.kind === "message") rendered.push(renderMessage(item.idx, { liveTail }));
-      else if (item.kind === "answer") rendered.push(renderMessage(item.idx, { messageOverride: item.message, liveTail }));
-      else rendered.push(renderProcessGroup(item, liveTail));
+      if (item.kind === "stream") continue;
+      if (item.kind === "answer") {
+        rendered.push(renderMessage(item.idx, { messageOverride: item.message, liveTail, rowKey: item.id }));
+      } else if (item.kind === "process") {
+        rendered.push(renderProcessGroup(item, liveTail));
+      } else {
+        rendered.push(renderMessage(item.idx, { liveTail, rowKey: item.id }));
+      }
     }
 
     return {
       historyHasMore: hasMore,
+      liveTailStartIndex,
+      nodeCount: nodes.length,
+      hasStreamNode: nodes[nodes.length - 1]?.kind === "stream",
       historicalMessageNodes: (
       <>
         {hasMore && (
@@ -320,9 +269,39 @@ export function useTranscriptNodes({
     onEditContent,
     sessionId,
     streamState.isStreaming,
+    hasStream,
+    promptRunId,
     visibleCount,
     messageRefs,
     stopScroll,
     pageEarlier,
   ]);
+
+  const streamLiveTail = planned.hasStreamNode && planned.nodeCount - 1 >= planned.liveTailStartIndex;
+  const streamEl = planned.hasStreamNode && streamState.streamingMessage
+    ? (
+      <div
+        key={`stream:${promptRunId}`}
+        className={streamLiveTail ? "chat-message-item is-streaming is-live" : "chat-message-item is-streaming"}
+      >
+        <MessageView
+          message={streamState.streamingMessage as AgentMessage}
+          isStreaming
+          modelNames={modelNames}
+          cwd={messageCwd}
+          onOpenFile={onOpenFile}
+        />
+      </div>
+    )
+    : null;
+
+  return {
+    historyHasMore: planned.historyHasMore,
+    historicalMessageNodes: (
+      <>
+        {planned.historicalMessageNodes}
+        {streamEl}
+      </>
+    ),
+  };
 }

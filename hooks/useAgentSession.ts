@@ -1722,6 +1722,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isNew,
     // Refs
     sessionIdRef, eventSourceRef, scrollContainerRef,
+    promptRunId: promptRunIdRef.current,
     // Scroll follow (use-stick-to-bottom)
     stickToBottom, resumeStickToBottom, bindScrollContainer, chatContentRef, stopScroll, stickScrollToBottom,
     // Actions

@@ -1,16 +1,19 @@
 /**
- * Pure transcript helpers for ChatWindow (render plan, process/answer split, scroll parent).
+ * Pure transcript helpers for ChatWindow (render plan, scroll parent).
+ * Process/answer split lives in lib/conversation-nodes.ts.
  */
 import type { AgentMessage, AssistantContentBlock, AssistantMessage } from "@/lib/types";
-import {
-  countToolCallBlocks,
-  getAssistantErrorMessage,
-  getDisplayableAssistantBlocks,
-  isHiddenContextMessage,
-  splitFinalAssistantBlocks,
-} from "@/lib/message-display";
+import { countToolCallBlocks } from "@/lib/message-display";
+import { getCachedDisplayableBlocks } from "@/lib/conversation-nodes";
 import type { AgentPhase } from "@/hooks/useAgentSession";
 import type { MessageKey } from "@/lib/i18n/messages";
+
+export {
+  hasFinalAssistantAnswer,
+  findFinalAssistantIndex,
+  getFinalAssistantParts,
+  hasDisplayableProcessMessage,
+} from "@/lib/conversation-nodes";
 
 export function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Record<string, string | number>) => string, locale: string): string {
   if (phase?.kind === "running_tools") {
@@ -58,25 +61,6 @@ export const SCROLL_SETTLE_MAX_FRAMES = 15;
  * height would drift the scroll lock. */
 export const LIVE_TAIL_RENDER_ITEMS = 6;
 
-export function hasFinalAssistantAnswer(message: AgentMessage): boolean {
-  if (message.role !== "assistant") return false;
-  const assistant = message as AssistantMessage;
-  if (getAssistantErrorMessage(assistant)) return true;
-  return getFinalAssistantParts(assistant).answerBlocks.some((block) => (
-    block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
-  ));
-}
-
-export function findFinalAssistantIndex(messages: AgentMessage[], userIdx: number, endIdx: number): number {
-  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
-    if (hasFinalAssistantAnswer(messages[candidateIdx])) return candidateIdx;
-  }
-  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
-    if (messages[candidateIdx]?.role === "assistant") return candidateIdx;
-  }
-  return -1;
-}
-
 export function getUserInputText(message: AgentMessage): string | null {
   if (message.role !== "user") return null;
   if (typeof message.content === "string") {
@@ -90,21 +74,6 @@ export function getUserInputText(message: AgentMessage): string | null {
     .join("\n")
     .trim();
   return text.length > 0 ? text : null;
-}
-
-// `getDisplayableAssistantBlocks` allocates a fresh filtered array per call and
-// the transcript asks the same questions about the same messages on every
-// render. Cache per message object — messages are immutable once appended
-// (same contract `finalAssistantPartsCache` below relies on).
-const displayableBlocksCache = new WeakMap<AssistantMessage, AssistantContentBlock[]>();
-
-export function getCachedDisplayableBlocks(message: AssistantMessage): AssistantContentBlock[] {
-  let blocks = displayableBlocksCache.get(message);
-  if (!blocks) {
-    blocks = getDisplayableAssistantBlocks(message);
-    displayableBlocksCache.set(message, blocks);
-  }
-  return blocks;
 }
 
 export function countToolCalls(messages: AgentMessage[], indices: number[]): number {
@@ -133,73 +102,6 @@ export function getTurnToolCallCount(
   turnToolCallCountCache.set(finalAssistant, count);
   return count;
 }
-
-export function hasDisplayableProcessMessage(message: AgentMessage): boolean {
-  if (message.role === "assistant") {
-    return getCachedDisplayableBlocks(message as AssistantMessage).length > 0;
-  }
-  return message.role === "custom" && !isHiddenContextMessage(message);
-}
-
-export function withAssistantBlocks(
-  message: AssistantMessage,
-  content: AssistantContentBlock[],
-  options: { omitUsage?: boolean } = {},
-): AssistantMessage {
-  const next = { ...message, content };
-  if (options.omitUsage) next.usage = undefined;
-  return next;
-}
-
-// Derived process/answer messages must keep a stable identity across renders,
-// otherwise MessageView's memo (which compares `message` by reference) is
-// defeated and every completed turn re-renders on each streaming token.
-export interface FinalAssistantParts {
-  processBlocks: AssistantContentBlock[];
-  answerBlocks: AssistantContentBlock[];
-  processMessage: AssistantMessage | null;
-  answerMessage: AssistantMessage | null;
-}
-
-const finalAssistantPartsCache = new WeakMap<AssistantMessage, FinalAssistantParts>();
-
-export function getFinalAssistantParts(message: AssistantMessage): FinalAssistantParts {
-  let parts = finalAssistantPartsCache.get(message);
-  if (!parts) {
-    const split = splitFinalAssistantBlocks(message);
-    parts = {
-      processBlocks: split.processBlocks,
-      answerBlocks: split.answerBlocks,
-      processMessage: split.processBlocks.length > 0
-        ? withAssistantBlocks(message, split.processBlocks, { omitUsage: true })
-        : null,
-      answerMessage: split.answerBlocks.length > 0 || getAssistantErrorMessage(message)
-        ? withAssistantBlocks(message, split.answerBlocks)
-        : null,
-    };
-    finalAssistantPartsCache.set(message, parts);
-  }
-  return parts;
-}
-
-/**
- * One top-level transcript item, described without building React elements.
- * The plan is built for every message (cheap: role scan + WeakMap-cached block
- * lookups) so the render window can be sliced with the exact same semantics as
- * before, while element creation stays limited to the visible slice.
- */
-export type RenderPlanItem =
-  | { kind: "message"; idx: number }
-  | { kind: "answer"; idx: number; message: AssistantMessage }
-  | {
-    kind: "process";
-    userIdx: number;
-    finalAssistantIdx: number;
-    /** Already filtered to messages that actually render something. */
-    processIndices: number[];
-    processCount: number;
-    hasAnswer: boolean;
-  };
 
 /** Nearest vertically scrollable ancestor (chat transcript scroller). */
 export function findVerticalScrollParent(start: HTMLElement | null): HTMLElement | null {

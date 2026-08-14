@@ -209,6 +209,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     agentPhase,
     isNew,
     sessionIdRef, scrollContainerRef,
+    promptRunId,
     stickToBottom, resumeStickToBottom, bindScrollContainer, chatContentRef, stopScroll, stickScrollToBottom,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
@@ -446,6 +447,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     messages,
     entryIds,
     streamState,
+    promptRunId,
     sessionBusy,
     isNew,
     visibleCount,
@@ -849,11 +851,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
             {historicalMessageNodes}
-            {streamState.isStreaming && streamState.streamingMessage && (
-              <div className="chat-message-item is-streaming">
-                <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
-              </div>
-            )}
 
             {agentRunning && !streamState.streamingMessage && (
               <div className="py-2 text-[13px] text-text-muted">
