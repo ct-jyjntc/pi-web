@@ -1,7 +1,7 @@
 /**
  * Streaming bubble reducer and SSE connection error type for the agent session hook.
  */
-import type { AgentMessage, AssistantContentBlock, AssistantMessage } from "@/lib/types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, ToolCallContent } from "@/lib/types";
 import { type ApiStream } from "@/lib/api-transport";
 import type { ClientAssistantMessageEvent } from "@/lib/agent-event-wire";
 
@@ -84,7 +84,7 @@ export function applyAssistantDelta(
         streamingMessage: ensureBlock(base, index, { type: "thinking", thinking: String(event.content ?? "") }),
       };
     case "toolcall_start": {
-      const rec = event as { id?: unknown; toolCallId?: unknown; toolName?: unknown; name?: unknown };
+      const rec = event as { id?: unknown; toolCallId?: unknown; toolName?: unknown; name?: unknown; presentation?: unknown };
       const id = typeof rec.id === "string" && rec.id
         ? rec.id
         : (typeof rec.toolCallId === "string" ? rec.toolCallId : "");
@@ -98,6 +98,7 @@ export function applyAssistantDelta(
           toolCallId: id,
           toolName,
           input: {},
+          ...("presentation" in event ? { presentation: event.presentation as ToolCallContent["presentation"] } : {}),
         }),
       };
     }
@@ -122,6 +123,7 @@ export function applyAssistantDelta(
           toolCallId: prev?.type === "toolCall" ? prev.toolCallId : "",
           toolName: prev?.type === "toolCall" ? prev.toolName : "",
           input,
+          ...(prev?.type === "toolCall" && prev.presentation ? { presentation: prev.presentation } : {}),
         }),
       };
     }
@@ -131,6 +133,9 @@ export function applyAssistantDelta(
       const fallback = prev?.type === "toolCall" ? prev : null;
       const input = { ...(toolCall?.arguments ?? fallback?.input ?? {}) };
       delete input.__raw;
+      const presentation = "presentation" in event && event.presentation
+        ? event.presentation as ToolCallContent["presentation"]
+        : fallback?.presentation;
       return {
         isStreaming: true,
         streamingMessage: ensureBlock(base, index, {
@@ -138,6 +143,7 @@ export function applyAssistantDelta(
           toolCallId: String(toolCall?.id ?? fallback?.toolCallId ?? ""),
           toolName: String(toolCall?.name ?? fallback?.toolName ?? ""),
           input,
+          ...(presentation ? { presentation } : {}),
         }),
       };
     }

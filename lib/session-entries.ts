@@ -17,6 +17,7 @@ import type { AgentMessage, SessionContext, SessionEntry } from "./types";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
 import { isRecord } from "./type-guards";
+import { attachPresentationToMessages } from "./tool-presentation";
 
 declare global {
   var __piSessionEntriesCache: Map<string, SessionEntriesCacheEntry> | undefined;
@@ -144,7 +145,7 @@ export function buildSessionContext(
   }
 
   return {
-    messages,
+    messages: attachPresentationToMessages(messages),
     entryIds,
     thinkingLevel: piCtx.thinkingLevel,
     model: piCtx.model,

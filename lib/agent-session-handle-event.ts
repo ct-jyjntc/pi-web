@@ -3,9 +3,10 @@
  * Callers own run-id refs and the single finish/settle exits.
  */
 
-import type { AgentMessage, ExtensionUiRequest } from "@/lib/types";
+import type { AgentMessage, ExtensionUiRequest, ToolResultMessage } from "@/lib/types";
 import type { ContextUsage } from "@/lib/pi-types";
 import { normalizeToolCalls } from "@/lib/normalize";
+import { copyPresentationOntoToolCall, type ToolPresentation } from "@/lib/tool-presentation";
 import { mergeDeliveredUserMessage } from "@/lib/agent-session-message-merge";
 import {
   readCompactContextUsage,
@@ -199,7 +200,13 @@ export function handleAgentSessionEvent(
         ctx.optimisticUserMessageKeyRef.current = null;
         ctx.setMessages((prev) => mergeDeliveredUserMessage(prev, delivered, optimisticKey));
       } else if (completed) {
-        ctx.setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+        const presentation = (completed as { presentation?: ToolPresentation }).presentation;
+        ctx.setMessages((prev) => {
+          const withResult = [...prev, normalizeToolCalls(completed)];
+          if (completed.role !== "toolResult" || !presentation) return withResult;
+          const id = (completed as ToolResultMessage).toolCallId;
+          return id ? copyPresentationOntoToolCall(withResult, id, presentation) : withResult;
+        });
       }
       ctx.dispatchStream({ type: "end" });
       ctx.setAgentPhase({ kind: "waiting_model" });

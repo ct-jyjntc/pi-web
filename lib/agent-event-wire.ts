@@ -2,6 +2,9 @@
  * Client-facing agent event projection. In-process SDK events still carry
  * full snapshots; SSE must send linear deltas (Pi 0.84+ JSON/RPC shape).
  */
+import { presenterFor, type ToolPresentation } from "./tool-presentation";
+import { isRecord } from "./type-guards";
+
 export interface AgentEventLike {
   type: string;
   [key: string]: unknown;
@@ -15,19 +18,22 @@ export type ClientAssistantMessageEvent =
   | { type: "thinking_start"; contentIndex: number }
   | { type: "thinking_delta"; contentIndex: number; delta: string }
   | { type: "thinking_end"; contentIndex: number; content: string }
-  | { type: "toolcall_start"; contentIndex: number; id?: string; toolName?: string }
+  | { type: "toolcall_start"; contentIndex: number; id?: string; toolName?: string; presentation?: ToolPresentation }
   | { type: "toolcall_delta"; contentIndex: number; delta: string }
   | { type: "toolcall_end"; contentIndex: number; toolCall: {
       type: "toolCall";
       id: string;
       name: string;
       arguments: Record<string, unknown>;
-    } }
+    }; presentation?: ToolPresentation }
   | { type: string; [key: string]: unknown };
 
 export function toClientAgentEvent(event: AgentEventLike): AgentEventLike | null {
   if (event.type === "turn_start" || event.type === "turn_end" || event.type === "tool_execution_update") {
     return null;
+  }
+  if (event.type === "message_end") {
+    return attachToolResultPresentation(event);
   }
   if (event.type !== "message_update") return event;
 
@@ -39,7 +45,52 @@ export function toClientAgentEvent(event: AgentEventLike): AgentEventLike | null
   if (deltaEvent.type === "toolcall_start") {
     liftToolcallStart(deltaEvent, partial);
   }
+  const presentation = presentationForDelta(deltaEvent);
+  if (presentation) deltaEvent.presentation = presentation;
   return { type: "message_update", assistantMessageEvent: deltaEvent };
+}
+
+function presentationForDelta(delta: Record<string, unknown>): ToolPresentation | undefined {
+  const toolCall = isRecord(delta.toolCall) ? delta.toolCall : undefined;
+  const name = typeof delta.toolName === "string" && delta.toolName
+    ? delta.toolName
+    : (typeof toolCall?.name === "string" ? toolCall.name : "");
+  if (!name) return undefined;
+  try {
+    if (delta.type === "toolcall_end") {
+      const args = isRecord(toolCall?.arguments) ? toolCall.arguments : {};
+      return presenterFor(name).presentCall(args);
+    }
+    if (delta.type === "toolcall_start") {
+      return presenterFor(name).presentCall({});
+    }
+  } catch {
+    // One presenter must not fail the whole hydrate.
+    return { card: "generic", title: name };
+  }
+  return undefined;
+}
+
+function attachToolResultPresentation(event: AgentEventLike): AgentEventLike {
+  const message = event.message;
+  if (!isRecord(message) || message.role !== "toolResult") return event;
+  const toolName = typeof message.toolName === "string" ? message.toolName : "";
+  if (!toolName) return event;
+  const args = isRecord(message.arguments)
+    ? message.arguments
+    : (isRecord(message.input) ? message.input : {});
+  let presentation: ToolPresentation;
+  try {
+    presentation = presenterFor(toolName).presentResult(args, {
+      content: Array.isArray(message.content) ? message.content as Array<{ type: string; text?: string }> : [],
+      details: message.details,
+      isError: message.isError === true,
+    });
+  } catch {
+    // One presenter must not fail the whole hydrate.
+    presentation = { card: "generic", title: toolName };
+  }
+  return { ...event, message: { ...message, presentation } };
 }
 
 function liftToolcallStart(delta: Record<string, unknown>, partial: unknown): void {
