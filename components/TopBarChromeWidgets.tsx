@@ -377,7 +377,6 @@ export function TopBarChromeWidgets() {
           );
         })}
       </div>
-      <div className="chrome-divider" aria-hidden style={{ flexShrink: 0 }} />
 
       {todoOpen && popoverPos && (
         <TodoSubjectsPopover

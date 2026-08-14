@@ -17,19 +17,18 @@
  * Paths are relative file URLs (not package subpaths) so esbuild can resolve
  * them despite package.json "exports" not listing auth/oauth/*.
  *
- * IMPORTANT: these imports MUST resolve to the same physical path that the
- * coding-agent graph pulls in for load.js, otherwise esbuild emits two copies
- * of load.js and registerBundledOAuthFlowLoaders mutates the unused one.
- * coding-agent nests pi-ai under its own node_modules in the source tree.
+ * Imports MUST be static (esbuild follows them) and MUST resolve to the same
+ * physical pi-ai tree that the coding-agent graph uses for load.js. Same-version
+ * npm/bun installs hoist that tree to node_modules/@earendil-works/pi-ai.
  */
-import { anthropicOAuth } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/oauth/anthropic.js";
-import { githubCopilotOAuth } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/oauth/github-copilot.js";
-import { kimiCodingOAuth } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/oauth/kimi-coding.js";
-import { registerBundledOAuthFlowLoaders } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/oauth/load.js";
-import { openaiCodexOAuth } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/oauth/openai-codex.js";
-import { openRouterOAuth } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/oauth/openrouter.js";
-import { createRadiusOAuth } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/oauth/radius.js";
-import { xaiOAuth } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/oauth/xai.js";
+import { anthropicOAuth } from "../node_modules/@earendil-works/pi-ai/dist/auth/oauth/anthropic.js";
+import { githubCopilotOAuth } from "../node_modules/@earendil-works/pi-ai/dist/auth/oauth/github-copilot.js";
+import { kimiCodingOAuth } from "../node_modules/@earendil-works/pi-ai/dist/auth/oauth/kimi-coding.js";
+import { registerBundledOAuthFlowLoaders } from "../node_modules/@earendil-works/pi-ai/dist/auth/oauth/load.js";
+import { openaiCodexOAuth } from "../node_modules/@earendil-works/pi-ai/dist/auth/oauth/openai-codex.js";
+import { openRouterOAuth } from "../node_modules/@earendil-works/pi-ai/dist/auth/oauth/openrouter.js";
+import { createRadiusOAuth } from "../node_modules/@earendil-works/pi-ai/dist/auth/oauth/radius.js";
+import { xaiOAuth } from "../node_modules/@earendil-works/pi-ai/dist/auth/oauth/xai.js";
 
 registerBundledOAuthFlowLoaders({
   anthropic: () => anthropicOAuth,

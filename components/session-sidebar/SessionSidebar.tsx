@@ -107,7 +107,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [projectFilter, setProjectFilter] = useState("");
   const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathError, setCustomPathError] = useState<string | null>(null);
@@ -578,7 +577,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
-        setProjectFilter("");
         // DirectoryPicker is a body portal — do not close it from sidebar outside-click.
         if (!customPathOpen) {
           setCustomPathError(null);
@@ -620,12 +618,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   // running-id SSE frame, refresh timers) re-renders the sidebar, and these
   // passes are O(sessions) with Map/sort allocations.
   const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
-  const showProjectFilter = recentProjects.length > 8;
-  const visibleProjects = useMemo(() => {
-    const needle = projectFilter.trim().toLowerCase();
-    if (!needle) return recentProjects;
-    return recentProjects.filter((p) => p.toLowerCase().includes(needle));
-  }, [recentProjects, projectFilter]);
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = useMemo(() => projectRootFor(selectedCwd), [projectRootFor, selectedCwd]);
@@ -633,14 +625,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     () => getProjectActivity(allSessions, runningSessionIds, unreadSessionIds),
     [allSessions, runningSessionIds, unreadSessionIds],
   );
-  const selectedActivity = selectedProject ? projectActivity.get(selectedProject) : undefined;
-  const otherWorkspaceActivity = useMemo(() => {
-    for (const [root, activity] of projectActivity) {
-      if (root === selectedProject) continue;
-      if (activity.running || activity.unread) return activity;
-    }
-    return undefined;
-  }, [projectActivity, selectedProject]);
   const filteredSessions = useMemo(() => (
     selectedProject
       ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
@@ -775,22 +759,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                   {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
                 </span>
               )}
-              {selectedActivity?.unread ? (
-                <UnreadSessionIndicator />
-              ) : otherWorkspaceActivity ? (
-                <span
-                  title={otherWorkspaceActivity.running ? t("sidebar.otherWorkspaceRunning") : t("sidebar.otherWorkspaceUnread")}
-                  aria-label={otherWorkspaceActivity.running ? t("sidebar.otherWorkspaceRunning") : t("sidebar.otherWorkspaceUnread")}
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "var(--radius-pill)",
-                    background: otherWorkspaceActivity.running ? "var(--accent)" : "var(--text)",
-                    opacity: otherWorkspaceActivity.running ? 1 : 0.55,
-                    flexShrink: 0,
-                  }}
-                />
-              ) : null}
               <Icon icon={ChevronDown} size={9} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.55 }} />
             </button>
           </div>
@@ -808,31 +776,13 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                  padding: 3,
               }}
             >
-              {showProjectFilter && (
-                <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
-                  <input
-                    className="input-base input-mono"
-                    value={projectFilter}
-                    onChange={(e) => setProjectFilter(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setProjectFilter("");
-                        setDropdownOpen(false);
-                      }
-                    }}
-                    placeholder={t("sidebar.filterProjects")}
-                    autoFocus
-                  />
-                </div>
-              )}
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
-                {visibleProjects.map((project) => (
+                {recentProjects.map((project) => (
                   <button
                     key={project}
                      className="menu-row"
                     onClick={() => {
                       setSelectedCwd(project);
-                      setProjectFilter("");
                       setCustomPathOpen(false);
                       setCustomPathError(null);
                       setDropdownOpen(false);
@@ -851,9 +801,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
                      ) : null}
                   </button>
                 ))}
-                {visibleProjects.length === 0 && projectFilter.trim() && (
-                  <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--text-dim)" }}>{t("sidebar.noMatchingProjects")}</div>
-                )}
               </div>
 
                <div style={{ borderTop: "1px solid var(--border)", marginTop: 2, paddingTop: 2 }}>
