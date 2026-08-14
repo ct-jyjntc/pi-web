@@ -97,18 +97,31 @@ export function attachPresentationToMessages(messages: AgentMessage[]): AgentMes
   });
 }
 
+const GENERIC_FALLBACK_TITLES = new Set([
+  "web", "search", "ask", "read", "write", "edit", "bash", "todo", "generic",
+]);
+
+function isMoreSpecificTitle(title: string | undefined, toolName: string): boolean {
+  if (!title || title === toolName) return false;
+  return !GENERIC_FALLBACK_TITLES.has(title);
+}
+
 function mergePresentation(
   existing: ToolPresentation | undefined,
   incoming: ToolPresentation,
   toolName: string,
 ): ToolPresentation {
   if (!existing) return incoming;
+  // card / patch / hoist always come from the result presentation.
   const merged: ToolPresentation = { ...existing, ...incoming };
-  // presentResult with empty args falls back to title = toolName; keep presentCall fields.
-  if (incoming.title === toolName) {
-    if (existing.title) merged.title = existing.title;
-    if (existing.command !== undefined) merged.command = existing.command;
-    if (existing.locations) merged.locations = existing.locations;
+  if (!isMoreSpecificTitle(incoming.title, toolName) && existing.title) {
+    merged.title = existing.title;
+  }
+  if (!incoming.preview && existing.preview !== undefined) merged.preview = existing.preview;
+  if (!incoming.query && existing.query !== undefined) merged.query = existing.query;
+  if (!incoming.command && existing.command !== undefined) merged.command = existing.command;
+  if (!(incoming.locations && incoming.locations.length) && existing.locations !== undefined) {
+    merged.locations = existing.locations;
   }
   return merged;
 }
