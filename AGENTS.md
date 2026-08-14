@@ -102,7 +102,7 @@ handlers under `app/api/**` are unchanged `Request`/`Response` functions.
 **Session browsing** (read-only): the list comes from `lib/session-reader.ts`
 (SDK-free, light runtime); transcripts come from `lib/session-entries.ts` (SDK,
 heavy runtime).  
-**Sending a message**: `startRpcSession()` in `lib/rpc-manager.ts` creates an
+**Sending a message**: `startRpcSession()` in `lib/rpc-session-start.ts` creates an
 AgentSession inside the heavy runtime.
 
 ---
@@ -145,7 +145,14 @@ lib/
   memory-review.ts     every-10th-turn utility-model transcript review → retainMemoryFact
   npx.ts               npx runner used by skill install
   pi-types.ts          local structural types for pi SDK objects
-  rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
+  rpc-manager.ts      façade — re-exports wrapper / registry / startRpcSession
+  rpc-session-wrapper.ts  AgentSessionWrapper (send, fork destroy, events)
+  rpc-registry.ts     globalThis session registry + idle timeout
+  rpc-session-start.ts  startRpcSession() — creates AgentSession in the heavy runtime
+  tool-presentation.ts     tool cards + attachPresentationToMessages
+  tool-presenters/         exact-name presenters (SDK-free)
+  conversation-nodes.ts    assembleTranscript
+  session-projections.ts   fold todos/title/tokens/context
   ensure-builtin-packages.ts  migrate legacy package settings + prewarm builtin extensions
   builtin-extensions.ts       heavy package paths + first-party extensionFactories
   first-party/                inline todo + ask_user_question (no jiti packages)
@@ -159,6 +166,7 @@ components/
   AppShell.tsx        layout + URL state + tab management
   SessionSidebar.tsx  session tree + FileExplorer
   ChatWindow.tsx      chat composition + completion sound wrapper
+  conversation/Transcript.tsx   windowed node list
   ChatInput.tsx       input bar + model/thinking/compact controls
   MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
   BranchNavigator.tsx in-session branch switcher
