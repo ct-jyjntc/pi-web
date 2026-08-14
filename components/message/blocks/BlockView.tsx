@@ -20,9 +20,8 @@ export function BlockView({ block, toolResults, isStreaming, streamingDuration, 
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
-    // Todo UI lives in the session top bar (extension widget) — don't also
-    // render a bulky tool card in the transcript (Hermes does the same).
-    if (tc.toolName.toLowerCase() === "todo") return null;
+    // Hoisted tools (todo chrome) skip the transcript card. Name is not the signal.
+    if (tc.presentation?.hoist) return null;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
     return (
