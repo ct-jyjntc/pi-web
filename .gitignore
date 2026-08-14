@@ -53,3 +53,6 @@ next-env.d.ts
 # ad-hoc UI test screenshots dropped in repo root
 /trend-chart*
 /trend-zoomed.png
+
+# isolated implementation worktrees
+.worktrees/
