@@ -1,5 +1,7 @@
 // Types mirrored from pi-mono coding-agent session-manager
 
+import type { ToolPresentation } from "./tool-presentation";
+
 /** customType of the hidden per-prompt memory recall message (see lib/memory-context.ts). */
 export const MEMORY_CONTEXT_CUSTOM_TYPE = "memory-context";
 
@@ -52,6 +54,8 @@ export interface ToolCallContent {
   toolCallId: string;
   toolName: string;
   input: Record<string, unknown>;
+  /** In-memory UI projection. Never written to jsonl. */
+  presentation?: ToolPresentation;
 }
 
 export type AssistantContentBlock = TextContent | ImageContent | ThinkingContent | ToolCallContent;
