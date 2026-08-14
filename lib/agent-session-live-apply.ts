@@ -61,10 +61,25 @@ export function queuedMessagesEqual(a: QueuedMessages, b: QueuedMessages): boole
 
 type LiveContextUsage = ContextUsage | null;
 
+/** Host chrome is process-wide — skip writes from an unmounted hook or a stale sid. */
+export function canApplySessionProjections(
+  mounted: boolean,
+  currentSessionId?: string | null,
+  expectedSessionId?: string | null,
+): boolean {
+  if (!mounted) return false;
+  if (expectedSessionId != null && currentSessionId !== expectedSessionId) return false;
+  return true;
+}
+
 /** Write host-folded todos + token usage into the chrome metrics store. */
 export function applySessionProjections(
   projections: SessionProjections | undefined | null,
+  mounted = true,
+  currentSessionId?: string | null,
+  expectedSessionId?: string | null,
 ): void {
+  if (!canApplySessionProjections(mounted, currentSessionId, expectedSessionId)) return;
   if (!projections) return;
   setTodosMetric(projections.todos);
   setSessionStatsMetric(projections.tokenUsage);
@@ -82,6 +97,9 @@ export function applyLiveAgentStateFields(
     setExtensionWidgets: (v: ExtensionWidgetItem[]) => void;
     setQueuedMessages?: (v: QueuedMessages) => void;
   },
+  mounted = true,
+  currentSessionId?: string | null,
+  expectedSessionId?: string | null,
 ): void {
   if (!liveState) return;
   if (liveState.contextUsage !== undefined) {
@@ -89,7 +107,7 @@ export function applyLiveAgentStateFields(
   } else if (liveState.projections?.contextPressure !== undefined) {
     setters.setContextUsage(liveState.projections.contextPressure);
   }
-  applySessionProjections(liveState.projections);
+  applySessionProjections(liveState.projections, mounted, currentSessionId, expectedSessionId);
   if (liveState.systemPrompt !== undefined) setters.setSystemPrompt(liveState.systemPrompt ?? null);
   if (liveState.thinkingLevel !== undefined && setters.setThinkingLevel) {
     setters.setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");

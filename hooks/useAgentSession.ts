@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useReducer } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useReducer } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import type {
   AgentMessage,
@@ -172,6 +172,7 @@ const SESSION_TRANSCRIPT_CACHE = new Map<string, {
   leafId: string | null;
   data: SessionData | null;
   contextUsage: ContextUsage | null;
+  projections?: AgentStateResponse["projections"];
   at: number;
 }>();
 const SESSION_TRANSCRIPT_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -195,6 +196,7 @@ function writeSessionTranscriptCache(
     leafId: string | null;
     data: SessionData | null;
     contextUsage: ContextUsage | null;
+    projections?: AgentStateResponse["projections"];
   },
 ) {
   SESSION_TRANSCRIPT_CACHE.set(id, { ...payload, at: Date.now() });
@@ -360,7 +362,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
-      if (sessionIdRef.current !== sid) return null;
+      if (!mountedRef.current || sessionIdRef.current !== sid) return null;
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
@@ -371,6 +373,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         leafId: d.leafId,
         data: d,
         contextUsage: d.contextUsage ?? null,
+        projections: d.projections,
       });
       setCurrentModelOverride(null);
       setError(null);
@@ -383,7 +386,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // value on background reloads (settlement). Only clear on a fresh open.
       if (d.contextUsage != null) setContextUsage(d.contextUsage);
       else if (useLoading) setContextUsage(null);
-      applySessionProjections(d.projections);
+      applySessionProjections(d.projections, mountedRef.current, sessionIdRef.current, sid);
 
       messagesLoaded = true;
       if (useLoading) setLoading(false);
@@ -394,7 +397,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const stateRes = await apiFetch(`/api/agent/${encodeURIComponent(sid)}`);
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
-        if (sessionIdRef.current !== sid) return null;
+        if (!mountedRef.current || sessionIdRef.current !== sid) return null;
 
         const liveState = agentState.state;
         if (liveState) {
@@ -405,7 +408,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setExtensionStatuses,
             setExtensionWidgets,
             setQueuedMessages,
-          });
+          }, mountedRef.current, sessionIdRef.current, sid);
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
           // Keep file-based contextUsage when no live session is running.
@@ -438,11 +441,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       };
       // Drop stale responses from rapid branch switching.
       if (requestId !== contextRequestIdRef.current) return;
-      if (sessionIdRef.current !== sid) return;
+      if (!mountedRef.current || sessionIdRef.current !== sid) return;
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       if (d.contextUsage) setContextUsage(d.contextUsage);
-      applySessionProjections(d.projections);
+      applySessionProjections(d.projections, mountedRef.current, sessionIdRef.current, sid);
     } catch (e) {
       if (requestId === contextRequestIdRef.current) {
         console.error("Failed to load context:", e);
@@ -771,7 +774,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // A slow response can straddle a run boundary (previous run finished
       // and the user already started the next one while this request was in
       // flight) — everything in it is stale, drop it.
-      if (promptRunIdRef.current !== runId) return;
+      if (!mountedRef.current || promptRunIdRef.current !== runId) return;
       const state = data.state;
       // Mirror compaction state unconditionally: a missed compaction_end
       // would otherwise leave the "Stop compaction" UI stuck. No state
@@ -790,7 +793,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Mode is a global preference (web-settings), not per-session live state.
         setExtensionStatuses,
         setExtensionWidgets,
-      });
+      }, mountedRef.current, sessionIdRef.current, sid);
       if (busy || !agentRunningRef.current) return;
       await finishPromptWithoutStream(sid, runId);
     } catch {
@@ -1521,11 +1524,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     void stickScrollToBottom();
   }, [stickScrollToBottom]);
 
+  // Host chrome is process-wide. Apply cached projections before paint, and
+  // drop late loadSession/get_state writes after this instance unmounts.
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    applySessionProjections(
+      cachedTranscript?.projections ?? cachedTranscript?.data?.projections,
+    );
+    return () => {
+      mountedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load session on mount
   useEffect(() => {
     if (session) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
+        if (!mountedRef.current || sessionIdRef.current !== session.id) return;
         if (agentState?.running) {
           loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
@@ -1558,11 +1575,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setExtensionStatuses,
             setExtensionWidgets,
             setQueuedMessages,
-          });
+          }, mountedRef.current, sessionIdRef.current, session.id);
         }
       });
     }
-    mountedRef.current = true;
     return () => {
       eventStreamGraceGenerationRef.current += 1;
       eventStreamGraceActiveRef.current = false;

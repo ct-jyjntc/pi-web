@@ -348,7 +348,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     setExtensionStatusesMetric(extensionStatusesRef.current);
   }, [extensionStatusKey]);
 
-  useEffect(() => () => {
+  useLayoutEffect(() => () => {
     clearSessionMetrics();
   }, []);
 
