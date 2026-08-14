@@ -119,15 +119,26 @@ jsonl stays `{ type, toolCallId, toolName, input }` (plus SDK on-disk aliases, s
 | `todo` | `tool-presenters/todo.ts` | `generic` + `hoist: true` |
 | everything else (MCP, `lsp`, `github`, memory, debug, `subagent`, …) | `tool-presenters/default.ts` | `generic` |
 
-Lookup is an exact `Record<string, ToolPresenter>`. No regex. Unknown name → default presenter.
+Lookup is `presenterFor(name): ToolPresenter` — exact map, else `defaultPresenter(name)` so the default can set `title = toolName`. Call sites never pass the name into `presentCall`; they do `presenterFor(name).presentCall(args)`.
 
 `attachPresentationToMessages(messages)` builds a `toolCallId → toolResult` map, then writes `presentation` on every `toolCall` block (`presentResult` if a result exists, else `presentCall`). That function is the only place presenters run on a message list.
+
+`presentation.title` / `preview` / `locations` are **raw targets** (path, command, query), not translated UI copy. Existing i18n helpers (`scaffoldToolTitle`, `settledRunLine`) still format those strings. Grouping copy that today uses `runCategory(name)` uses this card map instead — no name regex:
+
+| `card` | scaffold group |
+|---|---|
+| `terminal` | `command` |
+| `read`, `search`, `web` | `explore` |
+| anything else | `other` |
+
+Patch text for `diff` cards is `patchFromToolDetails(details)`, moved from today’s `getResultDiff`: top-level `details.patch`, else `details.diff`, else concatenate every `details.results[].patch|diff` (hashline multi-file). A plan that only reads top-level `patch`/`diff` is wrong. `getEditResultMeta` (mode / hashline tag) stays on the edit card and may still read `details`; that is chrome, not classification.
 
 ### Nodes
 
 ```ts
 type ConversationNode =
   | { kind: "user"; id: string; idx: number }
+  | { kind: "message"; id: string; idx: number }
   | {
       kind: "process";
       id: string;
@@ -145,6 +156,23 @@ type ConversationNode =
   | { kind: "stream"; id: string };
 ```
 
+`kind: "message"` is the current flat `RenderPlanItem` `"message"` row: render `messages[idx]` through existing `MessageView` (default variant, not process/answer chrome).
+
+| Today’s plan row | Node |
+|---|---|
+| User in any turn | `user` |
+| Compaction custom | `compaction` |
+| Other visible custom | `custom` |
+| `bashExecution` | `bash` |
+| Settled turn process group | `process` (`MessageView` `variant="process"` on children) |
+| Settled split-off final text | `answer` |
+| Live-tail rows (no process grouping) | `user` + one `message` per remaining visible idx, plus `stream` |
+| Leading / orphan assistants, leftovers after `finalAssistantIdx` | `message` |
+| Hidden context | omitted |
+| Sidecar streaming bubble | `stream` |
+
+Do not render a live-tail or leftover assistant as `answer` — that would flash final-reply chrome mid-turn.
+
 Id rules:
 
 - Settled rows: `entry:${entryIds[idx]}` (process nodes use `entry:${entryIds[userIdx]}:process`).
@@ -153,29 +181,40 @@ Id rules:
 
 `assembleTranscript({ messages, entryIds, stream, promptRunId, busy })` owns today’s plan heuristics: `findFinalAssistantIndex`, live tail stays flat (no process grouping), process/answer split via `getFinalAssistantParts`. Those helpers move out of `ChatWindow` into `lib/conversation-nodes.ts` or stay imported from `chat-window-helpers.ts` if they remain display-pure.
 
-`groupRunBlocks` groups consecutive tool calls whose `presentation.card` is not `diff` or `ask`. `hoist: true` is skipped. No name tests.
+`groupRunBlocks` groups consecutive tool calls whose `presentation.card` is not `diff` or `ask`. `hoist: true` is skipped. No name tests. Scaffold group lines use the card→`command|explore|other` table above.
 
 ### Projections
 
 ```ts
 type SessionProjections = {
-  todos: TodoItem[] | null;
+  todos: ProjectionTodo[] | null;
   title: string | null;
   tokenUsage: SessionStatsInfo;
   contextPressure: ContextUsage | null;
 };
+
+type ProjectionTodo = {
+  id: number;
+  subject: string;
+  status: "pending" | "in_progress" | "completed" | "deleted";
+  activeForm?: string;
+};
 ```
+
+`ProjectionTodo` is the `todo` tool’s `details.tasks` row (same fields as `Task` in `todo-extension.ts`), **not** `lib/extension-widgets.ts` `TodoItem`.
 
 | Field | Fold |
 |---|---|
-| `todos` | If the todo in-memory store has this session id, use it. Else take `details.tasks` from the last `todo` `toolResult` after the last user message on the branch. No text regex. Empty → `null`. |
+| `todos` | `peekTodoState(sessionId)` if the in-memory map **already has** this id; else `details.tasks` from the last `todo` `toolResult` after the last user message. Empty → `null`. |
 | `title` | Session header `name`, else `null`. |
 | `tokenUsage` | Same counters `useAgentSession` walks today (`assistant.usage` + role counts). |
 | `contextPressure` | Existing `resolveSessionContextUsage` (live) / `estimateSessionContextUsage` (cold). |
 
+`peekTodoState(sessionId)` is a **non-creating** read on the todo `Map`. Today’s `getState` inserts an empty `TaskState` and would hide disk tasks — do not reuse it for the fold.
+
 `foldProjections(input)` is the only fold. `get_state`, `GET /api/sessions/[id]`, and `GET /api/sessions/[id]/context` each include `projections`.
 
-Chrome reads `projections.todos` from `session-metrics-store`. `todo-extension` may still `setWidget("rpiv-todos", formatTodoWidgetLines(items))` so other widget consumers do not break; ChatWindow / top bar **must not** parse widget lines or call `deriveTodoWidgetLines` to build the checklist. Widget text is a view, not a source.
+One data capsule: `ProjectionTodo[]`. Chrome reads `projections.todos` from `session-metrics-store` (new `todos` field). If `todo-extension` still calls `setWidget`, it must format **that same array** via `formatTodoWidgetLines`. Top bar / ChatWindow must not parse widget lines and must not call `deriveTodoWidgetLines`.
 
 ## Data flow
 
@@ -188,10 +227,10 @@ Chrome reads `projections.todos` from `session-metrics-store`. `todo-extension` 
 
 ### Live stream
 
-1. `toClientAgentEvent` attaches presentation:
-   - `toolcall_start`: `presentCall(name, {})` (args often empty).
-   - `toolcall_end`: `presentCall(name, args)`.
-   - outbound `toolResult` / `message_end` with a tool result: `presentResult`.
+1. `toClientAgentEvent` looks up `presenterFor(toolName)` and attaches `presentation`:
+   - `toolcall_start`: `presentCall({})` when args are missing.
+   - `toolcall_end`: `presentCall(args)`.
+   - outbound `toolResult` / `message_end` with a tool result: `presentResult(args, result)`.
 2. `agent-session-stream-state` copies `event.presentation` onto the matching `toolCall` block. It does not call `present*`.
 3. `Transcript` appends `{ kind: "stream", id: "stream:${promptRunId}" }`.
 4. Existing settle / `loadSession` rebase drops the stream node; historical nodes use entry ids.
@@ -229,7 +268,7 @@ Remove after the new owners exist:
 - `deriveTodoWidgetLines`
 - `useAgentSession` walk of `messages` used only to build chrome `SessionStatsInfo` (host `projections.tokenUsage` replaces it)
 - `ChatWindow` plan `useMemo` once `assembleTranscript` is wired
-- `getResultDiff` usage in `ToolCallBlock` — the edit/write presenter reads `details.patch` / `details.diff`; the block reads `presentation.patch`
+- `getResultDiff` usage in `ToolCallBlock` for **classification / choosing a diff card** — the block reads `presentation.patch`. Move `getResultDiff`’s extraction to `patchFromToolDetails` (include nested `details.results[]`). Keep `getEditResultMeta` on the edit card.
 
 Keep:
 
@@ -242,7 +281,7 @@ Keep:
 
 **New**
 
-- `lib/tool-presentation.ts`
+- `lib/tool-presentation.ts` (`presenterFor`, `attachPresentationToMessages`, `patchFromToolDetails`)
 - `lib/tool-presenters/{edit,write,read,bash,explore,web,ask,todo,default,index}.ts`
 - `lib/conversation-nodes.ts`
 - `lib/session-projections.ts`
@@ -250,9 +289,9 @@ Keep:
 
 **Tests (new)**
 
-- `lib/tool-presentation.test.mjs` — each mapped name → card/title/locations; unknown → generic; thrown presenter → generic
-- `lib/conversation-nodes.test.mjs` — user+tools+answer → user/process/answer; live tail flat; hidden custom omitted; stream id; entry ids stable
-- `lib/session-projections.test.mjs` — `details.tasks` without live store; no todo → null; usage sum; single-field fold failure → null field
+- `lib/tool-presentation.test.mjs` — each mapped name → card/title/locations; unknown → generic; thrown presenter → generic; multi-file `details.results[]` concatenates into `patch`
+- `lib/conversation-nodes.test.mjs` — user+tools+answer → user/process/answer; live tail is `user` + flat `message` + `stream` (no `process`/`answer`); orphan assistant → `message`; leftover after `finalAssistantIdx` → `message`; hidden custom omitted; stream id; entry ids stable
+- `lib/session-projections.test.mjs` — `details.tasks` without live store; empty peek must not create a store entry; no todo → null; usage sum; single-field fold failure → null field
 
 **Existing tests to update**
 
@@ -271,9 +310,11 @@ Keep:
 - `app/api/sessions/[id]/route.ts` and `.../context/route.ts` — include `projections`
 - `hooks/useAgentSession.ts` — apply host tokenUsage; delete local chrome walk (net shrink)
 - `components/ChatWindow.tsx` — render `Transcript`; delete plan/todo derive (net shrink)
-- `components/message/tool-run-meta.ts` — group by card
-- `components/message/blocks/ToolCallBlock.tsx` — switch on `presentation.card`
+- `components/message/tool-run-meta.ts` — group by card; scaffold group from card table
+- `components/message/blocks/ToolCallBlock.tsx` — switch on `presentation.card`; patch from `presentation.patch`
 - `lib/todo-from-transcript.ts` — delete `deriveTodoWidgetLines`
+- `lib/first-party/todo-extension.ts` — export `peekTodoState` (no insert)
+- `lib/session-metrics-store.ts` — add `todos: ProjectionTodo[] | null`
 - `AGENTS.md` file map — add the three owners; stop saying `rpc-manager.ts` owns the wrapper
 
 Do not add a `globalThis.__pi*` bag.
@@ -292,7 +333,7 @@ Typecheck must pass after each step. The feature is not done until step 4 deleti
 Manual (existing chat smoke, no new recovery):
 
 - Send a turn that uses read / bash / edit / ask / todo. Cards match the table. Todo appears in the top bar from `projections`, not from a transcript regex.
-- Refresh mid-stream: stream node returns; after settle, entry ids replace `stream:${runId}`.
+- Refresh mid-stream: live tail stays flat `message` rows + `stream`; after settle, `process`/`answer` appear and entry ids replace `stream:${runId}`.
 - Open an old session (no `presentation` on disk): cards still correct (attached on read).
 - Fork: child transcript and projections do not show the parent’s todo store.
 - Compact: compaction node still renders; no name-regex regressions.
