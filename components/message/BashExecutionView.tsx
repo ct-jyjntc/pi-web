@@ -48,6 +48,7 @@ export function BashExecutionView({ message, sessionId }: { message: BashExecuti
     toolCallId: `bash-${message.timestamp ?? ""}`,
     toolName,
     input: { command: message.command },
+    presentation: { card: "terminal", title: message.command || "bash", command: message.command, preview: message.command },
   };
   const result: ToolResultMessage | undefined = isPending
     ? undefined

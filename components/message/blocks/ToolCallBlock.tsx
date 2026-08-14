@@ -56,7 +56,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "" || resultText.trim() === "（无输出）");
   const isError = result?.isError ?? false;
-  const resultDiff = block.presentation?.patch ? { text: block.presentation.patch } : null;
+  const resultDiff = !isError && block.presentation?.patch ? { text: block.presentation.patch } : null;
   const pending = Boolean(isStreaming) && !result;
 
   const [scaffoldUserOpen, setScaffoldUserOpen] = useState<boolean | null>(null);
