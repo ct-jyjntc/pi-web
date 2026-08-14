@@ -88,28 +88,24 @@ Same role as live abort. Distinct text from `Operation aborted`.
 
 ## Pairing (trailing open batch only)
 
-`transformMessages` **drops** assistants with `stopReason === "aborted" | "error"`, and already synthesizes results when a **later user/custom/assistant** interrupted a batch. A global set-difference of all ids would append orphan `toolResult`s at the current leaf and can 400 the next call.
+`transformMessages` **drops** assistants with `stopReason === "aborted" | "error"`, and already synthesizes results when a later user-equivalent interrupted a batch. A global set-difference of all ids would append orphan `toolResult`s at the current leaf and can 400 the next call.
 
 After `normalizeToolCalls`:
 
 1. Find the last `assistant` message.
 2. If it is missing, or `stopReason` is `aborted` or `error` → **0 closers**.
-3. If any message **after** that assistant is `user`, `custom`, or `assistant` → **0 closers**.
+3. If **any** message after that assistant is not a `toolResult` → **0 closers**. (`bashExecution`, `custom`, `user`, another `assistant`, compaction summaries all count — `convertToLlm` treats several as `user`.)
 4. Else, for each `toolCall` on that assistant with no later `toolResult` for that `toolCallId` → one closer.
-
-## File plan
-
-**New:** `lib/session-tool-repair.ts`, `lib/session-tool-repair.test.mjs`  
-**Modified:** `lib/rpc-session-start.ts`, `lib/rpc-session-commands.ts`
 
 ## Tests
 
-1. Last assistant completed, missing results → N closers.
+1. Last assistant completed, missing results (nothing after it, or only `toolResult`s) → N closers.
 2. Already paired trailing batch → 0.
 3. After applying closers, second scan → 0.
-4. Last assistant `stopReason: "aborted"` (or `"error"`) → 0.
+4. Last assistant `stopReason: "aborted"` or `"error"` → 0.
 5. Unmatched call then a later **user** → 0.
-6. `shouldRepairOnOpen({ alive: true })` is false.
+6. Unmatched call then a later **bashExecution** → 0.
+7. `shouldRepairOnOpen({ alive: true })` is false.
 
 Warm path: helper returns `{ persist, nextMessages }` so prompt can append then assign `agent.state.messages`.
 
