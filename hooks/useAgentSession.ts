@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
+import { useState, useCallback, useRef, useEffect, useReducer } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import type {
   AgentMessage,
@@ -23,7 +23,7 @@ import { sendAgentCommand } from "@/lib/agent-client";
 import { flattenQueueRecall, type QueueRecallSnapshot } from "@/lib/image-attachments";
 import { useLocale } from "@/hooks/useLocale";
 import { getFullToolNames } from "@/lib/tool-presets";
-import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
+import type { ContextUsage } from "@/lib/pi-types";
 import type { AttachedImage, ChatInputHandle } from "@/lib/chat-input-types";
 import {
   AGENT_STATE_RECONCILE_MS,
@@ -34,6 +34,7 @@ import {
 } from "@/lib/agent-run-lifecycle";
 import {
   applyLiveAgentStateFields,
+  applySessionProjections,
   clampThinkingLevelForModel,
   normalizeQueuedMessages,
   queuedMessagesEqual,
@@ -93,6 +94,7 @@ export interface SessionData {
   context: SessionContext;
   /** File-based estimate for cold open (no live AgentSession yet). */
   contextUsage?: ContextUsage | null;
+  projections?: AgentStateResponse["projections"];
 }
 
 interface AgentEvent {
@@ -272,7 +274,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([]);
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
-  const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
@@ -334,42 +335,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const displayModelRef = useRef(displayModel);
   displayModelRef.current = displayModel;
 
-  const sessionStats = useMemo(() => {
-    if (sessionStatsOverride) return sessionStatsOverride;
-    const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-    let userMessages = 0;
-    let assistantMessages = 0;
-    let toolResults = 0;
-    let toolCalls = 0;
-    for (const msg of messages) {
-      if (msg.role === "user") userMessages += 1;
-      if (msg.role === "toolResult") toolResults += 1;
-      if (msg.role !== "assistant") continue;
-      assistantMessages += 1;
-      const u = (msg as import("@/lib/types").AssistantMessage).usage;
-      toolCalls += (msg as import("@/lib/types").AssistantMessage).content.filter((c) => c.type === "toolCall").length;
-      if (!u) continue;
-      tokens.input += u.input ?? 0;
-      tokens.output += u.output ?? 0;
-      tokens.cacheRead += u.cacheRead ?? 0;
-      tokens.cacheWrite += u.cacheWrite ?? 0;
-    }
-    tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
-    if (tokens.total === 0 && messages.length === 0) return null;
-    return {
-      sessionFile: data?.filePath || undefined,
-      sessionId: sessionIdRef.current ?? session?.id ?? "",
-      sessionName: session?.name,
-      userMessages,
-      assistantMessages,
-      toolCalls,
-      toolResults,
-      totalMessages: messages.length,
-      tokens,
-      ...(contextUsage ? { contextUsage } : {}),
-    } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, session?.id, session?.name]);
-
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
     // Soft load: if we already have messages for this session, never blank the
@@ -418,6 +383,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // value on background reloads (settlement). Only clear on a fresh open.
       if (d.contextUsage != null) setContextUsage(d.contextUsage);
       else if (useLoading) setContextUsage(null);
+      applySessionProjections(d.projections);
 
       messagesLoaded = true;
       if (useLoading) setLoading(false);
@@ -468,6 +434,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const d = await res.json() as {
         context: { messages: AgentMessage[]; entryIds: string[] };
         contextUsage?: ContextUsage | null;
+        projections?: AgentStateResponse["projections"];
       };
       // Drop stale responses from rapid branch switching.
       if (requestId !== contextRequestIdRef.current) return;
@@ -475,6 +442,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       if (d.contextUsage) setContextUsage(d.contextUsage);
+      applySessionProjections(d.projections);
     } catch (e) {
       if (requestId === contextRequestIdRef.current) {
         console.error("Failed to load context:", e);
@@ -1323,10 +1291,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         case "session": {
           if (!sid) return complete({ handled: true, error: t("agent.noSession") });
-          const stats = await sendAgentCommand<SessionStatsInfo>(sid, { type: "get_session_stats" });
-          if (stats) {
-            setSessionStatsOverride(stats);
-          }
           onSessionStatsPanelOpen?.();
           return complete({ handled: true, action: "openSessionStats" });
         }
@@ -1665,10 +1629,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => clearTimeout(t);
   }, [noticeState.visible]);
 
-  useEffect(() => {
-    setSessionStatsOverride(null);
-  }, [messages.length, contextUsage?.tokens, contextUsage?.percent, contextUsage?.contextWindow]);
-
   // Adopt global preference when the shared store hydrates or another surface updates it.
   useEffect(() => {
     if (globalAgentMode === undefined) return;
@@ -1713,7 +1673,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     data, loading, error, activeLeafId, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, modelImageSupport, newSessionModel, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
-    isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
+    isCompacting, compactError, compactResult, currentModel, displayModel,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,

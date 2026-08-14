@@ -7,8 +7,10 @@ import {
 import {
   buildSessionContext,
   getSessionEntries,
+  getSessionManager,
   restoreDeferredMessages,
 } from "@/lib/session-entries";
+import { foldProjections } from "@/lib/session-projections";
 
 export async function GET(
   req: Request,
@@ -47,7 +49,15 @@ export async function GET(
       contextUsage = null;
     }
 
-    return NextResponse.json({ context, contextUsage });
+    const projections = foldProjections({
+      sessionId: id,
+      title: getSessionManager(filePath).getSessionName() ?? null,
+      messages: context.messages,
+      contextPressure: contextUsage,
+      sessionFile: filePath,
+    });
+
+    return NextResponse.json({ context, contextUsage, projections });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

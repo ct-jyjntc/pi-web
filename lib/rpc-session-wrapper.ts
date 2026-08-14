@@ -20,6 +20,7 @@ import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-u
 import { buildQueryMemoryContext } from "./memory-context";
 import { resolveContextUsageForUi } from "./context-usage";
 import { beginAgentTurn, sealAgentTurn } from "./workspace-turn-journal";
+import { foldProjections } from "./session-projections";
 
 export interface AgentEvent {
   type: string;
@@ -541,6 +542,13 @@ export class AgentSessionWrapper {
             followUp: [...this.inner.getFollowUpMessages()],
           },
           contextUsage,
+          projections: foldProjections({
+            sessionId: this.inner.sessionId,
+            title: this.inner.sessionManager.getSessionName() ?? null,
+            messages: this.inner.agent.state?.messages ?? [],
+            contextPressure: contextUsage ?? null,
+            sessionFile: this.inner.sessionFile,
+          }),
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
           mode: this.mode,

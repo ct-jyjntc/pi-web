@@ -23,7 +23,7 @@ export type SessionProjections = {
 export type FoldProjectionsInput = {
   sessionId: string;
   title: string | null;
-  messages: AgentMessage[] | null | undefined;
+  messages: AgentMessage[] | readonly unknown[] | null | undefined;
   contextPressure: ContextUsage | null;
   sessionFile?: string;
 };

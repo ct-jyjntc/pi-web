@@ -7,6 +7,8 @@
 import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
 import type { ContextUsage } from "@/lib/pi-types";
 import { parseAgentMode, type AgentMode } from "@/lib/agent-mode";
+import type { SessionProjections } from "@/lib/session-projections";
+import { setSessionStatsMetric, setTodosMetric } from "@/lib/session-metrics-store";
 
 export type ThinkingLevelOption =
   | "auto"
@@ -31,6 +33,7 @@ export type AgentStateResponse = {
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
+  projections?: SessionProjections;
 };
 
 export type QueuedMessages = {
@@ -58,6 +61,15 @@ export function queuedMessagesEqual(a: QueuedMessages, b: QueuedMessages): boole
 
 type LiveContextUsage = ContextUsage | null;
 
+/** Write host-folded todos + token usage into the chrome metrics store. */
+export function applySessionProjections(
+  projections: SessionProjections | undefined | null,
+): void {
+  if (!projections) return;
+  setTodosMetric(projections.todos);
+  setSessionStatsMetric(projections.tokenUsage);
+}
+
 /** Apply optional live-agent state fields without overwriting unset properties. */
 export function applyLiveAgentStateFields(
   liveState: AgentStateResponse | undefined | null,
@@ -72,7 +84,12 @@ export function applyLiveAgentStateFields(
   },
 ): void {
   if (!liveState) return;
-  if (liveState.contextUsage !== undefined) setters.setContextUsage(liveState.contextUsage ?? null);
+  if (liveState.contextUsage !== undefined) {
+    setters.setContextUsage(liveState.contextUsage ?? null);
+  } else if (liveState.projections?.contextPressure !== undefined) {
+    setters.setContextUsage(liveState.projections.contextPressure);
+  }
+  applySessionProjections(liveState.projections);
   if (liveState.systemPrompt !== undefined) setters.setSystemPrompt(liveState.systemPrompt ?? null);
   if (liveState.thinkingLevel !== undefined && setters.setThinkingLevel) {
     setters.setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");

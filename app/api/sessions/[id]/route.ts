@@ -17,6 +17,7 @@ import {
 } from "@/lib/session-entries";
 import { estimateSessionContextUsage } from "@/lib/context-usage";
 import { getRpcSession } from "@/lib/rpc-registry";
+import { foldProjections } from "@/lib/session-projections";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
 const MAX_PROJECTED_TREE_DEPTH = 200;
@@ -182,6 +183,14 @@ export async function GET(
       contextUsage = null;
     }
 
+    const projections = foldProjections({
+      sessionId: id,
+      title: sm.getSessionName() ?? info?.name ?? null,
+      messages: context.messages,
+      contextPressure: contextUsage,
+      sessionFile: filePath,
+    });
+
     return NextResponse.json({
       sessionId: id,
       filePath,
@@ -190,6 +199,7 @@ export async function GET(
       tree,
       context,
       contextUsage,
+      projections,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

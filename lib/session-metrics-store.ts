@@ -5,14 +5,18 @@
  */
 import { useSyncExternalStore } from "react";
 import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
+import type { ProjectionTodo } from "@/lib/session-projections";
 import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
+
+export type { ProjectionTodo };
 
 type MetricsSnapshot = {
   contextUsage: ContextUsage | null;
   sessionStats: SessionStatsInfo | null;
   extensionStatuses: ExtensionStatusItem[];
-  /** Todo + subagent chrome widgets for the app top bar. */
+  /** Subagent chrome widgets for the app top bar (todos live in `todos`). */
   chromeWidgets: ExtensionWidgetItem[];
+  todos: ProjectionTodo[] | null;
 };
 
 type Listener = () => void;
@@ -23,6 +27,7 @@ let snapshot: MetricsSnapshot = {
   sessionStats: null,
   extensionStatuses: [],
   chromeWidgets: [],
+  todos: null,
 };
 
 function emit() {
@@ -107,16 +112,41 @@ export function setChromeWidgetsMetric(widgets: ExtensionWidgetItem[]): void {
   emit();
 }
 
+function sameTodos(a: ProjectionTodo[] | null, b: ProjectionTodo[] | null): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (left.id !== right.id || left.status !== right.status || left.subject !== right.subject) return false;
+    if (left.activeForm !== right.activeForm) return false;
+  }
+  return true;
+}
+
+export function setTodosMetric(todos: ProjectionTodo[] | null): void {
+  if (sameTodos(snapshot.todos, todos)) return;
+  snapshot = { ...snapshot, todos };
+  emit();
+}
+
 export function clearSessionMetrics(): void {
   if (
     snapshot.contextUsage === null
     && snapshot.sessionStats === null
     && snapshot.extensionStatuses.length === 0
     && snapshot.chromeWidgets.length === 0
+    && snapshot.todos === null
   ) {
     return;
   }
-  snapshot = { contextUsage: null, sessionStats: null, extensionStatuses: [], chromeWidgets: [] };
+  snapshot = {
+    contextUsage: null,
+    sessionStats: null,
+    extensionStatuses: [],
+    chromeWidgets: [],
+    todos: null,
+  };
   emit();
 }
 
@@ -137,6 +167,14 @@ export function useChromeWidgetsMetric(): ExtensionWidgetItem[] {
     subscribe,
     () => getSnapshot().chromeWidgets,
     () => [],
+  );
+}
+
+export function useTodosMetric(): ProjectionTodo[] | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => getSnapshot().todos,
+    () => null,
   );
 }
 

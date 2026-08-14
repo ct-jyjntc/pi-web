@@ -20,9 +20,8 @@ import {
   shouldPageEarlierMessages,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
-import { chromeWidgetIsIdle, classifyWidgetKey, isChromeTopBarWidgetKey, todoWidgetHasContent } from "@/lib/extension-widgets";
-import { clearSessionMetrics, setChromeWidgetsMetric, setContextUsageMetric, setExtensionStatusesMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
-import { deriveTodoWidgetLines } from "@/lib/todo-from-transcript";
+import { chromeWidgetIsIdle, classifyWidgetKey, isChromeTopBarWidgetKey } from "@/lib/extension-widgets";
+import { clearSessionMetrics, setChromeWidgetsMetric, setContextUsageMetric, setExtensionStatusesMetric } from "@/lib/session-metrics-store";
 import { setCompactHandlers } from "@/lib/compact-action-store";
 import { setSessionNavHandlers } from "@/lib/session-nav-store";
 import { invalidateProjectMemory } from "@/lib/project-memory-store";
@@ -83,14 +82,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
   // Live web-settings subscription: toggles apply to the open chat immediately.
-  // (The old mount/visibilitychange fetch left showTodos stale until a tab switch.)
   const webSettings = useWebSettings();
   const notifyPrefsRef = useRef({ desktop: true, notifSound: true });
   notifyPrefsRef.current = {
     desktop: webSettings?.desktopNotifications !== false,
     notifSound: webSettings?.notificationSound !== false,
   };
-  const showTodos = webSettings?.showTodos !== false;
   const [advisorNote, setAdvisorNote] = useState<{
     level: "info" | "concern" | "blocker";
     text: string;
@@ -200,7 +197,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, modelImageSupport, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
-    isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
+    isCompacting, compactError, compactResult, displayModel: displayModelValue,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     addNotice,
@@ -330,31 +327,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     container.scrollTop = restoreScrollTop(container.scrollHeight, prevScrollDistanceRef.current);
     prevScrollDistanceRef.current = null;
   }, [visibleCount, scrollContainerRef]);
-  // Push session metrics to an external store so AppShell/right-panel chrome
-  // does not re-render on every streaming token / stats tick.
-  const statsKey = useMemo(() => sessionStats
-    ? [
-      sessionStats.sessionId,
-      sessionStats.sessionFile ?? "",
-      sessionStats.sessionName ?? "",
-      sessionStats.userMessages,
-      sessionStats.assistantMessages,
-      sessionStats.toolCalls,
-      sessionStats.toolResults,
-      sessionStats.totalMessages,
-      sessionStats.tokens.input,
-      sessionStats.tokens.output,
-      sessionStats.tokens.cacheRead,
-      sessionStats.tokens.cacheWrite,
-      sessionStats.tokens.total,
-    ].join("|")
-    : null, [sessionStats]);
-  const sessionStatsRef = useRef(sessionStats);
-  sessionStatsRef.current = sessionStats;
-  useEffect(() => {
-    setSessionStatsMetric(sessionStatsRef.current);
-  }, [statsKey]);
-
   const ctxKey = contextUsage
     ? `${contextUsage.percent ?? "null"}|${contextUsage.contextWindow}|${contextUsage.tokens ?? "null"}`
     : null;
@@ -560,58 +532,14 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     </div>
   ) : null;
 
-  // Todo capsule: live list is the current user turn (native todo store).
-  // Also inspect the in-flight streaming bubble — toolCalls often live only
-  const todoUsedInLatestTurn = useMemo(() => {
-    const hasTodoCall = (msg: AgentMessage | null | undefined): boolean => {
-      if (!msg || msg.role !== "assistant") return false;
-      const content = (msg as AssistantMessage).content;
-      if (!Array.isArray(content)) return false;
-      return content.some((c) => c.type === "toolCall" && String(c.toolName).toLowerCase() === "todo");
-    };
-    if (hasTodoCall(streamState.streamingMessage as AgentMessage | null)) return true;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === "user") return false;
-      if (hasTodoCall(m)) return true;
-    }
-    return false;
-  }, [messages, streamState.streamingMessage]);
-
-  const visibleWidgets = extensionWidgets.filter((widget) => {
-    if (classifyWidgetKey(widget.key) !== "todo") return true;
-    if (!showTodos) return false;
-    // Live overlay content is authoritative — don't require a toolCall scan.
-    if (todoWidgetHasContent(widget.lines)) return true;
-    return todoUsedInLatestTurn;
-  });
-  // Todo + subagents publish to the app top bar.
-  // Other chrome stays by placement (composer / above editor).
-  //
-  // Fallback: rpiv-todo keeps a process-global "foreground session" pointer.
-  // In Pi Web (many AgentSessions in one process) the extension overlay often
-  // never rebinds, so we synthesize a todo widget from toolResult text.
-  const derivedTodoLines = useMemo(
-    () => (showTodos
-      ? deriveTodoWidgetLines(messages, streamState.streamingMessage as AgentMessage | null)
-      : null),
-    [messages, showTodos, streamState.streamingMessage],
-  );
-
-  const topBarWidgets = useMemo(() => {
-    const list = visibleWidgets.filter((widget) => (
-      widget.placement === "topBar" || isChromeTopBarWidgetKey(widget.key)
-    ));
-    const hasTodo = list.some((w) => classifyWidgetKey(w.key) === "todo" && todoWidgetHasContent(w.lines));
-    if (!hasTodo && derivedTodoLines && derivedTodoLines.length > 0) {
-      list.push({
-        key: "rpiv-todos",
-        lines: derivedTodoLines,
-        placement: "topBar",
-      });
-    }
-    return list.filter((widget) => !chromeWidgetIsIdle(widget.key, widget.lines));
-  }, [visibleWidgets, derivedTodoLines]);
+  // Subagent chrome publishes to the app top bar. Todos come from host projections.
+  const visibleWidgets = extensionWidgets.filter((widget) => classifyWidgetKey(widget.key) !== "todo");
+  const topBarWidgets = useMemo(() => (
+    visibleWidgets.filter((widget) => (
+      (widget.placement === "topBar" || isChromeTopBarWidgetKey(widget.key))
+      && !chromeWidgetIsIdle(widget.key, widget.lines)
+    ))
+  ), [visibleWidgets]);
   const aboveEditorWidgets = visibleWidgets.filter((widget) => (
     !isChromeTopBarWidgetKey(widget.key)
     && widget.placement !== "belowEditor"
