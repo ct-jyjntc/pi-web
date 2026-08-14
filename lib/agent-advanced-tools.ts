@@ -71,7 +71,7 @@ export function createAdvancedTools(options: {
       command: Type.String({ description: "Shell command to run" }),
       timeoutMs: Type.Optional(Type.Number({ description: "Timeout ms (default 30000)" })),
     }),
-    async execute(_id, args) {
+    async execute(_id, args, signal?: AbortSignal) {
       const command = String(args.command ?? "").trim();
       if (!command) {
         return { content: [{ type: "text", text: "command is required" }], isError: true };
@@ -83,6 +83,7 @@ export function createAdvancedTools(options: {
           timeout: timeoutMs,
           maxBuffer: 2 * 1024 * 1024,
           env: process.env,
+          signal,
         });
         return {
           content: [{
