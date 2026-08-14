@@ -59,7 +59,13 @@ afterToolCall   →  pi.on("tool_result")   unused (no result rewrite yet)
 | Command switch | **new** `lib/rpc-session-commands.ts` |
 | Session lifecycle | `lib/rpc-session-wrapper.ts` (subscribe, idle, destroy, fork→shutdown) |
 
-`set_mode` / startup `adoptBaseToolNames` already strip in the same turn as the mode write. That is why overlay deny is removable (it existed for “before first `set_tools`”).
+`set_mode` strips in the same turn. **Resume does not:** `POST /api/agent/[id]` and event reconnect call `startRpcSession(id, file, cwd)` with no `toolNames`, so `adoptBaseToolNames` never runs until a later client `set_tools`. Today the overlay is the only plan deny on that path.
+
+**Prerequisite before deleting overlay deny:** `startRpcSession` with omitted/`undefined` `toolNames` must still `adoptBaseToolNames(getFullToolNames())` and apply the wrapper’s current mode strip. New-session explicit `toolNames` (including `[]` = all off) is unchanged.
+
+Child sessions already strip in `createChildRun` (`agentModeStripsWriteTools`). They do not depend on the overlay. Do not expand child `customTools` in this slice.
+
+`dispatchRpcSessionCommand(wrapper, command)` keeps today’s private helpers on the wrapper (`waitForExtensionsBound`, prompt/brief injection, queue, emit). The extract moves the `switch` only — it does not invent a public command API.
 
 ## File plan
 
@@ -70,24 +76,27 @@ afterToolCall   →  pi.on("tool_result")   unused (no result rewrite yet)
 **Modified**
 
 - `lib/rpc-session-wrapper.ts` — `send` becomes `return dispatchRpcSessionCommand(this, command)`. No new behavior.
+- `lib/rpc-session-start.ts` — omitted `toolNames` still adopts the full coding list, then mode-strips.
 - `lib/agent-mode.ts` — `plan: {}` in `AGENT_MODE_PERMISSION_OVERLAY`. Update the comment. Keep `auto: { edit, write: allow }`.
-- `lib/first-party/permission/evaluate.ts` — no new compose; overlay empty for plan means user policy applies, then strip still removes the tools.
-- `lib/agent-advanced-tools.ts` — `debug_run.execute(id, args, signal)` passes `signal` into `execFile` (`AbortSignal` is supported on Node 22). Keep `timeoutMs`.
-- Stale comments in `lib/agent-mode.ts` (and any `before_agent_start` / `tool-call-gate-pipeline.ts` references) deleted.
+- `lib/permission-policy.ts` — header/comment no longer says plan layers `edit/write: deny`.
+- `lib/agent-advanced-tools.ts` — `debug_run.execute(id, args, signal)` passes `signal` into `execFile` (Node 22). Keep `timeoutMs`.
+- Stale comments (`before_agent_start`, `tool-call-gate-pipeline.ts`) deleted.
 
 **Tests**
 
 - Existing wrapper / rpc tests still pass after the extract.
-- New/updated `lib/agent-mode.test.mjs` (or permission evaluate tests): plan overlay is empty; auto still allows edit/write via overlay; `evaluatePermission` for edit under plan is **not** deny solely because of overlay (base policy may still deny).
-- New `debug_run` test: aborted `signal` returns an error result without waiting `timeoutMs`.
+- `lib/permission-policy.test.mjs` — drop “plan denies writes even before the tool filter lands”; assert plan overlay no longer writes `edit/write: deny`. Auto overlay tests stay.
+- New/updated mode tests: plan overlay is empty; auto still allows edit/write via overlay; `evaluatePermission` for edit under plan is **not** deny solely because of overlay (user base policy may still deny).
+- `debug_run`: aborted `signal` returns `isError` in well under `timeoutMs`. Abort may surface as `killed`; the test must not require the existing `"(timeout)"` string. Distinguishing abort from a full 30s wait is enough.
 
 ## Implementation order
 
 1. Extract `rpc-session-commands.ts` (behavior freeze). Typecheck.
-2. Delete plan overlay deny + stale comments. Tests for evaluate/overlay.
-3. `debug_run` honors `signal`. Test.
+2. Resume adopt+strip (`startRpcSession` omitted `toolNames`). Test that a plan-mode wrapper without a client `set_tools` does not expose `edit`/`write`.
+3. Delete plan overlay deny + update `permission-policy` comments/tests + stale comments.
+4. `debug_run` honors `signal`. Test.
 
-Each step is a committable unit. The slice is not done until all three land.
+Each step is a committable unit. The slice is not done until all four land. Resume adopt+strip uses `wrapper.mode` from `readGlobalAgentMode()` (already the constructor default).
 
 ## Error handling
 
