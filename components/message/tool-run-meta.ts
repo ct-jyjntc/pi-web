@@ -2,6 +2,7 @@
  * Tool-run grouping and title helpers for transcript scaffold lines.
  */
 import type { AssistantContentBlock, ToolCallContent } from "@/lib/types";
+import { scaffoldGroupFromCard, type ScaffoldGroup, type ToolCardKind } from "@/lib/tool-presentation";
 import type { TFn } from "./message-view-utils";
 import { getToolPreview } from "./message-view-utils";
 
@@ -14,23 +15,16 @@ export type DisplayItem =
   | { kind: "block"; item: BlockItem }
   | { kind: "run"; items: BlockItem[] };
 
-export function isEditToolName(toolName: string): boolean {
-  const name = toolName.toLowerCase();
-  return name === "edit" ||
-    name.startsWith("edit_") ||
-    name.endsWith(".edit") ||
-    name.endsWith("_edit") ||
-    name.includes("str_replace") ||
-    name.includes("replace_editor");
+function cardOf(block: ToolCallContent): ToolCardKind {
+  return block.presentation?.card ?? "generic";
 }
 
+function isCard(card: ToolCardKind): boolean {
+  return card === "diff" || card === "ask";
+}
 
-export function isCardToolName(toolName: string): boolean {
-  const n = toolName.toLowerCase();
-  if (isEditToolName(toolName)) return true;
-  if (n === "write" || n.startsWith("write_") || n.endsWith("_write") || n.endsWith(".write") || n.includes("write_file")) return true;
-  if (n.includes("ask") || n.includes("question") || n.includes("clarif") || n.includes("user")) return true;
-  return false;
+function targetOf(tc: ToolCallContent): string {
+  return tc.presentation?.title || tc.presentation?.preview || getToolPreview(tc) || tc.toolName;
 }
 
 /**
@@ -50,37 +44,31 @@ export function groupRunBlocks(blockItems: BlockItem[]): DisplayItem[] {
     run = [];
   };
   for (const item of blockItems) {
-    // Todo is hoisted to the session top bar — skip entirely from run groups.
-    if (item.block.type === "toolCall" && (item.block as ToolCallContent).toolName.toLowerCase() === "todo") {
-      flush();
-      continue;
+    if (item.block.type === "toolCall") {
+      const tc = item.block as ToolCallContent;
+      // Hoisted tools (todo) skip the transcript run group. Missing presentation is generic.
+      if (tc.presentation?.hoist) {
+        flush();
+        continue;
+      }
+      if (!isCard(cardOf(tc))) {
+        run.push(item);
+        continue;
+      }
     }
-    if (item.block.type === "toolCall" && !isCardToolName((item.block as ToolCallContent).toolName)) {
-      run.push(item);
-    } else {
-      flush();
-      out.push({ kind: "block", item });
-    }
+    flush();
+    out.push({ kind: "block", item });
   }
   flush();
   return out;
-}
-
-type RunCategory = "command" | "explore" | "other";
-
-export function runCategory(toolName: string): RunCategory {
-  const n = toolName.toLowerCase();
-  if (n.startsWith("bash") || n.includes("shell") || n.includes("terminal") || n.includes("exec")) return "command";
-  if (n === "read" || n === "grep" || n === "find" || n === "ls" || n.includes("search") || n.includes("list") || n.includes("glob")) return "explore";
-  return "other";
 }
 
 /** Settled group line — "Ran 5 commands · Read 3 files". Clause order is fixed. */
 export function settledRunLine(runs: ToolCallContent[], t: TFn): string {
   // Single call: name the target like Hermes ("Read foo.ts"), not "Read 1 file".
   if (runs.length === 1) return scaffoldToolTitle(runs[0]!, false, t);
-  const counts: Record<RunCategory, number> = { command: 0, explore: 0, other: 0 };
-  for (const tc of runs) counts[runCategory(tc.toolName)]++;
+  const counts: Record<ScaffoldGroup, number> = { command: 0, explore: 0, other: 0 };
+  for (const tc of runs) counts[scaffoldGroupFromCard(cardOf(tc))]++;
   const clauses: string[] = [];
   if (counts.command > 0) clauses.push(t(counts.command === 1 ? "toolRun.ranCommand" : "toolRun.ranCommands", { n: counts.command }));
   if (counts.explore > 0) clauses.push(t(counts.explore === 1 ? "toolRun.readFile" : "toolRun.readFiles", { n: counts.explore }));
@@ -95,8 +83,8 @@ export function liveRunLine(tc: ToolCallContent, t: TFn): string {
 
 /** One-line scaffold title for a single tool call (Hermes-style). */
 export function scaffoldToolTitle(tc: ToolCallContent, live: boolean, t: TFn): string {
-  const target = getToolPreview(tc) || tc.toolName;
-  const category = runCategory(tc.toolName);
+  const target = targetOf(tc);
+  const category = scaffoldGroupFromCard(cardOf(tc));
   if (live) {
     const key = category === "command" ? "toolRun.liveRunning" : category === "explore" ? "toolRun.liveReading" : "toolRun.liveUsing";
     return t(key, { target });
@@ -104,15 +92,3 @@ export function scaffoldToolTitle(tc: ToolCallContent, live: boolean, t: TFn): s
   const key = category === "command" ? "toolRun.settledRunning" : category === "explore" ? "toolRun.settledReading" : "toolRun.settledUsing";
   return t(key, { target });
 }
-
-/**
- * One collapsed line standing in for a group of consecutive run-tool calls.
- *
- * Live (message streaming with unfinished calls): a one-line ticker narrating
- * the most recent action, plus a done/total counter. Settled: a past-tense
- * summary line. Clicking unfolds the full ToolCallBlock rows.
- *
- * A group containing a failed call auto-unfurls (until the user folds it back)
- * so an error row is never swallowed into the summary.
- */
-

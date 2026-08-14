@@ -7,46 +7,20 @@ import { useLocale } from "@/hooks/useLocale";
 import { formatThoughtDuration } from "@/lib/message-display";
 import { MAX_DIFF_ROWS, parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { isRecord } from "@/lib/type-guards";
+import type { ToolCardKind } from "@/lib/tool-presentation";
 import type { ToolCallContent, ToolResultMessage } from "@/lib/types";
 import { getToolPreview } from "../message-view-utils";
-import { isCardToolName, isEditToolName, scaffoldToolTitle } from "../tool-run-meta";
+import { scaffoldToolTitle } from "../tool-run-meta";
 
-export function toolDisplayMeta(toolName: string): { label: string; accent: string; bg: string; border: string } {
-  const n = toolName.toLowerCase();
-  if (n === "todo") {
+export function cardChrome(card: ToolCardKind): { accent: string; bg: string; border: string } {
+  if (card === "ask") {
     return {
-      label: "todo",
-      accent: "var(--accent)",
-      bg: "color-mix(in oklab, var(--accent) 6%, var(--bg))",
-      border: "color-mix(in oklab, var(--accent) 28%, var(--border))",
-    };
-  }
-  if (n.includes("subagent") || n === "agent" || n.includes("delegate")) {
-    return {
-      label: toolName,
-      accent: "var(--success)",
-      bg: "color-mix(in oklab, var(--success) 7%, var(--bg))",
-      border: "color-mix(in oklab, var(--success) 30%, var(--border))",
-    };
-  }
-  if (n.includes("ask") || n.includes("question") || n.includes("user")) {
-    return {
-      label: toolName,
       accent: "var(--accent)",
       bg: "color-mix(in oklab, var(--accent) 5%, var(--bg))",
       border: "color-mix(in oklab, var(--accent) 25%, var(--border))",
     };
   }
-  if (n.includes("simplif") || n.includes("review")) {
-    return {
-      label: toolName,
-      accent: "var(--text)",
-      bg: "var(--bg-panel)",
-      border: "var(--border)",
-    };
-  }
   return {
-    label: toolName,
     accent: "var(--success)",
     bg: "var(--success-bg)",
     border: "var(--success-border)",
@@ -74,36 +48,38 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   nested?: boolean;
 }) {
   const { t } = useLocale();
-  const isEditTool = isEditToolName(block.toolName);
-  const isCard = isCardToolName(block.toolName);
+  const card = block.presentation?.card ?? "generic";
+  const isCard = card === "diff" || card === "ask";
+  const isDiffCard = card === "diff";
   const resultText = result
     ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "" || resultText.trim() === "（无输出）");
   const isError = result?.isError ?? false;
-  const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+  const resultDiff = block.presentation?.patch ? { text: block.presentation.patch } : null;
   const pending = Boolean(isStreaming) && !result;
 
   const [scaffoldUserOpen, setScaffoldUserOpen] = useState<boolean | null>(null);
   const [cardUserOpen, setCardUserOpen] = useState<boolean | null>(null);
   // Errors stay folded by default — the red title marks the row; click to unfold.
   const scaffoldExpanded = scaffoldUserOpen ?? false;
-  const cardExpanded = cardUserOpen ?? (isEditTool && !isError);
+  const cardExpanded = cardUserOpen ?? (isDiffCard && !isError);
   const showScaffoldArgs = !isCard && scaffoldExpanded;
-  const showCardArgs = isCard && cardExpanded && !isEditTool;
+  const showCardArgs = isCard && cardExpanded && !isDiffCard;
   const showInputArgs = showScaffoldArgs || showCardArgs;
   const inputStr = useMemo(
     () => (showInputArgs ? JSON.stringify(block.input, null, 2) : ""),
     [showInputArgs, block.input],
   );
-  const editMeta = result && !result.isError && isEditTool ? getEditResultMeta(result) : null;
-  const editFailureKind = isEditTool && isError ? parseEditFailureKind(resultText) : null;
-  const meta = toolDisplayMeta(block.toolName);
+  const editMeta = result && !result.isError && isDiffCard ? getEditResultMeta(result) : null;
+  const editFailureKind = isDiffCard && isError ? parseEditFailureKind(resultText) : null;
+  const meta = cardChrome(card);
+  const preview = block.presentation?.title || block.presentation?.preview || getToolPreview(block);
   const longResult = (resultText?.length ?? 0) > 1200;
   const showResultCollapsed = isCard && !cardExpanded && !isError && result && longResult && !resultDiff;
 
   // ── Hermes scaffold row for activity tools (read/bash/grep/…) ──────────
-  // Default collapsed one-liner; expand for args/result. Cards (edit/write/ask)
+  // Default collapsed one-liner; expand for args/result. Cards (diff/ask)
   // keep the heavier bordered chrome below.
   if (!isCard) {
     const title = scaffoldToolTitle(block, pending, t);
@@ -238,7 +214,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
     );
   }
 
-  // ── Card tools (edit / write / ask) — keep full chrome + diffs ─────────
+  // ── Card tools (diff / ask) — keep full chrome + diffs ─────────
   return (
     <div
       style={{
@@ -269,7 +245,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         }}
       >
         <span style={{ color: isError ? "var(--destructive)" : meta.accent, fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
-          {meta.label}
+          {block.toolName}
         </span>
         {editFailureKind && (
           <span
@@ -327,7 +303,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
           </span>
         )}
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-          {getToolPreview(block)}
+          {preview}
         </span>
         {duration !== undefined && (
           <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
@@ -646,31 +622,6 @@ export function PatchTextView({ text }: { text: string }) {
       })}
     </div>
   );
-}
-
-export function getResultDiff(result: ToolResultMessage): ResultDiff | null {
-  const details = (result as ToolResultMessage & { details?: unknown }).details;
-  if (!isRecord(details)) return null;
-
-  const patch = typeof details.patch === "string" ? details.patch : null;
-  if (patch) return { text: patch };
-
-  const diff = typeof details.diff === "string" ? details.diff : null;
-  if (diff) return { text: diff };
-
-  // Nested hashline multi-result: concatenate per-file patches
-  const results = details.results;
-  if (Array.isArray(results)) {
-    const parts: string[] = [];
-    for (const row of results) {
-      if (!isRecord(row)) continue;
-      const p = typeof row.patch === "string" ? row.patch : typeof row.diff === "string" ? row.diff : null;
-      if (p) parts.push(p);
-    }
-    if (parts.length > 0) return { text: parts.join("\n") };
-  }
-
-  return null;
 }
 
 export function getEditResultMeta(result: ToolResultMessage): { mode?: string; modeLabel: string; tag?: string } | null {

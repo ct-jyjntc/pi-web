@@ -55,7 +55,7 @@ export type HashlineResult = {
   summary?: string;
   /** Unified diff for chat UI (SplitPatchView). */
   diff?: string;
-  /** Alias of diff for MessageView.getResultDiff. */
+  /** Alias of diff for presentation.patch / patchFromToolDetails. */
   patch?: string;
   /** Human notes e.g. SWAP.BLK 1 → lines 1-4 */
   resolved?: string[];

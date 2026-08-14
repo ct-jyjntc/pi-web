@@ -44,6 +44,7 @@ export function patchFromToolDetails(details: unknown): string | null {
   if (!isRecord(details)) return null;
   if (typeof details.patch === "string" && details.patch) return details.patch;
   if (typeof details.diff === "string" && details.diff) return details.diff;
+  // Nested hashline multi-result: concatenate per-file patches.
   const results = details.results;
   if (!Array.isArray(results)) return null;
   const parts: string[] = [];
