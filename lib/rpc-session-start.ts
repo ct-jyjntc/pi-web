@@ -37,6 +37,7 @@ import {
   getStartingSessionCwds,
   normalizeRpcCwd,
 } from "./rpc-registry";
+import { resolveToolAdoption } from "./rpc-session-tool-adoption";
 
 /**
  * One-shot env / package migration / prewarm. Used to live as rpc-manager.ts
@@ -192,24 +193,21 @@ export async function startRpcSession(
     });
 
     wrapper = new AgentSessionWrapper(inner, cwd);
-    // If specific tool names were requested (non-empty), set the active tools to the
-    // requested builtin coding tools PLUS all extension/package tools, so installed
-    // extensions stay usable in Pi Web just like in the `pi` CLI. Routed through the
-    // wrapper so the agent mode's filter (plan drops edit/write) applies from turn one.
-    if (toolNames && toolNames.length > 0) {
-      wrapper.adoptBaseToolNames(toolNames);
+    // Omitted toolNames (resume / reconnect) still adopts the full coding list so
+    // wrapper.mode can strip edit/write in plan without waiting for client set_tools.
+    // [] stays all-off. Explicit names are adopted as given. Never pass a non-empty
+    // allow-list into createAgentSessionFromServices — that drops extension tools.
+    const adoption = resolveToolAdoption(toolNames);
+    if (adoption.kind === "all-off") {
+      wrapper.setForceEmptySystemPrompt(true);
+    } else {
+      wrapper.adoptBaseToolNames(adoption.names);
     }
     try {
       const status = getProjectTrustStatus(cwd, agentDir);
       inner.settingsManager.setProjectTrusted?.(status.trusted);
     } catch {
       // ignore missing setProjectTrusted
-    }
-    // When all tools are disabled, clear the system prompt entirely.
-    // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
-    // keep this forced after extension resource discovery and reloads as well.
-    if (toolNames?.length === 0) {
-      wrapper.setForceEmptySystemPrompt(true);
     }
     wrapper.start();
 
