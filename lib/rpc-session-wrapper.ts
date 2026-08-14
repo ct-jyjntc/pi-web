@@ -1,35 +1,26 @@
 /**
- * In-process AgentSession wrapper: command switch, extension UI, idle shutdown.
+ * In-process AgentSession wrapper: extension UI, idle shutdown.
+ * RPC command dispatch lives in rpc-session-commands.ts.
  * Registry and start live in sibling modules; public API via rpc-manager.ts.
  */
 
-import { getAgentDir, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, writeFileSync } from "fs";
 import { peekAgentQueueImages, validateAgentImages } from "./image-attachments";
-import { invalidateModelsCache } from "./models-cache";
-import { invalidateUtilityModelRuntimes } from "./utility-model";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus } from "./project-trust";
 
-import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike } from "./pi-types";
-import { MEMORY_CONTEXT_CUSTOM_TYPE, AGENT_MODE_BRIEF_CUSTOM_TYPE, type ExtensionUiRequest, type ExtensionUiResponse, type ExtensionWidgetItem } from "./types";
+import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
-import { buildQueryMemoryContext } from "./memory-context";
-import { resolveContextUsageForUi } from "./context-usage";
-import { beginAgentTurn, sealAgentTurn } from "./workspace-turn-journal";
-import { foldProjections } from "./session-projections";
+import { sealAgentTurn } from "./workspace-turn-journal";
+import { dispatchRpcSessionCommand } from "./rpc-session-commands";
 
 export interface AgentEvent {
   type: string;
   [key: string]: unknown;
-}
-
-function resolveSessionContextUsage(session: AgentSessionLike) {
-  const messages = (session as AgentSessionLike & { messages?: unknown[] }).messages;
-  return resolveContextUsageForUi(session.getContextUsage(), messages);
 }
 
 type EventListener = (event: AgentEvent) => void;
@@ -72,8 +63,7 @@ type ExtensionBindingOptions = {
 };
 
 import { agentModeStripsWriteTools, parseAgentMode, type AgentMode } from "./agent-mode";
-import { agentModeBrief } from "./agent-mode-brief";
-import { persistGlobalAgentMode, readGlobalAgentMode } from "./global-agent-mode";
+import { readGlobalAgentMode } from "./global-agent-mode";
 export type { AgentMode } from "./agent-mode";
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -130,23 +120,27 @@ export class AgentSessionWrapper {
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
   private activeCustomUis = new Map<string, ActiveCustomUi>();
-  private extensionStatuses = new Map<string, string>();
-  private extensionWidgets = new Map<string, ExtensionWidgetItem>();
+  /** @internal */
+  extensionStatuses = new Map<string, string>();
+  /** @internal */
+  extensionWidgets = new Map<string, ExtensionWidgetItem>();
   /** Live factory widgets that re-render via tui.requestRender(). */
   private widgetFactories = new Map<string, {
     component: CustomUiComponent;
     tui: ReturnType<typeof createHeadlessCustomUiTui>;
     placement: "aboveEditor" | "belowEditor" | "topBar";
   }>();
-  private promptRunning = false;
-  /** Set by abort; prompt checks this after any await so Stop cannot lose a race. */
-  private abortRequested = false;
-  /** Last per-prompt memory recall block queued for this session (dedupe guard). */
-  private lastMemoryContextBlock: string | null = null;
+  /** @internal */
+  promptRunning = false;
+  /** Set by abort; prompt checks this after any await so Stop cannot lose a race. @internal */
+  abortRequested = false;
+  /** Last per-prompt memory recall block queued for this session (dedupe guard). @internal */
+  lastMemoryContextBlock: string | null = null;
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
-  private forceEmptySystemPrompt = false;
+  /** @internal */
+  forceEmptySystemPrompt = false;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
@@ -157,10 +151,11 @@ export class AgentSessionWrapper {
   /**
    * Unified agent mode: ask / auto / plan / yolo. Loaded from the global
    * preference so a new wrapper matches the last user selection.
+   * @internal
    */
-  private mode: AgentMode = readGlobalAgentMode();
-  /** Mode whose brief the model has already been given (re-sent on each switch). */
-  private briefedMode: AgentMode | null = null;
+  mode: AgentMode = readGlobalAgentMode();
+  /** Mode whose brief the model has already been given (re-sent on each switch). @internal */
+  briefedMode: AgentMode | null = null;
 
 
   constructor(
@@ -294,7 +289,8 @@ export class AgentSessionWrapper {
     return this.extensionBindingPromise;
   }
 
-  private async waitForExtensionsBound(): Promise<void> {
+  /** @internal */
+  async waitForExtensionsBound(): Promise<void> {
     if (!this.extensionBindingPromise) {
       // No binding in flight — (re)try it now. Since a failed attempt clears
       // its cached promise, this is also the retry path after a failure.
@@ -313,14 +309,16 @@ export class AgentSessionWrapper {
       || type === "get_commands" || type === "set_tools";
   }
 
-  private applyForcedEmptySystemPrompt(): void {
+  /** @internal */
+  applyForcedEmptySystemPrompt(): void {
     if (this.forceEmptySystemPrompt && this.inner.agent.state) {
       this.inner.agent.state.systemPrompt = "";
     }
   }
 
 
-  private emit(event: AgentEvent): void {
+  /** @internal */
+  emit(event: AgentEvent): void {
     for (const l of this.listeners) {
       try {
         l(event);
@@ -330,7 +328,8 @@ export class AgentSessionWrapper {
     }
   }
 
-  private resetIdleTimer(): void {
+  /** @internal */
+  resetIdleTimer(): void {
     // Never revive timers on a destroyed wrapper (in-flight send after destroy).
     if (!this._alive) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
@@ -370,7 +369,8 @@ export class AgentSessionWrapper {
     cacheSessionPath(this.inner.sessionId, sessionFile);
   }
 
-  private persistBashOnlySession(): void {
+  /** @internal */
+  persistBashOnlySession(): void {
     this.ensureSessionPersisted();
   }
 
@@ -408,405 +408,7 @@ export class AgentSessionWrapper {
       if (imageError) throw new Error(imageError);
     }
 
-    switch (type) {
-      case "prompt": {
-        if (!this._alive) throw new Error("Session destroyed");
-        if (this.abortRequested) {
-          try { await this.inner.abort(); } catch { /* killed */ }
-          this.abortRequested = false;
-          this.promptRunning = false;
-        }
-        if (this.inner.isBashRunning) {
-          throw new Error("Cannot send a prompt while a shell command is running");
-        }
-        // Reject concurrent prompts (multi-tab / overlapping POSTs). Steer/follow_up
-        // remain available for mid-turn queueing via their own commands.
-        if (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting) {
-          throw new Error("Cannot send a prompt while the session is busy");
-        }
-        // Fire and forget — events come via subscribe
-        const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
-        // Hermes-style query-aware recall: facts relevant to THIS message go to
-        // the model as a hidden nextTurn custom message — the LLM sees them via
-        // convertToLlm, but they never render in the transcript. Skipped when
-        // tools (and thus memory) are fully disabled for the session.
-        if (!this.forceEmptySystemPrompt && typeof command.message === "string") {
-          try {
-            const memoryContext = buildQueryMemoryContext(this.cwd, command.message);
-            if (memoryContext && memoryContext !== this.lastMemoryContextBlock) {
-              this.lastMemoryContextBlock = memoryContext;
-              await this.inner.sendCustomMessage(
-                { customType: MEMORY_CONTEXT_CUSTOM_TYPE, content: memoryContext, display: false },
-                { deliverAs: "nextTurn" },
-              );
-            }
-          } catch (error) {
-            // Memory recall must never block a prompt.
-            console.error("[pi-web] memory context injection failed:", error instanceof Error ? error.message : error);
-          }
-        }
-        // Tell the model what the mode expects of it. Delivered once per switch
-        // into the mode rather than per turn, so a long plan session doesn't
-        // accumulate copies of the same brief in context.
-        if (!this.forceEmptySystemPrompt) {
-          const brief = agentModeBrief(this.mode);
-          if (brief && this.briefedMode !== this.mode) {
-            try {
-              this.briefedMode = this.mode;
-              await this.inner.sendCustomMessage(
-                { customType: AGENT_MODE_BRIEF_CUSTOM_TYPE, content: brief, display: false },
-                { deliverAs: "nextTurn" },
-              );
-            } catch (error) {
-              console.error("[pi-web] agent mode brief injection failed:", error instanceof Error ? error.message : error);
-            }
-          }
-        }
-        if (this.abortRequested) {
-          this.emit({ type: "prompt_done" });
-          return null;
-        }
-        this.promptRunning = true;
-        try {
-          // Capture the pre-prompt leaf so /undo can navigate_tree back here
-          // (before this user turn + assistant replies).
-          let leafId: string | undefined;
-          try {
-            const sm = this.inner.sessionManager as {
-              getLeafId?: () => string | null;
-              getLeafEntry?: () => { id?: string } | null;
-            };
-            leafId = sm.getLeafId?.() ?? sm.getLeafEntry?.()?.id ?? undefined;
-          } catch {
-            leafId = undefined;
-          }
-          beginAgentTurn(this.inner.sessionId, leafId ? { userEntryId: leafId } : undefined);
-        } catch {
-          // Journal open is best-effort.
-        }
-        this.inner.prompt(command.message as string, {
-          ...(promptImages?.length ? { images: promptImages } : {}),
-          ...(streamingBehavior ? { streamingBehavior } : {}),
-          source: "rpc",
-        }).then(() => {
-          this.promptRunning = false;
-          this.resetIdleTimer();
-          // Seal if agent_end was missed (e.g. no model stream).
-          try {
-            sealAgentTurn(this.inner.sessionId);
-          } catch {
-            // ignore
-          }
-          if (!this._alive) return;
-          if (!streamingBehavior) this.emit({ type: "prompt_done" });
-        }).catch((error) => {
-          this.promptRunning = false;
-          this.resetIdleTimer();
-          try {
-            sealAgentTurn(this.inner.sessionId);
-          } catch {
-            // ignore
-          }
-          if (!this._alive) return;
-          invalidateSessionListCache();
-          this.emit({
-            type: "prompt_error",
-            errorMessage: error instanceof Error ? error.message : String(error),
-          });
-          if (!streamingBehavior) this.emit({ type: "prompt_done" });
-        });
-        return null;
-      }
-
-      case "abort": {
-        this.abortRequested = true;
-        this.cancelPendingExtensionUi();
-        const recalled = this.recallQueue();
-        if (this.inner.isBashRunning) this.inner.abortBash();
-        try { this.inner.abortCompaction(); } catch { /* ignore */ }
-        this.promptRunning = false;
-        // Kill now — do not waitForIdle. Stop must return like kill(1).
-        void this.inner.abort().catch(() => {});
-        this.emit({ type: "prompt_done" });
-        return recalled;
-      }
-
-      case "get_state": {
-        const model = this.inner.model;
-        const contextUsage = resolveSessionContextUsage(this.inner);
-        return {
-          sessionId: this.inner.sessionId,
-          sessionFile: this.inner.sessionFile ?? "",
-          isStreaming: this.isStreaming,
-          isPromptRunning: this.promptRunning && !this.abortRequested,
-          isBashRunning: this.inner.isBashRunning && !this.abortRequested,
-          isCompacting: this.inner.isCompacting && !this.abortRequested,
-          autoCompactionEnabled: this.inner.autoCompactionEnabled,
-          autoRetryEnabled: this.inner.autoRetryEnabled,
-          model: model ? { id: model.id, provider: model.provider } : undefined,
-          pendingMessageCount: this.inner.pendingMessageCount,
-          queuedMessages: {
-            steering: [...this.inner.getSteeringMessages()],
-            followUp: [...this.inner.getFollowUpMessages()],
-          },
-          contextUsage,
-          projections: foldProjections({
-            sessionId: this.inner.sessionId,
-            title: this.inner.sessionManager.getSessionName() ?? null,
-            messages: this.inner.agent.state?.messages ?? [],
-            contextPressure: contextUsage ?? null,
-            sessionFile: this.inner.sessionFile,
-          }),
-          thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
-          mode: this.mode,
-          extensionStatuses: this.getExtensionStatuses(),
-          extensionWidgets: this.getExtensionWidgets(),
-        };
-      }
-
-      case "set_model": {
-        const { provider, modelId } = command as { provider: string; modelId: string };
-        let model = this.inner.modelRuntime.getModel(provider, modelId);
-        if (!model) {
-          // Reload models.json / providers so newly configured models appear.
-          await this.inner.modelRuntime.refresh({ allowNetwork: false });
-          model = this.inner.modelRuntime.getModel(provider, modelId);
-        }
-        if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
-        await this.inner.setModel(model);
-        invalidateModelsCache();
-        invalidateUtilityModelRuntimes();
-        invalidateSessionListCache();
-        return { id: model.id, provider: model.provider };
-      }
-
-      case "fork": {
-        if (this.inner.isBashRunning) {
-          throw new Error("Cannot fork while a shell command is running");
-        }
-        if (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting) {
-          throw new Error("Cannot fork while the session is busy");
-        }
-        const entryId = command.entryId as string;
-        const sessionManager = this.inner.sessionManager;
-        const currentSessionFile = this.inner.sessionFile;
-
-        if (!sessionManager.isPersisted()) return { cancelled: true };
-        if (!currentSessionFile) throw new Error("Persisted session is missing a session file");
-
-        const entry = sessionManager.getEntry(entryId);
-        if (!entry) throw new Error("Invalid entry ID for forking");
-
-        const sessionDir = sessionManager.getSessionDir();
-        let newSessionFile: string;
-
-        if (!entry.parentId) {
-          // Fork before the first message: create an empty session linked to this one
-          const newManager = SessionManager.create(sessionManager.getCwd(), sessionDir);
-          newManager.newSession({ parentSession: currentSessionFile });
-          newSessionFile = newManager.getSessionFile() as string;
-        } else {
-          // Fork after some history: copy path up to (but not including) the fork point
-          const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
-          const forkedPath = sourceManager.createBranchedSession(entry.parentId);
-          if (!forkedPath) throw new Error("Failed to create forked session");
-          newSessionFile = forkedPath;
-        }
-
-        const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
-        cacheSessionPath(newSessionId, newSessionFile);
-        invalidateSessionListCache();
-        await this.shutdown();
-        return { cancelled: false, newSessionId };
-      }
-
-      case "navigate_tree": {
-        if (this.inner.isBashRunning) {
-          throw new Error("Cannot navigate while a shell command is running");
-        }
-        const result = await this.inner.navigateTree(command.targetId as string, {});
-        return { cancelled: result.cancelled };
-      }
-
-      case "set_thinking_level": {
-        const level = command.level as string;
-        this.inner.setThinkingLevel(level);
-        // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
-        // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),
-        // force the state back so the compat layer can use it correctly.
-        if (level === "xhigh" && (this.inner.model as { compat?: { thinkingFormat?: string } } | null)?.compat?.thinkingFormat === "deepseek" && this.inner.agent?.state) {
-          this.inner.agent.state.thinkingLevel = "xhigh";
-        }
-        invalidateSessionListCache();
-        return null;
-      }
-
-      case "compact": {
-        try {
-          const result = await this.inner.compact(command.customInstructions as string | undefined);
-          // Attach post-compaction UI usage so clients don't wait for the next reply.
-          if (result && typeof result === "object") {
-            return {
-              ...(result as Record<string, unknown>),
-              contextUsage: resolveSessionContextUsage(this.inner),
-            };
-          }
-          return result;
-        } finally {
-          invalidateSessionListCache();
-        }
-      }
-
-      case "set_session_name": {
-        const name = (command.name as string | undefined)?.trim();
-        if (!name) throw new Error("Session name cannot be empty");
-        this.inner.setSessionName(name);
-        invalidateSessionListCache();
-        return null;
-      }
-
-      case "get_session_stats": {
-        return {
-          ...this.inner.getSessionStats(),
-          sessionName: this.inner.sessionManager.getSessionName(),
-        };
-      }
-
-      case "get_last_assistant_text": {
-        return { text: this.inner.getLastAssistantText() ?? "" };
-      }
-
-      case "set_auto_compaction": {
-        this.inner.setAutoCompactionEnabled(command.enabled as boolean);
-        return null;
-      }
-
-      case "clear_queue": {
-        // Full clear only: pi has no single-item dequeue, and clear+requeue
-        // races against the agent loop pulling messages mid-flight.
-        return this.recallQueue();
-      }
-
-      case "steer": {
-        const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
-        return null;
-      }
-
-      case "follow_up": {
-        const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
-        return null;
-      }
-
-      case "get_commands": {
-        const commands: SlashCommandInfo[] = [];
-        for (const registered of this.inner.extensionRunner.getRegisteredCommands()) {
-          commands.push({
-            name: registered.invocationName,
-            description: registered.description,
-            source: "extension",
-            sourceInfo: registered.sourceInfo,
-          });
-        }
-        for (const template of this.inner.promptTemplates) {
-          commands.push({
-            name: template.name,
-            description: template.description,
-            source: "prompt",
-            sourceInfo: template.sourceInfo,
-          });
-        }
-        for (const skill of this.inner.resourceLoader.getSkills().skills) {
-          commands.push({
-            name: `skill:${skill.name}`,
-            description: skill.description,
-            source: "skill",
-            sourceInfo: skill.sourceInfo,
-          });
-        }
-        return { commands };
-      }
-
-      case "set_tools": {
-        const toolNames = command.toolNames as string[];
-        this.setForceEmptySystemPrompt(toolNames.length === 0);
-        this.adoptBaseToolNames(toolNames);
-        this.applyForcedEmptySystemPrompt();
-        return null;
-      }
-
-      case "set_mode": {
-        // Writes pi-web.json + yoloMode and applies to all live wrappers.
-        const next = persistGlobalAgentMode(parseAgentMode(command.mode));
-        return { mode: next };
-      }
-
-
-      case "reload": {
-        await this.waitForExtensionsBound();
-        this.extensionStatuses.clear();
-        this.extensionWidgets.clear();
-        this.syncProjectTrust();
-        await this.inner.reload();
-        if (typeof this.inner.bindExtensions !== "function") {
-          this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
-        }
-        this.applyForcedEmptySystemPrompt();
-        invalidateModelsCache();
-        invalidateUtilityModelRuntimes();
-        return { success: true };
-      }
-
-      case "abort_compaction": {
-        this.inner.abortCompaction();
-        return null;
-      }
-
-      case "extension_ui_response": {
-        this.resolveExtensionUiResponse(command as ExtensionUiResponse);
-        return null;
-      }
-
-      case "extension_ui_input": {
-        this.handleExtensionUiInput(command.id as string, command.data as string);
-        return null;
-      }
-
-      case "set_auto_retry": {
-        this.inner.setAutoRetryEnabled(command.enabled as boolean);
-        return null;
-      }
-
-      case "bash": {
-        if (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
-          throw new Error("Cannot run a shell command while the session is busy");
-        }
-        const execution = this.inner.executeBash(
-          command.command as string,
-          undefined,
-          { excludeFromContext: command.excludeFromContext as boolean | undefined },
-        );
-        try {
-          const result = await execution;
-          this.persistBashOnlySession();
-          return result;
-        } finally {
-          this.resetIdleTimer();
-          invalidateSessionListCache();
-        }
-      }
-
-      case "abort_bash": {
-        this.inner.abortBash();
-        return null;
-      }
-
-      default:
-        throw new Error(`Unsupported command: ${type}`);
-    }
+    return dispatchRpcSessionCommand(this, type, command);
   }
 
   /** Plan strips write tools; ask/auto/yolo keep the full allow-list. */
@@ -922,8 +524,8 @@ export class AgentSessionWrapper {
     return this.shutdownPromise;
   }
 
-  /** Drop queued steer/follow-up so a Stop cannot be continued by leftover messages. */
-  private recallQueue() {
+  /** Drop queued steer/follow-up so a Stop cannot be continued by leftover messages. @internal */
+  recallQueue() {
     const images = peekAgentQueueImages(this.inner.agent);
     const cleared = this.inner.clearQueue();
     return {
@@ -933,23 +535,26 @@ export class AgentSessionWrapper {
     };
   }
 
-  /** Unblock tool_call / ask-user waits and tell the renderer to close the dialog. */
-  private cancelPendingExtensionUi(): void {
+  /** Unblock tool_call / ask-user waits and tell the renderer to close the dialog. @internal */
+  cancelPendingExtensionUi(): void {
     for (const pending of [...this.pendingUiResponses.values()]) pending.cancel();
     for (const id of [...this.activeCustomUis.keys()]) this.closeCustomUi(id, undefined);
   }
 
-  private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
+  /** @internal */
+  resolveExtensionUiResponse(response: ExtensionUiResponse): void {
     const pending = this.pendingUiResponses.get(response.id);
     if (!pending) return;
     pending.resolve(response);
   }
 
-  private getExtensionStatuses(): Array<{ key: string; text: string }> {
+  /** @internal */
+  getExtensionStatuses(): Array<{ key: string; text: string }> {
     return Array.from(this.extensionStatuses, ([key, text]) => ({ key, text }));
   }
 
-  private getExtensionWidgets(): ExtensionWidgetItem[] {
+  /** @internal */
+  getExtensionWidgets(): ExtensionWidgetItem[] {
     return Array.from(this.extensionWidgets.values());
   }
 
@@ -1042,7 +647,8 @@ export class AgentSessionWrapper {
     custom.resolve(value);
   }
 
-  private handleExtensionUiInput(id: string, data: string): void {
+  /** @internal */
+  handleExtensionUiInput(id: string, data: string): void {
     const custom = this.activeCustomUis.get(id);
     if (!custom || typeof data !== "string") return;
     try {
@@ -1176,7 +782,8 @@ export class AgentSessionWrapper {
     });
   }
 
-  private createExtensionUiContext(): ExtensionUiContextLike {
+  /** @internal */
+  createExtensionUiContext(): ExtensionUiContextLike {
     return {
       select: (title, options, opts) => this.requestExtensionUi(
         { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
@@ -1366,7 +973,8 @@ export class AgentSessionWrapper {
     };
   }
 
-  private syncProjectTrust(): void {
+  /** @internal */
+  syncProjectTrust(): void {
     try {
       const status = getProjectTrustStatus(this.cwd, getAgentDir());
       this.inner.settingsManager.setProjectTrusted?.(status.trusted);
