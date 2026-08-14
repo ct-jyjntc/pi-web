@@ -22,7 +22,7 @@ export type Task = {
   metadata?: Record<string, unknown>;
 };
 
-type TaskState = { tasks: Task[]; nextId: number };
+export type TaskState = { tasks: Task[]; nextId: number };
 
 type TaskDetails = {
   action: TaskAction;
@@ -72,6 +72,11 @@ function getState(key: string): TaskState {
   const empty = { tasks: [] as Task[], nextId: 1 };
   store.set(key, empty);
   return empty;
+}
+
+/** Non-creating read. Do not use getState() here — it inserts an empty list. */
+export function peekTodoState(sessionId: string): TaskState | undefined {
+  return store.get(sessionId);
 }
 
 function setState(key: string, state: TaskState): void {
