@@ -2,8 +2,8 @@
 import { patchFromToolDetails, type ToolPresenter } from "../tool-presentation";
 import { isRecord } from "../type-guards";
 
-/** Same shape as hashline-parse SECTION_RE — header only, no op parse. */
-const HASHLINE_HEADER_RE = /\[(.+?)#([0-9A-Fa-f]{4})\]/g;
+/** Same shape as hashline-parse SECTION_RE — whole-line header only, no op parse. */
+const HASHLINE_HEADER_RE = /^\[(.+?)#([0-9A-Fa-f]{4})\]\s*$/gm;
 
 function pathsFromHashlineInput(input: string): string[] {
   const out: string[] = [];
@@ -36,24 +36,14 @@ function resultPaths(details: unknown): string[] {
   return out;
 }
 
-function unique(paths: string[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const path of paths) {
-    if (seen.has(path)) continue;
-    seen.add(path);
-    out.push(path);
-  }
-  return out;
-}
-
 export const editPresenter: ToolPresenter = {
   presentCall(args) {
     const locations = pathOf(args);
     return { card: "diff", title: locations[0] ?? "edit", locations: locations.length ? locations : undefined };
   },
   presentResult(args, result) {
-    const locations = unique([...pathOf(args), ...resultPaths(result.details)]);
+    const fromArgs = pathOf(args);
+    const locations = fromArgs.length ? fromArgs : resultPaths(result.details);
     return {
       card: "diff",
       title: locations[0] ?? "edit",
