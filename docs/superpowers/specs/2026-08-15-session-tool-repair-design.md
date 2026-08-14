@@ -17,7 +17,7 @@ DSH cold-load appends synthetic error results. Pi Web has no load-time pairing. 
 
 ## Goals
 
-1. After repair, the leaf used for the next model request has a result for every tool call.
+1. After repair, the leaf used for the next **`prompt`** has a result for every tool call. Compact / auto-compact are out of scope.
 2. Append-only. Second open adds zero rows.
 3. Do not mutate GET / `session-entries` / `convertToLlm`.
 4. Do not add a sixth run-lifecycle recovery path.
@@ -34,27 +34,39 @@ DSH cold-load appends synthetic error results. Pi Web has no load-time pairing. 
 ## Architecture
 
 ```
-SessionManager.open
-    │
-    ├─ live wrapper? → skip
-    ├─ messages = buildSessionContext().messages
-    ├─ unmatchedToolCallIds(messages)
-    └─ appendMessage(error toolResult) × N
-         then createAgentSessionFromServices
+startRpcSession (no live wrapper)
+    SessionManager.open
+    msgs = sessionManager.buildSessionContext().messages
+           (this instance — not the session-entries read cache)
+    repair → sessionManager.appendMessage(closer) × N
+    createAgentSessionFromServices
+           (snapshots context after closers)
 
-prompt
-    │
-    ├─ streaming / prompt running? → skip
-    └─ same repair on agent.state.messages
+prompt (live wrapper)
+    existing abort flush + busy reject
+           (already prompting / streaming / compacting)
+    repair:
+      sessionManager.appendMessage(closer)
+      AND the same closer onto agent.state.messages
+          (push, or replace array from sessionManager.buildSessionContext())
+    then promptRunning = true
+    then inner.prompt
 ```
+
+`Agent.prompt` / `convertToLlm` read `agent.state.messages` and do **not** reload from the manager. Disk-only on a live wrapper leaves the next provider call broken. Memory-only leaves the next crash broken.
+
+Both writes happen **before** `promptRunning = true` and **before** `inner.prompt`, so closers parent before the new user row.
+
+Do **not** skip because you just set `promptRunning`. Reuse the existing busy reject; then repair; then set the flag.
+
+Skip the **open** path when `getRpcSession(id)?.isAlive()` (do not rewrite a live turn).
 
 | Semantic | Owner |
 |---|---|
-| Pairing + append | **new** `lib/session-tool-repair.ts` |
+| Pairing + closer object | **new** `lib/session-tool-repair.ts` |
+| Persist | `sessionManager.appendMessage` on the start/live manager (never `getSessionManager()` cache) |
 | Cold call | `lib/rpc-session-start.ts` after `open`, before `createAgentSessionFromServices` |
-| Warm call | `lib/rpc-session-commands.ts` `prompt` case, before `inner.prompt` |
-
-Skip repair when `getRpcSession(id)?.isAlive()` on the **open** path (do not rewrite a live turn). Skip on **prompt** when `inner.isStreaming` or `isPromptRunning`.
+| Warm call | `lib/rpc-session-commands.ts` `prompt`, after abort flush + busy reject, before `promptRunning = true` |
 
 ## Closer shape
 
@@ -64,6 +76,7 @@ Skip repair when `getRpcSession(id)?.isAlive()` on the **open** path (do not rew
   toolCallId,
   toolName, // copied from the unmatched toolCall
   isError: true,
+  timestamp: Date.now(),
   content: [{ type: "text", text: INTERRUPTED_TOOL_RESULT_TEXT }],
 }
 
@@ -79,31 +92,33 @@ Pairing: `normalizeToolCalls` first; a `toolResult.toolCallId` closes the `toolC
 
 **New**
 
-- `lib/session-tool-repair.ts` — `unmatchedToolCallIds`, `repairUnmatchedToolCalls`, constant text.
+- `lib/session-tool-repair.ts` — `unmatchedToolCallIds`, `buildInterruptedToolResult`, `repairUnmatchedToolCalls`.
 - `lib/session-tool-repair.test.mjs`
 
 **Modified**
 
 - `lib/rpc-session-start.ts` — one call after open; skip if live wrapper.
-- `lib/rpc-session-commands.ts` — one call at `prompt`; skip if streaming.
+- `lib/rpc-session-commands.ts` — persist **and** update `agent.state.messages` at `prompt` as specified.
 
-`appendMessage` goes through the SDK `SessionManager` already opened in start (write-capable). Do not use the read-only entries cache.
+`appendMessage` uses the SDK `SessionManager` already opened in start (write-capable). Do not append on the read-only entries cache.
 
 ## Tests
 
-1. Unmatched call → one append, id/name/`isError`/fixed text.
-2. Already paired → 0.
-3. After simulated append, second `repairUnmatchedToolCalls` → 0.
+1. Unmatched call → one closer object, id/name/`isError`/fixed text.
+2. Already paired → 0 unmatched.
+3. After applying closers to the list, second scan → 0.
 4. Two unmatched → 2.
-5. Live-wrapper skip: if the start path is hard to unit-test, test a `shouldRepairOnOpen({ alive })` helper or document the skip in the start test if one exists.
+5. `shouldRepairOnOpen({ alive: true })` is false.
 
-Optional: temp jsonl + `SessionManager.open` → last `convertToLlm` message is `toolResult`. Skip if the SDK harness is too heavy for this slice.
+Warm-path contract (unit or comment + small helper): `repairLiveAgentMessages` returns `{ persist, nextMessages }` so prompt can append then assign `agent.state.messages`.
+
+Optional: temp jsonl + `SessionManager.open` if cheap. Skip if the SDK harness is too heavy.
 
 ## Implementation order
 
 1. Pure functions + tests.
 2. Hook `startRpcSession`.
-3. Hook `prompt`.
+3. Hook `prompt` (disk + in-memory).
 
 ## Error handling
 
@@ -112,14 +127,15 @@ Optional: temp jsonl + `SessionManager.open` → last `convertToLlm` message is 
 | `appendMessage` throws | Propagate; start/prompt fails loud |
 | GET before first RPC | May still show pending cards |
 | Empty / balanced leaf | No-op |
+| Prompt while streaming | Existing busy reject; no repair |
 
 ## Self-check
 
-1. **Invariant:** leaf tool calls have results before the next model request.
+1. **Invariant:** before the next `prompt`, every leaf tool call has a result on **disk and** in `agent.state.messages`.
 2. **Single owner:** `lib/session-tool-repair.ts`.
 3. **Path count:** still 5 run recoveries. Repair is prepare-for-convert, not a poller.
-4. **Size:** start/commands gain one call each.
-5. **Legacy:** no dual-path. Disk is the source of truth after append.
+4. **Size:** start/commands gain a few lines each.
+5. **Legacy:** no dual-path. Disk is the source of truth after append; live state is updated in the same turn.
 
 ## Later specs
 
