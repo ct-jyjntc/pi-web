@@ -18,6 +18,7 @@ export function ConfigModelsEnablePanel({
   loading = false,
   error = null,
   toolbar = null,
+  topBorder = true,
 }: {
   models: readonly ModelEntry[];
   onChangeModels?: (models: ModelEntry[]) => void;
@@ -27,6 +28,8 @@ export function ConfigModelsEnablePanel({
   loading?: boolean;
   error?: string | null;
   toolbar?: ReactNode;
+  /** When false, skip the section rule — caller already drew one (e.g. DetailStrip). */
+  topBorder?: boolean;
 }) {
   const { t } = useLocale();
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -61,8 +64,8 @@ export function ConfigModelsEnablePanel({
   return (
     <div
       style={{
-        borderTop: "1px solid var(--border)",
-        paddingTop: 10,
+        borderTop: topBorder ? "1px solid var(--border)" : undefined,
+        paddingTop: topBorder ? 10 : 0,
         display: "flex",
         flexDirection: "column",
         gap: 8,

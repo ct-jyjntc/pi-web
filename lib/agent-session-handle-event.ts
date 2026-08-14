@@ -37,6 +37,7 @@ export type AgentSessionEvent = {
 
 export type AgentEventHandleContext = {
   agentRunningRef: { current: boolean };
+  abortRequestedRef: { current: boolean };
   sessionIdRef: { current: string | null };
   promptRunIdRef: { current: number };
   streamAcceptRunIdRef: { current: number };
@@ -92,6 +93,7 @@ export function handleAgentSessionEvent(
       // Accept streaming events for the current prompt generation. If this
       // start is from a remote/reconnect path without a local handleSend,
       // mint a run id so late events from a prior generation can be dropped.
+      if (ctx.abortRequestedRef.current) break;
       if (!ctx.agentRunningRef.current) {
         ctx.promptRunIdRef.current += 1;
       }
@@ -242,6 +244,7 @@ export function handleAgentSessionEvent(
       ctx.setRetryInfo(null);
       break;
     case "compaction_start":
+      if (ctx.abortRequestedRef.current) break;
       ctx.setIsCompacting(true);
       ctx.setCompactError(null);
       ctx.setCompactResult(null);
@@ -269,6 +272,7 @@ export function handleAgentSessionEvent(
       }
       break;
     case "extension_ui_request":
+      if (ctx.abortRequestedRef.current && (event as ExtensionUiRequest).method !== "dismiss") break;
       ctx.handleExtensionUiRequest(event as ExtensionUiRequest);
       break;
   }

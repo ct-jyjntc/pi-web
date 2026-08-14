@@ -32,13 +32,15 @@
   return { heading: title, body: (message ?? "").trim() };
 }
  
- export function ExtensionDialog({
-   request,
-   onRespond,
- }: {
-   request: ExtensionDialogRequest;
-   onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
- }) {
+export function ExtensionDialog({
+  request,
+  onRespond,
+  onAbort,
+}: {
+  request: ExtensionDialogRequest;
+  onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
+  onAbort?: () => void;
+}) {
    const { t } = useLocale();
    const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
  
@@ -187,6 +189,16 @@
           >
             {t("common.cancel")}
           </button>
+          {onAbort && (
+            <button
+              type="button"
+              className="menu-row"
+              onClick={onAbort}
+              style={{ color: "var(--destructive)" }}
+            >
+              {t("chat.stopAgent")}
+            </button>
+          )}
         </div>
       </div>
     </CenteredDialog>

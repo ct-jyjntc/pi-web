@@ -181,11 +181,11 @@ export class AgentSessionWrapper {
   }
 
   isRunning(): boolean {
-    return this._alive && (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
+    return this._alive && !this.abortRequested && (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
   get isStreaming(): boolean {
-    return Boolean(this._alive && this.inner.isStreaming);
+    return Boolean(this._alive && !this.abortRequested && this.inner.isStreaming);
   }
 
   get streamingMessage(): unknown {
@@ -411,6 +411,11 @@ export class AgentSessionWrapper {
     switch (type) {
       case "prompt": {
         if (!this._alive) throw new Error("Session destroyed");
+        if (this.abortRequested) {
+          try { await this.inner.abort(); } catch { /* killed */ }
+          this.abortRequested = false;
+          this.promptRunning = false;
+        }
         if (this.inner.isBashRunning) {
           throw new Error("Cannot send a prompt while a shell command is running");
         }
@@ -514,14 +519,18 @@ export class AgentSessionWrapper {
         return null;
       }
 
-      case "abort":
+      case "abort": {
         this.abortRequested = true;
+        this.cancelPendingExtensionUi();
+        const recalled = this.recallQueue();
         if (this.inner.isBashRunning) this.inner.abortBash();
-        if (this.inner.isCompacting) {
-          try { this.inner.abortCompaction(); } catch { /* ignore */ }
-        }
-        await this.inner.abort();
-        return null;
+        try { this.inner.abortCompaction(); } catch { /* ignore */ }
+        this.promptRunning = false;
+        // Kill now — do not waitForIdle. Stop must return like kill(1).
+        void this.inner.abort().catch(() => {});
+        this.emit({ type: "prompt_done" });
+        return recalled;
+      }
 
       case "get_state": {
         const model = this.inner.model;
@@ -529,10 +538,10 @@ export class AgentSessionWrapper {
         return {
           sessionId: this.inner.sessionId,
           sessionFile: this.inner.sessionFile ?? "",
-          isStreaming: this.inner.isStreaming,
-          isPromptRunning: this.promptRunning,
-          isBashRunning: this.inner.isBashRunning,
-          isCompacting: this.inner.isCompacting,
+          isStreaming: this.isStreaming,
+          isPromptRunning: this.promptRunning && !this.abortRequested,
+          isBashRunning: this.inner.isBashRunning && !this.abortRequested,
+          isCompacting: this.inner.isCompacting && !this.abortRequested,
           autoCompactionEnabled: this.inner.autoCompactionEnabled,
           autoRetryEnabled: this.inner.autoRetryEnabled,
           model: model ? { id: model.id, provider: model.provider } : undefined,
@@ -677,14 +686,7 @@ export class AgentSessionWrapper {
       case "clear_queue": {
         // Full clear only: pi has no single-item dequeue, and clear+requeue
         // races against the agent loop pulling messages mid-flight.
-        // Peek images before clearQueue() drops the agent-core queues.
-        const images = peekAgentQueueImages(this.inner.agent);
-        const cleared = this.inner.clearQueue();
-        return {
-          ...cleared,
-          steeringImages: images.steering,
-          followUpImages: images.followUp,
-        };
+        return this.recallQueue();
       }
 
       case "steer": {
@@ -864,8 +866,7 @@ export class AgentSessionWrapper {
     // so open streams can close instead of hanging on the heartbeat.
     this.emit({ type: "session_destroyed", sessionId: this.sessionId });
     this.listeners = [];
-    for (const pending of this.pendingUiResponses.values()) pending.cancel();
-    for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
+    this.cancelPendingExtensionUi();
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
     for (const [, entry] of this.widgetFactories) {
@@ -919,6 +920,23 @@ export class AgentSessionWrapper {
       }
     })();
     return this.shutdownPromise;
+  }
+
+  /** Drop queued steer/follow-up so a Stop cannot be continued by leftover messages. */
+  private recallQueue() {
+    const images = peekAgentQueueImages(this.inner.agent);
+    const cleared = this.inner.clearQueue();
+    return {
+      ...cleared,
+      steeringImages: images.steering,
+      followUpImages: images.followUp,
+    };
+  }
+
+  /** Unblock tool_call / ask-user waits and tell the renderer to close the dialog. */
+  private cancelPendingExtensionUi(): void {
+    for (const pending of [...this.pendingUiResponses.values()]) pending.cancel();
+    for (const id of [...this.activeCustomUis.keys()]) this.closeCustomUi(id, undefined);
   }
 
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
@@ -1134,19 +1152,25 @@ export class AgentSessionWrapper {
         this.pendingUiRequests.delete(id);
         this.pendingUiResponses.delete(id);
       };
+      const dismissUi = () => {
+        this.emit({ type: "extension_ui_request", id, method: "dismiss" } as ExtensionUiRequest as AgentEvent);
+      };
       const settle = (value: T) => {
         cleanup();
         resolve(value);
       };
-      const onAbort = () => settle(defaultValue);
+      const onAbort = () => {
+        dismissUi();
+        settle(defaultValue);
+      };
 
-      if (timeout) timeoutId = setTimeout(() => settle(defaultValue), timeout);
+      if (timeout) timeoutId = setTimeout(() => { dismissUi(); settle(defaultValue); }, timeout);
       signal?.addEventListener("abort", onAbort, { once: true });
 
       this.pendingUiRequests.set(id, fullRequest as AgentEvent);
       this.pendingUiResponses.set(id, {
         resolve: (response) => settle(parseResponse(response)),
-        cancel: () => settle(defaultValue),
+        cancel: () => { dismissUi(); settle(defaultValue); },
       });
       this.emit(fullRequest as AgentEvent);
     });

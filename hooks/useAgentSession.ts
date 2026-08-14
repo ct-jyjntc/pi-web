@@ -564,6 +564,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventSourceRef,
     sessionIdRef,
     agentRunningRef,
+    abortRequestedRef,
     mountedRef,
     promptRunIdRef,
     sseReconnectAttemptRef,
@@ -833,6 +834,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     handleAgentSessionEvent(event, {
       agentRunningRef,
+      abortRequestedRef,
       sessionIdRef,
       promptRunIdRef,
       streamAcceptRunIdRef,
@@ -1021,20 +1023,39 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     abortRequestedRef.current = true;
     const sidAtClick = sessionIdRef.current;
     const runIdAtClick = promptRunIdRef.current;
+    // Instant kill feedback — do not wait for abort RPC or loadSession.
+    setExtensionDialog(null);
+    setExtensionCustomUi(null);
+    setIsCompacting(false);
+    setCompactError(null);
+    bashRunningRef.current = false;
+    setBashRunning(false);
+    setPendingBash(null);
+    setQueuedMessages({ steering: [], followUp: [] });
+    setRetryInfo(null);
+    setAgentPhase(null);
+    dispatch({ type: "end" });
+    if (agentRunningRef.current) {
+      agentRunningRef.current = false;
+      setAgentRunning(false);
+    }
     void (async () => {
       const sid = sidAtClick ?? await ensuringNewSessionRef.current;
       if (!sid) return;
       if (promptRunIdRef.current !== runIdAtClick) return;
       try {
-        if (bashRunningRef.current) {
-          await sendAgentCommand(sid, { type: "abort_bash" });
+        const result = await sendAgentCommand<QueueRecallSnapshot>(sid, { type: "abort" });
+        if (promptRunIdRef.current !== runIdAtClick) return;
+        const recalled = flattenQueueRecall(result);
+        if (recalled.text || recalled.images.length) {
+          opts.chatInputRef?.current?.prependText(recalled.text, recalled.images);
         }
-        await sendAgentCommand(sid, { type: "abort" });
+        await loadSession(sid, false, true);
       } catch (e) {
         console.error("Failed to abort:", e);
       }
     })();
-  }, []);
+  }, [loadSession, opts.chatInputRef]);
 
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;

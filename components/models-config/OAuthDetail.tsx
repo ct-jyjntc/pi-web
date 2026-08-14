@@ -169,6 +169,9 @@ export function OAuthDetail({
   const isWorking = loginState.phase === "connecting" || loginState.phase === "progress" ||
     loginState.phase === "auth" || loginState.phase === "device_code" ||
     loginState.phase === "prompt" || loginState.phase === "select";
+  // Idle + already connected: nothing to say here. An empty wrapper still
+  // occupies a flex-gap slot between DetailStrip and the models panel.
+  const showLoginBody = loginState.phase !== "idle" || !provider.loggedIn;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0, overflow: "auto" }}>
@@ -213,6 +216,7 @@ export function OAuthDetail({
         )}
       />
 
+      {showLoginBody && (
       <div>
         {loginState.phase === "idle" && !provider.loggedIn && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
@@ -304,30 +308,30 @@ export function OAuthDetail({
           <p style={{ margin: 0, fontSize: 12, color: "var(--destructive)" }}>{loginState.message}</p>
         )}
       </div>
+      )}
 
       {provider.loggedIn && (
-        <>
-          <ConfigModelsEnablePanel
-            models={models}
-            loading={modelsLoading && models.length === 0}
-            error={modelsError}
-            onToggleModel={onToggleModel}
-            onToggleAllModels={onToggleAllModels}
-            toolbar={onRefreshModels ? (
-              <button
-                type="button"
-                className="btn-ghost btn-compact"
-                onClick={onRefreshModels}
-                disabled={refreshingModels || modelsLoading}
-                title={t("models.refreshModels")}
-              >
-                {refreshingModels || modelsLoading
-                  ? t("models.refreshingModels")
-                  : t("models.refreshModels")}
-              </button>
-            ) : null}
-          />
-        </>
+        <ConfigModelsEnablePanel
+          models={models}
+          loading={modelsLoading && models.length === 0}
+          error={modelsError}
+          onToggleModel={onToggleModel}
+          onToggleAllModels={onToggleAllModels}
+          topBorder={showLoginBody}
+          toolbar={onRefreshModels ? (
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              onClick={onRefreshModels}
+              disabled={refreshingModels || modelsLoading}
+              title={t("models.refreshModels")}
+            >
+              {refreshingModels || modelsLoading
+                ? t("models.refreshingModels")
+                : t("models.refreshModels")}
+            </button>
+          ) : null}
+        />
       )}
     </div>
   );

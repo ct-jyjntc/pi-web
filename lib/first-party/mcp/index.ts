@@ -53,7 +53,7 @@ function registerMcpGateway(
     promptSnippet: copy.promptSnippet,
     promptGuidelines: copy.promptGuidelines,
     parameters: MCP_PARAMETERS,
-    async execute(_id, raw, _signal, _onUpdate, ctx) {
+    async execute(_id, raw, signal, _onUpdate, ctx) {
       const params = raw as {
         tool?: string;
         args?: unknown;
@@ -112,8 +112,9 @@ function registerMcpGateway(
         );
       }
       if (params.tool) {
+        if (signal?.aborted) return textResult("Aborted.");
         const args = parseArgs(params.args);
-        return textResult(await mcp.call(params.tool, args, params.server));
+        return textResult(await mcp.call(params.tool, args, params.server, signal));
       }
       return textResult(await mcp.status());
     },

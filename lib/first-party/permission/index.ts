@@ -69,9 +69,9 @@ async function promptUser(
   if (!ctx.hasUI) return DENY;
   const title = reason ? `${toolName} — ${reason}` : `Allow ${toolName}?`;
   try {
-    return await ctx.ui.select(`${title}\n${preview}`, [ALLOW_ONCE, ALLOW_SESSION, DENY]);
+    return await ctx.ui.select(`${title}\n${preview}`, [ALLOW_ONCE, ALLOW_SESSION, DENY], { signal: ctx.signal });
   } catch {
-    const ok = await ctx.ui.confirm(title, preview);
+    const ok = await ctx.ui.confirm(title, preview, { signal: ctx.signal });
     return ok ? ALLOW_ONCE : DENY;
   }
 }

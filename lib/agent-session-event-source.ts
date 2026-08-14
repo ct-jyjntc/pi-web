@@ -24,6 +24,7 @@ export type AgentEventSourceContext = {
   eventSourceRef: { current: ApiStream | null };
   sessionIdRef: { current: string | null };
   agentRunningRef: { current: boolean };
+  abortRequestedRef: { current: boolean };
   mountedRef: { current: boolean };
   promptRunIdRef: { current: number };
   sseReconnectAttemptRef: { current: number };
@@ -99,7 +100,7 @@ export function scheduleEventStreamClose(ctx: AgentEventSourceContext, sid: stri
 
       const state = data.state;
       const promptActive = Boolean(data.running && state && (state.isStreaming || state.isPromptRunning));
-      if (promptActive) {
+      if (promptActive && !ctx.abortRequestedRef.current) {
         // Late work started (extension / queue) — revive UI running state.
         ctx.eventStreamGraceActiveRef.current = false;
         ctx.eventStreamGraceTimerRef.current = null;
@@ -109,7 +110,7 @@ export function scheduleEventStreamClose(ctx: AgentEventSourceContext, sid: stri
         return;
       }
 
-      if (data.running && state?.isCompacting) {
+      if (data.running && state?.isCompacting && !ctx.abortRequestedRef.current) {
         ctx.setIsCompacting(true);
         ctx.eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
         return;

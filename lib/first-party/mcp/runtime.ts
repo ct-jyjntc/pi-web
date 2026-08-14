@@ -33,6 +33,16 @@ function authHint(serverName: string): string {
   return `Server "${serverName}" requires OAuth. Run mcp({ action: "auth-start", server: "${serverName}" }).`;
 }
 
+function abortSignalPromise(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+  });
+}
+
 export class NativeMcpRuntime {
   private readonly servers = new Map<string, LiveServer>();
 
@@ -91,8 +101,10 @@ export class NativeMcpRuntime {
     return matches[0];
   }
 
-  async call(toolName: string, args: Record<string, unknown>, server?: string): Promise<string> {
+  async call(toolName: string, args: Record<string, unknown>, server?: string, signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) return "Aborted.";
     await this.connect(server);
+    if (signal?.aborted) return "Aborted.";
     const tool = this.findTool(toolName, server);
     if (!tool) {
       const listed = await this.listTools(server);
@@ -102,13 +114,15 @@ export class NativeMcpRuntime {
     const live = this.servers.get(tool.server);
     if (!live || live.error) return `MCP server "${tool.server}" is not connected.`;
     try {
-      const result = await live.client.callTool({ name: tool.name, arguments: args });
+      const call = live.client.callTool({ name: tool.name, arguments: args });
+      const result = signal ? await Promise.race([call, abortSignalPromise(signal)]) : await call;
       const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
       if (Array.isArray(content) && content.length > 0) {
         return content.map((block) => block.text ?? JSON.stringify(block)).join("\n");
       }
       return JSON.stringify(result, null, 2);
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.message === "aborted")) return "Aborted.";
       if (isUnauthorized(error)) return authHint(tool.server);
       throw error;
     }

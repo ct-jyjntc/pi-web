@@ -33,6 +33,10 @@ export function applyExtensionUiRequest(
     case "editor":
       handlers.setExtensionDialog(request);
       break;
+    case "dismiss":
+      handlers.setExtensionDialog((current) => current?.id === request.id ? null : current);
+      handlers.setExtensionCustomUi((current) => current?.id === request.id ? null : current);
+      break;
     case "notify": {
       handlers.addNotice({
         id: request.id,

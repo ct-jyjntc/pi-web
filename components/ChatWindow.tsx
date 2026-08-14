@@ -218,7 +218,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
-  const sessionBusy = agentRunning || bashRunning;
+  const sessionBusy = agentRunning || bashRunning || isCompacting;
   // Stable handle for fire-and-forget callbacks created before the hook
   // destructure above (wrappedOnAgentEnd) — they read this at call time.
   const addNoticeRef = useRef(addNotice);
@@ -671,6 +671,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         <ExtensionDialog
           request={extensionDialog}
           onRespond={respondToExtensionUi}
+          onAbort={sessionBusy ? handleAbort : undefined}
         />
       )}
 

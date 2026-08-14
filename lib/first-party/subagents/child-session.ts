@@ -156,7 +156,9 @@ export async function createChildRun(
       await session.steer(text);
     },
     async abort() {
-      await session.abort();
+      // Dispose is kill — session.abort() would waitForIdle and block Stop.
+      unsubscribe();
+      session.dispose();
     },
     dispose() {
       unsubscribe();

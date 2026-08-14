@@ -40,21 +40,30 @@ export function createSubagentsInlineExtension(): InlineExtension {
       };
       manager.setOnChange(publish);
 
+      const bindParentAbort = (signal?: AbortSignal): void => {
+        if (!signal) return;
+        const onAbort = () => { void manager.abortAll(); };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      };
+
       pi.on("session_start", (_event, ctx) => {
         widgetCtx = ctx;
         publish();
       });
       pi.on("input", (_event, ctx) => {
-        if (!ctx.isIdle()) return;
-        manager.beginPrompt();
+        if (ctx.isIdle()) manager.beginPrompt();
+        bindParentAbort(ctx.signal);
       });
       pi.on("agent_end", async (event, ctx) => {
+        bindParentAbort(ctx.signal);
+        if (ctx.signal?.aborted) return;
         const delivered = await deliverUncollectedOnAgentEnd({
           manager,
           messages: event.messages,
           signal: ctx.signal,
         });
-        if (!delivered) return;
+        if (!delivered || ctx.signal?.aborted) return;
         pi.sendMessage(
           { customType: SUBAGENT_RESULTS_CUSTOM_TYPE, content: delivered, display: false },
           { deliverAs: "followUp" },
@@ -89,7 +98,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
           })),
           resume: Type.Optional(Type.String({ description: "Existing agent id to continue." })),
         }),
-        async execute(_id, raw, _signal, _onUpdate, ctx) {
+        async execute(_id, raw, signal, _onUpdate, ctx) {
           const params = raw as {
             prompt: string;
             description: string;
@@ -110,7 +119,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
 
           const types = loadAgentTypes(ctx.cwd);
           const resolved = resolveAgentType(params.subagent_type, types);
-          const { id, started } = manager.spawn({
+          const { id } = manager.spawn({
             ctx,
             type: resolved.type,
             prompt: params.prompt,
@@ -142,7 +151,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
             ].filter(Boolean).join("\n"));
           }
 
-          const record = await started;
+          const record = await manager.wait(id, signal);
           manager.markCollected(id);
           return textResult(formatRecord(record));
         },
@@ -157,11 +166,11 @@ export function createSubagentsInlineExtension(): InlineExtension {
           agent_id: Type.String({ description: "Agent id returned by subagent." }),
           wait: Type.Optional(Type.Boolean({ description: "Wait until the agent finishes." })),
         }),
-        async execute(_id, raw) {
+        async execute(_id, raw, signal) {
           const params = raw as { agent_id: string; wait?: boolean };
           const current = manager.get(params.agent_id);
           if (!current) return textResult(`Agent not found: "${params.agent_id}".`);
-          const record = params.wait ? await manager.wait(params.agent_id) : current;
+          const record = params.wait ? await manager.wait(params.agent_id, signal) : current;
           manager.markCollected(params.agent_id);
           return textResult(formatRecord(record));
         },

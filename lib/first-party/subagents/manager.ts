@@ -87,7 +87,7 @@ export class NativeSubagentManager {
     const live = [...this.records.values()].filter(
       (record) => record.epoch === epoch && !record.collected && !isTerminal(record.status),
     );
-    if (live.length === 0) return "ok";
+    if (live.length === 0) return signal?.aborted ? "aborted" : "ok";
     if (signal?.aborted) return "aborted";
     return new Promise((resolve) => {
       let settled = false;
@@ -99,6 +99,10 @@ export class NativeSubagentManager {
       };
       const onAbort = () => finish("aborted");
       const onDone = () => {
+        if (signal?.aborted) {
+          finish("aborted");
+          return;
+        }
         if (live.every((record) => isTerminal(record.status))) finish("ok");
       };
       signal?.addEventListener("abort", onAbort, { once: true });
@@ -148,12 +152,20 @@ export class NativeSubagentManager {
     return { id, started };
   }
 
-  async wait(id: string): Promise<SubagentRecord> {
+  async wait(id: string, signal?: AbortSignal): Promise<SubagentRecord> {
     const record = this.records.get(id);
     if (!record) throw new Error(`Agent not found: "${id}"`);
     if (isTerminal(record.status)) return publicRecord(record);
     return new Promise((resolve) => {
-      record.waiters.push(resolve);
+      const onAbort = () => { void this.abort(id); };
+      if (signal) {
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      }
+      record.waiters.push((snapshot) => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve(snapshot);
+      });
     });
   }
 
@@ -174,7 +186,9 @@ export class NativeSubagentManager {
       this.finish(record, "stopped", undefined, "Stopped before start.");
       return true;
     }
-    if (record.run) await record.run.abort();
+    if (record.run) {
+      try { void record.run.abort(); } catch { /* already gone */ }
+    }
     this.finish(record, "aborted", record.result, "Aborted.");
     return true;
   }
@@ -184,11 +198,16 @@ export class NativeSubagentManager {
   }
 
   private async start(record: LiveRecord, prompt: string): Promise<SubagentRecord> {
+    if (isTerminal(record.status)) return publicRecord(record);
     record.status = "running";
     record.startedAt = Date.now();
     this.emit();
     try {
       const run = await createChildRun(record.ctx, record.typeConfig, record.modelSpec, record.thinkingSpec);
+      if (isTerminal(record.status)) {
+        try { run.dispose(); } catch { /* already gone */ }
+        return publicRecord(record);
+      }
       record.run = run;
       run.setActivity((text) => {
         if (text) record.activity = text;

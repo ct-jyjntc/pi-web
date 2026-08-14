@@ -199,6 +199,11 @@ export type ExtensionUiRequest =
       method: "custom";
       lines: string[];
       closed?: boolean;
+    }
+  | {
+      type: "extension_ui_request";
+      id: string;
+      method: "dismiss";
     };
 
 export type ExtensionUiResponse =
