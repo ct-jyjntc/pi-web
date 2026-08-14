@@ -13,11 +13,11 @@ DSH cold-load appends synthetic error results. Pi Web has no load-time pairing. 
 
 ## Product one-liner
 
-**On open and before the next prompt, append one error `toolResult` per unmatched `toolCall`. Idempotent. GET does not write.**
+**On open and before the next prompt, append one error `toolResult` per unmatched tool call on the trailing assistant. Idempotent. GET does not write.**
 
 ## Goals
 
-1. After repair, the leaf used for the next **`prompt`** has a result for every tool call. Compact / auto-compact are out of scope.
+1. After repair, the leaf used for the next **`prompt`** has a result for every tool call the **provider will see**. Compact / auto-compact are out of scope.
 2. Append-only. Second open adds zero rows.
 3. Do not mutate GET / `session-entries` / `convertToLlm`.
 4. Do not add a sixth run-lifecycle recovery path.
@@ -26,7 +26,7 @@ DSH cold-load appends synthetic error results. Pi Web has no load-time pairing. 
 
 - Durable inbox splices.
 - Compaction human transcript vs model surface.
-- DSH `TOOL_NOT_STARTED` vs `TOOL_OUTCOME_UNKNOWN` (no `tool/call` start event on this jsonl).
+- DSH `TOOL_NOT_STARTED` vs `TOOL_OUTCOME_UNKNOWN`.
 - Rewriting or truncating assistant rows.
 - Side-effecting `GET /api/sessions/[id]`.
 - New jsonl `type`.
@@ -59,7 +59,7 @@ Both writes happen **before** `promptRunning = true` and **before** `inner.promp
 
 Do **not** skip because you just set `promptRunning`. Reuse the existing busy reject; then repair; then set the flag.
 
-Skip the **open** path when `getRpcSession(id)?.isAlive()` (do not rewrite a live turn).
+Skip the **open** path when `getRpcSession(id)?.isAlive()`.
 
 | Semantic | Owner |
 |---|---|
@@ -74,7 +74,7 @@ Skip the **open** path when `getRpcSession(id)?.isAlive()` (do not rewrite a liv
 {
   role: "toolResult",
   toolCallId,
-  toolName, // copied from the unmatched toolCall
+  toolName,
   isError: true,
   timestamp: Date.now(),
   content: [{ type: "text", text: INTERRUPTED_TOOL_RESULT_TEXT }],
@@ -84,40 +84,39 @@ export const INTERRUPTED_TOOL_RESULT_TEXT =
   "Tool did not finish (session interrupted).";
 ```
 
-Same role as live abort results. Distinct text so tests and humans can tell load-repair from `Operation aborted`.
+Same role as live abort. Distinct text from `Operation aborted`.
 
-Pairing: `normalizeToolCalls` first; a `toolResult.toolCallId` closes the `toolCall` with that id (including an existing error result).
+## Pairing (trailing open batch only)
+
+`transformMessages` **drops** assistants with `stopReason === "aborted" | "error"`, and already synthesizes results when a **later user/custom/assistant** interrupted a batch. A global set-difference of all ids would append orphan `toolResult`s at the current leaf and can 400 the next call.
+
+After `normalizeToolCalls`:
+
+1. Find the last `assistant` message.
+2. If it is missing, or `stopReason` is `aborted` or `error` → **0 closers**.
+3. If any message **after** that assistant is `user`, `custom`, or `assistant` → **0 closers**.
+4. Else, for each `toolCall` on that assistant with no later `toolResult` for that `toolCallId` → one closer.
 
 ## File plan
 
-**New**
-
-- `lib/session-tool-repair.ts` — `unmatchedToolCallIds`, `buildInterruptedToolResult`, `repairUnmatchedToolCalls`.
-- `lib/session-tool-repair.test.mjs`
-
-**Modified**
-
-- `lib/rpc-session-start.ts` — one call after open; skip if live wrapper.
-- `lib/rpc-session-commands.ts` — persist **and** update `agent.state.messages` at `prompt` as specified.
-
-`appendMessage` uses the SDK `SessionManager` already opened in start (write-capable). Do not append on the read-only entries cache.
+**New:** `lib/session-tool-repair.ts`, `lib/session-tool-repair.test.mjs`  
+**Modified:** `lib/rpc-session-start.ts`, `lib/rpc-session-commands.ts`
 
 ## Tests
 
-1. Unmatched call → one closer object, id/name/`isError`/fixed text.
-2. Already paired → 0 unmatched.
-3. After applying closers to the list, second scan → 0.
-4. Two unmatched → 2.
-5. `shouldRepairOnOpen({ alive: true })` is false.
+1. Last assistant completed, missing results → N closers.
+2. Already paired trailing batch → 0.
+3. After applying closers, second scan → 0.
+4. Last assistant `stopReason: "aborted"` (or `"error"`) → 0.
+5. Unmatched call then a later **user** → 0.
+6. `shouldRepairOnOpen({ alive: true })` is false.
 
-Warm-path contract (unit or comment + small helper): `repairLiveAgentMessages` returns `{ persist, nextMessages }` so prompt can append then assign `agent.state.messages`.
-
-Optional: temp jsonl + `SessionManager.open` if cheap. Skip if the SDK harness is too heavy.
+Warm path: helper returns `{ persist, nextMessages }` so prompt can append then assign `agent.state.messages`.
 
 ## Implementation order
 
-1. Pure functions + tests.
-2. Hook `startRpcSession`.
+1. Pure functions + tests.  
+2. Hook `startRpcSession`.  
 3. Hook `prompt` (disk + in-memory).
 
 ## Error handling
@@ -126,18 +125,18 @@ Optional: temp jsonl + `SessionManager.open` if cheap. Skip if the SDK harness i
 |---|---|
 | `appendMessage` throws | Propagate; start/prompt fails loud |
 | GET before first RPC | May still show pending cards |
-| Empty / balanced leaf | No-op |
+| Empty / balanced / aborted / already-continued | No-op |
 | Prompt while streaming | Existing busy reject; no repair |
 
 ## Self-check
 
-1. **Invariant:** before the next `prompt`, every leaf tool call has a result on **disk and** in `agent.state.messages`.
+1. **Invariant:** before the next `prompt`, every tool call the provider will see has a result on disk and in `agent.state.messages`.
 2. **Single owner:** `lib/session-tool-repair.ts`.
-3. **Path count:** still 5 run recoveries. Repair is prepare-for-convert, not a poller.
-4. **Size:** start/commands gain a few lines each.
-5. **Legacy:** no dual-path. Disk is the source of truth after append; live state is updated in the same turn.
+3. **Path count:** still 5. Repair is prepare-for-convert.
+4. **Size:** start/commands gain a few lines.
+5. **Legacy:** no dual-path.
 
 ## Later specs
 
-- Inbox: persist steer/follow-up as `custom` splices (not `custom_message`).
+- Inbox: `custom` splices (not `custom_message`).
 - Compact: human transcript from full leaf; model still uses `buildContextEntries`.
