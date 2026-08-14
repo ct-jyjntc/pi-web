@@ -122,7 +122,9 @@ function rowKind(message: AgentMessage): IndexedKind {
 }
 
 function entryId(entryIds: string[], idx: number): string {
-  return `entry:${entryIds[idx]}`;
+  const id = entryIds[idx];
+  if (typeof id === "string" && id.length > 0) return `entry:${id}`;
+  return `idx:${idx}`;
 }
 
 function indexedNode(kind: IndexedKind, idx: number, entryIds: string[]): ConversationNode {
