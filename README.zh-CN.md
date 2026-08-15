@@ -20,6 +20,8 @@ Electron 桌面端 · 浏览器 UI · [ct-jyjntc/pi-web](https://github.com/ct-j
 [Releases](https://github.com/ct-jyjntc/pi-web/releases)
 ·
 [Issues](https://github.com/ct-jyjntc/pi-web/issues)
+·
+[LINUX DO](https://linux.do/)
 
 > 基于 [agegr/pi-web](https://github.com/agegr/pi-web) 二次开发：双 runtime 桌面端 + 更完整的本地工作区。
 
@@ -277,8 +279,18 @@ docs/              产品页、desktop-architecture、worktree、截图
 
 ---
 
+## 社区
+
+本项目在 [LINUX DO](https://linux.do/) 社区开源推广，认可并感谢 LINUX DO — 新的理想型社区，*Where possible begins.*
+
+<a href="https://linux.do?ref=seal-click" target="_blank" rel="noopener noreferrer" title="Best Community · LINUX DO">
+  <img src="https://linuxdo-seal.cuishushu.com/seals/seal-best-community.svg" alt="Best Community · LINUX DO" width="160" height="49" />
+</a>
+
+---
+
 <div align="center">
 
-**MIT** · [ct-jyjntc/pi-web](https://github.com/ct-jyjntc/pi-web)
+**MIT** · [ct-jyjntc/pi-web](https://github.com/ct-jyjntc/pi-web) · [LINUX DO](https://linux.do/)
 
 </div>
