@@ -16,9 +16,11 @@ import type { AgentSessionLike } from "./pi-types";
 import type { AgentSessionWrapper } from "./rpc-session-wrapper";
 import { foldProjections } from "./session-projections";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { applyRepairToMessages } from "./session-tool-repair";
 import {
   AGENT_MODE_BRIEF_CUSTOM_TYPE,
   MEMORY_CONTEXT_CUSTOM_TYPE,
+  type AgentMessage,
   type ExtensionUiResponse,
 } from "./types";
 import { invalidateUtilityModelRuntimes } from "./utility-model";
@@ -50,6 +52,16 @@ export async function dispatchRpcSessionCommand(
       // remain available for mid-turn queueing via their own commands.
       if (wrapper.promptRunning || wrapper.inner.isStreaming || wrapper.inner.isCompacting) {
         throw new Error("Cannot send a prompt while the session is busy");
+      }
+      const msgs = (wrapper.inner.agent.state?.messages ?? []) as AgentMessage[];
+      const { persist, nextMessages } = applyRepairToMessages(msgs);
+      for (const closer of persist) {
+        wrapper.inner.sessionManager.appendMessage(
+          closer as Parameters<SessionManager["appendMessage"]>[0],
+        );
+      }
+      if (persist.length && wrapper.inner.agent.state) {
+        wrapper.inner.agent.state.messages = nextMessages;
       }
       // Fire and forget — events come via subscribe
       const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
