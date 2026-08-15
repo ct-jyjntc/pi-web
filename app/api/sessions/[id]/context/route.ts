@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { estimateSessionContextUsage } from "@/lib/context-usage";
 import {
-  resolveSessionPath,
+  resolveSessionPathAllowingChild,
   readSessionHeader,
 } from "@/lib/session-reader";
 import {
@@ -23,7 +23,8 @@ export async function GET(
   const deferToolResultImages = url.searchParams.has("deferMedia");
 
   try {
-    const filePath = await resolveSessionPath(id);
+    const parent = url.searchParams.get("parent");
+    const filePath = await resolveSessionPathAllowingChild(id, parent);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

@@ -1,0 +1,41 @@
+/**
+ * Child-scoped report tool — the child chooses what the parent should see.
+ * Not a second settlement path: agent_end still collects uncollected results.
+ */
+import { Type } from "typebox";
+import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+
+export function createReportInlineExtension(
+  onReport: (output: string) => void | Promise<void>,
+): InlineExtension {
+  return {
+    name: "subagent-report",
+    factory(pi) {
+      pi.registerTool({
+        name: "report",
+        label: "Report",
+        description:
+          "Report selected content to the agent that started you. Call this once before you finish, with a self-contained final result, and earlier for progress that changes what that agent does next. Reporting does not end your turn.",
+        promptSnippet: "report: Send a finding to the parent agent",
+        promptGuidelines: [
+          "Deliver your result with the report tool before you finish: call it once with a self-contained answer.",
+          "The parent shares your workspace but does not automatically receive your transcript.",
+          "Reporting never ends your turn.",
+        ],
+        parameters: Type.Object({
+          output: Type.String({
+            description: "Actionable content for your parent; summarize conclusions and reference relevant shared paths.",
+          }),
+        }),
+        async execute(_id, raw) {
+          const params = raw as { output: string };
+          await onReport(params.output);
+          return {
+            content: [{ type: "text" as const, text: "report accepted by the agent that started you" }],
+            details: {},
+          };
+        },
+      });
+    },
+  };
+}

@@ -3,6 +3,7 @@
  */
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { getSubagentHost } from "./first-party/subagents/host";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
 import { parseAgentMode } from "./agent-mode";
@@ -428,6 +429,28 @@ export async function dispatchRpcSessionCommand(
     case "abort_bash": {
       wrapper.inner.abortBash();
       return null;
+    }
+
+    case "subagent_followup": {
+      const host = getSubagentHost(wrapper.sessionId || "");
+      if (!host) throw new Error("No subagent host for this session");
+      const childId = String(command.childSessionId ?? command.agentId ?? "");
+      const message = String(command.message ?? "");
+      if (!childId || !message) throw new Error("childSessionId and message are required");
+      return host.followup(childId, message);
+    }
+
+    case "subagent_interrupt": {
+      const host = getSubagentHost(wrapper.sessionId || "");
+      if (!host) throw new Error("No subagent host for this session");
+      const childId = String(command.childSessionId ?? command.agentId ?? "");
+      if (!childId) throw new Error("childSessionId is required");
+      return host.interrupt(childId);
+    }
+
+    case "subagent_list": {
+      const host = getSubagentHost(wrapper.sessionId || "");
+      return host?.list() ?? [];
     }
 
     default:

@@ -18,11 +18,14 @@ export type AgentItem = {
   description: string;
   activity?: string;
   detail?: string;
+  about?: string;
+  mode?: "continuable" | "one-shot";
   tokens?: number;
   percent?: number;
   startedAt?: number;
   elapsed?: string;
   queuedCount?: number;
+  sessionId?: string;
 };
 
 const SPINNER_RE = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/;
@@ -107,9 +110,14 @@ export function parseAgentHeader(line: string): AgentItem | null {
   };
 }
 
-function parseAgentStats(parts: string[]): Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed"> {
-  const out: Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed"> = {};
+function parseAgentStats(parts: string[]): Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed" | "sessionId" | "mode" | "about"> {
+  const out: Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed" | "sessionId" | "mode" | "about"> = {};
   for (const part of parts) {
+    const sid = /^sid:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(part);
+    if (sid) {
+      out.sessionId = sid[1];
+      continue;
+    }
     const started = /^@(\d{11,})$/.exec(part);
     if (started) {
       out.startedAt = Number(started[1]);
@@ -123,6 +131,18 @@ function parseAgentStats(parts: string[]): Pick<AgentItem, "tokens" | "percent" 
     const tok = /^(\d+(?:\.\d+)?)k$/i.exec(part);
     if (tok) {
       out.tokens = Number(tok[1]) * 1000;
+      continue;
+    }
+    if (part === "mode:continuable") {
+      out.mode = "continuable";
+      continue;
+    }
+    if (part === "mode:one-shot") {
+      out.mode = "one-shot";
+      continue;
+    }
+    if (part.startsWith("about:")) {
+      out.about = part.slice("about:".length).trim() || undefined;
       continue;
     }
     if (/^\d+(?:\.\d+)?(s|ms)$/.test(part) || /^\d+:\d{2}$/.test(part)) {
@@ -152,7 +172,7 @@ export function parseAgentItems(lines: readonly string[]): AgentItem[] {
       continue;
     }
     items.push(item);
-    current = item.status === "running" ? item : null;
+    current = item;
   }
   return items;
 }

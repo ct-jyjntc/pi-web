@@ -48,12 +48,10 @@ Spawn a subagent whenever any of these apply:
 - Git / patch code review (Git Review button or explicit review request) → \`Reviewer\`.
 - Several independent subtasks → launch multiple subagents with \`run_in_background: true\` in parallel.
 
-Rules:
-
-- The main loop orchestrates, reviews, and summarizes; delegate heavy reading, searching, and implementation to subagents.
 - Give each subagent a complete, self-contained prompt — it does not see this conversation.
 - Prefer delegating over doing everything inline. When in doubt, delegate.
 - \`run_in_background\` only unblocks that tool call so you can launch several in parallel. Call \`get_subagent_result\` with \`wait: true\` when you need a result mid-turn. Do not write the final user-facing answer until results are in — if you stop early, the runtime delivers uncollected results and continues the turn.
+- \`resume\` / \`send_message\` continues that child. \`list_agents\` recalls ids. \`interrupt_agent\` stops the current turn but keeps the child. \`subagent_fork\` is one-shot and already sees this conversation.
 ${AGENTS_BLOCK_END}`;
 
 // ── Agent override files ─────────────────────────────────────────────────────

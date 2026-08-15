@@ -4,25 +4,12 @@
  */
 
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager } from "@earendil-works/pi-coding-agent";
-import { createPiWebBashToolDefinition } from "./agent-bash-pty";
-import { createPiWebEditToolDefinition } from "./agent-edit-tool";
-import { createPiWebWriteToolDefinition } from "./agent-write-tool";
-import { createGithubTools } from "./agent-github-tool";
-import { createPiWebReadToolDefinition } from "./agent-read-tool";
-import { createAdvancedTools } from "./agent-advanced-tools";
-import { createCodeIntelTools } from "./agent-code-intel-tools";
-import { createDebugTools } from "./agent-debug-tools";
-import {
-  createDiagnosticsTool,
-  createWebTools,
-} from "./agent-extra-tools";
-import { createProjectMemoryTools } from "./agent-memory-tools";
+import { createPiWebCustomTools } from "./pi-web-custom-tools";
 import { buildMemoryInjectBlock } from "./project-memory";
 import { buildCapabilityBrief } from "./capability-brief";
 import { buildLeanPolicyText } from "./lean-policy";
 import { resolveLeanMode } from "./lean-settings";
 import { createConfiguredModelRuntime } from "./model-runtime";
-import { readWebSettings } from "./web-settings";
 import { existsSync } from "fs";
 import { cacheSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
@@ -143,15 +130,6 @@ export async function startRpcSession(
     // Pi Web bash tool: explicit `background` param + foreground guardrails;
     // background services run in a real PTY mirrored in the Terminal workspace
     // so the user can watch, type, or stop them.
-    const agentBashTool = createPiWebBashToolDefinition(cwd, {
-      getAgentSessionId: () => {
-        try {
-          return sessionManager.getSessionId();
-        } catch {
-          return undefined;
-        }
-      },
-    });
     const getSessionId = (): string | undefined => {
       try {
         return sessionManager.getSessionId();
@@ -159,36 +137,15 @@ export async function startRpcSession(
         return undefined;
       }
     };
-    const agentEditTool = createPiWebEditToolDefinition(cwd, { getSessionId });
-    const agentWriteTool = createPiWebWriteToolDefinition(cwd, { getSessionId });
-    const agentReadTool = createPiWebReadToolDefinition(cwd);
-    const memoryTools = !toolsFullyDisabled && readWebSettings().projectMemory.enabled
-      ? createProjectMemoryTools(cwd)
-      : [];
-    const extraTools = !toolsFullyDisabled
-      ? [
-          createDiagnosticsTool(cwd),
-          ...createWebTools(),
-          ...createCodeIntelTools(cwd),
-          ...createDebugTools(cwd),
-          ...createGithubTools(cwd),
-          ...createAdvancedTools({
-            cwd,
-            getSessionId,
-          }),
-        ]
-      : [];
+    const customTools = createPiWebCustomTools({
+      cwd,
+      getSessionId,
+      extras: !toolsFullyDisabled,
+    });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
-      customTools: [
-        agentBashTool as never,
-        agentEditTool as never,
-        agentWriteTool as never,
-        agentReadTool as never,
-        ...(memoryTools as never[]),
-        ...(extraTools as never[]),
-      ],
+      customTools: customTools as never[],
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 

@@ -30,9 +30,9 @@ export function BlockView({ block, toolResults, isStreaming, streamingDuration, 
         result={result}
         duration={duration}
         isStreaming={isStreaming && !result}
+        sessionId={sessionId}
       />
     );
   }
   return null;
 }
-

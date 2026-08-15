@@ -1,5 +1,5 @@
 /**
- * Create and run one in-process child AgentSession for a native subagent.
+ * Create or reopen one in-process child AgentSession for a native subagent.
  */
 import {
   createAgentSession,
@@ -12,19 +12,39 @@ import { basename, dirname, join } from "path";
 import { tmpdir } from "os";
 import { getAgentDir } from "../../agent-dir";
 import { createConfiguredModelRuntime } from "../../model-runtime";
+import { createPiWebCustomTools, extraCustomToolNames } from "../../pi-web-custom-tools";
 import { SUBAGENT_TOOL_NAMES, type AgentTypeConfig } from "./types";
 import { createPermissionInlineExtension } from "../permission";
+import { createReportInlineExtension } from "./report";
 import { agentModeStripsWriteTools, parseAgentMode } from "../../agent-mode";
 import { readGlobalAgentMode } from "../../global-agent-mode";
+import {
+  MAX_SUBAGENT_DEPTH,
+  SUBAGENT_DESCRIPTOR_TYPE,
+  type SubagentDescriptor,
+} from "./durable";
 
 export type ChildRun = {
   sessionId: string;
+  sessionFile?: string;
   prompt: (text: string) => Promise<string>;
   steer: (text: string) => Promise<void>;
+  interrupt: () => Promise<void>;
   abort: () => Promise<void>;
   dispose: () => void;
   setActivity: (listener: (text?: string) => void) => void;
   getContextUsage: () => { percent?: number | null; tokens?: number | null } | undefined;
+};
+
+export type CreateChildRunInput = {
+  ctx: ExtensionContext;
+  type: AgentTypeConfig;
+  modelSpec?: string;
+  thinkingSpec?: string;
+  onReport?: (output: string) => void | Promise<void>;
+  sessionFile?: string;
+  descriptor?: SubagentDescriptor;
+  depth?: number;
 };
 
 let sharedRuntime: Promise<ModelRuntime> | null = null;
@@ -33,7 +53,7 @@ function childModelRuntime(): Promise<ModelRuntime> {
   return sharedRuntime;
 }
 
-function childSessionDir(parentFile: string | undefined, cwd: string): string {
+export function childSessionDir(parentFile: string | undefined, cwd: string): string {
   if (parentFile) {
     return join(dirname(parentFile), basename(parentFile, ".jsonl"), "tasks");
   }
@@ -41,23 +61,26 @@ function childSessionDir(parentFile: string | undefined, cwd: string): string {
   return join(tmpdir(), "pi-web-subagents", encoded, "tasks");
 }
 
-function collectAssistantText(messages: unknown[]): string {
-  const parts: string[] = [];
-  for (const raw of messages) {
-    const message = raw as { role?: string; content?: unknown };
+function collectLastAssistantText(messages: unknown[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i] as { role?: string; content?: unknown };
     if (message.role !== "assistant") continue;
     const content = message.content;
     if (typeof content === "string") {
-      parts.push(content);
+      const text = content.trim();
+      if (text) return text;
       continue;
     }
     if (!Array.isArray(content)) continue;
+    const parts: string[] = [];
     for (const block of content) {
       const item = block as { type?: string; text?: string };
       if (item.type === "text" && item.text) parts.push(item.text);
     }
+    const text = parts.join("\n\n").trim();
+    if (text) return text;
   }
-  return parts.join("\n\n").trim();
+  return "(no output)";
 }
 
 function resolveChildModel(ctx: ExtensionContext, spec?: string) {
@@ -82,19 +105,19 @@ function buildSystemPrompt(type: AgentTypeConfig, parentPrompt: string): string 
   return [parentPrompt.trim(), type.systemPrompt.trim()].filter(Boolean).join("\n\n");
 }
 
-export async function createChildRun(
-  ctx: ExtensionContext,
-  type: AgentTypeConfig,
-  modelSpec?: string,
-  thinkingSpec?: string,
-): Promise<ChildRun> {
+export async function createChildRun(input: CreateChildRunInput): Promise<ChildRun> {
+  const { ctx, type } = input;
   const cwd = ctx.cwd;
   const agentDir = getAgentDir();
+  const depth = input.depth ?? 1;
+  const canNest = depth < MAX_SUBAGENT_DEPTH;
   const systemPrompt = buildSystemPrompt(type, ctx.getSystemPrompt());
   const mode = parseAgentMode(readGlobalAgentMode());
-  const tools = agentModeStripsWriteTools(mode)
-    ? type.tools.filter((name) => name !== "edit" && name !== "write")
-    : type.tools;
+
+  const nestedFactory = canNest
+    ? (await import("./index")).createSubagentsInlineExtension()
+    : undefined;
+
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir,
@@ -104,15 +127,41 @@ export async function createChildRun(
     noContextFiles: true,
     systemPromptOverride: () => systemPrompt,
     appendSystemPromptOverride: () => [],
-    extensionFactories: [createPermissionInlineExtension({ uiContext: ctx })],
+    extensionFactories: [
+      createPermissionInlineExtension({ uiContext: ctx }),
+      ...(input.onReport ? [createReportInlineExtension(input.onReport)] : []),
+      ...(nestedFactory ? [nestedFactory] : []),
+    ],
   });
   await loader.reload();
 
-  const sessionManager = SessionManager.create(
+  const sessionManager = input.sessionFile
+    ? SessionManager.open(input.sessionFile)
+    : SessionManager.create(
+      cwd,
+      childSessionDir(ctx.sessionManager.getSessionFile(), cwd),
+      { parentSession: ctx.sessionManager.getSessionId() },
+    );
+
+  const customTools = createPiWebCustomTools({
     cwd,
-    childSessionDir(ctx.sessionManager.getSessionFile(), cwd),
-    { parentSession: ctx.sessionManager.getSessionId() },
-  );
+    getSessionId: () => {
+      try { return sessionManager.getSessionId(); } catch { return undefined; }
+    },
+    getAgentSessionId: () => {
+      try { return ctx.sessionManager.getSessionId(); } catch { return undefined; }
+    },
+  });
+
+  const tools = [...new Set([
+    ...type.tools,
+    ...extraCustomToolNames(customTools),
+    "report",
+    ...(canNest ? SUBAGENT_TOOL_NAMES : []),
+  ])];
+  const active = agentModeStripsWriteTools(mode)
+    ? tools.filter((name) => name !== "edit" && name !== "write")
+    : tools;
 
   const modelRuntime = await childModelRuntime();
   const { session } = await createAgentSession({
@@ -121,11 +170,20 @@ export async function createChildRun(
     sessionManager,
     resourceLoader: loader,
     modelRuntime,
-    model: resolveChildModel(ctx, modelSpec ?? type.model),
-    thinkingLevel: (thinkingSpec ?? type.thinking ?? ctx.thinkingLevel) as typeof ctx.thinkingLevel,
-    tools,
-    excludeTools: [...SUBAGENT_TOOL_NAMES],
+    model: resolveChildModel(ctx, input.modelSpec ?? type.model),
+    thinkingLevel: (input.thinkingSpec ?? type.thinking ?? ctx.thinkingLevel) as typeof ctx.thinkingLevel,
+    customTools: customTools as never[],
+    tools: active,
+    excludeTools: canNest ? [] : [...SUBAGENT_TOOL_NAMES],
   });
+
+  if (input.descriptor && !input.sessionFile) {
+    try {
+      sessionManager.appendCustomEntry(SUBAGENT_DESCRIPTOR_TYPE, input.descriptor);
+    } catch {
+      // Descriptor is identity metadata; a failed append must not kill the run.
+    }
+  }
 
   let activityListener: ((text?: string) => void) | undefined;
   let assistantTurns = 0;
@@ -148,15 +206,27 @@ export async function createChildRun(
 
   return {
     sessionId: session.sessionId,
+    sessionFile: session.sessionFile,
     async prompt(text: string) {
-      await session.prompt(text);
-      return collectAssistantText(session.messages as unknown[]) || "(no output)";
+      try {
+        if (session.isStreaming) {
+          await session.prompt(text, { streamingBehavior: "followUp" });
+        } else {
+          await session.prompt(text);
+        }
+      } catch {
+        // abort/interrupt settles the in-flight prompt; return whatever text landed.
+      }
+      return collectLastAssistantText(session.messages as unknown[]);
     },
     async steer(text: string) {
       await session.steer(text);
     },
+    async interrupt() {
+      if (session.isIdle) return;
+      await session.abort();
+    },
     async abort() {
-      // Dispose is kill — session.abort() would waitForIdle and block Stop.
       unsubscribe();
       session.dispose();
     },

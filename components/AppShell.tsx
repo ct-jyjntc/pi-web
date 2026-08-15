@@ -24,6 +24,7 @@ import { SessionSidebar } from "./SessionSidebar";
 import { TabBar, type Tab } from "./TabBar";
 import { hydrateAppearanceFromServer } from "@/lib/appearance-store";
 import { SessionInspectDialogs } from "./session-inspect/SessionInspectDialogs";
+import { ChildTranscriptDialog } from "./session-inspect/ChildTranscriptDialog";
 import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { getFileName } from "@/lib/file-paths";
@@ -36,6 +37,7 @@ import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
 import { TopBarChromeWidgets } from "./TopBarChromeWidgets";
+import { TopBarSessionTitle } from "./TopBarSessionTitle";
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { getAppUpdateInfo, startAppUpdateAutoCheck, subscribeAppUpdate } from "@/lib/app-update-store";
 import type { ProjectTrustStatus, SkillInfo } from "@/lib/api-types";
@@ -885,6 +887,10 @@ export function AppShell() {
             >
               <Icon icon={Settings} size={16} strokeWidth={2} />
             </button>
+            <TopBarSessionTitle
+              session={selectedSession}
+              isNewSession={selectedSession === null && showChat}
+            />
             {appUpdate && (
               <button
                 type="button"
@@ -907,7 +913,7 @@ export function AppShell() {
           {showChat && (
             <div className="chrome-cluster titlebar-no-drag app-topbar-actions">
               {/* Todo + subagents — quiet status capsules (own popovers) */}
-              <TopBarChromeWidgets />
+              <TopBarChromeWidgets parentSessionId={selectedSession?.id ?? null} />
             </div>
           )}
           </div>
@@ -1384,6 +1390,7 @@ export function AppShell() {
       systemPrompt={systemPrompt}
       onSystemPrompt={setSystemPrompt}
     />
+    <ChildTranscriptDialog />
     <ShortcutsHelpDialog
       open={shortcutsHelpOpen}
       onClose={() => setShortcutsHelpOpen(false)}

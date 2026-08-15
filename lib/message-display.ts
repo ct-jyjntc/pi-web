@@ -2,6 +2,7 @@ import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingCon
 import {
   AGENT_MODE_BRIEF_CUSTOM_TYPE,
   MEMORY_CONTEXT_CUSTOM_TYPE,
+  SUBAGENT_REPORT_CUSTOM_TYPE,
   SUBAGENT_RESULTS_CUSTOM_TYPE,
 } from "./types";
 
@@ -10,6 +11,7 @@ const HIDDEN_CONTEXT_CUSTOM_TYPES = new Set<string>([
   MEMORY_CONTEXT_CUSTOM_TYPE,
   AGENT_MODE_BRIEF_CUSTOM_TYPE,
   SUBAGENT_RESULTS_CUSTOM_TYPE,
+  SUBAGENT_REPORT_CUSTOM_TYPE,
 ]);
 
 /** Hidden model-only context (memory recall, mode briefing) never renders. */
@@ -69,4 +71,3 @@ export function formatThoughtDuration(seconds: number): string {
   if (whole < 60) return `${whole}s`;
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
-

@@ -15,7 +15,8 @@ import type { ExtensionWidgetItem } from "@/lib/types";
 import { AgentItemRow } from "./AgentAtoms";
 import { TodoItemRow } from "./TodoAtoms";
 
- export const CHROME_WIDGET_POPOVER_WIDTH = 280;
+export const CHROME_WIDGET_POPOVER_WIDTH = 280;
+export const AGENTS_POPOVER_WIDTH = 336;
  
  const EMPTY: CSSProperties = {
    padding: "8px 10px",
@@ -36,13 +37,23 @@ function TodoBody({ parsed }: { parsed: ParsedTodoWidget }) {
   );
 }
 
-function AgentsBody({ parsed }: { parsed: ParsedAgentsWidget }) {
+function AgentsBody({
+  parsed,
+  parentSessionId,
+}: {
+  parsed: ParsedAgentsWidget;
+  parentSessionId?: string | null;
+}) {
   const { t } = useLocale();
   if (parsed.items.length === 0) return <div style={EMPTY}>{t("ext.agentsEmpty")}</div>;
   return (
      <div style={{ padding: "0 2px 4px" }}>
       {parsed.items.map((item, i) => (
-        <AgentItemRow key={`${item.type ?? "agent"}-${i}-${item.description.slice(0, 24)}`} item={item} />
+        <AgentItemRow
+          key={`${item.type ?? "agent"}-${i}-${item.description.slice(0, 24)}`}
+          item={item}
+          parentSessionId={parentSessionId}
+        />
       ))}
     </div>
   );
@@ -52,10 +63,12 @@ export function ChromeWidgetPopover({
   widget,
   pos,
   popoverRef,
+  parentSessionId,
 }: {
   widget: ExtensionWidgetItem;
   pos: { top: number; left: number };
   popoverRef: Ref<HTMLDivElement>;
+  parentSessionId?: string | null;
 }) {
   const { t } = useLocale();
   const parsed = parseWidget(widget.key, widget.lines);
@@ -69,6 +82,7 @@ export function ChromeWidgetPopover({
     count = String(Math.max(0, parsed.agentCount));
   }
 
+  const agents = parsed.kind === "agents";
   return (
     <div
       ref={popoverRef}
@@ -81,14 +95,15 @@ export function ChromeWidgetPopover({
         left: pos.left,
         display: "flex",
         flexDirection: "column",
-        width: CHROME_WIDGET_POPOVER_WIDTH,
-         maxHeight: "min(42vh, 300px)",
-         overflow: "hidden",
-         zIndex: 520,
-         borderRadius: "var(--radius-md)",
-         padding: 3,
+        width: agents ? AGENTS_POPOVER_WIDTH : CHROME_WIDGET_POPOVER_WIDTH,
+        maxHeight: agents ? "min(560px, calc(100vh - 140px))" : "min(42vh, 300px)",
+        overflow: "hidden",
+        zIndex: 520,
+        borderRadius: "var(--radius-md)",
+        padding: agents ? 4 : 3,
       }}
     >
+      {agents ? null : (
       <div
         style={{
           flexShrink: 0,
@@ -121,11 +136,12 @@ export function ChromeWidgetPopover({
           </span>
         ) : null}
       </div>
+      )}
       <div style={{ overflowY: "auto", minHeight: 0 }}>
         {parsed.kind === "todo" ? (
           <TodoBody parsed={parsed} />
         ) : parsed.kind === "agents" ? (
-          <AgentsBody parsed={parsed} />
+          <AgentsBody parsed={parsed} parentSessionId={parentSessionId} />
         ) : (
           <pre
             style={{

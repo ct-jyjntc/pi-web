@@ -2,7 +2,16 @@
  * Native Pi Web subagent records — one owner for spawn state.
  */
 
-export const SUBAGENT_TOOL_NAMES = ["subagent", "get_subagent_result", "steer_subagent"] as const;
+export const SUBAGENT_TOOL_NAMES = [
+  "subagent",
+  "subagent_fork",
+  "get_subagent_result",
+  "steer_subagent",
+  "send_message",
+  "list_agents",
+  "interrupt_agent",
+  "interrupt_subagent",
+] as const;
 
 export const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"] as const;
 export const FULL_CODING_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
@@ -37,11 +46,14 @@ export type SubagentRecord = {
   result?: string;
   error?: string;
   activity?: string;
-  /** Child context used, 0–100. Omitted until the child session reports usage. */
   contextPercent?: number;
-  /** Child context tokens used. Omitted until the child session reports usage. */
   contextTokens?: number;
   startedAt: number;
   completedAt?: number;
   note?: string;
+  sessionId?: string;
+  sessionFile?: string;
+  mode?: "continuable" | "one-shot";
+  depth?: number;
+  summary?: string;
 };

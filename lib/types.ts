@@ -11,6 +11,9 @@ export const AGENT_MODE_BRIEF_CUSTOM_TYPE = "agent-mode-brief";
 /** customType of auto-injected uncollected subagent results (see lib/first-party/subagents). */
 export const SUBAGENT_RESULTS_CUSTOM_TYPE = "subagent-results";
 
+/** customType of a child-chosen report (see lib/first-party/subagents/report.ts). */
+export const SUBAGENT_REPORT_CUSTOM_TYPE = "subagent-report";
+
 export interface SessionHeader {
   type: "session";
   version?: number;

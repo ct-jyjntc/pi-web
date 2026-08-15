@@ -32,6 +32,7 @@ export function formatRecord(record: SubagentRecord): string {
   const lines = [
     record.note,
     `Agent ID: ${record.id}`,
+    record.sessionId ? `Session ID: ${record.sessionId}` : "",
     `Type: ${record.displayName}`,
     `Status: ${record.status}`,
     record.description ? `Description: ${record.description}` : "",

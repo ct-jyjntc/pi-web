@@ -4,6 +4,7 @@ import { join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   resolveSessionPath,
+  resolveSessionPathAllowingChild,
   resolveSessionIdByPath,
   invalidateSessionPathCache,
   invalidateSessionListCache,
@@ -125,7 +126,8 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const filePath = await resolveSessionPath(id);
+    const parent = new URL(req.url).searchParams.get("parent");
+    const filePath = await resolveSessionPathAllowingChild(id, parent);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

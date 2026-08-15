@@ -1,15 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
-import { Bot, ListTodo } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import {
-  chromeWidgetFocus,
-  chromeWidgetSummary,
   classifyWidgetKey,
   parseWidget,
 } from "@/lib/extension-widgets";
-import { ChromeWidgetPopover, CHROME_WIDGET_POPOVER_WIDTH } from "./extension/ChromeWidgetPopover";
+import { ChromeWidgetPopover, AGENTS_POPOVER_WIDTH, CHROME_WIDGET_POPOVER_WIDTH } from "./extension/ChromeWidgetPopover";
 import { TodoItemRow } from "./extension/TodoAtoms";
 import { useChromeWidgetsMetric, useTodosMetric, type ProjectionTodo } from "@/lib/session-metrics-store";
 import { useWebSettings } from "@/lib/web-settings-store";
@@ -17,56 +15,33 @@ import { Icon } from "./Icon";
 
 const TODO_KEY = "todos";
 
-const CAPSULE_STYLE: CSSProperties = {
+const TEXT_TRIGGER_STYLE: CSSProperties = {
   display: "inline-flex",
-  flexDirection: "row",
   alignItems: "center",
-  justifyContent: "center",
-  gap: 5,
-  height: 24,
-  minHeight: 24,
-  maxHeight: 24,
+  gap: 4,
+  height: "100%",
   padding: "0 8px",
-  margin: "auto 0",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-pill)",
+  border: "none",
   background: "transparent",
   color: "var(--text-muted)",
-  font: "inherit",
-  fontSize: 11,
-  fontVariantNumeric: "tabular-nums",
-  fontWeight: 500,
-  lineHeight: 1,
+  fontSize: 12,
+  fontWeight: 400,
+  lineHeight: "18px",
   cursor: "pointer",
   whiteSpace: "nowrap",
   flexShrink: 0,
-  boxSizing: "border-box",
 };
 
-function capsuleCount(key: string, lines: string[]): string {
+function capsuleCount(key: string, lines: string[]): number {
   const parsed = parseWidget(key, lines);
   if (parsed.kind === "agents") {
-    return String(Math.max(0, parsed.agentCount));
+    return Math.max(0, parsed.agentCount);
   }
-  return String(Math.max(1, lines.filter((l) => l.trim()).length));
-}
-
-function isCapsuleActive(key: string, lines: string[]): boolean {
-  const parsed = parseWidget(key, lines);
-  if (parsed.kind === "agents") {
-    return parsed.runningCount + parsed.queuedCount > 0;
-  }
-  return false;
+  return Math.max(1, lines.filter((l) => l.trim()).length);
 }
 
 function visibleTodos(todos: ProjectionTodo[] | null): ProjectionTodo[] {
   return (todos ?? []).filter((t) => t.status !== "deleted");
-}
-
-function todoFocus(todos: ProjectionTodo[]): string {
-  const active = todos.find((t) => t.status === "in_progress");
-  if (active) return active.activeForm?.trim() || active.subject;
-  return todos.find((t) => t.status === "pending")?.subject ?? "";
 }
 
 function TodoSubjectsPopover({
@@ -151,7 +126,7 @@ function TodoSubjectsPopover({
  * Layout is inline-styled so it survives CSS HMR / turbopack lag.
  * Todos come from host projections; chromeWidgets carry subagents only.
  */
-export function TopBarChromeWidgets() {
+export function TopBarChromeWidgets({ parentSessionId }: { parentSessionId?: string | null }) {
   const { t } = useLocale();
   const chromeWidgets = useChromeWidgetsMetric();
   const widgets = useMemo(
@@ -172,10 +147,11 @@ export function TopBarChromeWidgets() {
   const placePopover = useCallback((key: string) => {
     const btn = btnRefs.current.get(key);
     if (!btn) return;
+    const width = key === TODO_KEY ? CHROME_WIDGET_POPOVER_WIDTH : AGENTS_POPOVER_WIDTH;
     const rect = btn.getBoundingClientRect();
     const left = Math.min(
       Math.max(8, rect.left),
-      window.innerWidth - CHROME_WIDGET_POPOVER_WIDTH - 8,
+      window.innerWidth - width - 8,
     );
     setPopoverPos({ top: rect.bottom + 6, left });
   }, []);
@@ -225,12 +201,8 @@ export function TopBarChromeWidgets() {
 
   if (todoItems.length === 0 && widgets.length === 0) return null;
 
-  const completed = todoItems.filter((t) => t.status === "completed").length;
-  const todoCount = `${completed}/${todoItems.length}`;
-  const todoFocusText = todoFocus(todoItems);
-  const todoLive = todoItems.some((t) => t.status === "in_progress") || completed < todoItems.length;
   const todoTitle = t("ext.todo");
-  const todoSummary = todoFocusText ? `${todoCount} · ${todoFocusText}` : todoCount;
+  const todoLabel = t("ext.todoCount", { n: todoItems.length });
 
   return (
     <>
@@ -241,10 +213,8 @@ export function TopBarChromeWidgets() {
           display: "flex",
           flexDirection: "row",
           alignItems: "center",
-          alignSelf: "center",
-          gap: 4,
+          alignSelf: "stretch",
           height: "100%",
-          padding: "0 6px",
           flexShrink: 0,
           boxSizing: "border-box",
         }}
@@ -258,59 +228,36 @@ export function TopBarChromeWidgets() {
             }}
             type="button"
             onClick={() => toggle(TODO_KEY)}
-            title={`${todoTitle}: ${todoSummary}`}
-            aria-label={`${todoTitle}: ${todoSummary}`}
+            title={todoLabel}
+            aria-label={todoLabel}
             aria-expanded={todoOpen}
             aria-haspopup="dialog"
             style={{
-              ...CAPSULE_STYLE,
-              color: todoOpen ? "var(--text)" : "var(--text-muted)",
-              background: todoOpen ? "var(--bg-selected)" : "transparent",
-              borderColor: todoOpen
-                ? "color-mix(in oklab, var(--accent) 35%, var(--border))"
-                : "var(--border)",
+              ...TEXT_TRIGGER_STYLE,
+              background: todoOpen ? "var(--bg-hover)" : "transparent",
             }}
           >
-            <span
-              aria-hidden
-              className={todoLive ? "tool-run-live" : undefined}
+            {todoLabel}
+            <Icon
+              icon={ChevronDown}
+              size={12}
+              strokeWidth={1.8}
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                color: "var(--accent)",
                 flexShrink: 0,
-                lineHeight: 0,
+                transform: todoOpen ? "rotate(180deg)" : undefined,
               }}
-            >
-              <Icon icon={ListTodo} size={13} strokeWidth={1.8} style={{ display: "block", flexShrink: 0 }} />
-            </span>
-            <span style={{ display: "inline-block", letterSpacing: "0.01em", flexShrink: 0, lineHeight: 1 }}>
-              {todoCount}
-            </span>
-            {todoFocusText ? (
-              <span
-                className="topbar-capsule-focus"
-                style={{
-                  maxWidth: 140,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  color: "var(--text-muted)",
-                  fontWeight: 400,
-                }}
-              >
-                {todoFocusText}
-              </span>
-            ) : null}
+            />
           </button>
+        ) : null}
+        {todoItems.length > 0 && widgets.length > 0 ? (
+          <div className="chrome-divider" aria-hidden style={{ flexShrink: 0 }} />
         ) : null}
         {widgets.map((widget) => {
           const kind = classifyWidgetKey(widget.key);
-          const title = kind === "agents" ? t("ext.agents") : widget.key;
           const count = capsuleCount(widget.key, widget.lines);
-          const focus = chromeWidgetFocus(widget.key, widget.lines);
-          const summary = chromeWidgetSummary(widget.key, widget.lines);
-          const live = isCapsuleActive(widget.key, widget.lines);
+          const label = kind === "agents"
+            ? t("ext.agentsCount", { n: count })
+            : `${widget.key} ${count}`;
           const open = openKey === widget.key;
 
           return (
@@ -322,57 +269,25 @@ export function TopBarChromeWidgets() {
               }}
               type="button"
               onClick={() => toggle(widget.key)}
-              title={summary ? `${title}: ${summary}` : title}
-              aria-label={summary ? `${title}: ${summary}` : `${title} ${count}`}
+              title={label}
+              aria-label={label}
               aria-expanded={open}
               aria-haspopup="dialog"
               style={{
-                ...CAPSULE_STYLE,
-                color: open ? "var(--text)" : "var(--text-muted)",
-                background: open ? "var(--bg-selected)" : "transparent",
-                borderColor: open
-                  ? "color-mix(in oklab, var(--success) 35%, var(--border))"
-                  : "var(--border)",
+                ...TEXT_TRIGGER_STYLE,
+                background: open ? "var(--bg-hover)" : "transparent",
               }}
             >
-              <span
-                aria-hidden
-                className={live ? "tool-run-live" : undefined}
+              {label}
+              <Icon
+                icon={ChevronDown}
+                size={12}
+                strokeWidth={1.8}
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  color: "var(--success)",
                   flexShrink: 0,
-                  lineHeight: 0,
+                  transform: open ? "rotate(180deg)" : undefined,
                 }}
-              >
-                <Icon icon={Bot} size={13} strokeWidth={1.8} style={{ display: "block", flexShrink: 0 }} />
-              </span>
-              <span
-                style={{
-                  display: "inline-block",
-                  letterSpacing: "0.01em",
-                  flexShrink: 0,
-                  lineHeight: 1,
-                }}
-              >
-                {count}
-              </span>
-              {focus ? (
-                <span
-                  className="topbar-capsule-focus"
-                  style={{
-                    maxWidth: 140,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    color: "var(--text-muted)",
-                    fontWeight: 400,
-                  }}
-                >
-                  {focus}
-                </span>
-              ) : null}
+              />
             </button>
           );
         })}
@@ -391,6 +306,7 @@ export function TopBarChromeWidgets() {
           widget={openWidget}
           pos={popoverPos}
           popoverRef={popoverRef}
+          parentSessionId={parentSessionId}
         />
       )}
     </>

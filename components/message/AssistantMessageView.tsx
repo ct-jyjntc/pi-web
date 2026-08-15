@@ -303,6 +303,7 @@ export function AssistantMessageView({
               toolResults={toolResults}
               toolCallDurations={toolCallDurations}
               isStreaming={isStreaming}
+              sessionId={sessionId}
             />
           ) : (
             <BlockView

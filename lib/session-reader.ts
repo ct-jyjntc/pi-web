@@ -10,7 +10,7 @@
  */
 import { closeSync, createReadStream, existsSync, openSync, readSync } from "fs";
 import { readdir, stat } from "fs/promises";
-import { join, normalize as normalizePath } from "path";
+import { basename, dirname, isAbsolute, join, normalize as normalizePath, relative } from "path";
 import { createInterface } from "readline";
 import type { SessionHeader, SessionInfo } from "./types";
 import { getAgentDir } from "./agent-dir";
@@ -524,3 +524,58 @@ export function readSessionHeader(filePath: string): SessionHeader | null {
   }
 }
 
+function isPathInside(root: string, filePath: string): boolean {
+  const rel = relative(root, filePath);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+/** Per-parent directory that holds in-process subagent jsonl files. */
+export function childTasksDir(parentSessionFile: string): string {
+  return join(dirname(parentSessionFile), basename(parentSessionFile, ".jsonl"), "tasks");
+}
+
+/**
+ * Resolve a child session id under one parent's tasks/ directory.
+ * Does not recurse the global session list — children stay off the sidebar.
+ */
+export async function resolveSessionPathInTasksDir(
+  parentSessionFile: string,
+  childSessionId: string,
+): Promise<string | null> {
+  const dir = childTasksDir(parentSessionFile);
+  if (!existsSync(dir)) return null;
+  let files: string[] = [];
+  try {
+    files = (await readdir(dir)).filter((name) => name.endsWith(".jsonl"));
+  } catch {
+    return null;
+  }
+  const named = files.filter((name) => name.includes(childSessionId));
+  const ordered = [...named, ...files.filter((name) => !named.includes(name))];
+  for (const name of ordered) {
+    const filePath = join(dir, name);
+    if (readSessionHeader(filePath)?.id === childSessionId) return filePath;
+  }
+  return null;
+}
+
+/**
+ * Resolve a session id, optionally falling through to parent/tasks/<child>.
+ * `parentSessionId` is required for a cold child that was never cacheSessionPath'd.
+ */
+export async function resolveSessionPathAllowingChild(
+  sessionId: string,
+  parentSessionId?: string | null,
+): Promise<string | null> {
+  const direct = await resolveSessionPath(sessionId);
+  if (direct) return direct;
+  if (!parentSessionId) return null;
+  const parentFile = await resolveSessionPath(parentSessionId);
+  if (!parentFile) return null;
+  const sessionsRoot = join(getAgentDir(), "sessions");
+  if (!isPathInside(sessionsRoot, parentFile)) return null;
+  const child = await resolveSessionPathInTasksDir(parentFile, sessionId);
+  if (!child || !isPathInside(childTasksDir(parentFile), child)) return null;
+  cacheSessionPath(sessionId, child);
+  return child;
+}

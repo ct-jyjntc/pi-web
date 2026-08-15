@@ -13,11 +13,12 @@ import {
 } from "../tool-run-meta";
 import { ToolCallBlock } from "./ToolCallBlock";
 
-export const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, toolCallDurations, isStreaming }: {
+export const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, toolCallDurations, isStreaming, sessionId }: {
   items: BlockItem[];
   toolResults?: Map<string, ToolResultMessage>;
   toolCallDurations?: Map<string, number>;
   isStreaming?: boolean;
+  sessionId?: string;
 }) {
   const { t } = useLocale();
   const [open, setOpen] = useState<boolean | null>(null);
@@ -32,6 +33,7 @@ export const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, too
         result={toolResults?.get(tc.toolCallId)}
         duration={toolCallDurations?.get(tc.toolCallId)}
         isStreaming={isStreaming && !toolResults?.get(tc.toolCallId)}
+        sessionId={sessionId}
       />
     );
   }
@@ -161,6 +163,7 @@ export const ToolRunGroup = memo(function ToolRunGroup({ items, toolResults, too
                 result={toolResults?.get(tc.toolCallId)}
                 duration={toolCallDurations?.get(tc.toolCallId)}
                 isStreaming={isStreaming && !toolResults?.get(tc.toolCallId)}
+                sessionId={sessionId}
                 nested
               />
             );

@@ -35,21 +35,27 @@ function stats(record: SubagentRecord): string {
   }
   if (record.status === "running") parts.push(`@${record.startedAt}`);
   else parts.push(elapsed(record));
+  if (record.sessionId) parts.push(`sid:${record.sessionId}`);
+  if (record.mode === "continuable" || record.mode === "one-shot") {
+    parts.push(`mode:${record.mode}`);
+  }
+  if (record.summary) {
+    parts.push(`about:${record.summary.replace(/\s+/g, " ").replace(/ · /g, " ").slice(0, 120)}`);
+  }
   return parts.join(" · ");
 }
 
 export function formatAgentWidgetLines(records: readonly SubagentRecord[]): string[] | undefined {
-  const live = records.filter((record) => record.status === "running" || record.status === "queued");
-  if (live.length === 0) return undefined;
+  if (records.length === 0) return undefined;
 
+  const live = records.filter((record) => record.status === "running" || record.status === "queued");
   const lines = [live.some((record) => record.status === "running") ? "● Agents" : "○ Agents"];
-  const visible = records.filter((record) => record.status !== "completed" || live.length > 0);
-  visible.forEach((record, index) => {
-    const last = index === visible.length - 1;
+  records.forEach((record, index) => {
+    const last = index === records.length - 1;
     const branch = last ? "└─" : "├─";
     const glyph = GLYPH[record.status];
     lines.push(`${branch} ${glyph} ${record.displayName}  ${record.description} · ${stats(record)}`);
-    if (record.status === "running" && record.activity) {
+    if (record.activity) {
       lines.push(`│  ⎿  ${record.activity}`);
     }
   });

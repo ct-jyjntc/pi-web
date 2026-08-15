@@ -289,7 +289,7 @@ export function chromeWidgetFocus(key: string, lines: string[]): string {
   return "";
 }
 
-/** Hide the capsule when nothing is in flight. */
+/** Hide the capsule when nothing is in flight. Completed agents stay visible so they can be opened. */
 export function chromeWidgetIsIdle(key: string, lines: string[]): boolean {
   const parsed = parseWidget(key, lines);
   if (parsed.kind === "todo") {
@@ -297,7 +297,7 @@ export function chromeWidgetIsIdle(key: string, lines: string[]): boolean {
     return !parsed.items.some((i) => i.status === "in_progress" || i.status === "pending");
   }
   if (parsed.kind === "agents") {
-    return parsed.runningCount + parsed.queuedCount <= 0;
+    return parsed.items.length === 0;
   }
   return false;
 }

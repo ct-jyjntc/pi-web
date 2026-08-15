@@ -9,6 +9,8 @@ import { MAX_DIFF_ROWS, parseUnifiedPatch, type SplitDiffCell } from "@/lib/patc
 import { isRecord } from "@/lib/type-guards";
 import type { ToolCardKind } from "@/lib/tool-presentation";
 import type { ToolCallContent, ToolResultMessage } from "@/lib/types";
+import { childSessionIdFromTool } from "@/lib/first-party/subagents/identity";
+import { requestChildTranscript } from "@/lib/child-transcript-store";
 import { getToolPreview } from "../message-view-utils";
 import { scaffoldToolTitle } from "../tool-run-meta";
 
@@ -39,6 +41,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   duration,
   isStreaming,
   nested,
+  sessionId,
 }: {
   block: ToolCallContent;
   result?: ToolResultMessage;
@@ -46,6 +49,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   isStreaming?: boolean;
   /** Rendered under a ToolRunGroup summary — slightly tighter indent chrome. */
   nested?: boolean;
+  sessionId?: string;
 }) {
   const { t } = useLocale();
   const card = block.presentation?.card ?? "generic";
@@ -75,6 +79,11 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const editFailureKind = isDiffCard && isError ? parseEditFailureKind(resultText) : null;
   const meta = cardChrome(card);
   const preview = block.presentation?.title || block.presentation?.preview || getToolPreview(block);
+  const childSessionId = childSessionIdFromTool({
+    toolName: block.toolName,
+    details: result?.details,
+    resultText,
+  });
   const longResult = (resultText?.length ?? 0) > 1200;
   const showResultCollapsed = isCard && !cardExpanded && !isError && result && longResult && !resultDiff;
 
@@ -164,6 +173,22 @@ export const ToolCallBlock = memo(function ToolCallBlock({
             </span>
           )}
         </button>
+        {childSessionId && sessionId ? (
+          <button
+            type="button"
+            className="chrome-btn"
+            onClick={() => {
+              requestChildTranscript({
+                childSessionId,
+                parentSessionId: sessionId,
+                title: preview,
+              });
+            }}
+            style={{ marginLeft: 17, height: 20, minHeight: 20, padding: "0 6px", fontSize: 11 }}
+          >
+            {t("ext.viewTranscript")}
+          </button>
+        ) : null}
         {expanded && (
           <div style={{ marginTop: 4, marginLeft: 17, display: "flex", flexDirection: "column", gap: 6 }}>
             {showScaffoldArgs && inputStr && inputStr !== "{}" && (
