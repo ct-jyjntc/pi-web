@@ -1,7 +1,7 @@
 # Session Tool Repair Design — Append Closers for Dangling Tool Calls
 
 **Date:** 2026-08-15  
-**Status:** Conversation-approved — pending spec review  
+**Status:** User-approved — implementation plan: [`../plans/2026-08-15-session-tool-repair.md`](../plans/2026-08-15-session-tool-repair.md)
 **Parent:** slice 3 of “steal DSH contracts, keep the Pi SDK.” Inbox and compact human-vs-model are **later specs**.  
 **Related:** [`2026-08-15-tool-execute-contract-design.md`](./2026-08-15-tool-execute-contract-design.md), [`AGENTS.md`](../../../AGENTS.md)
 
