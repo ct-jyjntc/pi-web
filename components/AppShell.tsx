@@ -24,7 +24,7 @@ import { SessionSidebar } from "./SessionSidebar";
 import { TabBar, type Tab } from "./TabBar";
 import { hydrateAppearanceFromServer } from "@/lib/appearance-store";
 import { SessionInspectDialogs } from "./session-inspect/SessionInspectDialogs";
-import { ChildTranscriptDialog } from "./session-inspect/ChildTranscriptDialog";
+import { ChildChatPane } from "./chat-window/ChildChatPane";
 import { useLocale } from "@/hooks/useLocale";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { getFileName } from "@/lib/file-paths";
@@ -36,6 +36,7 @@ import { ContextTabBadge } from "./ContextTabBadge";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { WindowControls } from "./WindowControls";
 import { getSessionStatsMetric, setSessionStatsMetric } from "@/lib/session-metrics-store";
+import { closeChildTranscript, useChildTranscript } from "@/lib/child-transcript-store";
 import { TopBarChromeWidgets } from "./TopBarChromeWidgets";
 import { TopBarSessionTitle } from "./TopBarSessionTitle";
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
@@ -82,6 +83,8 @@ export function AppShell() {
   const { t } = useLocale();
   const isMobile = useIsMobile();
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  const childView = useChildTranscript();
+  const childOpen = Boolean(childView && selectedSession && childView.parentSessionId === selectedSession.id);
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
@@ -434,8 +437,8 @@ export function AppShell() {
       setSystemPrompt(null);
     }
   }, [router, selectedSession]);
-
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+    if (activeSessionIdRef.current !== session.id) closeChildTranscript();
     setNewSessionCwd(null);
     // Same session id: update metadata only. Never remount ChatWindow and never
     // router.replace — both flash "Loading session..." after Settings → Models.
@@ -484,6 +487,7 @@ export function AppShell() {
   }, []);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
+    closeChildTranscript();
     setSelectedSession(null);
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
@@ -906,7 +910,6 @@ export function AppShell() {
               </button>
             )}
           </div>
-          <div className="chrome-divider" aria-hidden style={{ flexShrink: 0 }} />
           {/* Middle: drag + chat actions + stats — may collapse when narrow */}
           <div className="app-topbar-middle titlebar-drag">
           <div className="titlebar-drag" style={{ flex: 1, minWidth: 8, height: "100%" }} aria-hidden />
@@ -969,6 +972,8 @@ export function AppShell() {
             </button>
           )}
           {showChat ? (
+            <>
+              <div style={{ flex: 1, minHeight: 0, display: childOpen ? "none" : "flex", flexDirection: "column" }}>
             <ChatWindow
               // Epoch only — do not key by session id. First send promotes new→real id;
               // keying by id remounted the surface into "Loading session..." mid-stream.
@@ -985,6 +990,11 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onOpenFile={handleOpenLinkedFile}
             />
+              </div>
+              {childOpen ? (
+                <ChildChatPane cwd={selectedSession?.cwd} onOpenFile={handleOpenLinkedFile} />
+              ) : null}
+            </>
           ) : initialCwdStatus === "validating" ? (
             <div
               role="status"
@@ -1390,7 +1400,6 @@ export function AppShell() {
       systemPrompt={systemPrompt}
       onSystemPrompt={setSystemPrompt}
     />
-    <ChildTranscriptDialog />
     <ShortcutsHelpDialog
       open={shortcutsHelpOpen}
       onClose={() => setShortcutsHelpOpen(false)}

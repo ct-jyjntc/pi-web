@@ -1,6 +1,11 @@
 /**
- * Bridge for opening a read-only child-subagent transcript overlay.
+ * Which child transcript is open in the main chat column.
+ * Does not start an AgentSession on the child file.
  */
+"use client";
+
+import { useSyncExternalStore } from "react";
+
 export type ChildTranscriptRequest = {
   childSessionId: string;
   parentSessionId: string;
@@ -36,4 +41,8 @@ export function subscribeChildTranscript(listener: Listener): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+export function useChildTranscript(): ChildTranscriptRequest | null {
+  return useSyncExternalStore(subscribeChildTranscript, getChildTranscript, getChildTranscript);
 }

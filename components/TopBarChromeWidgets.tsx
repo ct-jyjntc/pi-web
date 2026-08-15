@@ -12,6 +12,7 @@ import { TodoItemRow } from "./extension/TodoAtoms";
 import { useChromeWidgetsMetric, useTodosMetric, type ProjectionTodo } from "@/lib/session-metrics-store";
 import { useWebSettings } from "@/lib/web-settings-store";
 import { Icon } from "./Icon";
+import { useChildTranscript } from "@/lib/child-transcript-store";
 
 const TODO_KEY = "todos";
 
@@ -137,6 +138,7 @@ export function TopBarChromeWidgets({ parentSessionId }: { parentSessionId?: str
   const showTodos = useWebSettings()?.showTodos !== false;
   const todoItems = showTodos ? visibleTodos(rawTodos) : [];
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const childView = useChildTranscript();
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
   const btnRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -198,6 +200,10 @@ export function TopBarChromeWidgets({ parentSessionId }: { parentSessionId?: str
       document.removeEventListener("keydown", onKey);
     };
   }, [openKey, widgets, todoItems.length]);
+
+  useEffect(() => {
+    if (childView) setOpenKey(null);
+  }, [childView]);
 
   if (todoItems.length === 0 && widgets.length === 0) return null;
 
