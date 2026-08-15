@@ -12,7 +12,7 @@ import {
   type ParsedTodoWidget,
 } from "@/lib/extension-widgets";
 import type { ExtensionWidgetItem } from "@/lib/types";
-import { AgentItemRow } from "./AgentAtoms";
+import { AgentCatalogTree } from "./AgentCatalogTree";
 import { TodoItemRow } from "./TodoAtoms";
 
 export const CHROME_WIDGET_POPOVER_WIDTH = 280;
@@ -46,17 +46,7 @@ function AgentsBody({
 }) {
   const { t } = useLocale();
   if (parsed.items.length === 0) return <div style={EMPTY}>{t("ext.agentsEmpty")}</div>;
-  return (
-     <div style={{ padding: "0 2px 4px" }}>
-      {parsed.items.map((item, i) => (
-        <AgentItemRow
-          key={`${item.type ?? "agent"}-${i}-${item.description.slice(0, 24)}`}
-          item={item}
-          parentSessionId={parentSessionId}
-        />
-      ))}
-    </div>
-  );
+  return <AgentCatalogTree items={parsed.items} parentSessionId={parentSessionId} />;
 }
 
 export function ChromeWidgetPopover({

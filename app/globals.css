@@ -1189,29 +1189,30 @@ span.linenumber {
     min-width: 0;
     border-right: none !important;
   }
-  /* keep inner content at fixed width so it doesn't reflow during animation */
-  .sidebar-container > *:not(.sidebar-edge-resizer) {
+  .sidebar-container > * {
     width: var(--sidebar-width);
     min-width: var(--sidebar-width);
   }
-  /* 8px hit target on the inner right edge — not a 0-width sibling seam
-     (Chromium often skips pointer hits on overflow from a 0×N flex item). */
-  .sidebar-container > .sidebar-edge-resizer {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 0;
-    left: auto;
+  /* 8px hit target on the chat side of the divider (negative margin so layout
+     does not shift). Must have a real box — Chromium skips hits on 0-width seams. */
+  .sidebar-seam {
+    position: relative;
+    flex: 0 0 8px;
     width: 8px;
     min-width: 8px;
-    max-width: 8px;
-    z-index: 20;
+    margin-right: -8px;
+    align-self: stretch;
+    z-index: 60;
+    overflow: visible;
+  }
+  .sidebar-edge-resizer {
+    position: absolute;
+    inset: 0;
     cursor: col-resize;
     touch-action: none;
     background: transparent;
   }
-  .sidebar-container > .sidebar-edge-resizer:hover,
-  .sidebar-container > .sidebar-edge-resizer.is-active {
+  .sidebar-edge-resizer.is-active {
     background: color-mix(in oklab, var(--accent) 28%, transparent);
   }
 }
@@ -1266,7 +1267,6 @@ span.linenumber {
     touch-action: none;
     background: transparent;
   }
-  .right-panel-edge-resizer:hover,
   .right-panel-edge-resizer.is-active {
     background: color-mix(in oklab, var(--accent) 28%, transparent);
   }

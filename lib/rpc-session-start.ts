@@ -11,7 +11,7 @@ import { buildLeanPolicyText } from "./lean-policy";
 import { resolveLeanMode } from "./lean-settings";
 import { createConfiguredModelRuntime } from "./model-runtime";
 import { existsSync } from "fs";
-import { cacheSessionPath } from "./session-reader";
+import { cacheSessionPath, isSubagentChildSessionFile } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { getBuiltinResourceLoaderOptions } from "./builtin-extensions";
 import { ensureSubagentSpawnEnv } from "./resolve-pi-cli";
@@ -68,6 +68,9 @@ export async function startRpcSession(
   // newSession() with a different id, desyncing the client and registry.
   if (sessionFile && !existsSync(sessionFile)) {
     throw new Error(`Session file not found: ${sessionFile}`);
+  }
+  if (sessionFile && isSubagentChildSessionFile(sessionFile)) {
+    throw new Error("Child subagent sessions are opened via the parent host, not startRpcSession");
   }
 
   const starting = (async () => {

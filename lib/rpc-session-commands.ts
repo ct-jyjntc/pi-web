@@ -437,7 +437,7 @@ export async function dispatchRpcSessionCommand(
       const childId = String(command.childSessionId ?? command.agentId ?? "");
       const message = String(command.message ?? "");
       if (!childId || !message) throw new Error("childSessionId and message are required");
-      return host.followup(childId, message);
+      return host.deliver(childId, message);
     }
 
     case "subagent_interrupt": {

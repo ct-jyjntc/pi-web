@@ -55,5 +55,6 @@ export type SubagentRecord = {
   sessionFile?: string;
   mode?: "continuable" | "one-shot";
   depth?: number;
+  parentSessionId?: string;
   summary?: string;
 };

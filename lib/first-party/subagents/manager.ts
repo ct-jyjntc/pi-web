@@ -6,10 +6,12 @@ import { randomUUID } from "crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { cacheSessionPath } from "../../session-reader";
 import { readWebSettings } from "../../web-settings";
+import { registerChildRun, unregisterChildRun } from "./host";
 import { createChildRun, type ChildRun } from "./child-session";
 import { listDiskChildren, type SubagentDescriptor, type SubagentMode } from "./durable";
 import { loadAgentTypes, resolveAgentType } from "./catalog";
 import type { AgentTypeConfig, SubagentRecord, SubagentStatus } from "./types";
+import type { ReportDelivery } from "./report";
 
 function maxConcurrent(): number {
   const cap = readWebSettings().subagentConcurrency;
@@ -37,7 +39,7 @@ export class NativeSubagentManager {
   private readonly records = new Map<string, LiveRecord>();
   private onChange: (() => void) | null = null;
   private onPublish: ((record: SubagentRecord) => void) | null = null;
-  private onReport: ((record: SubagentRecord, output: string) => void) | null = null;
+  private onReport: ((record: SubagentRecord, output: string, delivery: ReportDelivery) => void) | null = null;
   private promptEpoch = 0;
 
   get epoch(): number {
@@ -57,7 +59,7 @@ export class NativeSubagentManager {
     this.onPublish = handler;
   }
 
-  setOnReport(handler: (record: SubagentRecord, output: string) => void): void {
+  setOnReport(handler: (record: SubagentRecord, output: string, delivery: ReportDelivery) => void): void {
     this.onReport = handler;
   }
 
@@ -252,7 +254,7 @@ export class NativeSubagentManager {
     });
   }
 
-  async followup(id: string, message: string, signal?: AbortSignal): Promise<SubagentRecord> {
+  private async prepareContinuation(id: string): Promise<LiveRecord> {
     const record = this.resolveLive(id);
     if (!record) throw new Error(`Agent not found: "${id}"`);
     if (record.mode === "one-shot") {
@@ -262,8 +264,71 @@ export class NativeSubagentManager {
     if (!record.run) throw new Error(`Agent "${id}" cannot be continued (status: ${record.status}).`);
     record.collected = false;
     record.epoch = this.promptEpoch;
+    return record;
+  }
+
+  isResident(id: string): boolean {
+    return Boolean(this.resolveLive(id)?.run);
+  }
+
+  /**
+   * Queue a continuation without waiting for the child turn.
+   * send_message uses this; resume / human follow-up still wait via followup().
+   */
+  async deliver(id: string, message: string): Promise<SubagentRecord> {
+    const record = await this.prepareContinuation(id);
     if (record.status === "running") {
-      await record.run.prompt(message);
+      void record.run!.prompt(message).then(
+        (result: string) => this.settleDeliveredTurn(record, "completed", result),
+        (error: unknown) => this.settleDeliveredTurn(
+          record,
+          "error",
+          undefined,
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+      return publicRecord(record);
+    }
+    record.error = undefined;
+    record.result = undefined;
+    record.status = "running";
+    record.startedAt = Date.now();
+    record.completedAt = undefined;
+    this.emit();
+    void record.run!.prompt(message).then(
+      (result: string) => this.settleDeliveredTurn(record, "completed", result),
+      (error: unknown) => this.settleDeliveredTurn(
+        record,
+        "error",
+        undefined,
+        error instanceof Error ? error.message : String(error),
+      ),
+    );
+    return publicRecord(record);
+  }
+
+  private settleDeliveredTurn(
+    record: LiveRecord,
+    status: SubagentStatus,
+    result?: string,
+    error?: string,
+  ): void {
+    if (isHardStop(record.status)) return;
+    if (record.status === "running") {
+      this.finishTurn(record, status, result, error);
+      return;
+    }
+    record.result = result;
+    record.error = error;
+    record.completedAt = Date.now();
+    snapshotUsage(record);
+    this.emit();
+  }
+
+  async followup(id: string, message: string, signal?: AbortSignal): Promise<SubagentRecord> {
+    const record = await this.prepareContinuation(id);
+    if (record.status === "running") {
+      await record.run!.prompt(message);
       return publicRecord(record);
     }
     record.error = undefined;
@@ -273,7 +338,7 @@ export class NativeSubagentManager {
     record.completedAt = undefined;
     this.emit();
     try {
-      const result = await record.run.prompt(message);
+      const result = await record.run!.prompt(message);
       if (signal?.aborted) {
         this.finishTurn(record, "aborted", result, "Aborted.");
       } else {
@@ -347,7 +412,7 @@ export class NativeSubagentManager {
       type: record.typeConfig,
       modelSpec: record.modelSpec,
       thinkingSpec: record.thinkingSpec,
-      onReport: (output) => this.onReport?.(publicRecord(record), output),
+      onReport: (output, delivery) => this.onReport?.(publicRecord(record), output, delivery),
       sessionFile: record.sessionFile,
       descriptor: record.sessionFile ? undefined : this.descriptorFor(record),
       depth: record.depth,
@@ -360,6 +425,13 @@ export class NativeSubagentManager {
     record.sessionId = run.sessionId;
     record.sessionFile = run.sessionFile;
     if (run.sessionId && run.sessionFile) cacheSessionPath(run.sessionId, run.sessionFile);
+    const parentId = record.ctx.sessionManager.getSessionId();
+    if (parentId && run.sessionId) registerChildRun(parentId, run);
+    const dispose = run.dispose.bind(run);
+    run.dispose = () => {
+      unregisterChildRun(run.sessionId, run);
+      dispose();
+    };
     run.setActivity((text) => {
       if (text) record.activity = text;
       snapshotUsage(record);

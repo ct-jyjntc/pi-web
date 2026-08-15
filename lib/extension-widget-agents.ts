@@ -26,18 +26,20 @@ export type AgentItem = {
   elapsed?: string;
   queuedCount?: number;
   sessionId?: string;
+  parentId?: string;
+  depth?: number;
 };
 
 const SPINNER_RE = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/;
-const TREE_RE = /^[├└─\s]+/;
+const TREE_RE = /^[├└─│|\s]+/;
 
 function stripTree(line: string): string {
   return line.replace(TREE_RE, "").trim();
 }
 
 function isActivityLine(trimmed: string, raw: string): boolean {
-  if (/^[│|]/.test(trimmed)) return true;
-  if (/^⎿/.test(trimmed) || /^\s+⎿/.test(raw)) return true;
+  if (/⎿/.test(trimmed) || /⎿/.test(raw)) return true;
+  if (/^[│|]/.test(trimmed) && !/[├└]/.test(trimmed)) return true;
   return false;
 }
 
@@ -110,8 +112,8 @@ export function parseAgentHeader(line: string): AgentItem | null {
   };
 }
 
-function parseAgentStats(parts: string[]): Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed" | "sessionId" | "mode" | "about"> {
-  const out: Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed" | "sessionId" | "mode" | "about"> = {};
+function parseAgentStats(parts: string[]): Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed" | "sessionId" | "mode" | "about" | "parentId" | "depth"> {
+  const out: Pick<AgentItem, "tokens" | "percent" | "startedAt" | "elapsed" | "sessionId" | "mode" | "about" | "parentId" | "depth"> = {};
   for (const part of parts) {
     const sid = /^sid:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(part);
     if (sid) {
@@ -143,6 +145,16 @@ function parseAgentStats(parts: string[]): Pick<AgentItem, "tokens" | "percent" 
     }
     if (part.startsWith("about:")) {
       out.about = part.slice("about:".length).trim() || undefined;
+      continue;
+    }
+    const depth = /^depth:(\d+)$/.exec(part);
+    if (depth) {
+      out.depth = Math.max(1, Number(depth[1]));
+      continue;
+    }
+    const parent = /^parent:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(part);
+    if (parent) {
+      out.parentId = parent[1];
       continue;
     }
     if (/^\d+(?:\.\d+)?(s|ms)$/.test(part) || /^\d+:\d{2}$/.test(part)) {

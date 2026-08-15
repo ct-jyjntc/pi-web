@@ -39,10 +39,23 @@ function stats(record: SubagentRecord): string {
   if (record.mode === "continuable" || record.mode === "one-shot") {
     parts.push(`mode:${record.mode}`);
   }
+  const depth = record.depth ?? 1;
+  if (depth > 1) parts.push(`depth:${depth}`);
+  if (record.parentSessionId) parts.push(`parent:${record.parentSessionId}`);
   if (record.summary) {
     parts.push(`about:${record.summary.replace(/\s+/g, " ").replace(/ · /g, " ").slice(0, 120)}`);
   }
   return parts.join(" · ");
+}
+
+function isLastSibling(records: readonly SubagentRecord[], index: number): boolean {
+  const depth = records[index]?.depth ?? 1;
+  for (let i = index + 1; i < records.length; i += 1) {
+    const next = records[i]!.depth ?? 1;
+    if (next < depth) return true;
+    if (next === depth) return false;
+  }
+  return true;
 }
 
 export function formatAgentWidgetLines(records: readonly SubagentRecord[]): string[] | undefined {
@@ -51,12 +64,15 @@ export function formatAgentWidgetLines(records: readonly SubagentRecord[]): stri
   const live = records.filter((record) => record.status === "running" || record.status === "queued");
   const lines = [live.some((record) => record.status === "running") ? "● Agents" : "○ Agents"];
   records.forEach((record, index) => {
-    const last = index === records.length - 1;
+    const depth = Math.max(1, record.depth ?? 1);
+    const last = isLastSibling(records, index);
+    const pad = "│  ".repeat(depth - 1);
     const branch = last ? "└─" : "├─";
     const glyph = GLYPH[record.status];
-    lines.push(`${branch} ${glyph} ${record.displayName}  ${record.description} · ${stats(record)}`);
+    lines.push(`${pad}${branch} ${glyph} ${record.displayName}  ${record.description} · ${stats(record)}`);
     if (record.activity) {
-      lines.push(`│  ⎿  ${record.activity}`);
+      const actPad = pad + (last ? "   " : "│  ");
+      lines.push(`${actPad}⎿  ${record.activity}`);
     }
   });
   return lines;

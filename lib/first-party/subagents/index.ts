@@ -13,8 +13,8 @@ import {
   SUBAGENT_RESULTS_CUSTOM_TYPE,
 } from "./settle";
 import { SUBAGENT_REPORT_CUSTOM_TYPE } from "../../types";
-import type { SubagentRecord } from "./types";
 import { registerSubagentHost, unregisterSubagentHost } from "./host";
+import { buildCatalogRecords, formatAgentList, listAgents, type AgentListScope } from "./list";
 
 function parentConversationSeed(ctx: ExtensionContext): string {
   try {
@@ -63,23 +63,6 @@ function textResult(text: string, details: Record<string, unknown> = {}) {
   return { content: [{ type: "text" as const, text }], details };
 }
 
-function formatList(records: SubagentRecord[]): string {
-  if (records.length === 0) return "No subagents in this session.";
-  return records.map((record) => {
-    const live = record.status === "running" || record.status === "queued"
-      ? "running"
-      : record.sessionId
-        ? "idle"
-        : "ready";
-    return [
-      `- ${record.description} (${record.displayName})`,
-      `  id: ${record.sessionId || record.id}`,
-      `  agent_id: ${record.id}`,
-      `  status: ${live} (${record.status})`,
-      record.mode ? `  mode: ${record.mode}` : "",
-    ].filter(Boolean).join("\n");
-  }).join("\n");
-}
 
 export function createSubagentsInlineExtension(): InlineExtension {
   return {
@@ -89,7 +72,11 @@ export function createSubagentsInlineExtension(): InlineExtension {
       let widgetCtx: ExtensionContext | undefined;
 
       const publish = (): void => {
-        const lines = formatAgentWidgetLines(manager.listCurrent());
+        const lines = formatAgentWidgetLines(buildCatalogRecords(
+          manager,
+          widgetCtx?.sessionManager.getSessionId(),
+          widgetCtx?.sessionManager.getSessionFile(),
+        ));
         try {
           widgetCtx?.ui.setWidget("agents", lines);
         } catch {
@@ -108,7 +95,7 @@ export function createSubagentsInlineExtension(): InlineExtension {
           // Permission subscriber is optional.
         }
       });
-      manager.setOnReport((record, output) => {
+      manager.setOnReport((record, output, delivery) => {
         const header = `Subagent report from ${record.displayName} (${record.description}).`;
         const body = [header, `Agent ID: ${record.id}`, record.sessionId ? `Session ID: ${record.sessionId}` : "", "", output]
           .filter((line, index, all) => line !== "" || all[index - 1] !== "")
@@ -116,7 +103,9 @@ export function createSubagentsInlineExtension(): InlineExtension {
         try {
           pi.sendMessage(
             { customType: SUBAGENT_REPORT_CUSTOM_TYPE, content: body, display: false },
-            { deliverAs: "followUp", triggerTurn: true },
+            delivery === "quiet"
+              ? { deliverAs: "nextTurn" }
+              : { deliverAs: "followUp", triggerTurn: true },
           );
         } catch {
           // Parent session already gone.
@@ -287,11 +276,25 @@ export function createSubagentsInlineExtension(): InlineExtension {
       pi.registerTool({
         name: "list_agents",
         label: "List agents",
-        description: "List subagents you started in this session. Use it to recall ids, not to poll for completion.",
+        description:
+          "List continuable background subagents. Use it to recall ids, not to poll for completion. "
+          + "running = working now; idle = loaded between turns; ready = stored and resumable, not a result to collect. "
+          + "send_message is allowed for depth-1 children. Scope descendants walks the tree below you.",
         promptSnippet: "list_agents: List child agents in this session",
-        parameters: Type.Object({}),
-        async execute() {
-          return textResult(formatList(manager.list()));
+        parameters: Type.Object({
+          scope: Type.Optional(Type.String({
+            description: "children (default) lists direct children; descendants walks the complete tree.",
+          })),
+        }),
+        async execute(_id, raw, _signal, _onUpdate, ctx) {
+          const params = raw as { scope?: AgentListScope };
+          const scope = params.scope === "descendants" ? "descendants" : "children";
+          const entries = listAgents(manager, {
+            scope,
+            parentSessionId: ctx.sessionManager.getSessionId(),
+            parentSessionFile: ctx.sessionManager.getSessionFile(),
+          });
+          return textResult(formatAgentList(entries, scope));
         },
       });
 
@@ -304,24 +307,20 @@ export function createSubagentsInlineExtension(): InlineExtension {
         name: "send_message",
         label: "Send message",
         description:
-          "Send a message to a background subagent by id, continuing the same conversation. If it is still working, the message waits until its current turn finishes. This call returns no answer — only delivery confirmation.",
+          "Send a message to a background subagent by id, continuing the same conversation. If it is still working, the message waits until its current turn finishes. This call returns no answer from the subagent — only confirmation that the message was delivered.",
         promptSnippet: "send_message: Continue a background subagent",
         parameters: Type.Object({
           subagent_id: Type.String({ description: "Child id from list_agents or Session ID." }),
           message: Type.String({ description: "The message to deliver." }),
         }),
-        async execute(_id, raw, signal) {
+        async execute(_id, raw) {
           const params = raw as { subagent_id: string; message: string };
           try {
-            const record = await manager.followup(params.subagent_id, params.message, signal);
-            if (record.status === "running") {
-              return textResult(
-                `message queued as the next turn for subagent ${params.subagent_id}`,
-                toolDetailsFor(record),
-              );
-            }
-            manager.markCollected(record.id);
-            return textResult(formatRecord(record), toolDetailsFor(record));
+            const record = await manager.deliver(params.subagent_id, params.message);
+            return textResult(
+              `message queued as the next turn for subagent ${params.subagent_id}`,
+              toolDetailsFor(record),
+            );
           } catch (error) {
             return textResult(error instanceof Error ? error.message : String(error));
           }

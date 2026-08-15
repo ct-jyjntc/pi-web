@@ -15,7 +15,7 @@ import { createConfiguredModelRuntime } from "../../model-runtime";
 import { createPiWebCustomTools, extraCustomToolNames } from "../../pi-web-custom-tools";
 import { SUBAGENT_TOOL_NAMES, type AgentTypeConfig } from "./types";
 import { createPermissionInlineExtension } from "../permission";
-import { createReportInlineExtension } from "./report";
+import { createReportInlineExtension, type ReportDelivery } from "./report";
 import { agentModeStripsWriteTools, parseAgentMode } from "../../agent-mode";
 import { readGlobalAgentMode } from "../../global-agent-mode";
 import {
@@ -34,6 +34,9 @@ export type ChildRun = {
   dispose: () => void;
   setActivity: (listener: (text?: string) => void) => void;
   getContextUsage: () => { percent?: number | null; tokens?: number | null } | undefined;
+  subscribe: (listener: (event: { type?: string; [key: string]: unknown }) => void) => () => void;
+  isStreaming: () => boolean;
+  streamingMessage: () => unknown;
 };
 
 export type CreateChildRunInput = {
@@ -41,7 +44,7 @@ export type CreateChildRunInput = {
   type: AgentTypeConfig;
   modelSpec?: string;
   thinkingSpec?: string;
-  onReport?: (output: string) => void | Promise<void>;
+  onReport?: (output: string, delivery: ReportDelivery) => void | Promise<void>;
   sessionFile?: string;
   descriptor?: SubagentDescriptor;
   depth?: number;
@@ -187,6 +190,7 @@ export async function createChildRun(input: CreateChildRunInput): Promise<ChildR
 
   let activityListener: ((text?: string) => void) | undefined;
   let assistantTurns = 0;
+  const eventListeners = new Set<(event: { type?: string; [key: string]: unknown }) => void>();
   const unsubscribe = session.subscribe((event) => {
     const rec = event as { type?: string; toolName?: string; name?: string; message?: { role?: string } };
     if (rec.type === "tool_execution_start" || rec.type === "tool_call") {
@@ -202,6 +206,7 @@ export async function createChildRun(input: CreateChildRunInput): Promise<ChildR
         if (assistantTurns >= type.maxTurns) void session.abort();
       }
     }
+    for (const listener of eventListeners) listener(event as { type?: string; [key: string]: unknown });
   });
 
   return {
@@ -243,6 +248,18 @@ export async function createChildRun(input: CreateChildRunInput): Promise<ChildR
       } catch {
         return undefined;
       }
+    },
+    subscribe(listener) {
+      eventListeners.add(listener);
+      return () => {
+        eventListeners.delete(listener);
+      };
+    },
+    isStreaming() {
+      return Boolean(session.isStreaming);
+    },
+    streamingMessage() {
+      return (session as { streamingMessage?: unknown }).streamingMessage;
     },
   };
 }

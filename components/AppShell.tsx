@@ -827,9 +827,23 @@ export function AppShell() {
         }}
       >
         {sidebarContent}
-        {sidebarOpen && !isMobile && (
+      </div>
+      {sidebarOpen && !isMobile && (
+        <div
+          className="sidebar-seam titlebar-no-drag"
+          style={{
+            position: "relative",
+            flex: "0 0 8px",
+            width: 8,
+            minWidth: 8,
+            marginRight: -8,
+            alignSelf: "stretch",
+            zIndex: 60,
+            overflow: "visible",
+          }}
+        >
           <div
-            className={`sidebar-edge-resizer titlebar-no-drag${sidebarResizing ? " is-active" : ""}`}
+            className={`sidebar-edge-resizer${sidebarResizing ? " is-active" : ""}`}
             role="separator"
             aria-orientation="vertical"
             aria-valuenow={sidebarWidth}
@@ -838,9 +852,15 @@ export function AppShell() {
             aria-label={t("shell.resizeSidebar")}
             title={t("shell.resizeSidebar")}
             onPointerDown={handleSidebarResizeStart}
+            style={{
+              background: sidebarResizing
+                ? "color-mix(in oklab, var(--accent) 30%, transparent)"
+                : "transparent",
+            }}
           />
-        )}
-      </div>
+        </div>
+      )}
+
 
       {/* Center: chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>

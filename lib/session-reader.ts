@@ -534,6 +534,10 @@ export function childTasksDir(parentSessionFile: string): string {
   return join(dirname(parentSessionFile), basename(parentSessionFile, ".jsonl"), "tasks");
 }
 
+export function isSubagentChildSessionFile(filePath: string): boolean {
+  return /(?:^|[/\\])tasks[/\\][^/\\]+\.jsonl$/.test(filePath);
+}
+
 /**
  * Resolve a child session id under one parent's tasks/ directory.
  * Does not recurse the global session list — children stay off the sidebar.
