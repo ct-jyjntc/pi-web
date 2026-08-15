@@ -159,6 +159,7 @@ lib/
   builtin-extensions.ts       heavy package paths + first-party extensionFactories
   first-party/                inline todo + ask_user_question (no jiti packages)
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
+  session-tool-repair.ts  append error toolResults for trailing unmatched tool calls
   tool-presets.ts     FULL_TOOL_NAMES + getFullToolNames()
   types.ts            shared TypeScript types
   normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
