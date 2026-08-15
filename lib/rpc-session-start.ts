@@ -21,10 +21,13 @@ import { AgentSessionWrapper } from "./rpc-session-wrapper";
 import {
   getLocks,
   getRegistry,
+  getRpcSession,
   getStartingSessionCwds,
   normalizeRpcCwd,
 } from "./rpc-registry";
 import { resolveToolAdoption } from "./rpc-session-tool-adoption";
+import { applyRepairToMessages, shouldRepairOnOpen } from "./session-tool-repair";
+import type { AgentMessage } from "./types";
 
 /**
  * One-shot env / package migration / prewarm. Used to live as rpc-manager.ts
@@ -86,6 +89,14 @@ export async function startRpcSession(
     const sessionManager = sessionFile
       ? SessionManager.open(sessionFile, undefined)
       : SessionManager.create(cwd, undefined);
+
+    if (shouldRepairOnOpen({ alive: Boolean(getRpcSession(sessionId)?.isAlive()) })) {
+      const msgs = sessionManager.buildSessionContext().messages as AgentMessage[];
+      const { persist } = applyRepairToMessages(msgs);
+      for (const closer of persist) {
+        sessionManager.appendMessage(closer as Parameters<SessionManager["appendMessage"]>[0]);
+      }
+    }
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
