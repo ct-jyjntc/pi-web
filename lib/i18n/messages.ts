@@ -278,8 +278,8 @@ const en = {
   "settings.defaultThinkingDesc": "Fallback for new sessions before you pick a thinking level. After that, new sessions follow your last composer choice.",
   "settings.showThinking": "Show thinking by default",
   "settings.showThinkingDesc": "Expand thinking blocks in the transcript when a reply finishes loading.",
-   "settings.showTodos": "Show todos",
-   "settings.showTodosDesc": "Show a compact todo capsule in the top bar.",
+  "settings.showTodos": "Show tasks",
+  "settings.showTodosDesc": "Show a compact task list in the top bar.",
    "settings.expandReviewDiffs": "Expand review diffs by default",
    "settings.expandReviewDiffsDesc": "Open every file diff in the Review panel when a repo first loads.",
    "settings.subagentConcurrency": "Limit subagent concurrency",
@@ -817,8 +817,8 @@ const en = {
   "agent.initFailed": "Project init failed",
 
   // Extension specialized UI
-  "ext.todo": "Todo",
-  "ext.todoCount": "{n} todos",
+  "ext.todo": "Tasks",
+  "ext.todoCount": "{n} tasks",
   "ext.todoEmpty": "No tasks yet",
   "ext.agents": "Subagents",
   "ext.agentsCount": "{n} subagents",
@@ -1308,8 +1308,8 @@ const zh: Record<MessageKey, string> = {
   "settings.defaultThinkingDesc": "尚未选过思考级别时的新会话默认值；选过之后新会话跟随上次选择。",
   "settings.showThinking": "默认展开思考",
   "settings.showThinkingDesc": "在消息流中默认展开思考内容。",
-   "settings.showTodos": "显示待办",
-   "settings.showTodosDesc": "在顶部栏显示紧凑的待办胶囊。",
+  "settings.showTodos": "显示任务",
+  "settings.showTodosDesc": "在顶部栏显示紧凑的任务列表。",
    "settings.expandReviewDiffs": "默认展开审阅内容",
    "settings.expandReviewDiffsDesc": "打开审阅面板时默认展开所有文件 diff。",
    "settings.subagentConcurrency": "限制子代理并发",
@@ -1837,8 +1837,8 @@ const zh: Record<MessageKey, string> = {
   "agent.initFailed": "项目初始化失败",
 
 
-  "ext.todo": "待办",
-  "ext.todoCount": "{n}个待办",
+  "ext.todo": "任务",
+  "ext.todoCount": "{n}个任务",
   "ext.todoEmpty": "暂无任务",
   "ext.agents": "子代理",
   "ext.agentsCount": "{n}个子代理",

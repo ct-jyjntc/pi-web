@@ -33,13 +33,16 @@ export function buildAgentCatalogTree(items: AgentItem[]): CatalogNode[] {
 function CatalogNodeView({
   node,
   rootParentSessionId,
+  reserveDisclosure,
 }: {
   node: CatalogNode;
   rootParentSessionId?: string | null;
+  reserveDisclosure: boolean;
 }) {
   const [open, setOpen] = useState(true);
   const hasChildren = node.children.length > 0;
   const depth = node.item.depth ?? 1;
+  const indent = (depth - 1) * 12;
   return (
     <div>
       <div style={{ display: "flex", alignItems: "flex-start" }}>
@@ -57,7 +60,7 @@ function CatalogNodeView({
               minWidth: 18,
               height: 18,
               marginTop: 11,
-              marginLeft: (depth - 1) * 12,
+              marginLeft: indent,
               border: "none",
               background: "transparent",
               color: "var(--text-muted)",
@@ -70,9 +73,11 @@ function CatalogNodeView({
               style={{ transform: open ? "rotate(90deg)" : undefined }}
             />
           </button>
-        ) : (
-          <span style={{ width: 18, marginLeft: (depth - 1) * 12, flexShrink: 0 }} />
-        )}
+        ) : reserveDisclosure ? (
+          <span style={{ width: 18, marginLeft: indent, flexShrink: 0 }} />
+        ) : indent > 0 ? (
+          <span style={{ width: indent, flexShrink: 0 }} />
+        ) : null}
         <div style={{ flex: 1, minWidth: 0 }}>
           <AgentItemRow
             item={node.item}
@@ -87,6 +92,7 @@ function CatalogNodeView({
               key={`${child.item.sessionId ?? child.item.description}-${index}`}
               node={child}
               rootParentSessionId={rootParentSessionId}
+              reserveDisclosure={reserveDisclosure}
             />
           ))}
         </div>
@@ -103,6 +109,7 @@ export function AgentCatalogTree({
   parentSessionId?: string | null;
 }) {
   const roots = useMemo(() => buildAgentCatalogTree(items), [items]);
+  const reserveDisclosure = roots.some((node) => node.children.length > 0);
   return (
     <div style={{ padding: "0 2px 4px" }}>
       {roots.map((node, index) => (
@@ -110,6 +117,7 @@ export function AgentCatalogTree({
           key={`${node.item.sessionId ?? node.item.description}-${index}`}
           node={node}
           rootParentSessionId={parentSessionId}
+          reserveDisclosure={reserveDisclosure}
         />
       ))}
     </div>

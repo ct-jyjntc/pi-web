@@ -67,13 +67,7 @@ export function AgentItemRow({
   const elapsedMs = elapsedMsFromItem(item, now);
   const tokens = item.tokens != null ? t("ext.agentTokens", { n: formatTokensK(item.tokens) }) : "";
   const duration = elapsedMs != null ? formatElapsedLabel(elapsedMs, t) : (item.elapsed ?? "");
-  const modeLabel = item.mode === "continuable"
-    ? t("ext.agentContinuable")
-    : item.mode === "one-shot"
-      ? t("ext.agentOneShot")
-      : "";
-  const activity = item.activity || (active ? t("ext.agentRunning") : t("ext.agentInactive"));
-  const summary = [item.about, modeLabel, activity].filter(Boolean).join(" · ");
+  const summary = item.activity || (active ? t("ext.agentRunning") : t("ext.agentInactive"));
   const canOpen = Boolean(item.sessionId && parentSessionId);
 
   return (

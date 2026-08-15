@@ -192,9 +192,9 @@ export async function createChildRun(input: CreateChildRunInput): Promise<ChildR
   let assistantTurns = 0;
   const eventListeners = new Set<(event: { type?: string; [key: string]: unknown }) => void>();
   const unsubscribe = session.subscribe((event) => {
-    const rec = event as { type?: string; toolName?: string; name?: string; message?: { role?: string } };
+    const rec = event as { type?: string; toolName?: string; name?: string; args?: unknown; message?: { role?: string } };
     if (rec.type === "tool_execution_start" || rec.type === "tool_call") {
-      activityListener?.(rec.toolName || rec.name || "working");
+      activityListener?.(activityFromToolEvent(rec));
     }
     if (rec.type === "tool_execution_end" || rec.type === "tool_result") {
       activityListener?.();
@@ -262,4 +262,16 @@ export async function createChildRun(input: CreateChildRunInput): Promise<ChildR
       return (session as { streamingMessage?: unknown }).streamingMessage;
     },
   };
+}
+
+function activityFromToolEvent(event: { toolName?: string; name?: string; args?: unknown }): string {
+  const name = event.toolName || event.name || "working";
+  if (!event.args || typeof event.args !== "object") return name;
+  const args = event.args as Record<string, unknown>;
+  const hint = [args.path, args.file, args.pattern, args.command, args.query]
+    .find((value) => typeof value === "string" && value.trim());
+  if (typeof hint !== "string") return name;
+  const compact = hint.replace(/\s+/g, " ").trim();
+  const clipped = compact.length > 64 ? `${compact.slice(0, 63)}…` : compact;
+  return `${name} ${clipped}`;
 }
