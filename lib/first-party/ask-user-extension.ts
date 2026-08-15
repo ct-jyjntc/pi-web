@@ -71,6 +71,7 @@ type QuestionnaireResult = {
 type DialogUI = {
   select: (title: string, options: string[]) => Promise<string | undefined>;
   input: (title: string, placeholder?: string) => Promise<string | undefined>;
+  askUser?: (questions: QuestionParams["questions"]) => Promise<string | undefined>;
 };
 
 function hasDialogUI(ui: unknown): ui is DialogUI {
@@ -201,11 +202,24 @@ function buildToolResult(text: string, details: QuestionnaireResult) {
     details,
   };
 }
+function parseInlineAskResult(raw: string | undefined): QuestionnaireResult | null {
+  if (raw == null || raw.trim() === "") return null;
+  try {
+    const parsed = JSON.parse(raw) as QuestionnaireResult;
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      answers: Array.isArray(parsed.answers) ? parsed.answers : [],
+      cancelled: parsed.cancelled === true,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function buildQuestionnaireResponse(
   result: QuestionnaireResult | null | undefined,
   params: QuestionParams,
-) {
+): ReturnType<typeof buildToolResult> {
   if (!result || result.cancelled) {
     return buildToolResult(DECLINE_MESSAGE, {
       answers: result?.answers ?? [],
@@ -332,6 +346,11 @@ Usage notes:
               cancelled: true,
               error: "validation",
             });
+          }
+          const askUser = (ctx.ui as DialogUI).askUser;
+          if (typeof askUser === "function") {
+            const raw = await askUser(typed.questions);
+            return buildQuestionnaireResponse(parseInlineAskResult(raw), typed);
           }
           if (!hasDialogUI(ctx.ui)) {
             return buildToolResult(

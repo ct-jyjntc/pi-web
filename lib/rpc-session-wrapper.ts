@@ -792,6 +792,11 @@ export class AgentSessionWrapper {
         opts?.timeout,
         opts?.signal,
       ),
+      askUser: (questions: unknown) => this.requestExtensionUi(
+        { method: "ask_user", questions },
+        undefined,
+        (response) => "value" in response ? response.value : undefined,
+      ),
       confirm: (title, message, opts) => this.requestExtensionUi(
         { method: "confirm", title, message, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         false,

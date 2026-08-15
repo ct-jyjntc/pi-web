@@ -9,8 +9,10 @@ import { MAX_DIFF_ROWS, parseUnifiedPatch, type SplitDiffCell } from "@/lib/patc
 import { isRecord } from "@/lib/type-guards";
 import type { ToolCardKind } from "@/lib/tool-presentation";
 import type { ToolCallContent, ToolResultMessage } from "@/lib/types";
-import { childSessionIdFromTool } from "@/lib/first-party/subagents/identity";
 import { requestChildTranscript } from "@/lib/child-transcript-store";
+import { childSessionIdFromTool } from "@/lib/first-party/subagents/identity";
+import { useAskUserRequest } from "@/lib/ask-user-store";
+import { AskUserCard } from "../AskUserCard";
 import { getToolPreview } from "../message-view-utils";
 import { scaffoldToolTitle } from "../tool-run-meta";
 
@@ -52,6 +54,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   sessionId?: string;
 }) {
   const { t } = useLocale();
+  const askRequest = useAskUserRequest();
   const card = block.presentation?.card ?? "generic";
   const isCard = card === "diff" || card === "ask";
   const isDiffCard = card === "diff";
@@ -62,14 +65,15 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const isError = result?.isError ?? false;
   const resultDiff = !isError && block.presentation?.patch ? { text: block.presentation.patch } : null;
   const pending = Boolean(isStreaming) && !result;
+  const showAskForm = card === "ask" && !result && askRequest != null;
 
   const [scaffoldUserOpen, setScaffoldUserOpen] = useState<boolean | null>(null);
   const [cardUserOpen, setCardUserOpen] = useState<boolean | null>(null);
   // Errors stay folded by default — the red title marks the row; click to unfold.
   const scaffoldExpanded = scaffoldUserOpen ?? false;
-  const cardExpanded = cardUserOpen ?? (isDiffCard && !isError);
+  const cardExpanded = cardUserOpen ?? ((isDiffCard && !isError) || showAskForm);
   const showScaffoldArgs = !isCard && scaffoldExpanded;
-  const showCardArgs = isCard && cardExpanded && !isDiffCard;
+  const showCardArgs = isCard && cardExpanded && !isDiffCard && !showAskForm;
   const showInputArgs = showScaffoldArgs || showCardArgs;
   const inputStr = useMemo(
     () => (showInputArgs ? JSON.stringify(block.input, null, 2) : ""),
@@ -246,8 +250,8 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         borderRadius: "var(--radius-lg)",
         overflow: "hidden",
         fontSize: 12,
-        border: isError ? "1px solid var(--destructive-border)" : `1px solid ${meta.border}`,
-        background: isError ? "var(--destructive-bg)" : meta.bg,
+        border: isError ? "1px solid var(--destructive-border)" : `1px solid ${showAskForm ? "var(--border)" : meta.border}`,
+        background: isError ? "var(--destructive-bg)" : showAskForm ? "var(--bg)" : meta.bg,
       }}
     >
       <button
@@ -328,7 +332,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
           </span>
         )}
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-          {preview}
+          {showAskForm ? t("ask.title") : preview}
         </span>
         {duration !== undefined && (
           <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
@@ -348,6 +352,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
           }}
         />
       </button>
+
+      {showAskForm && askRequest ? (
+        <AskUserCard request={askRequest} sessionId={sessionId} />
+      ) : null}
 
       {showInputArgs && (
         <pre

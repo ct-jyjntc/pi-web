@@ -9,6 +9,7 @@ import type {
   ExtensionWidgetItem,
 } from "@/lib/types";
 import type { NoticeType } from "@/lib/agent-session-notices";
+import { setAskUserRequest } from "@/lib/ask-user-store";
 
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
@@ -36,6 +37,10 @@ export function applyExtensionUiRequest(
     case "dismiss":
       handlers.setExtensionDialog((current) => current?.id === request.id ? null : current);
       handlers.setExtensionCustomUi((current) => current?.id === request.id ? null : current);
+      setAskUserRequest(null);
+      break;
+    case "ask_user":
+      setAskUserRequest({ id: request.id, questions: request.questions });
       break;
     case "notify": {
       handlers.addNotice({

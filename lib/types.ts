@@ -207,6 +207,17 @@ export type ExtensionUiRequest =
       type: "extension_ui_request";
       id: string;
       method: "dismiss";
+    }
+  | {
+      type: "extension_ui_request";
+      id: string;
+      method: "ask_user";
+      questions: Array<{
+        question: string;
+        header: string;
+        options: Array<{ label: string; description: string; preview?: string }>;
+        multiSelect?: boolean;
+      }>;
     };
 
 export type ExtensionUiResponse =

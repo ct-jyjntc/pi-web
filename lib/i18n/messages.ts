@@ -844,6 +844,11 @@ const en = {
   "ext.childSend": "Send",
   "ext.childInterrupt": "Interrupt",
   "ext.allow": "Allow",
+  "ask.title": "Question",
+  "ask.submit": "Submit answers",
+  "ask.skip": "Skip",
+  "ask.typeSomething": "Type something.",
+  "ask.customPlaceholder": "Your answer",
   "ext.deny": "Deny",
 
   // File explorer
@@ -1859,6 +1864,11 @@ const zh: Record<MessageKey, string> = {
   "ext.childSend": "发送",
   "ext.childInterrupt": "中断",
   "ext.allow": "允许",
+  "ask.title": "提问",
+  "ask.submit": "提交回答",
+  "ask.skip": "跳过",
+  "ask.typeSomething": "自己输入",
+  "ask.customPlaceholder": "你的回答",
   "ext.deny": "拒绝",
 
   "files.loading": "加载文件中…",

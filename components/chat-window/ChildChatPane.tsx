@@ -97,7 +97,7 @@ export function ChildChatPane({
         <div className="chat-composer-float">
           <div className="chat-composer-float-underlay" aria-hidden />
           <div className="chat-composer-float-body">
-            <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
+            <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px 8px` }}>
               <div style={{ maxWidth: 820, margin: "0 auto" }}>
                 <div className={`composer-shell${stream.running ? " is-streaming" : ""}`}>
                   <div className="composer-input-row">
