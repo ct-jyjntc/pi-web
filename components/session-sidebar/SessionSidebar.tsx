@@ -34,7 +34,6 @@ import { AnimatedDropdown, PathLabel } from "./sidebar-ui";
 import { SessionTreeItem } from "./SessionTreeItem";
 import { RunningSessionIndicator, UnreadSessionIndicator } from "./SessionIndicators";
 import { apiFetch } from "@/lib/api-transport";
-import { projectIdentityKey, sessionProjectKey } from "@/lib/project-identity";
 import { notifyDesktop } from "@/lib/desktop-notify";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSettings } from "@/lib/web-settings-store";
@@ -359,8 +358,8 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     }
     const match = allSessions.find((s) => s.cwd === cwd || (s.projectRoot ?? s.cwd) === cwd);
     return match
-      ? { root: match.projectRoot ?? match.cwd, key: sessionProjectKey(match) }
-      : { root: cwd, key: projectIdentityKey(cwd) };
+      ? { root: match.projectRoot ?? match.cwd, key: match.projectKey ?? match.projectRoot ?? match.cwd }
+      : { root: cwd, key: cwd };
   }, [worktreeState, allSessions]);
 
   // Notify parent when cwd or resolved project identity changes. Identity can
@@ -412,7 +411,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         setWorktreeState({
           forCwd: selectedCwd,
           projectRoot: d.projectRoot,
-          projectKey: d.projectKey ?? projectIdentityKey(d.projectRoot),
+          projectKey: d.projectKey ?? d.projectRoot,
           isGit: d.isGit ?? false,
           isTopLevel: d.isTopLevel ?? false,
           worktrees: d.worktrees ?? [],

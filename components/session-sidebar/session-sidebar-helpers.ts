@@ -2,7 +2,6 @@
  * Pure helpers for the session sidebar (tree build, time buckets, unread ids).
  */
 import type { SessionInfo } from "@/lib/types";
-import { sessionProjectKey } from "@/lib/project-identity";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 export interface WorktreeEntry {
@@ -76,7 +75,9 @@ export function getRecentProjects(sessions: SessionInfo[]): RecentProject[] {
   for (const s of sessions) {
     const root = s.projectRoot ?? s.cwd;
     if (!root) continue;
-    const key = sessionProjectKey(s);
+    // Server computes projectKey for every listed session; the raw fallback
+    // covers only pre-hydration rows (client must not import node:path).
+    const key = s.projectKey ?? s.projectRoot ?? s.cwd;
     const prev = latestByProject.get(key);
     if (!prev || s.modified > prev.modified) {
       latestByProject.set(key, { root, modified: s.modified });
@@ -92,7 +93,7 @@ export function sessionsForProject(
   sessions: SessionInfo[],
   projectKey: string,
 ): SessionInfo[] {
-  return sessions.filter((s) => sessionProjectKey(s) === projectKey);
+  return sessions.filter((s) => (s.projectKey ?? s.projectRoot ?? s.cwd) === projectKey);
 }
 
 export type ProjectActivity = { running: boolean; unread: boolean };
@@ -105,7 +106,7 @@ export function getProjectActivity(
 ): Map<string, ProjectActivity> {
   const byProject = new Map<string, ProjectActivity>();
   for (const s of sessions) {
-    const key = sessionProjectKey(s);
+    const key = s.projectKey ?? s.projectRoot ?? s.cwd;
     if (!key) continue;
     const running = runningIds.has(s.id);
     const unread = unreadIds.has(s.id);

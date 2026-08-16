@@ -30,7 +30,6 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
-import { projectIdentityKey } from "@/lib/project-identity";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "@/lib/chat-input-types";
 import { ContextTabBadge } from "./ContextTabBadge";
@@ -386,7 +385,9 @@ export function AppShell() {
       return;
     }
 
-    const newProject = projectKey ?? projectIdentityKey(projectRoot ?? cwd);
+    // Server-side project-identity keys arrive via projectKey; raw path is the
+    // pre-hydration fallback (client must not import node:path).
+    const newProject = projectKey ?? projectRoot ?? cwd;
     const prev = activeWorkspaceRef.current;
 
     // Consume suppress always so it cannot stick across a skipped notify.
@@ -401,13 +402,13 @@ export function AppShell() {
     }
 
     const cwdChanged = prev.cwd !== null && prev.cwd !== cwd;
-    // Project-key refinement for the same path (worktree API resolved, or the
-    // server hydrated a normalized key) is not a switch.
+    // Key hydration for the same cwd (worktree API resolved, or the server
+    // supplied a normalized key after a raw fallback) is not a switch — same
+    // rule as upstream #490.
     const projectRefinedOnly =
       prev.cwd === cwd
       && prev.projectKey !== null
-      && prev.projectKey !== newProject
-      && (prev.projectKey === projectIdentityKey(prev.cwd) || prev.projectKey === newProject);
+      && prev.projectKey !== newProject;
     const projectChanged =
       prev.projectKey !== null
       && newProject !== prev.projectKey
