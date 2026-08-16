@@ -278,16 +278,16 @@ export function ProviderDetail({
           </Field>
         )}
 
-        {!managed && (
+        {/* SDK key is compat.supportsDeveloperRole; older builds wrote dead
+            keys (developerRole/useDeveloperRole) that PUT now strips on save.
+            Unchecked writes explicit false so the choice beats URL auto-detect. */}
+        {!managed && (!provider.api || provider.api === "openai-completions" || provider.api === "openai-responses") && (
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text)" }}>
             <input
               type="checkbox"
-              checked={provider.compat?.developerRole === true || provider.compat?.useDeveloperRole === true}
+              checked={provider.compat?.supportsDeveloperRole === true}
               onChange={(e) => {
-                const compat = { ...(provider.compat ?? {}) };
-                if (e.target.checked) compat.developerRole = true;
-                else delete compat.developerRole;
-                set("compat", Object.keys(compat).length ? compat : undefined);
+                set("compat", { ...(provider.compat ?? {}), supportsDeveloperRole: e.target.checked });
               }}
             />
             {t("models.developerRole")}

@@ -15,6 +15,7 @@ import { createInterface } from "readline";
 import type { SessionHeader, SessionInfo } from "./types";
 import { getAgentDir } from "./agent-dir";
 import { sessionPathKey } from "./session-path";
+import { projectIdentityKey } from "./project-identity";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { isRecord } from "./type-guards";
 import { skillExpansionToCommand } from "./slash-display";
@@ -257,6 +258,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
     .map((s) => {
       cacheSessionPath(s.id, s.path);
       const project = s.cwd ? projectByCwd.get(s.cwd) : undefined;
+      const projectRoot = project?.projectRoot ?? s.cwd;
       return {
         path: s.path,
         id: s.id,
@@ -267,7 +269,8 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
         messageCount: s.messageCount,
         firstMessage: s.firstMessage || "(no messages)",
         parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
-        projectRoot: project?.projectRoot ?? s.cwd,
+        projectRoot,
+        projectKey: projectIdentityKey(projectRoot),
         ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
       };
     })

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { addWorktree, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isFilePathAllowed } from "@/lib/file-access";
+import { projectIdentityKey } from "@/lib/project-identity";
 
 /** Same gate as /api/files: only session cwds / project roots / explicitly
  *  allowed dirs may be inspected or mutated through this endpoint. */
@@ -13,7 +14,7 @@ async function checkCwdAllowed(cwd: string): Promise<NextResponse | null> {
   return null;
 }
 
-// GET /api/worktrees?cwd=  →  { projectRoot, isGit, isTopLevel, worktrees }
+// GET /api/worktrees?cwd=  →  { projectRoot, projectKey, isGit, isTopLevel, worktrees }
 export async function GET(req: Request) {
   try {
     const cwd = new URL(req.url).searchParams.get("cwd");
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
     for (const w of worktrees) allowFileRoot(w.path);
     return NextResponse.json({
       projectRoot: project.projectRoot,
+      projectKey: projectIdentityKey(project.projectRoot),
       isGit,
       isTopLevel: project.isTopLevel,
       worktrees,

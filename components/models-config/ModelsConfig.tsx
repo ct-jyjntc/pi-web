@@ -327,7 +327,9 @@ export function ModelsConfig({
 
       .then((r) => r.json())
 
-      .then((d: { providers: OAuthProvider[] }) => setOauthProviders(d.providers))
+      .then((d: { providers?: OAuthProvider[] }) => {
+        if (Array.isArray(d.providers)) setOauthProviders(d.providers);
+      })
 
       .catch(() => {});
 
@@ -341,7 +343,9 @@ export function ModelsConfig({
 
       .then((r) => r.json())
 
-      .then((d: { providers: ApiKeyProvider[] }) => setApiKeyProviders(d.providers))
+      .then((d: { providers?: ApiKeyProvider[] }) => {
+        if (Array.isArray(d.providers)) setApiKeyProviders(d.providers);
+      })
 
       .catch(() => {});
 

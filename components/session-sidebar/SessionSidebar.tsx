@@ -21,6 +21,7 @@ import {
   displayCwd,
   getProjectActivity,
   getRecentProjects,
+  sessionsForProject,
   groupSessionTreeByTime,
   loadUnreadSessionIds,
   sameIdSet,
@@ -33,6 +34,7 @@ import { AnimatedDropdown, PathLabel } from "./sidebar-ui";
 import { SessionTreeItem } from "./SessionTreeItem";
 import { RunningSessionIndicator, UnreadSessionIndicator } from "./SessionIndicators";
 import { apiFetch } from "@/lib/api-transport";
+import { projectIdentityKey, sessionProjectKey } from "@/lib/project-identity";
 import { notifyDesktop } from "@/lib/desktop-notify";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSettings } from "@/lib/web-settings-store";
@@ -80,7 +82,7 @@ export interface SessionSidebarProps {
   /** Fired after a successful rename or auto-title (id + new name). */
   onSessionRenamed?: (sessionId: string, name: string) => void;
   selectedCwd?: string | null;
-  onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
+  onCwdChange?: (cwd: string | null, projectRoot?: string | null, projectKey?: string | null) => void;
   onOpenFile?: (filePath: string, fileName: string) => void;
   explorerRefreshKey?: number;
   onExplorerRefresh?: () => void;
@@ -343,30 +345,38 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
 
   const restoredRef = useRef(false);
 
-  /** Resolve the project root for a cwd from the freshest data available */
-  const projectRootFor = useCallback((cwd: string | null): string | null => {
+  /** Resolve the display root and stable identity for a cwd from the freshest
+   *  data available. The key is comparison-only; root stays raw for display. */
+  const projectFor = useCallback((cwd: string | null): { root: string; key: string } | null => {
     if (!cwd) return null;
-    if (worktreeState && worktreeState.forCwd === cwd) return worktreeState.projectRoot;
+    if (worktreeState && worktreeState.forCwd === cwd) {
+      return { root: worktreeState.projectRoot, key: worktreeState.projectKey };
+    }
     // Any path in the loaded worktree list belongs to that project — covers
     // worktrees without sessions, so switching to them keeps the row mounted.
-    if (worktreeState?.worktrees.some((w) => w.path === cwd)) return worktreeState.projectRoot;
-    const match = allSessions.find((s) => s.cwd === cwd);
-    return match?.projectRoot ?? cwd;
+    if (worktreeState?.worktrees.some((w) => w.path === cwd)) {
+      return { root: worktreeState.projectRoot, key: worktreeState.projectKey };
+    }
+    const match = allSessions.find((s) => s.cwd === cwd || (s.projectRoot ?? s.cwd) === cwd);
+    return match
+      ? { root: match.projectRoot ?? match.cwd, key: sessionProjectKey(match) }
+      : { root: cwd, key: projectIdentityKey(cwd) };
   }, [worktreeState, allSessions]);
 
-  // Notify parent when cwd or resolved project root changes. Root can lag until
-  // worktree API returns; parent treats pure root refinement as non-destructive.
-  const lastNotifiedWorkspaceRef = useRef<{ cwd: string | null; projectRoot: string | null }>({
+  // Notify parent when cwd or resolved project identity changes. Identity can
+  // lag until the worktree API returns; parent treats same-cwd key refinement
+  // as non-destructive.
+  const lastNotifiedWorkspaceRef = useRef<{ cwd: string | null; projectKey: string | null }>({
     cwd: null,
-    projectRoot: null,
+    projectKey: null,
   });
   useEffect(() => {
-    const root = selectedCwd ? projectRootFor(selectedCwd) : null;
+    const project = projectFor(selectedCwd);
     const prev = lastNotifiedWorkspaceRef.current;
-    if (prev.cwd === selectedCwd && prev.projectRoot === root) return;
-    lastNotifiedWorkspaceRef.current = { cwd: selectedCwd, projectRoot: root };
-    onCwdChange?.(selectedCwd, root);
-  }, [selectedCwd, onCwdChange, projectRootFor]);
+    if (prev.cwd === selectedCwd && prev.projectKey === (project?.key ?? null)) return;
+    lastNotifiedWorkspaceRef.current = { cwd: selectedCwd, projectKey: project?.key ?? null };
+    onCwdChange?.(selectedCwd, project?.root ?? null, project?.key ?? null);
+  }, [selectedCwd, onCwdChange, projectFor]);
 
   // Sync the worktree switcher to the selected session's cwd. Sessions of all
   // worktrees in a project share one list, so clicking a session from another
@@ -392,7 +402,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
     setWorktreeLoadingCwd(selectedCwd);
     apiFetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
       .then((r) => r.json())
-      .then((d: { projectRoot?: string; isGit?: boolean; isTopLevel?: boolean; worktrees?: WorktreeEntry[]; error?: string }) => {
+      .then((d: { projectRoot?: string; projectKey?: string; isGit?: boolean; isTopLevel?: boolean; worktrees?: WorktreeEntry[]; error?: string }) => {
         if (cancelled) return;
         setWorktreeLoadingCwd(null);
         if (d.error || !d.projectRoot) {
@@ -402,6 +412,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         setWorktreeState({
           forCwd: selectedCwd,
           projectRoot: d.projectRoot,
+          projectKey: d.projectKey ?? projectIdentityKey(d.projectRoot),
           isGit: d.isGit ?? false,
           isTopLevel: d.isTopLevel ?? false,
           worktrees: d.worktrees ?? [],
@@ -434,7 +445,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         onInitialRestoreDone?.();
       }
       const projects = getRecentProjects(allSessions);
-      if (projects.length > 0) setSelectedCwd(projects[0]);
+      if (projects.length > 0) setSelectedCwd(projects[0].root);
     }
   }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
 
@@ -523,7 +534,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
       setWtNewOpen(false);
       setWtNewBranch("");
       setWtDropdownOpen(false);
-      // Optimistically register the new worktree so projectRootFor() resolves
+      // Optimistically register the new worktree so projectFor() resolves
       // it to the main repo before the refetch lands (keeps AppShell from
       // treating the new cwd as a different project).
       setWorktreeState((prev) => prev ? {
@@ -620,25 +631,25 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
 
   // Sessions of every worktree in the selected project are shown together
-  const selectedProject = useMemo(() => projectRootFor(selectedCwd), [projectRootFor, selectedCwd]);
+  const selectedProject = useMemo(() => projectFor(selectedCwd), [projectFor, selectedCwd]);
   const projectActivity = useMemo(
     () => getProjectActivity(allSessions, runningSessionIds, unreadSessionIds),
     [allSessions, runningSessionIds, unreadSessionIds],
   );
   const filteredSessions = useMemo(() => (
     selectedProject
-      ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
+      ? sessionsForProject(allSessions, selectedProject.key)
       : allSessions
   ), [allSessions, selectedProject]);
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
     && selectedCwd
-    && selectedProject === worktreeState.projectRoot
+    && selectedProject?.key === worktreeState.projectKey
   );
   const worktreeGuide = selectedCwd
     && worktreeState
-    && selectedProject === worktreeState.projectRoot
+    && selectedProject?.key === worktreeState.projectKey
     && !showWorktreeSwitcher
     ? (worktreeState.isGit
         ? {
@@ -732,12 +743,12 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
               type="button"
               className={`sidebar-strip-btn sidebar-strip-grow${selectedCwd ? "" : " is-empty"}${dropdownOpen ? " is-active" : ""}`}
               onClick={() => setDropdownOpen((v) => !v)}
-              title={selectedProject ?? selectedCwd ?? ""}
+              title={selectedProject?.root ?? selectedCwd ?? ""}
               style={{ WebkitAppRegion: "no-drag", width: "100%" } as React.CSSProperties}
             >
               {selectedCwd ? (
                 <PathLabel
-                  text={displayCwd(selectedProject ?? selectedCwd, homeDir)}
+                  text={displayCwd(selectedProject?.root ?? selectedCwd, homeDir)}
                   style={{
                     flex: 1,
                     fontFamily: "var(--font-mono)",
@@ -779,24 +790,24 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
                 {recentProjects.map((project) => (
                   <button
-                    key={project}
+                    key={project.key}
                      className="menu-row"
                     onClick={() => {
-                      setSelectedCwd(project);
+                      setSelectedCwd(project.root);
                       setCustomPathOpen(false);
                       setCustomPathError(null);
                       setDropdownOpen(false);
                     }}
                     style={{ fontFamily: "var(--font-mono)" }}
-                    title={project}
+                    title={project.root}
                   >
-                     <PathLabel text={displayCwd(project, homeDir)} style={{ flex: 1 }} />
-                     {projectActivity.get(project)?.running ? (
+                     <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+                     {projectActivity.get(project.key)?.running ? (
                        <RunningSessionIndicator />
-                     ) : projectActivity.get(project)?.unread ? (
+                     ) : projectActivity.get(project.key)?.unread ? (
                        <UnreadSessionIndicator />
                      ) : null}
-                     {project === selectedProject ? (
+                     {project.key === selectedProject?.key ? (
                        <Icon icon={Check} size={12} strokeWidth={2} style={{ color: "var(--text)", flexShrink: 0 }} />
                      ) : null}
                   </button>

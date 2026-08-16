@@ -17,6 +17,10 @@ export {
 
 export function phaseLabel(phase: AgentPhase, t: (key: MessageKey, params?: Record<string, string | number>) => string, locale: string): string {
   if (phase?.kind === "running_tools") {
+    const latest = phase.tools[phase.tools.length - 1];
+    if (latest?.progress) {
+      return `${t("window.runningNamed", { name: latest.name })} ${latest.progress}`;
+    }
     const names = phase.tools.map((tool) => tool.name);
     const sep = locale === "zh" ? "、" : ", ";
     if (names.length === 0) return t("window.runningTool");

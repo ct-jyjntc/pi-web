@@ -4,6 +4,7 @@ import { join, dirname } from "path";
 import { getAgentDir } from "@/lib/agent-dir";
 import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { normalizeDeveloperRoleCompat } from "@/lib/developer-role-compat";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +75,7 @@ function stripLegacyModelBilling(data: Record<string, unknown>): Record<string, 
 export async function PUT(req: Request) {
   try {
     const body = await req.json() as Record<string, unknown>;
-    writeModelsJson(stripLegacyModelBilling(body));
+    writeModelsJson(normalizeDeveloperRoleCompat(stripLegacyModelBilling(body)));
     // Local process caches only. Utility runtime is SDK-backed — load lazily so
     // GET /api/models-config stays free of the agent package (light runtime).
     invalidateModelsCache();

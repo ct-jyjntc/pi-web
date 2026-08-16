@@ -28,6 +28,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createPtySession, destroyPtySession, getPtySession, subscribePtySession } from "./pty-sessions";
 import { foregroundGuardrail, looksLikeLongRunningCommand } from "./bash-command-classification";
+import { withProjectCommandEnvironment } from "./project-command-env";
 
 /** How long to stream startup logs into the tool result before detaching. */
 const LONG_RUNNING_STARTUP_MS = 2_500;
@@ -143,7 +144,7 @@ function createAgentPtyBashOperations(options?: {
     });
   };
 
-  return {
+  return withProjectCommandEnvironment({
     exec: async (command, cwd, execOptions) => {
       // Explicit background intent from the wrapped tool definition, or the
       // long-running heuristic as a fallback — both take the PTY path.
@@ -155,7 +156,7 @@ function createAgentPtyBashOperations(options?: {
       // Normal short commands stay out of the Terminal UI.
       return local.exec(command, cwd, execOptions);
     },
-  };
+  });
 }
 
 // ── Tool definition wrapper (schema + description + guardrail) ───────────────

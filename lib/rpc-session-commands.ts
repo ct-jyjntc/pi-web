@@ -2,7 +2,7 @@
  * RPC command dispatch for AgentSessionWrapper.
  */
 
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { createLocalBashOperations, SessionManager } from "@earendil-works/pi-coding-agent";
 import { getSubagentHost } from "./first-party/subagents/host";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
@@ -13,6 +13,7 @@ import { persistGlobalAgentMode } from "./global-agent-mode";
 import { buildQueryMemoryContext } from "./memory-context";
 import { invalidateModelsCache } from "./models-cache";
 import type { AgentSessionLike } from "./pi-types";
+import { withProjectCommandEnvironment } from "./project-command-env";
 import type { AgentSessionWrapper } from "./rpc-session-wrapper";
 import { foldProjections } from "./session-projections";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
@@ -426,7 +427,15 @@ export async function dispatchRpcSessionCommand(
       const execution = wrapper.inner.executeBash(
         command.command as string,
         undefined,
-        { excludeFromContext: command.excludeFromContext as boolean | undefined },
+        {
+          excludeFromContext: command.excludeFromContext as boolean | undefined,
+          // executeBash defaults to SDK-local operations (no pty routing), so
+          // sanitize here too — host vars like NODE_ENV=production must not
+          // leak into project shells (issue #487).
+          operations: withProjectCommandEnvironment(
+            createLocalBashOperations({ shellPath: wrapper.inner.settingsManager.getShellPath() }),
+          ),
+        },
       );
       try {
         const result = await execution;

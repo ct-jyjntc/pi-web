@@ -29,11 +29,20 @@ export type ClientAssistantMessageEvent =
   | { type: string; [key: string]: unknown };
 
 export function toClientAgentEvent(event: AgentEventLike): AgentEventLike | null {
-  if (event.type === "turn_start" || event.type === "turn_end" || event.type === "tool_execution_update") {
+  if (event.type === "turn_start" || event.type === "turn_end") {
     return null;
   }
   if (event.type === "message_end") {
     return attachMessageEndPresentation(event);
+  }
+  if (event.type === "tool_execution_update") {
+    // High-frequency progress events: forward only the slim shape, drop bulky args.
+    return {
+      type: "tool_execution_update",
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      partialResult: event.partialResult,
+    };
   }
   if (event.type !== "message_update") return event;
 

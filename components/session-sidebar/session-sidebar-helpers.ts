@@ -2,6 +2,7 @@
  * Pure helpers for the session sidebar (tree build, time buckets, unread ids).
  */
 import type { SessionInfo } from "@/lib/types";
+import { sessionProjectKey } from "@/lib/project-identity";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 export interface WorktreeEntry {
@@ -14,6 +15,8 @@ export interface WorktreeState {
   /** The cwd this data was fetched for — guards against stale responses */
   forCwd: string;
   projectRoot: string;
+  /** Stable server-computed identity; never derive OS path semantics here. */
+  projectKey: string;
   isGit: boolean;
   /** False when forCwd is a repo subdirectory — the switcher is hidden there
    *  because subdir sessions keep their own project identity */
@@ -57,49 +60,65 @@ export function sameIdSet(a: Set<string>, b: Set<string>): boolean {
 }
 
 
+export interface RecentProject {
+  /** Stable identity used for comparison and Map keys. */
+  key: string;
+  /** Original project path used for display and filesystem operations. */
+  root: string;
+}
+
 /**
- * Return all projects (deduped by projectRoot so worktrees collapse into their
- * main repo) sorted by most recent session activity.
+ * Return all projects (deduped by stable project key so Windows path variants
+ * and worktrees collapse into their main repo) sorted by most recent activity.
  */
-export function getRecentProjects(sessions: SessionInfo[]): string[] {
-  const latestByRoot = new Map<string, string>(); // projectRoot -> most recent modified
+export function getRecentProjects(sessions: SessionInfo[]): RecentProject[] {
+  const latestByProject = new Map<string, { root: string; modified: string }>();
   for (const s of sessions) {
     const root = s.projectRoot ?? s.cwd;
     if (!root) continue;
-    const prev = latestByRoot.get(root);
-    if (!prev || s.modified > prev) {
-      latestByRoot.set(root, s.modified);
+    const key = sessionProjectKey(s);
+    const prev = latestByProject.get(key);
+    if (!prev || s.modified > prev.modified) {
+      latestByProject.set(key, { root, modified: s.modified });
     }
   }
-  return [...latestByRoot.entries()]
-    .sort((a, b) => b[1].localeCompare(a[1]))
-    .map(([root]) => root);
+  return [...latestByProject.entries()]
+    .sort((a, b) => b[1].modified.localeCompare(a[1].modified))
+    .map(([key, { root }]) => ({ key, root }));
+}
+
+/** Sessions belonging to one stable project identity. */
+export function sessionsForProject(
+  sessions: SessionInfo[],
+  projectKey: string,
+): SessionInfo[] {
+  return sessions.filter((s) => sessionProjectKey(s) === projectKey);
 }
 
 export type ProjectActivity = { running: boolean; unread: boolean };
 
-/** Per-project running/unread for the workspace selector (worktrees collapse to projectRoot). */
+/** Per-project running/unread for the workspace selector, keyed by stable project key. */
 export function getProjectActivity(
   sessions: SessionInfo[],
   runningIds: Set<string>,
   unreadIds: Set<string>,
 ): Map<string, ProjectActivity> {
-  const byRoot = new Map<string, ProjectActivity>();
+  const byProject = new Map<string, ProjectActivity>();
   for (const s of sessions) {
-    const root = s.projectRoot ?? s.cwd;
-    if (!root) continue;
+    const key = sessionProjectKey(s);
+    if (!key) continue;
     const running = runningIds.has(s.id);
     const unread = unreadIds.has(s.id);
     if (!running && !unread) continue;
-    const prev = byRoot.get(root);
+    const prev = byProject.get(key);
     if (!prev) {
-      byRoot.set(root, { running, unread });
+      byProject.set(key, { running, unread });
       continue;
     }
     if (running) prev.running = true;
     if (unread) prev.unread = true;
   }
-  return byRoot;
+  return byProject;
 }
 
 /** Substitute the home dir prefix with ~ (no path truncation — see PathLabel) */
@@ -237,5 +256,3 @@ export function sessionTimeBucketLabel(
     case "older": return t("sidebar.groupOlder");
   }
 }
-
-

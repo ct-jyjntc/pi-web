@@ -15,9 +15,11 @@ import {
 } from "@/lib/agent-session-compact-parse";
 import {
   phaseWithToolEnd,
+  phaseWithToolProgress,
   phaseWithToolStart,
   type AgentPhase,
 } from "@/lib/agent-session-phase";
+import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import type { QueuedMessages } from "@/lib/agent-session-live-apply";
 import type { ClientAssistantMessageEvent } from "@/lib/agent-event-wire";
 import type { StreamAction } from "@/lib/agent-session-stream-state";
@@ -219,6 +221,13 @@ export function handleAgentSessionEvent(
       const name = event.toolName as string;
       if (id && isWorkspaceMutatingTool(name)) pendingMutatingToolIds.add(id);
       ctx.setAgentPhase((prev) => phaseWithToolStart(prev, id, name));
+      break;
+    }
+    case "tool_execution_update": {
+      const id = event.toolCallId as string;
+      const name = event.toolName as string;
+      const progress = getToolExecutionProgress(event.partialResult);
+      ctx.setAgentPhase((prev) => phaseWithToolProgress(prev, id, name, progress));
       break;
     }
     case "tool_execution_end": {

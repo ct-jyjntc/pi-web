@@ -782,7 +782,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             {historicalMessageNodes}
 
             {agentRunning && !streamState.streamingMessage && (
-              <div className="py-2 text-[13px] text-text-muted">
+              <div className="break-words py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t, locale)}</span>
               </div>
             )}

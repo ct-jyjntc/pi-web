@@ -30,6 +30,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
+import { projectIdentityKey } from "@/lib/project-identity";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "@/lib/chat-input-types";
 import { ContextTabBadge } from "./ContextTabBadge";
@@ -333,10 +334,12 @@ export function AppShell() {
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
   // Suppresses workspace wipe in handleCwdChange during session select / URL restore
   const suppressCwdBumpRef = useRef(false);
-  /** Last top-left workspace { cwd, projectRoot } — single compare baseline for switches. */
-  const activeWorkspaceRef = useRef<{ cwd: string | null; projectRoot: string | null }>({
+  /** Last top-left workspace { cwd, projectKey } — single compare baseline for
+   *  switches. projectKey is the normalized comparison-only identity; raw
+   *  cwd/projectRoot strings stay display/file-system only. */
+  const activeWorkspaceRef = useRef<{ cwd: string | null; projectKey: string | null }>({
     cwd: null,
-    projectRoot: null,
+    projectKey: null,
   });
 
   useEffect(() => {
@@ -374,16 +377,16 @@ export function AppShell() {
     return () => controller.abort();
   }, [initialNavigation]);
 
-  const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
+  const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null, projectKey?: string | null) => {
     // Product rule: top-left workspace is the source of truth for every surface.
     // Frontend-only switch — do not kill agents/PTYs; just leave them in the background.
     setActiveCwd(cwd);
     if (!cwd) {
-      activeWorkspaceRef.current = { cwd: null, projectRoot: null };
+      activeWorkspaceRef.current = { cwd: null, projectKey: null };
       return;
     }
 
-    const newProject = projectRoot ?? cwd;
+    const newProject = projectKey ?? projectIdentityKey(projectRoot ?? cwd);
     const prev = activeWorkspaceRef.current;
 
     // Consume suppress always so it cannot stick across a skipped notify.
@@ -393,24 +396,25 @@ export function AppShell() {
     // Suppress only protects the session/URL that armed it (notify cwd === that session).
     // If suppress was left armed and the user picks another workspace, fall through and switch UI.
     if (suppressed && (!selectedSession || selectedSession.cwd === cwd)) {
-      activeWorkspaceRef.current = { cwd, projectRoot: newProject };
+      activeWorkspaceRef.current = { cwd, projectKey: newProject };
       return;
     }
 
     const cwdChanged = prev.cwd !== null && prev.cwd !== cwd;
-    // Project-root refinement for the same path (worktree API resolved) is not a switch.
+    // Project-key refinement for the same path (worktree API resolved, or the
+    // server hydrated a normalized key) is not a switch.
     const projectRefinedOnly =
       prev.cwd === cwd
-      && prev.projectRoot !== null
-      && prev.projectRoot !== newProject
-      && (prev.projectRoot === prev.cwd || prev.projectRoot === newProject);
+      && prev.projectKey !== null
+      && prev.projectKey !== newProject
+      && (prev.projectKey === projectIdentityKey(prev.cwd) || prev.projectKey === newProject);
     const projectChanged =
-      prev.projectRoot !== null
-      && newProject !== prev.projectRoot
+      prev.projectKey !== null
+      && newProject !== prev.projectKey
       && !projectRefinedOnly
       && prev.cwd !== null;
 
-    activeWorkspaceRef.current = { cwd, projectRoot: newProject };
+    activeWorkspaceRef.current = { cwd, projectKey: newProject };
 
     // First adoption (prev.cwd null) or pure root refinement: record only.
     if (prev.cwd === null || (!cwdChanged && !projectChanged)) {
@@ -452,6 +456,7 @@ export function AppShell() {
           path: session.path || prev.path,
           name: session.name ?? prev.name,
           projectRoot: session.projectRoot ?? prev.projectRoot,
+          projectKey: session.projectKey ?? prev.projectKey,
         };
       });
     } else {
