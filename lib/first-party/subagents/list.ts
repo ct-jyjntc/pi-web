@@ -17,6 +17,10 @@ export type AgentListEntry = {
   status: AgentListStatus;
   parent?: string;
   depth?: number;
+  /** Creation time ms (live startedAt or disk header). Used by the capsule's latest-turn filter. */
+  createdAt?: number;
+  /** Parent turn start ms (persisted descriptor / live). Used by the capsule's latest-turn filter. */
+  parentTurnStartedAt?: number;
 };
 
 export function listStatus(record: SubagentRecord, resident: boolean): AgentListStatus {
@@ -39,6 +43,8 @@ export function projectContinuable(
     status: listStatus(record, resident),
     parent: position?.parent,
     depth: position?.depth,
+    createdAt: record.startedAt,
+    parentTurnStartedAt: record.parentTurnStartedAt,
   };
 }
 
@@ -132,6 +138,8 @@ function walkDisk(
           status: "ready",
           parent: parentId,
           depth,
+          createdAt: Date.parse(disk.createdAt) || 0,
+          parentTurnStartedAt: disk.descriptor?.parentTurnStartedAt,
         });
       }
     }
@@ -146,14 +154,28 @@ export function buildCatalogRecords(
   parentSessionId?: string,
   parentSessionFile?: string,
 ): SubagentRecord[] {
-  if (!parentSessionId) return manager.listCurrent();
+  // Capsule scoping: show only subagents whose creation falls in the latest
+  // parent turn. The turn boundary is the max parentTurnStartedAt across
+  // live + disk entries, plus the in-progress turn captured in the manager
+  // (so a brand-new empty turn clears the capsule even before any spawn).
+  // Steer/follow-up messages do not advance this boundary — beginPrompt
+  // fires only on idle input, which is the turn's initiating user message.
   const entries = listAgents(manager, {
     scope: "descendants",
     parentSessionId,
     parentSessionFile,
   });
-  if (entries.length === 0) return manager.listCurrent();
-  return entries.map((entry) => {
+  let latestTurnStart = manager.currentTurnStartMs;
+  for (const entry of entries) {
+    const ts = entry.parentTurnStartedAt ?? 0;
+    if (ts > latestTurnStart) latestTurnStart = ts;
+  }
+  const current = entries.filter((entry) => {
+    if (entry.status === "running") return true;
+    const createdAt = entry.createdAt ?? 0;
+    return createdAt >= latestTurnStart;
+  });
+  return current.map((entry) => {
     const host = entry.parent ? getSubagentHost(entry.parent) : manager;
     const live = host?.get(entry.id) ?? host?.get(entry.agentId) ?? manager.get(entry.id) ?? manager.get(entry.agentId);
     if (live) {
@@ -169,7 +191,7 @@ export function buildCatalogRecords(
       displayName: "Agent",
       description: entry.label,
       status: entry.status === "running" ? "running" : "completed",
-      startedAt: 0,
+      startedAt: entry.createdAt ?? 0,
       sessionId: entry.id,
       mode: "continuable" as const,
       depth: entry.depth ?? 1,

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import path from "path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { getAllowedFileRoots, isFilePathAllowed } from "@/lib/file-access";
+import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +32,11 @@ export async function GET(req: Request) {
     if (existsSync(agentNpm)) allowedRoots.add(agentNpm);
 
     if (!isFilePathAllowed(filePath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+    // Resolve symlinks before read: a path that is lexically inside an allowed
+    // root but whose target escapes it must not be followed.
+    if (!isExistingFilePathAllowed(filePath, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 

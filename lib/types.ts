@@ -21,6 +21,13 @@ export interface SessionHeader {
   timestamp: string;
   cwd: string;
   parentSession?: string;
+  /** pi-web soft-delete marker. When true the session is hidden from the main
+   *  sidebar list and shown under Settings → Archived instead. Toggled by the
+   *  archive API route via an atomic header rewrite (tmp + rename), so the SDK
+   *  never needs to know about it. */
+  archived?: boolean;
+  /** ISO timestamp of when the session was archived (for sorting/display). */
+  archivedAt?: string;
 }
 
 export interface SessionEntryBase {
@@ -326,6 +333,11 @@ export interface SessionInfo {
   messageCount: number;
   firstMessage: string;
   parentSessionId?: string; // set if this session was forked from another
+  /** Soft-delete marker — hidden from the main sidebar list; managed under
+   *  Settings → Archived. Mirrors SessionHeader.archived. */
+  archived?: boolean;
+  /** ISO timestamp of when the session was archived. */
+  archivedAt?: string;
   /** Main repo root shared by all worktrees of this cwd (cwd itself for non-git dirs).
    *  Always set by the server; optional because the client builds transient
    *  SessionInfo objects before the first refresh. Fall back to cwd. */

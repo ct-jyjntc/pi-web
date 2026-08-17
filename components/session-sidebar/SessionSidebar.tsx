@@ -136,9 +136,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
-  // Once polling has delivered a snapshot it is the source of truth for
-  // running state; late /api/sessions responses must not overwrite it.
-  const runningPollAuthoritativeRef = useRef(false);
   const RUNNING_SESSIONS_POLL_MS = 2500;
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
   /** User-deleted ids kept out of list applies until DELETE settles (or fail restores). */
@@ -154,7 +151,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
       // 30s list cache is not invalidated by heavy-side DELETE).
       const res = await apiFetch(options?.force ? "/api/sessions?fresh=1" : "/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
+      const data = await res.json() as { sessions: SessionInfo[] };
       if (gen !== loadSessionsGenRef.current) return;
       const pending = pendingDeletedIdsRef.current;
       const sessions = pending.size > 0
@@ -167,14 +164,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         }
       }
       setAllSessions(sessions);
-      // Treat the fetched running set as an initial fallback only. Once the
-      // lightweight poll is live, a slow session-list fetch cannot overwrite it.
-      if (!runningPollAuthoritativeRef.current) {
-        setRunningSessionIds((prev) => {
-          const next = new Set(data.runningSessionIds ?? []);
-          return sameIdSet(prev, next) ? prev : next;
-        });
-      }
       // Drop unread markers for sessions that no longer exist (e.g. deleted).
       const existingIds = new Set(sessions.map((s) => s.id));
       setUnreadSessionIds((prev) => {
@@ -242,7 +231,6 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         if (!res.ok) return;
         const data = await res.json() as { runningSessionIds?: string[] };
         if (stopped || controller !== current) return;
-        runningPollAuthoritativeRef.current = true;
         // Keep Set identity when ids are unchanged to avoid re-rendering every row.
         setRunningSessionIds((prev) => {
           const next = new Set(data.runningSessionIds ?? []);

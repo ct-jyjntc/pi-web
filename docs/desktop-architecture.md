@@ -62,7 +62,7 @@ structural `rpc-running` reader), or utility-model completion. Chat content
 | `/api/files/*`, `/api/git/*`, `/api/cwd/*`, `/api/worktrees` | workspace chrome |
 | `/api/usage`, `/api/app-update`, `/api/commands`, `/api/diagnostics`, `/api/file-index` | chrome |
 | `/api/permissions`, `/api/mcp`, `/api/lsp` | settings panels (on-disk / PATH) |
-| `/api/default-cwd`, `/api/github`, `/api/workspace-journal` | fs / gh |
+| `/api/default-cwd`, `/api/github` | fs / gh |
 | `/api/accounts` | GitHub account store + device-code OAuth (pure fs + fetch) |
 | `/api/models-config/free-models`, `/catalog`, `/disabled-models` | external HTTP / denylist fs; no SDK |
 | `/api/network/test`, `/api/debug/sessions` | network / inspector |
@@ -77,6 +77,7 @@ structural `rpc-running` reader), or utility-model completion. Chat content
 | `/api/skills`, `/content`, `/check`, `/update` | `DefaultResourceLoader` / frontmatter |
 | `/api/project-trust`, `/project-memory`, `/project-init` | SDK trust store / utility model |
 | `/api/sessions/[id]*`, `/api/agent/*` | session entries + RPC |
+| `/api/workspace-journal` | shares the in-memory turn journal with agent write/edit tools |
 | `/api/advisor`, `/api/memory-review`, `/api/collab*` | utility model / SDK collab |
 
 Covered by `electron/runtime-host.test.mjs`. When adding a route: if it can run
@@ -84,10 +85,11 @@ with only `lib/agent-dir` + fs/network, put it on light; if it imports
 `@earendil-works/*` or `model-runtime` / `utility-model` / `session-entries`,
 leave it heavy.
 
-`/api/sessions` returns `runningSessionIds` from the light runtime, where the
-registry does not exist, so it always returns `[]`. That is the documented
-contract: `SessionSidebar` treats it as an initial fallback and `/api/agent/running`
-(heavy, polled every 2.5s) is authoritative.
+Running state is served only by `/api/agent/running` (heavy, polled every 2.5s by
+`SessionSidebar`). `/api/sessions` (light) returns only the session list — the light
+runtime cannot see the heavy runtime's `globalThis.__piSessions` registry, so it
+deliberately returns no running-ids field. (Previously it returned an always-empty
+`runningSessionIds`; that dead field was removed.)
 
 ## Dual-runtime caches (stale UI trap)
 
@@ -110,6 +112,9 @@ invalidation only hits the process that ran the mutation. The classic bug:
    useful for same-process readers, but **never sufficient alone** for the other runtime.
 4. `web-settings` is safe cross-process: it revalidates via `stat` mtime/size, not a soft TTL.
 5. Git / file-index / lsp-health live only on light and invalidate in the same process — OK.
+6. The workspace turn journal lives on **heavy** (co-located with the agent
+   write/edit tools that record mutations) so the in-memory `journals` Map is
+   shared between recorder and undo/redo API — no cross-process divergence.
 
 Frontend wiring already covered:
 

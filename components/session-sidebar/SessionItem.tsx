@@ -39,9 +39,10 @@ export const SessionItem = memo(function SessionItem({
   isUnread?: boolean;
   onClick: () => void;
   onRenamed?: (sessionId?: string, name?: string) => void;
-  /** Optimistic start — parent removes the row and tracks pending id. */
+  /** Optimistic start — parent removes the row and tracks pending id. Used by
+   *  archive (the row leaves the list until restored from Settings → Archived). */
   onDeleted?: (id: string) => void;
-  /** After DELETE finishes — parent force-refreshes once (ok) or restores (fail). */
+  /** After the mutation finishes — parent force-refreshes once (ok) or restores (fail). */
   onDeleteSettled?: (id: string, ok: boolean) => void;
   depth?: number;
   hasChildren?: boolean;
@@ -52,7 +53,7 @@ export const SessionItem = memo(function SessionItem({
   const [hovered, setHovered] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
-  const [deleting, setDeleting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [naming, setNaming] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
@@ -87,19 +88,20 @@ export const SessionItem = memo(function SessionItem({
     }
   }, [renameValue, session.id, session.name, onRenamed]);
 
-  const performDelete = useCallback(async () => {
+  const performArchive = useCallback(async () => {
     setMenuOpen(false);
-    setDeleting(true);
-    // Optimistic remove only — do NOT force-reload until DELETE finishes; mid-delete
-    // disk scans re-insert the row (often at top by modified) until manual refresh.
+    setArchiving(true);
+    // Optimistic remove only — do NOT force-reload until the archive call finishes;
+    // mid-write disk scans re-insert the row (often at top by modified) until a
+    // later manual refresh.
     onDeleted?.(session.id);
     try {
-      const res = await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}/archive`, { method: "POST" });
       onDeleteSettled?.(session.id, res.ok);
-      if (!res.ok) setDeleting(false);
+      if (!res.ok) setArchiving(false);
     } catch {
       onDeleteSettled?.(session.id, false);
-      setDeleting(false);
+      setArchiving(false);
     }
   }, [session.id, onDeleted, onDeleteSettled]);
 
@@ -188,11 +190,11 @@ export const SessionItem = memo(function SessionItem({
         setMenuOpen(false);
         void copyText(session.cwd);
         break;
-      case "delete":
-        void performDelete();
+      case "archive":
+        void performArchive();
         break;
     }
-  }, [startRename, handleGenerateTitle, isSelected, onClick, title, session.id, session.path, session.cwd, performDelete]);
+  }, [startRename, handleGenerateTitle, isSelected, onClick, title, session.id, session.path, session.cwd, performArchive]);
 
   // Fixed-height single-line row — content swaps in place so the list never reflows
   const ITEM_HEIGHT = 32;
@@ -215,7 +217,7 @@ export const SessionItem = memo(function SessionItem({
         cursor: renaming ? "default" : "pointer",
         background: isSelected ? "var(--bg-selected)" : (hovered || menuOpen) ? "var(--bg-hover)" : "transparent",
         transition: "background 0.1s, color 0.1s",
-        opacity: deleting ? 0.5 : 1,
+        opacity: archiving ? 0.5 : 1,
         gap: 6,
         overflow: "hidden",
       }}

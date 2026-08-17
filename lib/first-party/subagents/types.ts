@@ -56,5 +56,7 @@ export type SubagentRecord = {
   mode?: "continuable" | "one-shot";
   depth?: number;
   parentSessionId?: string;
+  /** Wall-clock ms of the parent turn that spawned this agent (captured at idle-input beginPrompt, steer-robust). */
+  parentTurnStartedAt?: number;
   summary?: string;
 };

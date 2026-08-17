@@ -18,7 +18,7 @@ export type SessionMenuAction =
   | "copyId"
   | "copyPath"
   | "copyCwd"
-  | "delete";
+  | "archive";
 
 interface Props {
   x: number;
@@ -65,7 +65,7 @@ export function SessionItemMenu({
     { id: "copyId", label: t("sidebar.copySessionId") },
     { id: "copyPath", label: t("sidebar.copySessionPath") },
     { id: "copyCwd", label: t("sidebar.copyCwd"), separatorAfter: true },
-    { id: "delete", label: t("common.delete"), danger: true },
+    { id: "archive", label: t("common.archive") },
   ];
 
   useLayoutEffect(() => {

@@ -4,7 +4,7 @@ import { homedir } from "os";
 import path from "path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
-import { getAllowedFileRoots, isFilePathAllowed } from "@/lib/file-access";
+import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +42,11 @@ export async function PATCH(req: Request) {
     const globalSkillsDir = path.join(homedir(), ".agents", "skills");
     if (existsSync(globalSkillsDir)) allowedRoots.add(globalSkillsDir);
     if (!isFilePathAllowed(filePath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+    // Resolve symlinks before read/write: a path that is lexically inside an
+    // allowed root but whose target escapes it must not be followed.
+    if (!isExistingFilePathAllowed(filePath, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 

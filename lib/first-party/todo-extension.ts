@@ -113,27 +113,21 @@ type BranchEntry = {
   message?: { role?: string; toolName?: string; details?: unknown };
 };
 
-function lastUserTurnId(ctx: ExtensionContext): string {
-  try {
-    const branch = [...(ctx.sessionManager.getBranch?.() ?? [])] as BranchEntry[];
-    let id = "";
-    for (const entry of branch) {
-      if (entry.type === "message" && entry.message?.role === "user" && entry.id) id = entry.id;
-    }
-    return id;
-  } catch {
-    return "";
-  }
-}
-
-const turnBySession = new Map<string, string>();
+const turnBySession = new Map<string, number>();
+/**
+ * Wall-clock ms captured at idle-input (the turn's initiating user message),
+ * mirroring the subagent `beginPrompt` boundary. Steer / followUp inputs do
+ * not fire `input` while idle, so they never advance this marker — the
+ * checklist is not wiped mid-turn by a steer.
+ */
+const turnStartBySession = new Map<string, number>();
 
 function beginTurnIfNeeded(ctx: ExtensionContext | undefined): void {
   if (!ctx) return;
   const key = sessionKey(ctx);
-  const turnId = lastUserTurnId(ctx);
-  if (turnBySession.get(key) === turnId) return;
-  turnBySession.set(key, turnId);
+  const marker = turnStartBySession.get(key) ?? 0;
+  if (turnBySession.get(key) === marker) return;
+  turnBySession.set(key, marker);
   setState(key, { tasks: [], nextId: 1 });
 }
 
@@ -499,12 +493,17 @@ export function createTodoInlineExtension(): InlineExtension {
         beginTurnIfNeeded(ctx);
         const replayed = replayFromBranch(ctx);
         setState(key, replayed);
-        turnBySession.set(key, lastUserTurnId(ctx));
+        turnBySession.set(key, turnStartBySession.get(key) ?? 0);
         publishTodoWidget(ctx, replayed);
       });
       pi.on("agent_start", (_event, ctx) => {
         beginTurnIfNeeded(ctx);
         publishTodoWidget(ctx, getState(sessionKey(ctx)));
+      });
+      pi.on("input", (_event, ctx) => {
+        // Only an initiating prompt (idle) starts a fresh checklist. Steer /
+        // followUp inputs arrive while busy and must not advance the turn.
+        if (ctx.isIdle()) turnStartBySession.set(sessionKey(ctx), Date.now());
       });
 
       pi.registerTool({
@@ -590,5 +589,7 @@ export function createTodoInlineExtension(): InlineExtension {
 /** Test helper */
 export function __resetTodoStoreForTests(): void {
   store.clear();
+  turnBySession.clear();
+  turnStartBySession.clear();
   void EMPTY_STATE;
 }

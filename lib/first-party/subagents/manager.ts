@@ -29,6 +29,8 @@ type LiveRecord = SubagentRecord & {
   modelSpec?: string;
   thinkingSpec?: string;
   epoch: number;
+  /** Wall-clock ms of the parent turn that spawned/resumed this agent. */
+  parentTurnStartedAt: number;
   collected: boolean;
   mode: SubagentMode;
   depth: number;
@@ -41,12 +43,19 @@ export class NativeSubagentManager {
   private onPublish: ((record: SubagentRecord) => void) | null = null;
   private onReport: ((record: SubagentRecord, output: string, delivery: ReportDelivery) => void) | null = null;
   private promptEpoch = 0;
+  private currentTurnStartedAt = 0;
 
   get epoch(): number {
     return this.promptEpoch;
   }
 
+  /** Wall-clock ms of the current parent turn's start (idle-input beginPrompt). 0 until a turn begins. */
+  get currentTurnStartMs(): number {
+    return this.currentTurnStartedAt;
+  }
+
   beginPrompt(): void {
+    this.currentTurnStartedAt = Date.now();
     this.promptEpoch += 1;
     this.emit();
   }
@@ -65,20 +74,6 @@ export class NativeSubagentManager {
 
   list(): SubagentRecord[] {
     return [...this.records.values()]
-      .sort((a, b) => b.startedAt - a.startedAt)
-      .map(publicRecord);
-  }
-
-  /** Chrome: this turn's children plus any still-resident or disk-hydrated ones. */
-  listCurrent(): SubagentRecord[] {
-    return [...this.records.values()]
-      .filter((record) => (
-        record.epoch === this.promptEpoch
-        || record.status === "running"
-        || record.status === "queued"
-        || Boolean(record.run)
-        || (record.mode === "continuable" && Boolean(record.sessionFile))
-      ))
       .sort((a, b) => b.startedAt - a.startedAt)
       .map(publicRecord);
   }
@@ -102,12 +97,13 @@ export class NativeSubagentManager {
         displayName: resolved.type.displayName,
         description: disk.descriptor?.label || resolved.type.displayName,
         status: "completed",
-        startedAt: Date.now(),
+        startedAt: Date.parse(disk.createdAt) || Date.now(),
         waiters: [],
         publishedWaiters: [],
         typeConfig: resolved.type,
         ctx,
         epoch: this.promptEpoch,
+        parentTurnStartedAt: disk.descriptor?.parentTurnStartedAt ?? 0,
         collected: true,
         sessionId: disk.sessionId,
         sessionFile: disk.sessionFile,
@@ -202,7 +198,8 @@ export class NativeSubagentManager {
       ctx: input.ctx,
       modelSpec: input.modelSpec,
       thinkingSpec: input.thinkingSpec,
-      epoch: this.promptEpoch,
+        epoch: this.promptEpoch,
+        parentTurnStartedAt: this.currentTurnStartedAt,
       collected: false,
       mode: input.mode ?? "continuable",
       depth: input.depth ?? 1,
@@ -264,6 +261,7 @@ export class NativeSubagentManager {
     if (!record.run) throw new Error(`Agent "${id}" cannot be continued (status: ${record.status}).`);
     record.collected = false;
     record.epoch = this.promptEpoch;
+    record.parentTurnStartedAt = this.currentTurnStartedAt;
     return record;
   }
 
@@ -402,6 +400,7 @@ export class NativeSubagentManager {
       type: record.type,
       label: record.description,
       depth: record.depth,
+      parentTurnStartedAt: record.parentTurnStartedAt,
     };
   }
 
@@ -549,6 +548,7 @@ function publicRecord(record: LiveRecord): SubagentRecord {
     mode: record.mode,
     depth: record.depth,
     summary: record.typeConfig.description,
+    parentTurnStartedAt: record.parentTurnStartedAt,
   };
 }
 

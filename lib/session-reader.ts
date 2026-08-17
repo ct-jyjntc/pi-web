@@ -49,6 +49,8 @@ type SessionFileFacts = {
   modified: Date;
   messageCount: number;
   firstMessage: string;
+  archived?: boolean;
+  archivedAt?: string;
 };
 
 type SessionFactsCacheEntry = { sig: string; facts: SessionFileFacts | null };
@@ -198,6 +200,8 @@ async function readSessionFileFacts(file: SessionFileStat): Promise<SessionFileF
     modified: typeof lastActivityTime === "number" && lastActivityTime > 0 ? new Date(lastActivityTime) : created,
     messageCount,
     firstMessage: firstMessage || "(no messages)",
+    archived: header.archived === true ? true : undefined,
+    archivedAt: typeof header.archivedAt === "string" ? header.archivedAt : undefined,
   };
 }
 
@@ -272,24 +276,33 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
         projectRoot,
         projectKey: projectIdentityKey(projectRoot),
         ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
+        ...(s.archived ? { archived: true } : {}),
+        ...(s.archivedAt ? { archivedAt: s.archivedAt } : {}),
       };
     })
     .filter((s) => s.messageCount > 0);
 }
 
-export async function listAllSessions(options?: { force?: boolean }): Promise<SessionInfo[]> {
+/** Filter the cached full list (which still contains archived sessions) by
+ *  archive state. Called on every list return — a cheap array filter over a
+ *  list that is already in memory. */
+function applyArchiveFilter(sessions: SessionInfo[], archivedOnly?: boolean): SessionInfo[] {
+  return archivedOnly ? sessions.filter((s) => s.archived) : sessions.filter((s) => !s.archived);
+}
+
+export async function listAllSessions(options?: { force?: boolean; archivedOnly?: boolean }): Promise<SessionInfo[]> {
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
   // Return cached result if still fresh (avoids re-scanning session files
   // and re-spawning git processes on every page load).
-  // `force` is for post-mutation reloads (delete/rename) where the light runtime
-  // may never have seen invalidateSessionListCache() — that runs on heavy.
+  // `force` is for post-mutation reloads (delete/rename/archive) where the light
+  // runtime may never have seen invalidateSessionListCache() — that runs on heavy.
   if (
     !options?.force
     && globalThis.__piSessionListCache
     && Date.now() - globalThis.__piSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS
   ) {
-    return globalThis.__piSessionListCache.data;
+    return applyArchiveFilter(globalThis.__piSessionListCache.data, options?.archivedOnly);
   }
 
   // Coalescing dedup: concurrent callers share the same in-flight promise
@@ -300,7 +313,7 @@ export async function listAllSessions(options?: { force?: boolean }): Promise<Se
     && globalThis.__piSessionListPromise
     && globalThis.__piSessionListPromiseGeneration === generation
   ) {
-    return globalThis.__piSessionListPromise;
+    return globalThis.__piSessionListPromise.then((d) => applyArchiveFilter(d, options?.archivedOnly));
   }
 
   const loadPromise = loadAllSessions().then((data) => {
@@ -325,7 +338,7 @@ export async function listAllSessions(options?: { force?: boolean }): Promise<Se
     globalThis.__piSessionListPromise = trackedPromise;
     globalThis.__piSessionListPromiseGeneration = generation;
   }
-  return trackedPromise;
+  return trackedPromise.then((d) => applyArchiveFilter(d, options?.archivedOnly));
 }
 
 // ============================================================================

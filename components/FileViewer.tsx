@@ -512,6 +512,9 @@ function DocumentViewer({
   const { t } = useLocale();
   const { watching, bust, size, setSize } = useFileWatch(filePath, sourceSessionId);
   const [error, setError] = useState<string | null>(null);
+  const metaRequestRef = useRef(0);
+  const metaPathRef = useRef(filePath);
+  metaPathRef.current = filePath;
 
   const ext = getFileExt(filePath);
   const isPdf = ext === "pdf";
@@ -520,10 +523,13 @@ function DocumentViewer({
     : getFileApiUrl(filePath, "preview", sourceSessionId, bust ? { v: bust } : undefined);
 
   useEffect(() => {
+    const requestId = ++metaRequestRef.current;
+    const targetPath = filePath;
     setError(null);
     apiFetch(getFileApiUrl(filePath, "meta", sourceSessionId))
       .then((r) => r.json())
       .then((d: { size?: number; error?: string }) => {
+        if (requestId !== metaRequestRef.current || metaPathRef.current !== targetPath) return;
         if (d.error) setError(d.error);
         if (typeof d.size === "number") {
           setSize(d.size);
@@ -532,7 +538,10 @@ function DocumentViewer({
           }
         }
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (requestId !== metaRequestRef.current || metaPathRef.current !== targetPath) return;
+        setError(String(e));
+      });
   }, [filePath, isPdf, sourceSessionId, setSize, t]);
 
   useEffect(() => {

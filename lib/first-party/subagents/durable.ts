@@ -19,12 +19,16 @@ export type SubagentDescriptor = {
   type: string;
   label: string;
   depth: number;
+  /** Wall-clock ms of the parent turn that created this child (capsule "latest turn" scoping). */
+  parentTurnStartedAt?: number;
 };
 
 export type DiskChild = {
   sessionId: string;
   sessionFile: string;
   descriptor: SubagentDescriptor | null;
+  /** ISO timestamp from the child session header (real creation time). */
+  createdAt: string;
 };
 
 export function isSubagentDescriptor(value: unknown): value is SubagentDescriptor {
@@ -72,6 +76,7 @@ export function listDiskChildren(parentSessionFile: string | undefined): DiskChi
       sessionId: header.id,
       sessionFile,
       descriptor: readDescriptorFromSession(sessionFile),
+      createdAt: header.timestamp,
     });
   }
   return out;

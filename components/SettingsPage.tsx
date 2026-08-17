@@ -37,7 +37,8 @@ export type SettingsSection =
   | "plugins"
   | "skills"
   | "mcp"
-  | "tools";
+  | "tools"
+  | "archived";
 
 import {
   SettingsPageHeading,
@@ -47,6 +48,7 @@ import { AccountsSettingsPanel } from "./settings/AccountsSettingsPanel";
 import { ToolsSettingsPanel } from "./settings/ToolsSettingsPanel";
 import { AgentModelsSettingsPanel } from "./settings/AgentModelsSettingsPanel";
 import { MemorySettingsPanel } from "./settings/MemorySettingsPanel";
+import { ArchivedSessionsPanel } from "./settings/ArchivedSessionsPanel";
 import { AppearanceSettingsPanel } from "./settings/AppearanceSettingsPanel";
 import { PermissionsSettingsPanel } from "./settings/PermissionsSettingsPanel";
 import { apiFetch } from "@/lib/api-transport";
@@ -471,6 +473,7 @@ export function SettingsPage({
         { id: "agent", label: t("settings.agent") },
         { id: "memory", label: t("settings.memory") },
         { id: "permissions", label: t("settings.permissions") },
+        { id: "archived", label: t("settings.archived") },
       ],
     },
     {
@@ -814,6 +817,7 @@ export function SettingsPage({
               {memoryPanel}
             </div>
           )}
+          {section === "archived" && <ArchivedSessionsPanel />}
           {section === "permissions" && <PermissionsSettingsPanel />}
           {section === "usage" && <UsagePanel />}
           {section === "accounts" && <AccountsSettingsPanel />}
