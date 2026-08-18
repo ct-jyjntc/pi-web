@@ -13,7 +13,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocale } from "@/hooks/useLocale";
 
 import { ConfigPanelBackdrop } from "../ConfigPanelShell";
- import { CenteredDialog } from "../CenteredDialog";
 
 import {
 
@@ -70,6 +69,8 @@ import { loadBuiltinProviderModelCatalog } from "./load-builtin-provider-models"
 
 import { apiFetch } from "@/lib/api-transport";
 
+import { commitProvider, removeProvider } from "@/lib/models-config-save";
+
 
 
 export function ModelsConfig({
@@ -100,11 +101,7 @@ export function ModelsConfig({
 
   const [loading, setLoading] = useState(true);
 
-  const [saving, setSaving] = useState(false);
-
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  const [savedOk, setSavedOk] = useState(false);
 
   const [selection, setSelection] = useState<Selection | null>(null);
 
@@ -113,8 +110,6 @@ export function ModelsConfig({
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
 
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const [freeBusyId, setFreeBusyId] = useState<FreeProviderId | null>(null);
 
@@ -129,14 +124,6 @@ export function ModelsConfig({
   const [builtinModelsLoading, setBuiltinModelsLoading] = useState<Record<string, boolean>>({});
 
   const [builtinModelsError, setBuiltinModelsError] = useState<Record<string, string | null>>({});
-
-  // JSON snapshot of the last loaded/saved config; closing with unsaved
-
-  // edits (config differing from this) asks for confirmation instead of
-
-  // silently discarding them.
-
-  const savedConfigJsonRef = useRef<string>(JSON.stringify({ providers: {} }));
 
   const configRef = useRef(config);
 
@@ -401,8 +388,6 @@ export function ModelsConfig({
 
           setConfig({ providers: {} });
 
-          savedConfigJsonRef.current = "";
-
           console.error("Failed to load models.json:", d.error ?? r.status);
 
           return;
@@ -412,8 +397,6 @@ export function ModelsConfig({
         const normalized = d.providers ? d : { ...d, providers: {} };
 
         setConfig(normalized);
-
-        savedConfigJsonRef.current = JSON.stringify(normalized);
 
         const keys = Object.keys(normalized.providers ?? {});
 
@@ -435,8 +418,6 @@ export function ModelsConfig({
 
         setConfig({ providers: {} });
 
-        savedConfigJsonRef.current = "";
-
       })
 
       .finally(() => setLoading(false));
@@ -454,265 +435,176 @@ export function ModelsConfig({
 
 
   const addCustomProvider = useCallback(() => {
-
     let finalName = "new-provider";
-
     let n = 1;
-
     while (config.providers?.[finalName]) finalName = `new-provider-${n++}`;
-
-    setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
-
+    const entry: ProviderEntry = { api: "openai-completions" };
+    setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: entry } }));
     setSelection({ type: "provider", name: finalName });
-
-  }, [config.providers]);
-
-
+    void commitProvider(finalName, { ...entry })
+      .then(() => { setSaveError(null); onModelsChanged?.(); })
+      .catch((e) => {
+        setSaveError(e instanceof Error ? e.message : String(e));
+        setConfig((prev) => {
+          const providers = { ...(prev.providers ?? {}) };
+          delete providers[finalName];
+          return { ...prev, providers };
+        });
+      });
+  }, [config.providers, onModelsChanged]);
 
   const updateProvider = useCallback((name: string, p: ProviderEntry) => {
-
+    const previous = config.providers?.[name];
     setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: p } }));
+    void commitProvider(name, { ...p })
+      .then(() => { setSaveError(null); onModelsChanged?.(); })
+      .catch((e) => {
+        setSaveError(e instanceof Error ? e.message : String(e));
+        setConfig((prev) => {
+          if (previous === undefined) {
+            const providers = { ...(prev.providers ?? {}) };
+            delete providers[name];
+            return { ...prev, providers };
+          }
+          return { ...prev, providers: { ...(prev.providers ?? {}), [name]: previous } };
+        });
+      });
+  }, [config.providers, onModelsChanged]);
 
-  }, []);
-
-
-
-  const renameProvider = useCallback((oldName: string, newName: string) => {
-
+  const renameProvider = useCallback(async (oldName: string, newName: string) => {
+    const entry = config.providers?.[oldName];
+    if (!entry) return;
     setConfig((prev) => {
-
       const entries = Object.entries(prev.providers ?? {});
-
       const idx = entries.findIndex(([k]) => k === oldName);
-
       if (idx === -1) return prev;
-
       entries[idx] = [newName, entries[idx][1]];
-
       return { ...prev, providers: Object.fromEntries(entries) };
-
     });
-
     setSelection((prev) => {
-
       if (!prev) return prev;
-
       if (prev.type === "provider" && prev.name === oldName) return { type: "provider", name: newName };
-
       if (prev.type === "model" && prev.providerName === oldName) return { ...prev, providerName: newName };
-
       return prev;
-
     });
-
-  }, []);
-
-
+    try {
+      await removeProvider(oldName);
+      await commitProvider(newName, { ...entry });
+      setSaveError(null);
+      onModelsChanged?.();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+      setConfig((prev) => {
+        const entries = Object.entries(prev.providers ?? {});
+        const idx = entries.findIndex(([k]) => k === newName);
+        if (idx !== -1) entries[idx] = [oldName, entries[idx][1]];
+        else entries.push([oldName, entry]);
+        return { ...prev, providers: Object.fromEntries(entries) };
+      });
+      setSelection((prev) => {
+        if (!prev) return prev;
+        if (prev.type === "provider" && prev.name === newName) return { type: "provider", name: oldName };
+        if (prev.type === "model" && prev.providerName === newName) return { ...prev, providerName: oldName };
+        return prev;
+      });
+    }
+  }, [config.providers, onModelsChanged]);
 
   const deleteProvider = useCallback((name: string) => {
-
+    const previous = config.providers?.[name];
+    const remainingKeys = Object.keys(config.providers ?? {}).filter((k) => k !== name);
     setConfig((prev) => {
-
       const providers = { ...(prev.providers ?? {}) };
-
       delete providers[name];
-
       return { ...prev, providers };
-
     });
-
-    setConfig((prev) => {
-
-      const remaining = Object.keys(prev.providers ?? {});
-
-      setSelection(remaining.length > 0 ? { type: "provider", name: remaining[0] } : null);
-
-      return prev;
-
-    });
-
-  }, []);
-
-
+    setSelection(remainingKeys.length > 0 ? { type: "provider", name: remainingKeys[0] } : null);
+    void removeProvider(name)
+      .then(() => { setSaveError(null); onModelsChanged?.(); })
+      .catch((e) => {
+        setSaveError(e instanceof Error ? e.message : String(e));
+        if (previous !== undefined) {
+          setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: previous } }));
+        }
+      });
+  }, [config.providers, onModelsChanged]);
 
   const addModel = useCallback((providerName: string) => {
-
-    setConfig((prev) => {
-
-      const provider = prev.providers?.[providerName] ?? {};
-
-      const models = [
-
-        ...(provider.models ?? []),
-
-        { id: "" },
-
-      ];
-
-      return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
-
-    });
-
-    setConfig((prev) => {
-
-      const idx = (prev.providers?.[providerName]?.models?.length ?? 1) - 1;
-
-      setSelection({ type: "model", providerName, index: idx });
-
-      return prev;
-
-    });
-
-  }, []);
-
-
-
-
+    const previous = config.providers?.[providerName] ?? {};
+    const newEntry: ProviderEntry = {
+      ...previous,
+      models: [...(previous.models ?? []), { id: "" }],
+    };
+    setConfig((prev) => ({
+      ...prev,
+      providers: { ...(prev.providers ?? {}), [providerName]: newEntry },
+    }));
+    const idx = (newEntry.models ?? []).length - 1;
+    setSelection({ type: "model", providerName, index: idx });
+    void commitProvider(providerName, { ...newEntry })
+      .then(() => { setSaveError(null); onModelsChanged?.(); })
+      .catch((e) => {
+        setSaveError(e instanceof Error ? e.message : String(e));
+        setConfig((prev) => ({
+          ...prev,
+          providers: { ...(prev.providers ?? {}), [providerName]: previous },
+        }));
+      });
+  }, [config.providers, onModelsChanged]);
 
   const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
-
-    setConfig((prev) => {
-
-      const provider = prev.providers?.[providerName] ?? {};
-
-      const models = [...(provider.models ?? [])];
-
-      models[index] = m;
-
-      return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
-
-    });
-
-  }, []);
-
-
+    const previous = config.providers?.[providerName] ?? {};
+    const models = [...(previous.models ?? [])];
+    models[index] = m;
+    const newEntry: ProviderEntry = { ...previous, models };
+    setConfig((prev) => ({
+      ...prev,
+      providers: { ...(prev.providers ?? {}), [providerName]: newEntry },
+    }));
+    void commitProvider(providerName, { ...newEntry })
+      .then(() => { setSaveError(null); onModelsChanged?.(); })
+      .catch((e) => {
+        setSaveError(e instanceof Error ? e.message : String(e));
+        setConfig((prev) => ({
+          ...prev,
+          providers: { ...(prev.providers ?? {}), [providerName]: previous },
+        }));
+      });
+  }, [config.providers, onModelsChanged]);
 
   const removeModel = useCallback((providerName: string, index: number) => {
-
-    setConfig((prev) => {
-
-      const provider = prev.providers?.[providerName] ?? {};
-
-      const models = [...(provider.models ?? [])];
-
-      models.splice(index, 1);
-
-      return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models: models.length ? models : undefined } } };
-
-    });
-
+    const previous = config.providers?.[providerName] ?? {};
+    const models = [...(previous.models ?? [])];
+    models.splice(index, 1);
+    const newEntry: ProviderEntry = {
+      ...previous,
+      models: models.length ? models : undefined,
+    };
+    setConfig((prev) => ({
+      ...prev,
+      providers: { ...(prev.providers ?? {}), [providerName]: newEntry },
+    }));
     setSelection({ type: "provider", name: providerName });
-
-  }, []);
-
-
-
-  const handleSave = useCallback(async () => {
-
-    setSaving(true);
-
-    setSaveError(null);
-
-    setSavedOk(false);
-
-    // Normalize models (strip legacy cost fields, disabled flags).
-    const providers = { ...(config.providers ?? {}) };
-
-    for (const [name, provider] of Object.entries(providers)) {
-
-      if (!provider?.models?.length) continue;
-
-      providers[name] = {
-
-        ...provider,
-
-        models: provider.models.map((m) => normalizeModelEntry(m)),
-
-      };
-
-    }
-
-    const payload = { ...config, providers };
-
-    try {
-
-      const res = await apiFetch("/api/models-config", {
-
-        method: "PUT",
-
-        headers: { "Content-Type": "application/json" },
-
-        body: JSON.stringify(payload),
-
+    void commitProvider(providerName, { ...newEntry })
+      .then(() => { setSaveError(null); onModelsChanged?.(); })
+      .catch((e) => {
+        setSaveError(e instanceof Error ? e.message : String(e));
+        setConfig((prev) => ({
+          ...prev,
+          providers: { ...(prev.providers ?? {}), [providerName]: previous },
+        }));
       });
-
-      const d = await res.json() as { success?: boolean; error?: string };
-
-      if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-
-      else {
-
-        setConfig(payload);
-
-        savedConfigJsonRef.current = JSON.stringify(payload);
-
-        setSavedOk(true);
-
-        setTimeout(() => setSavedOk(false), 2000);
-
-        onModelsChanged?.();
-
-      }
-
-    } catch (e) {
-
-      setSaveError(String(e));
-
-    } finally {
-
-      setSaving(false);
-
-    }
-
-  }, [config, onModelsChanged]);
-
-
-
-  const requestClose = useCallback(() => {
-
-    if (JSON.stringify(config) !== savedConfigJsonRef.current) {
-
-      setConfirmDiscard(true);
-
-      return;
-
-    }
-
-    onClose();
-
-  }, [config, onClose]);
-
-
+  }, [config.providers, onModelsChanged]);
 
   useEffect(() => {
-
     const handler = (e: KeyboardEvent) => {
-
       if (e.key !== "Escape") return;
-
-      if (confirmDiscard) { setConfirmDiscard(false); return; }
-
       if (pickerOpen) { setPickerOpen(false); return; }
-
-      requestClose();
-
+      onClose();
     };
-
     document.addEventListener("keydown", handler);
-
     return () => document.removeEventListener("keydown", handler);
-
-  }, [confirmDiscard, pickerOpen, requestClose]);
+  }, [pickerOpen, onClose]);
 
 
 
@@ -1227,8 +1119,6 @@ export function ModelsConfig({
   const panel = (
     <ModelsSettingsView
       loading={loading}
-      saving={saving}
-      savedOk={savedOk}
       saveError={saveError}
       selection={selection}
       setSelection={setSelection}
@@ -1238,7 +1128,6 @@ export function ModelsConfig({
       providers={providers}
       onAddProvider={() => setPickerOpen(true)}
       onAddModel={addModel}
-      onSave={() => void handleSave()}
     />
   );
 
@@ -1248,35 +1137,13 @@ export function ModelsConfig({
 
     {embedded ? panel : (
 
-      <ConfigPanelBackdrop onClose={requestClose}>
+      <ConfigPanelBackdrop onClose={onClose}>
 
         {panel}
 
       </ConfigPanelBackdrop>
 
     )}
-
-     {confirmDiscard && (
-       <CenteredDialog width={360} zIndex={1300} label={t("models.unsavedChanges")} onClose={() => setConfirmDiscard(false)}>
-         <div style={{ padding: "14px 14px 10px", fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
-           {t("models.unsavedChanges")}
-         </div>
-         <div style={{ height: 1, background: "var(--border)" }} />
-         <div style={{ padding: 4 }}>
-           <button
-             type="button"
-             className="menu-row"
-             style={{ color: "var(--destructive)" }}
-             onClick={() => { setConfirmDiscard(false); onClose(); }}
-           >
-             {t("models.discardChanges")}
-           </button>
-           <button type="button" className="menu-row" onClick={() => setConfirmDiscard(false)}>
-             {t("common.cancel")}
-           </button>
-         </div>
-       </CenteredDialog>
-     )}
 
     {pickerOpen && (
 

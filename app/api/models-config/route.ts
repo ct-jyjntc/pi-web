@@ -1,38 +1,12 @@
 import { NextResponse } from "next/server";
-import { readFileSync, existsSync, mkdirSync } from "fs";
-import { join, dirname } from "path";
-import { getAgentDir } from "@/lib/agent-dir";
-import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
-import { invalidateModelsCache } from "@/lib/models-cache";
-import { normalizeDeveloperRoleCompat } from "@/lib/developer-role-compat";
+import {
+  readModelsJson,
+  writeModelsJson,
+  normalizeModelsJson,
+  invalidateAfterModelsChange,
+} from "@/lib/models-config-json";
 
 export const dynamic = "force-dynamic";
-
-function getModelsPath(): string {
-  return join(getAgentDir(), "models.json");
-}
-
-function readModelsJson(): { ok: true; data: Record<string, unknown> } | { ok: false; error: string } {
-  const path = getModelsPath();
-  if (!existsSync(path)) return { ok: true, data: { providers: {} } };
-  try {
-    const data = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-    return { ok: true, data };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-function writeModelsJson(data: Record<string, unknown>): void {
-  const path = getModelsPath();
-  const dir = dirname(path);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-  writePrivateFileAtomicSync(path, `${JSON.stringify(data, null, 2)}
-`);
-}
 
 export async function GET() {
   const result = readModelsJson();
@@ -46,45 +20,11 @@ export async function GET() {
   return NextResponse.json(result.data);
 }
 
-/** Strip legacy cost / catalog-lock fields from models.json on save. */
-function stripLegacyModelBilling(data: Record<string, unknown>): Record<string, unknown> {
-  const providers = data.providers;
-  if (!providers || typeof providers !== "object" || Array.isArray(providers)) return data;
-  const nextProviders: Record<string, unknown> = {};
-  for (const [name, rawProvider] of Object.entries(providers as Record<string, unknown>)) {
-    if (!rawProvider || typeof rawProvider !== "object" || Array.isArray(rawProvider)) {
-      nextProviders[name] = rawProvider;
-      continue;
-    }
-    const provider = { ...(rawProvider as Record<string, unknown>) };
-    const models = provider.models;
-    if (Array.isArray(models)) {
-      provider.models = models.map((rawModel) => {
-        if (!rawModel || typeof rawModel !== "object" || Array.isArray(rawModel)) return rawModel;
-        const model = { ...(rawModel as Record<string, unknown>) };
-        delete model.cost;
-        delete model.thinkingMapLocked;
-        return model;
-      });
-    }
-    nextProviders[name] = provider;
-  }
-  return { ...data, providers: nextProviders };
-}
-
 export async function PUT(req: Request) {
   try {
-    const body = await req.json() as Record<string, unknown>;
-    writeModelsJson(normalizeDeveloperRoleCompat(stripLegacyModelBilling(body)));
-    // Local process caches only. Utility runtime is SDK-backed — load lazily so
-    // GET /api/models-config stays free of the agent package (light runtime).
-    invalidateModelsCache();
-    try {
-      const { invalidateUtilityModelRuntimes } = await import("@/lib/utility-model");
-      invalidateUtilityModelRuntimes();
-    } catch {
-      // Light runtime has no utility-model graph; heavy will rebuild on next use.
-    }
+    const body = (await req.json()) as Record<string, unknown>;
+    writeModelsJson(normalizeModelsJson(body));
+    await invalidateAfterModelsChange();
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

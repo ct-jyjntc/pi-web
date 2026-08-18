@@ -4,7 +4,7 @@
 
 "use client";
 
-import { Check as CheckIcon, Cpu } from "lucide-react";
+import { Cpu } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { getFreeProvider } from "@/lib/free-providers";
 import { Icon } from "../Icon";
@@ -38,8 +38,6 @@ function NavRow({
 
 export function ModelsSettingsView({
   loading,
-  saving,
-  savedOk,
   saveError,
   selection,
   setSelection,
@@ -49,11 +47,8 @@ export function ModelsSettingsView({
   providers,
   onAddProvider,
   onAddModel,
-  onSave,
 }: {
   loading: boolean;
-  saving: boolean;
-  savedOk: boolean;
   saveError: string | null;
   selection: Selection | null;
   setSelection: (next: Selection) => void;
@@ -63,37 +58,12 @@ export function ModelsSettingsView({
   providers: Array<[string, NonNullable<ModelsJson["providers"]>[string]]>;
   onAddProvider: () => void;
   onAddModel: (providerName: string) => void;
-  onSave: () => void;
 }) {
   const { t } = useLocale();
 
   return (
     <div className="models-settings">
-      <SettingsPageHeading
-        title={t("settings.models")}
-        action={
-          <button
-            type="button"
-            className="btn-primary btn-compact"
-            onClick={onSave}
-            disabled={saving || savedOk}
-            style={{
-              background: savedOk ? "var(--success)" : undefined,
-              animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-            }}
-          >
-            {savedOk && (
-              <Icon
-                icon={CheckIcon}
-                size={14}
-                strokeWidth={3}
-                style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}
-              />
-            )}
-            <span>{savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}</span>
-          </button>
-        }
-      />
+      <SettingsPageHeading title={t("settings.models")} />
       {saveError && (
         <div className="settings-row-desc" style={{ color: "var(--destructive)", margin: "0 0 10px" }}>
           {saveError}

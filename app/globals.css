@@ -1167,11 +1167,6 @@ span.token.table {
   100% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in oklab, var(--success) 0%, transparent); }
 }
 
-@keyframes saved-check-draw {
-  from { stroke-dashoffset: 18; opacity: 0; }
-  to   { stroke-dashoffset: 0;  opacity: 1; }
-}
-
 /* Desktop sidebar: animate width */
 @media (min-width: 641px) {
   .sidebar-overlay-backdrop {
