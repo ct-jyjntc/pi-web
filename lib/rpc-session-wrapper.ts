@@ -74,9 +74,9 @@ class PlainTextTheme extends Theme {
   constructor() {
     super(
       // Pi 0.84.2 Theme requires searchMatchText on the first options bag.
-      { thinkingXhigh: "", searchMatchText: "" } as ConstructorParameters<typeof Theme>[0],
+      { thinkingXhigh: "", searchMatchText: "" } as unknown as ConstructorParameters<typeof Theme>[0],
       // Pi 0.84 Theme requires selectedBg on the second options bag.
-      { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
+      { selectedBg: "" } as unknown as ConstructorParameters<typeof Theme>[1],
       "truecolor",
     );
   }
