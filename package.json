@@ -1,6 +1,6 @@
 {
   "name": "@ct-jyjntc/pi-web",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Local coding-agent workspace — desktop app:// + dual IPC runtimes, or browser UI",
   "homepage": "https://github.com/ct-jyjntc/pi-web#readme",
   "repository": {
