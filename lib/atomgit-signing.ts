@@ -1,14 +1,16 @@
 /**
  * AtomGit LLM gateway request signing (AtomCode v1).
  *
- * Official atomcode open-source tree ships only a crypto stub; the live
- * gateway requires these headers. Scheme matches the community-documented
- * implementation (Atom2Api / atomgit-opencode-bridge) and is verified live.
+ * Verified against the official atomcode 5.0.6 build (local binary + lldb):
+ * the master key below is UNCHANGED from 1.0.0 — it is materialized at runtime
+ * into __DATA (not statically visible in the open-source tree or binary image),
+ * so static `strings`/entropy scans miss it. Only the client version bumps to
+ * track the official binary (env!("CARGO_PKG_VERSION")).
  */
 import { createHash, createHmac, randomBytes } from "node:crypto";
 
-/** Client version stamped into X-AtomCode-Ver / User-Agent (atomcode/<ver>). */
-export const ATOMGIT_CLIENT_VERSION = "1.0.0";
+/** Client version stamped into X-AtomCode-Ver / User-Agent (atomcode/<ver>); tracks the official atomcode binary. */
+export const ATOMGIT_CLIENT_VERSION = "5.0.6";
 
 /**
  * 32-byte master key for public v1 signing.
