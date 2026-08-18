@@ -112,20 +112,27 @@ export function ArchivedSessionsPanel() {
               <SettingsRow
                 key={s.id}
                 title={
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {title}
-                  </span>
-                }
-                description={
-                  <span style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "var(--text-dim)" }}>
-                    <span>{t("settings.archivedMessages", { count: s.messageCount })}</span>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }} title={s.cwd}>
-                      {s.cwd}
+                  <>
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {title}
                     </span>
-                    <span>{archivedLabel}</span>
-                  </span>
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        maxWidth: 380,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        fontSize: 11,
+                        fontWeight: 400,
+                        color: "var(--text-dim)",
+                      }}
+                      title={s.cwd}
+                    >
+                      {t("settings.archivedMessages", { count: s.messageCount })} · {s.cwd} · {archivedLabel}
+                    </span>
+                  </>
                 }
-                stacked
                 action={
                   isConfirm ? (
                     <div style={{ display: "flex", gap: 6 }}>

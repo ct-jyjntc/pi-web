@@ -3,10 +3,12 @@
 /**
  * Enable/disable list shared by models.json and built-in provider catalogs.
  * The caller owns persistence; this component only renders the list and emits
- * a model id + desired enabled state.
+ * a model id + desired enabled state. Renders in settings-group/card grammar.
  */
 import { useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
+import { Icon } from "../Icon";
 import { SettingsToggle } from "../SettingsToggle";
 import { normalizeModelEntry, type ModelEntry } from "./models-config-types";
 
@@ -15,21 +17,27 @@ export function ConfigModelsEnablePanel({
   onChangeModels,
   onToggleModel,
   onToggleAllModels,
+  onOpenModel,
+  canOpenModel,
+  onAddModel,
   loading = false,
   error = null,
   toolbar = null,
-  topBorder = true,
 }: {
   models: readonly ModelEntry[];
   onChangeModels?: (models: ModelEntry[]) => void;
   onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
   /** Bulk enable (true) / disable (false) every model in the list. */
   onToggleAllModels?: (enabled: boolean) => void | Promise<void>;
+  /** Drill into a model's detail page. Rows without a detail hide the chevron. */
+  onOpenModel?: (model: ModelEntry) => void;
+  /** Which rows can drill in — defaults to any row with an id. */
+  canOpenModel?: (model: ModelEntry) => boolean;
+  /** Shown in the toolbar for providers with user-managed model lists. */
+  onAddModel?: () => void;
   loading?: boolean;
   error?: string | null;
   toolbar?: ReactNode;
-  /** When false, skip the section rule — caller already drew one (e.g. DetailStrip). */
-  topBorder?: boolean;
 }) {
   const { t } = useLocale();
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -45,6 +53,7 @@ export function ConfigModelsEnablePanel({
         return hay.includes(q);
       })
     : models;
+  const openable = (m: ModelEntry) => Boolean(onOpenModel) && (canOpenModel ? canOpenModel(m) : Boolean(m.id));
 
   const runBulk = (enabled: boolean) => {
     if (onToggleAllModels) {
@@ -62,18 +71,9 @@ export function ConfigModelsEnablePanel({
   };
 
   return (
-    <div
-      style={{
-        borderTop: topBorder ? "1px solid var(--border)" : undefined,
-        paddingTop: topBorder ? 10 : 0,
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        flexShrink: 0,
-      }}
-    >
-      <div className="models-enable-head">
-        <div className="settings-group-title" style={{ margin: 0 }}>{t("models.providerModels")}</div>
+    <section className="settings-group">
+      <div className="settings-group-head">
+        <h3 className="settings-group-title">{t("models.providerModels")}</h3>
         <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
           {loading
             ? t("models.loadingProviderModels")
@@ -81,17 +81,20 @@ export function ConfigModelsEnablePanel({
         </div>
       </div>
 
-      {models.length > 0 ? (
-        <div className="models-enable-toolbar">
-          <input
-            className="input-base"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("models.searchModelsPlaceholder")}
-            aria-label={t("models.searchModelsPlaceholder")}
-          />
+      {models.length > 0 || onAddModel ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, marginBottom: 8 }}>
+          {models.length > 0 && (
+            <input
+              className="input-base"
+              style={{ flex: 1, minWidth: 0 }}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("models.searchModelsPlaceholder")}
+              aria-label={t("models.searchModelsPlaceholder")}
+            />
+          )}
           {toolbar}
-          {(onToggleAllModels || onChangeModels) ? (
+          {(onToggleAllModels || onChangeModels) && models.length > 0 ? (
             <>
               <button
                 type="button"
@@ -113,37 +116,25 @@ export function ConfigModelsEnablePanel({
               </button>
             </>
           ) : null}
+          {onAddModel && (
+            <button type="button" className="btn-ghost btn-compact" onClick={onAddModel}>
+              {t("models.addModel")}
+            </button>
+          )}
         </div>
       ) : null}
 
       {(error || toggleError) && (
-        <div style={{ fontSize: 12, color: "var(--destructive)", flexShrink: 0 }}>{error ?? toggleError}</div>
+        <div style={{ fontSize: 12, color: "var(--destructive)", marginBottom: 8 }}>{error ?? toggleError}</div>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 0,
-          maxHeight: 320,
-          overflowY: "auto",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--bg)",
-        }}
-      >
+      <div className="settings-card">
         {loading && models.length === 0 ? (
-          <div style={{ padding: 12, fontSize: 12, color: "var(--text-muted)" }}>
-            {t("models.loadingProviderModels")}
-          </div>
+          <div className="settings-card-empty">{t("models.loadingProviderModels")}</div>
         ) : models.length === 0 ? (
-          <div style={{ padding: 12, fontSize: 12, color: "var(--text-muted)" }}>
-            {t("models.noProviderModels")}
-          </div>
+          <div className="settings-card-empty">{t("models.noProviderModels")}</div>
         ) : visibleModels.length === 0 ? (
-          <div style={{ padding: 12, fontSize: 12, color: "var(--text-muted)" }}>
-            {t("models.noSearchMatches")}
-          </div>
+          <div className="settings-card-empty">{t("models.noSearchMatches")}</div>
         ) : (
           visibleModels.map((model, index) => {
             const label = model.name?.trim() || model.id || t("models.newModel");
@@ -155,10 +146,8 @@ export function ConfigModelsEnablePanel({
                   display: "flex",
                   alignItems: "center",
                   gap: 10,
-                  padding: "8px 10px",
-                  borderBottom: "1px solid var(--border)",
+                  padding: "9px var(--settings-card-pad-x)",
                   opacity: model.disabled ? 0.65 : 1,
-                  flexShrink: 0,
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -217,11 +206,23 @@ export function ConfigModelsEnablePanel({
                     onChangeModels(next);
                   }}
                 />
+                {openable(model) && (
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    style={{ "--icon-btn-size": "24px" } as React.CSSProperties}
+                    onClick={() => onOpenModel?.(model)}
+                    aria-label={label}
+                    title={label}
+                  >
+                    <Icon icon={ChevronRight} size={14} />
+                  </button>
+                )}
               </div>
             );
           })
         )}
       </div>
-    </div>
+    </section>
   );
 }

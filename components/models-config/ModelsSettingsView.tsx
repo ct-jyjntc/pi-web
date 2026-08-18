@@ -1,39 +1,23 @@
 /**
- * Models settings chrome: page heading + compact provider tree + detail pane.
+ * Models settings page: single-column provider cards (settings grammar);
+ * drilling into a row swaps the list for that provider/model detail with a
+ * back strip, same as the other settings sections.
  */
 
 "use client";
 
-import { Cpu } from "lucide-react";
+import { ChevronLeft, ChevronRight, Cpu } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
 import { getFreeProvider } from "@/lib/free-providers";
 import { Icon } from "../Icon";
-import { SettingsPageHeading } from "../settings/settings-ui";
+import { SettingsGroup, SettingsPageHeading, SettingsRow } from "../settings/settings-ui";
 import { ProviderIcon } from "./provider-icons";
 import type { ModelsJson, ProviderModelRow, Selection } from "./models-config-types";
 
 type BuiltinNav = { id: string; label: string; type: "oauth" | "apikey" };
 
-function NavRow({
-  selected,
-  child,
-  onClick,
-  children,
-}: {
-  selected: boolean;
-  child?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={`models-nav-row${selected ? " is-active" : ""}${child ? " is-child" : ""}`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
+function RowChevron() {
+  return <Icon icon={ChevronRight} size={14} style={{ color: "var(--text-dim)", flexShrink: 0 }} />;
 }
 
 export function ModelsSettingsView({
@@ -46,137 +30,142 @@ export function ModelsSettingsView({
   builtinModelsByProvider,
   providers,
   onAddProvider,
-  onAddModel,
 }: {
   loading: boolean;
   saveError: string | null;
   selection: Selection | null;
-  setSelection: (next: Selection) => void;
+  setSelection: (next: Selection | null) => void;
   detailContent: React.ReactNode;
   activeBuiltinProviders: BuiltinNav[];
   builtinModelsByProvider: Record<string, ProviderModelRow[]>;
   providers: Array<[string, NonNullable<ModelsJson["providers"]>[string]]>;
   onAddProvider: () => void;
-  onAddModel: (providerName: string) => void;
 }) {
   const { t } = useLocale();
 
+  if (selection) {
+    // Back target: model edits return to their provider, providers to the list.
+    let backTarget: Selection | null = null;
+    let detailTitle = "";
+    if (selection.type === "model") {
+      backTarget = { type: "provider", name: selection.providerName };
+      const provider = providers.find(([name]) => name === selection.providerName)?.[1];
+      const model = provider?.models?.[selection.index];
+      detailTitle = model?.id || t("models.newModel");
+    } else if (selection.type === "builtin-model") {
+      const owner = activeBuiltinProviders.find((p) => p.id === selection.providerId);
+      backTarget = owner ? { type: owner.type, providerId: owner.id } : null;
+      detailTitle = selection.modelId;
+    } else if (selection.type === "oauth" || selection.type === "apikey") {
+      detailTitle = activeBuiltinProviders.find(
+        (p) => p.id === selection.providerId && p.type === selection.type,
+      )?.label ?? selection.providerId;
+    } else {
+      const provider = providers.find(([name]) => name === selection.name)?.[1];
+      const freeDef = getFreeProvider(typeof provider?.managed === "string" ? provider.managed : undefined);
+      detailTitle = freeDef?.displayName ?? selection.name;
+    }
+
+    return (
+      <div className="settings-page-general">
+        <div className="models-detail-head">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setSelection(backTarget)}
+            aria-label={t("common.back")}
+            title={t("common.back")}
+          >
+            <Icon icon={ChevronLeft} size={15} />
+          </button>
+          <span className="models-detail-head-title">{detailTitle}</span>
+        </div>
+        {saveError && (
+          <div className="settings-row-desc" style={{ color: "var(--destructive)", margin: "0 0 10px" }}>
+            {saveError}
+          </div>
+        )}
+        {detailContent}
+      </div>
+    );
+  }
+
   return (
-    <div className="models-settings">
-      <SettingsPageHeading title={t("settings.models")} />
+    <div className="settings-page-general">
+      <SettingsPageHeading
+        title={t("settings.models")}
+        action={(
+          <button type="button" className="btn-ghost btn-compact" onClick={onAddProvider}>
+            {t("modal.addProvider")}
+          </button>
+        )}
+      />
       {saveError && (
         <div className="settings-row-desc" style={{ color: "var(--destructive)", margin: "0 0 10px" }}>
           {saveError}
         </div>
       )}
 
-      <div
-        className="models-settings-split"
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)",
-          gap: 20,
-          flex: 1,
-          minHeight: 0,
-        }}
-      >
-        <nav className="models-settings-nav" aria-label={t("settings.models")}>
-          {activeBuiltinProviders.length > 0 && (
-            <div className="models-nav-section">
-              <div className="settings-group-title">{t("models.subscriptions")}</div>
-              {activeBuiltinProviders.map((p) => {
-                const isSelected = p.type === "oauth"
-                  ? selection?.type === "oauth" && selection.providerId === p.id
-                  : selection?.type === "apikey" && selection.providerId === p.id;
-                const models = (builtinModelsByProvider[p.id] ?? []).filter((m) => !m.disabled);
-                return (
-                  <div key={p.id}>
-                    <NavRow
-                      selected={isSelected}
-                      onClick={() => setSelection(p.type === "oauth"
-                        ? { type: "oauth", providerId: p.id }
-                        : { type: "apikey", providerId: p.id })}
-                    >
-                      <ProviderIcon id={p.id} size={16} />
-                      <span className="models-nav-label">{p.label}</span>
-                    </NavRow>
-                    {models.map((m) => (
-                      <NavRow
-                        key={m.id}
-                        child
-                        selected={selection?.type === "builtin-model" && selection.providerId === p.id && selection.modelId === m.id}
-                        onClick={() => setSelection({ type: "builtin-model", providerId: p.id, modelId: m.id })}
-                      >
-                        <span className="models-nav-label is-mono">{m.id}</span>
-                      </NavRow>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+      {activeBuiltinProviders.length > 0 && (
+        <SettingsGroup title={t("models.subscriptions")}>
+          {activeBuiltinProviders.map((p) => {
+            const models = builtinModelsByProvider[p.id];
+            const enabledCount = (models ?? []).filter((m) => !m.disabled).length;
+            const status = p.type === "oauth" ? t("models.statusConnected") : t("models.statusConfigured");
+            const counts = models
+              ? `${models.length} ${t("models.freeModelCount")} · ${enabledCount} ${t("models.enabledCount")}`
+              : t("modal.loading");
+            return (
+              <SettingsRow
+                key={p.id}
+                onClick={() => setSelection({ type: p.type, providerId: p.id })}
+                title={(
+                  <>
+                    <ProviderIcon id={p.id} size={16} />
+                    <span>{p.label}</span>
+                  </>
+                )}
+                description={`${status} · ${counts}`}
+                action={<RowChevron />}
+              />
+            );
+          })}
+        </SettingsGroup>
+      )}
 
-          <div className="models-nav-section">
-            <div className="settings-group-title">{t("models.custom")}</div>
-            {loading ? (
-              <div className="settings-card-empty">{t("modal.loading")}</div>
-            ) : (
-              providers.map(([pName, pData]) => {
-                const isProviderSelected = selection?.type === "provider" && selection.name === pName;
-                const models = pData.models ?? [];
-                const freeDef = getFreeProvider(typeof pData.managed === "string" ? pData.managed : undefined);
-                const managed = Boolean(freeDef);
-                const providerLabel = freeDef?.displayName ?? pName;
-                return (
-                  <div key={pName}>
-                    <NavRow
-                      selected={isProviderSelected}
-                      onClick={() => setSelection({ type: "provider", name: pName })}
-                    >
-                      {managed && freeDef ? (
-                        <ProviderIcon id={freeDef.iconId} size={16} />
-                      ) : (
-                        <Icon icon={Cpu} size={13} strokeWidth={1.8} />
-                      )}
-                      <span className={`models-nav-label${managed ? "" : " is-mono"}`}>{providerLabel}</span>
-                      {managed && <span className="settings-badge">{t("models.free")}</span>}
-                    </NavRow>
-                    {models.map((m, i) => {
-                      if (m.disabled && m.id) return null;
-                      return (
-                        <NavRow
-                          key={`${pName}-${i}`}
-                          child
-                          selected={selection?.type === "model" && selection.providerName === pName && selection.index === i}
-                          onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-                        >
-                          <span className="models-nav-label is-mono">
-                            {m.id || t("models.newModel")}
-                          </span>
-                        </NavRow>
-                      );
-                    })}
-                    {!managed && (
-                      <NavRow child selected={false} onClick={() => onAddModel(pName)}>
-                        <span className="models-nav-label">{t("models.addModel")}</span>
-                      </NavRow>
+      <SettingsGroup title={t("models.custom")}>
+        {loading ? (
+          <div className="settings-card-empty">{t("modal.loading")}</div>
+        ) : providers.length === 0 ? (
+          <div className="settings-card-empty">{t("models.noCustomProviders")}</div>
+        ) : (
+          providers.map(([pName, pData]) => {
+            const models = pData.models ?? [];
+            const freeDef = getFreeProvider(typeof pData.managed === "string" ? pData.managed : undefined);
+            const managed = Boolean(freeDef);
+            const providerLabel = freeDef?.displayName ?? pName;
+            return (
+              <SettingsRow
+                key={pName}
+                onClick={() => setSelection({ type: "provider", name: pName })}
+                title={(
+                  <>
+                    {managed && freeDef ? (
+                      <ProviderIcon id={freeDef.iconId} size={16} />
+                    ) : (
+                      <Icon icon={Cpu} size={13} strokeWidth={1.8} />
                     )}
-                  </div>
-                );
-              })
-            )}
-            <NavRow selected={false} onClick={onAddProvider}>
-              <span className="models-nav-label">{t("modal.addProvider")}</span>
-            </NavRow>
-          </div>
-        </nav>
-
-        <div className="models-settings-detail">
-          {loading ? null : detailContent ?? (
-            <div className="settings-card-empty">{t("models.selectHint")}</div>
-          )}
-        </div>
-      </div>
+                    <span className={managed ? undefined : "input-mono"} style={{ fontSize: 13 }}>{providerLabel}</span>
+                    {managed && <span className="settings-badge">{t("models.free")}</span>}
+                  </>
+                )}
+                description={`${models.length} ${t("models.freeModelCount")}`}
+                action={<RowChevron />}
+              />
+            );
+          })
+        )}
+      </SettingsGroup>
     </div>
   );
 }

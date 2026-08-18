@@ -686,9 +686,6 @@ export function SettingsPage({
         background: "var(--bg-panel)",
         padding: "8px 0",
       };
-  // Content pages scroll here; models keeps its own dual-pane overflow.
-  const mainScrolls = section !== "models";
-
   const toolsPanel = (
     <ToolsSettingsPanel
       lspServers={lspServers}
@@ -701,13 +698,14 @@ export function SettingsPage({
     />
   );
 
+  // All content pages scroll here, models included (single-column card flow).
   const mainStyle: CSSProperties = {
     flex: 1,
     minWidth: 0,
     minHeight: 0,
     display: "flex",
     flexDirection: "column",
-    overflow: mainScrolls ? "auto" : "hidden",
+    overflow: "auto",
     background: "var(--bg)",
   };
 
@@ -797,7 +795,7 @@ export function SettingsPage({
           ))}
         </nav>
 
-        <main className={`settings-page-main${mainScrolls ? " is-scroll" : ""}`} style={mainStyle}>
+        <main className="settings-page-main is-scroll" style={mainStyle}>
           {section === "general" && (
             <div className="settings-page-general">
               {generalPanel}
@@ -824,7 +822,6 @@ export function SettingsPage({
           {section === "appearance" && appearancePanel}
           {section === "models" && (
             <ModelsConfig
-              embedded
               onClose={() => {
                 // Do not call onModelsChanged here — browsing Models must not
                 // force-refresh the chat catalog / feel like a session reload.

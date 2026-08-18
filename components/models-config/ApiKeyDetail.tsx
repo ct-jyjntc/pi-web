@@ -17,6 +17,7 @@ export function ApiKeyDetail({
   modelsError = null,
   onToggleModel,
   onToggleAllModels,
+  onOpenModel,
   onRefreshModels,
   refreshingModels = false,
 }: {
@@ -27,6 +28,8 @@ export function ApiKeyDetail({
   modelsError?: string | null;
   onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
   onToggleAllModels?: (enabled: boolean) => void | Promise<void>;
+  /** Drill into a catalog model's detail page. */
+  onOpenModel?: (modelId: string) => void;
   onRefreshModels?: () => void;
   refreshingModels?: boolean;
 }) {
@@ -88,7 +91,7 @@ export function ApiKeyDetail({
   }, [provider.id, onRefresh]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0, overflow: "auto" }}>
+    <div>
       <DetailStrip
         title={t("models.apiKey")}
         actions={(
@@ -101,79 +104,84 @@ export function ApiKeyDetail({
         )}
       />
 
-      <Field label={t("models.apiKey")}>
-        <div style={{ display: "flex", gap: 6 }}>
-          <SecretTextInput
-            value={apiKey}
-            onChange={setApiKey}
-            onKeyDown={(e) => { if (e.key === "Enter" && apiKey.trim()) handleSave(); }}
-            placeholder={provider.configured ? t("models.enterNewKey") : "sk-…"}
-            style={{ flex: 1 }}
-            autoComplete="off"
-            spellCheck={false}
-            mono
-          />
-          <button
-            type="button"
-            className="btn-primary btn-compact"
-            onClick={handleSave}
-            disabled={saving || !apiKey.trim() || savedOk}
-            style={{
-              flexShrink: 0,
-              background: savedOk ? "var(--success)" : undefined,
-              animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-            }}
-          >
-            {savedOk && (
-              <Icon icon={CheckIcon} size={12} strokeWidth={3} />
-            )}
-            {savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}
-          </button>
-        </div>
-      </Field>
+      <div className="settings-group">
+        <div className="settings-card">
+          <Field label={t("models.apiKey")}>
+            <div style={{ display: "flex", gap: 6 }}>
+              <SecretTextInput
+                value={apiKey}
+                onChange={setApiKey}
+                onKeyDown={(e) => { if (e.key === "Enter" && apiKey.trim()) handleSave(); }}
+                placeholder={provider.configured ? t("models.enterNewKey") : "sk-…"}
+                style={{ flex: 1 }}
+                autoComplete="off"
+                spellCheck={false}
+                mono
+              />
+              <button
+                type="button"
+                className="btn-primary btn-compact"
+                onClick={handleSave}
+                disabled={saving || !apiKey.trim() || savedOk}
+                style={{
+                  flexShrink: 0,
+                  background: savedOk ? "var(--success)" : undefined,
+                  animation: savedOk ? "saved-pop 0.45s ease" : undefined,
+                }}
+              >
+                {savedOk && (
+                  <Icon icon={CheckIcon} size={12} strokeWidth={3} />
+                )}
+                {savedOk ? t("common.saved") : saving ? t("common.saving") : t("common.save")}
+              </button>
+            </div>
+          </Field>
 
-      {error && <p style={{ margin: 0, fontSize: 12, color: "var(--destructive)" }}>{error}</p>}
+          {error && (
+            <div className="settings-card-empty" style={{ color: "var(--destructive)" }}>{error}</div>
+          )}
 
-      {provider.configured && (
-        <button
-          type="button"
-          className="btn-ghost btn-compact"
-          onClick={handleRemove}
-          disabled={removing}
-          style={{
-            alignSelf: "flex-start",
-            color: "var(--destructive)",
-            borderColor: "var(--destructive-border)",
-          }}
-        >
-          {removing ? t("modal.removing") : t("modal.disconnect")}
-        </button>
-      )}
-      {provider.configured && (
-        <>
-          {onRefreshModels && (
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          {provider.configured && (
+            <div className="settings-card-footer">
               <button
                 type="button"
                 className="btn-ghost btn-compact"
-                onClick={onRefreshModels}
-                disabled={refreshingModels || modelsLoading}
-                title={t("models.refreshModels")}
+                onClick={handleRemove}
+                disabled={removing}
+                style={{
+                  color: "var(--destructive)",
+                  borderColor: "var(--destructive-border)",
+                }}
               >
-                {refreshingModels || modelsLoading
-                  ? t("models.refreshingModels")
-                  : t("models.refreshModels")}
+                {removing ? t("modal.removing") : t("modal.disconnect")}
               </button>
             </div>
           )}
-          <ConfigModelsEnablePanel
-            models={models}
-            loading={modelsLoading && models.length === 0}
-            error={modelsError}
-            onToggleModel={onToggleModel}
-            onToggleAllModels={onToggleAllModels}
-          />
-        </>
+        </div>
+      </div>
+
+      {provider.configured && (
+        <ConfigModelsEnablePanel
+          models={models}
+          loading={modelsLoading && models.length === 0}
+          error={modelsError}
+          onToggleModel={onToggleModel}
+          onToggleAllModels={onToggleAllModels}
+          onOpenModel={onOpenModel ? (m) => { if (m.id) onOpenModel(m.id); } : undefined}
+          toolbar={onRefreshModels ? (
+            <button
+              type="button"
+              className="btn-ghost btn-compact"
+              onClick={onRefreshModels}
+              disabled={refreshingModels || modelsLoading}
+              title={t("models.refreshModels")}
+            >
+              {refreshingModels || modelsLoading
+                ? t("models.refreshingModels")
+                : t("models.refreshModels")}
+            </button>
+          ) : null}
+        />
       )}
 
     </div>

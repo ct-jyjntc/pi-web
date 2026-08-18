@@ -12,8 +12,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 import { useLocale } from "@/hooks/useLocale";
 
-import { ConfigPanelBackdrop } from "../ConfigPanelShell";
-
 import {
 
   getFreeProvider,
@@ -73,13 +71,24 @@ import { commitProvider, removeProvider } from "@/lib/models-config-save";
 
 
 
+// Module-scope last-known auth provider lists. Settings sections unmount this
+// panel on switch; seeding from cache keeps the subscription rows (and their
+// icons) from popping in only after the IPC round-trip on every re-entry.
+// Mutations (login/logout/api-key) go through this module, so the cache is
+// always rewritten when the lists change.
+let oauthProvidersCache: OAuthProvider[] | null = null;
+
+let apiKeyProvidersCache: ApiKeyProvider[] | null = null;
+
+// Same for built-in model catalogs — keeps the "N models · M enabled" counts
+// stable across remounts (the disk-cache reload is fast but still async).
+let builtinModelsCache: Record<string, ProviderModelRow[]> | null = null;
+
 export function ModelsConfig({
 
   onClose,
 
   onModelsChanged,
-
-  embedded = false,
 
 }: {
 
@@ -88,10 +97,6 @@ export function ModelsConfig({
   /** Fired after a successful save so chat pickers can reload. */
 
   onModelsChanged?: () => void;
-
-  /** When true, render as a full-height settings page panel (no modal chrome). */
-
-  embedded?: boolean;
 
 }) {
 
@@ -105,9 +110,9 @@ export function ModelsConfig({
 
   const [selection, setSelection] = useState<Selection | null>(null);
 
-  const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
+  const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>(() => oauthProvidersCache ?? []);
 
-  const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
+  const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>(() => apiKeyProvidersCache ?? []);
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -119,7 +124,12 @@ export function ModelsConfig({
 
   /** Built-in API-key / OAuth provider model catalogs for the unified settings UI. */
 
-  const [builtinModelsByProvider, setBuiltinModelsByProvider] = useState<Record<string, ProviderModelRow[]>>({});
+  const [builtinModelsByProvider, setBuiltinModelsByProvider] = useState<Record<string, ProviderModelRow[]>>(() => builtinModelsCache ?? {});
+
+  // Single write-through point for the module-scope catalog cache.
+  useEffect(() => {
+    builtinModelsCache = builtinModelsByProvider;
+  }, [builtinModelsByProvider]);
 
   const [builtinModelsLoading, setBuiltinModelsLoading] = useState<Record<string, boolean>>({});
 
@@ -315,7 +325,10 @@ export function ModelsConfig({
       .then((r) => r.json())
 
       .then((d: { providers?: OAuthProvider[] }) => {
-        if (Array.isArray(d.providers)) setOauthProviders(d.providers);
+        if (Array.isArray(d.providers)) {
+          oauthProvidersCache = d.providers;
+          setOauthProviders(d.providers);
+        }
       })
 
       .catch(() => {});
@@ -331,7 +344,10 @@ export function ModelsConfig({
       .then((r) => r.json())
 
       .then((d: { providers?: ApiKeyProvider[] }) => {
-        if (Array.isArray(d.providers)) setApiKeyProviders(d.providers);
+        if (Array.isArray(d.providers)) {
+          apiKeyProvidersCache = d.providers;
+          setApiKeyProviders(d.providers);
+        }
       })
 
       .catch(() => {});
@@ -398,17 +414,8 @@ export function ModelsConfig({
 
         setConfig(normalized);
 
-        const keys = Object.keys(normalized.providers ?? {});
-
-        // Only seed selection on first load — never stomp a user click mid-edit.
-
-        setSelection((prev) => {
-
-          if (prev) return prev;
-
-          return keys.length > 0 ? { type: "provider", name: keys[0] } : null;
-
-        });
+        // List view is the landing state — never auto-select a provider or
+        // stomp an in-progress edit by re-seeding selection here.
 
       })
 
@@ -512,13 +519,13 @@ export function ModelsConfig({
 
   const deleteProvider = useCallback((name: string) => {
     const previous = config.providers?.[name];
-    const remainingKeys = Object.keys(config.providers ?? {}).filter((k) => k !== name);
     setConfig((prev) => {
       const providers = { ...(prev.providers ?? {}) };
       delete providers[name];
       return { ...prev, providers };
     });
-    setSelection(remainingKeys.length > 0 ? { type: "provider", name: remainingKeys[0] } : null);
+    // Back to the provider list — the deleted provider's detail is gone.
+    setSelection(null);
     void removeProvider(name)
       .then(() => { setSaveError(null); onModelsChanged?.(); })
       .catch((e) => {
@@ -942,6 +949,8 @@ export function ModelsConfig({
 
           onToggleAllModels={(enabled) => toggleAllBuiltinModels(p.id, enabled)}
 
+          onOpenModel={(modelId) => setSelection({ type: "builtin-model", providerId: p.id, modelId })}
+
           onRefreshModels={() => void refreshBuiltinProviderModels(p.id)}
 
           refreshingModels={builtinModelsLoading[p.id] ?? false}
@@ -977,6 +986,8 @@ export function ModelsConfig({
           onToggleModel={(modelId, enabled) => toggleBuiltinModel(p.id, modelId, !enabled)}
 
           onToggleAllModels={(enabled) => toggleAllBuiltinModels(p.id, enabled)}
+
+          onOpenModel={(modelId) => setSelection({ type: "builtin-model", providerId: p.id, modelId })}
 
           onRefreshModels={() => void refreshBuiltinProviderModels(p.id)}
 
@@ -1072,6 +1083,10 @@ export function ModelsConfig({
 
           onDelete={() => deleteProvider(selection.name)}
 
+          onOpenModel={(index) => setSelection({ type: "model", providerName: selection.name, index })}
+
+          onAddModel={() => addModel(selection.name)}
+
           onRefreshModels={isFreeManagedProvider(provider) ? () => void refreshFreeProviderModels(selection.name) : undefined}
 
           refreshingModels={freeRefreshKey === selection.name}
@@ -1116,36 +1131,23 @@ export function ModelsConfig({
 
 
 
-  const panel = (
-    <ModelsSettingsView
-      loading={loading}
-      saveError={saveError}
-      selection={selection}
-      setSelection={setSelection}
-      detailContent={detailContent}
-      activeBuiltinProviders={activeBuiltinProviders}
-      builtinModelsByProvider={builtinModelsByProvider}
-      providers={providers}
-      onAddProvider={() => setPickerOpen(true)}
-      onAddModel={addModel}
-    />
-  );
-
   return (
 
-    <div className="models-settings-root">
+    <>
 
-    {embedded ? panel : (
+      <ModelsSettingsView
+        loading={loading}
+        saveError={saveError}
+        selection={selection}
+        setSelection={setSelection}
+        detailContent={detailContent}
+        activeBuiltinProviders={activeBuiltinProviders}
+        builtinModelsByProvider={builtinModelsByProvider}
+        providers={providers}
+        onAddProvider={() => setPickerOpen(true)}
+      />
 
-      <ConfigPanelBackdrop onClose={onClose}>
-
-        {panel}
-
-      </ConfigPanelBackdrop>
-
-    )}
-
-    {pickerOpen && (
+      {pickerOpen && (
 
       <AddProviderPicker
 
@@ -1171,7 +1173,7 @@ export function ModelsConfig({
 
     )}
 
-    </div>
+    </>
 
   );
 

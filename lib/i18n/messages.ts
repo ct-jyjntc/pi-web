@@ -4,6 +4,7 @@ export type MessageKey = keyof typeof en;
 
 const en = {
   // Common
+  "common.back": "Back",
   "common.cancel": "Cancel",
   "common.close": "Close",
   "common.create": "Create",
@@ -679,6 +680,7 @@ const en = {
   "models.discardChanges": "Discard",
   "models.confirmDeleteProvider": "Delete this provider?",
   "models.selectHint": "Select a provider or model",
+  "models.noCustomProviders": "No custom providers yet",
   "models.providerName": "Provider name",
   "models.baseUrl": "Base URL",
   "models.api": "API",
@@ -1046,6 +1048,7 @@ const en = {
 } as const;
 
 const zh: Record<MessageKey, string> = {
+  "common.back": "返回",
   "common.cancel": "取消",
   "common.close": "关闭",
   "common.create": "创建",
@@ -1710,6 +1713,7 @@ const zh: Record<MessageKey, string> = {
   "models.discardChanges": "丢弃",
   "models.confirmDeleteProvider": "删除此提供商？",
   "models.selectHint": "选择一个提供商或模型",
+  "models.noCustomProviders": "还没有自定义提供商",
   "models.providerName": "提供商名称",
   "models.baseUrl": "Base URL",
   "models.api": "API",

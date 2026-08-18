@@ -316,7 +316,7 @@ export function ModelDetail({
 
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div>
       <DetailStrip
         title={t("models.model")}
         actions={(
@@ -387,8 +387,7 @@ export function ModelDetail({
         )}
       />
 
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
-        {model.disabled && (
+      {model.disabled && (
         <div
           style={{
             fontSize: 12,
@@ -397,115 +396,121 @@ export function ModelDetail({
             border: "1px solid var(--border)",
             borderRadius: "var(--radius-sm)",
             padding: "8px 10px",
+            margin: "0 0 10px",
           }}
         >
           {t("models.disabledNotice")}
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label={t("models.idRequired")}>
-          {managed ? (
-            <ReadOnlyValue mono>{model.id}</ReadOnlyValue>
-          ) : (
-            <TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono />
-          )}
-        </Field>
-        <Field label={t("shell.name")}>
-          {officialLocked ? (
-            <ReadOnlyValue>{model.name?.trim() || model.id || "—"}</ReadOnlyValue>
-          ) : (
-            <TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayName")} />
-          )}
-        </Field>
-      </div>
-
-      {/* Free managed: only official summary. Catalog-locked + editable share the rest. */}
-      {managed ? (
-        <>
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 12, color: "var(--text-muted)" }}>
-            <span>{t("models.reasoning")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.reasoning ? "✓" : "—"}</strong></span>
-            <span>{t("models.imageInput")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.input?.includes("image") ? "✓" : "—"}</strong></span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <Field label={t("models.contextWindow")}>
-              <ReadOnlyValue mono>{model.contextWindow !== undefined ? String(model.contextWindow) : "—"}</ReadOnlyValue>
-            </Field>
-            <Field label={t("models.maxOutput")}>
-              <ReadOnlyValue mono>{model.maxTokens !== undefined ? String(model.maxTokens) : "—"}</ReadOnlyValue>
-            </Field>
-          </div>
-          {model.reasoning && (
-            <ThinkingBudgetControls
-              editable={thinkingMapEditable}
-              map={model.thinkingLevelMap}
-              onChangeMap={(v) => {
-                if (!v) onChange({ ...model, thinkingLevelMap: undefined });
-                else set("thinkingLevelMap", v);
-              }}
-            />
-          )}
-        </>
-      ) : (
-        <>
-          <Field label={t("models.apiOverride")}>
-            <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
+      <div className="settings-group">
+        <div className="settings-card">
+          <Field label={t("models.idRequired")}>
+            {managed ? (
+              <ReadOnlyValue mono>{model.id}</ReadOnlyValue>
+            ) : (
+              <TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono />
+            )}
+          </Field>
+          <Field label={t("shell.name")}>
+            {officialLocked ? (
+              <ReadOnlyValue>{model.name?.trim() || model.id || "—"}</ReadOnlyValue>
+            ) : (
+              <TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayName")} />
+            )}
           </Field>
 
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            {officialLocked ? (
-              <>
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {t("models.reasoning")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.reasoning ? "✓" : "—"}</strong>
-                </span>
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {t("models.imageInput")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.input?.includes("image") ? "✓" : "—"}</strong>
-                </span>
-              </>
-            ) : (
-              <>
-                <Check label={t("models.reasoning")} checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />
-                <Check label={t("models.imageInput")} checked={model.input?.includes("image") ?? false}
-                  onChange={(v) => set("input", v ? ["text", "image"] : undefined)} />
-              </>
-            )}
-          </div>
+          {/* Free managed: only official summary. Catalog-locked + editable share the rest. */}
+          {managed ? (
+            <>
+              <div className="settings-row">
+                <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 12, color: "var(--text-muted)" }}>
+                  <span>{t("models.reasoning")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.reasoning ? "✓" : "—"}</strong></span>
+                  <span>{t("models.imageInput")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.input?.includes("image") ? "✓" : "—"}</strong></span>
+                </div>
+              </div>
+              <Field label={t("models.contextWindow")}>
+                <ReadOnlyValue mono>{model.contextWindow !== undefined ? String(model.contextWindow) : "—"}</ReadOnlyValue>
+              </Field>
+              <Field label={t("models.maxOutput")}>
+                <ReadOnlyValue mono>{model.maxTokens !== undefined ? String(model.maxTokens) : "—"}</ReadOnlyValue>
+              </Field>
+              {model.reasoning && (
+                <div className="settings-row is-stacked">
+                  <ThinkingBudgetControls
+                    editable={thinkingMapEditable}
+                    map={model.thinkingLevelMap}
+                    onChangeMap={(v) => {
+                      if (!v) onChange({ ...model, thinkingLevelMap: undefined });
+                      else set("thinkingLevelMap", v);
+                    }}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <Field label={t("models.apiOverride")}>
+                <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
+              </Field>
 
-          {model.reasoning && (
-            <ThinkingBudgetControls
-              editable={thinkingMapEditable}
-              map={model.thinkingLevelMap}
-              onChangeMap={(v) => {
-                if (!v) onChange({ ...model, thinkingLevelMap: undefined });
-                else set("thinkingLevelMap", v);
-              }}
-              deepseek={{
-                checked: hasDeepseekCompat(model),
-                onChange: (v) => onChange(setDeepseekCompat(model, v)),
-              }}
-            />
+              <div className="settings-row">
+                <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                  {officialLocked ? (
+                    <>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        {t("models.reasoning")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.reasoning ? "✓" : "—"}</strong>
+                      </span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        {t("models.imageInput")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.input?.includes("image") ? "✓" : "—"}</strong>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Check label={t("models.reasoning")} checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />
+                      <Check label={t("models.imageInput")} checked={model.input?.includes("image") ?? false}
+                        onChange={(v) => set("input", v ? ["text", "image"] : undefined)} />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {model.reasoning && (
+                <div className="settings-row is-stacked">
+                  <ThinkingBudgetControls
+                    editable={thinkingMapEditable}
+                    map={model.thinkingLevelMap}
+                    onChangeMap={(v) => {
+                      if (!v) onChange({ ...model, thinkingLevelMap: undefined });
+                      else set("thinkingLevelMap", v);
+                    }}
+                    deepseek={{
+                      checked: hasDeepseekCompat(model),
+                      onChange: (v) => onChange(setDeepseekCompat(model, v)),
+                    }}
+                  />
+                </div>
+              )}
+
+              <Field label={t("models.contextWindow")}>
+                {officialLocked && model.contextWindow !== undefined ? (
+                  <ReadOnlyValue mono>{String(model.contextWindow)}</ReadOnlyValue>
+                ) : (
+                  <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
+                    onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
+                )}
+              </Field>
+              <Field label={t("models.maxOutput")}>
+                {officialLocked && model.maxTokens !== undefined ? (
+                  <ReadOnlyValue mono>{String(model.maxTokens)}</ReadOnlyValue>
+                ) : (
+                  <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
+                    onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
+                )}
+              </Field>
+            </>
           )}
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <Field label={t("models.contextWindow")}>
-              {officialLocked && model.contextWindow !== undefined ? (
-                <ReadOnlyValue mono>{String(model.contextWindow)}</ReadOnlyValue>
-              ) : (
-                <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
-                  onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
-              )}
-            </Field>
-            <Field label={t("models.maxOutput")}>
-              {officialLocked && model.maxTokens !== undefined ? (
-                <ReadOnlyValue mono>{String(model.maxTokens)}</ReadOnlyValue>
-              ) : (
-                <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
-                  onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
-              )}
-            </Field>
-          </div>
-        </>
-      )}
+        </div>
       </div>
     </div>
   );

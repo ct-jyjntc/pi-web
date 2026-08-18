@@ -1,8 +1,7 @@
 "use client";
 
 /**
- * Provider settings: sticky header + scrollable body.
- * Name and API share one row; enable-list at the bottom.
+ * Provider settings: connection card + enable-list group below.
  * Custom providers with Base URL auto-list /models (no import UI).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -24,12 +23,16 @@ import { apiFetch } from "@/lib/api-transport";
 
 export function ProviderDetail({
   name, provider, onChange, onRename, onDelete, onRefreshModels, refreshingModels, refreshError,
+  onOpenModel, onAddModel,
 }: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
   onRefreshModels?: () => void;
   refreshingModels?: boolean;
   refreshError?: string | null;
+  /** Drill into a persisted model's detail page (index into provider.models). */
+  onOpenModel?: (index: number) => void;
+  onAddModel?: () => void;
 }) {
   const { t } = useLocale();
   const freeDef = getFreeProvider(typeof provider.managed === "string" ? provider.managed : undefined);
@@ -151,8 +154,14 @@ export function ProviderDetail({
     onChange({ ...provider, models: persisted.length ? persisted : undefined });
   }, [onChange, provider]);
 
+  // Synthetic rows discovered from /models have no persisted index — only
+  // configured models can drill into ModelDetail.
+  const configuredIndexOf = useCallback((m: ModelEntry) => (
+    (provider.models ?? []).findIndex((x) => (x.id ? x.id === m.id : x === m))
+  ), [provider.models]);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div>
       <DetailStrip
         title={managed ? t("models.freeProvider") : t("models.provider")}
         actions={confirmDelete ? (
@@ -197,12 +206,12 @@ export function ProviderDetail({
         )}
       />
 
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-        {refreshError && (
-          <div style={{ fontSize: 12, color: "var(--destructive)" }}>{refreshError}</div>
-        )}
+      {refreshError && (
+        <div style={{ fontSize: 12, color: "var(--destructive)", margin: "0 0 8px" }}>{refreshError}</div>
+      )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="settings-group">
+        <div className="settings-card">
           <Field label={t("models.providerName")}>
             {managed ? (
               <div className="input-base" style={{ opacity: 0.85, cursor: "default" }}>
@@ -228,79 +237,87 @@ export function ProviderDetail({
               <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
             )}
           </Field>
-        </div>
 
-        <Field label={t("models.baseUrl")}>
-          {managed ? (
-            <div className="input-base input-mono" style={{ opacity: 0.85, cursor: "default" }}>
-              {provider.baseUrl || freeDef?.baseUrl}
-            </div>
-          ) : (
-            <TextInput
-              value={provider.baseUrl ?? ""}
-              onChange={(v) => set("baseUrl", v || undefined)}
-              placeholder="https://api.example.com/v1"
-              mono
-            />
+          <Field label={t("models.baseUrl")}>
+            {managed ? (
+              <div className="input-base input-mono" style={{ opacity: 0.85, cursor: "default" }}>
+                {provider.baseUrl || freeDef?.baseUrl}
+              </div>
+            ) : (
+              <TextInput
+                value={provider.baseUrl ?? ""}
+                onChange={(v) => set("baseUrl", v || undefined)}
+                placeholder="https://api.example.com/v1"
+                mono
+              />
+            )}
+          </Field>
+
+          {!managed && (
+            <Field label={t("models.apiKey")}>
+              <SecretTextInput
+                value={provider.apiKey ?? ""}
+                onChange={(v) => set("apiKey", v || undefined)}
+                placeholder={t("models.apiKeyPlaceholder")}
+                mono
+              />
+            </Field>
           )}
-        </Field>
 
-        {!managed && (
-          <Field label={t("models.apiKey")}>
-            <SecretTextInput
-              value={provider.apiKey ?? ""}
-              onChange={(v) => set("apiKey", v || undefined)}
-              placeholder={t("models.apiKeyPlaceholder")}
-              mono
-            />
-          </Field>
-        )}
+          {!managed && (
+            <Field label={t("models.customHeaders")}>
+              <textarea
+                className="input-base input-mono"
+                rows={3}
+                value={Object.entries(provider.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join("\n")}
+                onChange={(e) => {
+                  const headers: Record<string, string> = {};
+                  for (const line of e.target.value.split("\n")) {
+                    const idx = line.indexOf(":");
+                    if (idx <= 0) continue;
+                    const key = line.slice(0, idx).trim();
+                    const value = line.slice(idx + 1).trim();
+                    if (key) headers[key] = value;
+                  }
+                  set("headers", Object.keys(headers).length ? headers : undefined);
+                }}
+                placeholder="X-Api-Extra: value"
+              />
+            </Field>
+          )}
 
-        {!managed && (
-          <Field label={t("models.customHeaders")}>
-            <textarea
-              className="input-base input-mono"
-              rows={3}
-              value={Object.entries(provider.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join("\n")}
-              onChange={(e) => {
-                const headers: Record<string, string> = {};
-                for (const line of e.target.value.split("\n")) {
-                  const idx = line.indexOf(":");
-                  if (idx <= 0) continue;
-                  const key = line.slice(0, idx).trim();
-                  const value = line.slice(idx + 1).trim();
-                  if (key) headers[key] = value;
-                }
-                set("headers", Object.keys(headers).length ? headers : undefined);
-              }}
-              placeholder="X-Api-Extra: value"
-            />
-          </Field>
-        )}
-
-        {/* SDK key is compat.supportsDeveloperRole; older builds wrote dead
-            keys (developerRole/useDeveloperRole) that PUT now strips on save.
-            Unchecked writes explicit false so the choice beats URL auto-detect. */}
-        {!managed && (!provider.api || provider.api === "openai-completions" || provider.api === "openai-responses") && (
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text)" }}>
-            <input
-              type="checkbox"
-              checked={provider.compat?.supportsDeveloperRole === true}
-              onChange={(e) => {
-                set("compat", { ...(provider.compat ?? {}), supportsDeveloperRole: e.target.checked });
-              }}
-            />
-            {t("models.developerRole")}
-          </label>
-        )}
-
-        <ConfigModelsEnablePanel
-          models={enableModels}
-          onChangeModels={handleEnableModelsChange}
-          loading={remoteLoading && !managed}
-          error={!managed ? remoteError : null}
-        />
+          {/* SDK key is compat.supportsDeveloperRole; older builds wrote dead
+              keys (developerRole/useDeveloperRole) that PUT now strips on save.
+              Unchecked writes explicit false so the choice beats URL auto-detect. */}
+          {!managed && (!provider.api || provider.api === "openai-completions" || provider.api === "openai-responses") && (
+            <div className="settings-row">
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={provider.compat?.supportsDeveloperRole === true}
+                  onChange={(e) => {
+                    set("compat", { ...(provider.compat ?? {}), supportsDeveloperRole: e.target.checked });
+                  }}
+                />
+                {t("models.developerRole")}
+              </label>
+            </div>
+          )}
+        </div>
       </div>
+
+      <ConfigModelsEnablePanel
+        models={enableModels}
+        onChangeModels={handleEnableModelsChange}
+        loading={remoteLoading && !managed}
+        error={!managed ? remoteError : null}
+        onOpenModel={onOpenModel ? (m) => {
+          const index = configuredIndexOf(m);
+          if (index >= 0) onOpenModel(index);
+        } : undefined}
+        canOpenModel={(m) => configuredIndexOf(m) >= 0}
+        onAddModel={!managed ? onAddModel : undefined}
+      />
     </div>
   );
 }

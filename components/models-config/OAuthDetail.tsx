@@ -15,6 +15,7 @@ export function OAuthDetail({
   modelsError = null,
   onToggleModel,
   onToggleAllModels,
+  onOpenModel,
   onRefreshModels,
   refreshingModels = false,
 }: {
@@ -25,6 +26,8 @@ export function OAuthDetail({
   modelsError?: string | null;
   onToggleModel?: (modelId: string, enabled: boolean) => void | Promise<void>;
   onToggleAllModels?: (enabled: boolean) => void | Promise<void>;
+  /** Drill into a catalog model's detail page. */
+  onOpenModel?: (modelId: string) => void;
   /** Live catalog refresh (heavy). Omit to hide the button. */
   onRefreshModels?: () => void;
   refreshingModels?: boolean;
@@ -169,12 +172,11 @@ export function OAuthDetail({
   const isWorking = loginState.phase === "connecting" || loginState.phase === "progress" ||
     loginState.phase === "auth" || loginState.phase === "device_code" ||
     loginState.phase === "prompt" || loginState.phase === "select";
-  // Idle + already connected: nothing to say here. An empty wrapper still
-  // occupies a flex-gap slot between DetailStrip and the models panel.
+  // Idle + already connected: nothing to say here — skip the login card.
   const showLoginBody = loginState.phase !== "idle" || !provider.loggedIn;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0, overflow: "auto" }}>
+    <div>
       <DetailStrip
         title={provider.name}
         actions={(
@@ -217,7 +219,9 @@ export function OAuthDetail({
       />
 
       {showLoginBody && (
-      <div>
+      <div className="settings-group">
+        <div className="settings-card">
+          <div className="settings-card-pad" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {loginState.phase === "idle" && !provider.loggedIn && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
             {t("models.connectAccount", { name: provider.name })}
@@ -307,6 +311,8 @@ export function OAuthDetail({
         {loginState.phase === "error" && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--destructive)" }}>{loginState.message}</p>
         )}
+          </div>
+        </div>
       </div>
       )}
 
@@ -317,7 +323,7 @@ export function OAuthDetail({
           error={modelsError}
           onToggleModel={onToggleModel}
           onToggleAllModels={onToggleAllModels}
-          topBorder={showLoginBody}
+          onOpenModel={onOpenModel ? (m) => { if (m.id) onOpenModel(m.id); } : undefined}
           toolbar={onRefreshModels ? (
             <button
               type="button"
@@ -336,5 +342,3 @@ export function OAuthDetail({
     </div>
   );
 }
-
-// ── API Key detail ────────────────────────────────────────────────────────────

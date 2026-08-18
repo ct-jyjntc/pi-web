@@ -28,10 +28,14 @@ export function ReadOnlyValue({ children, mono = false }: { children: React.Reac
 }
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  // Settings grammar: stacked row (label above control); a .settings-card
+  // parent supplies padding and the divider between rows.
   return (
-    <div className="modal-field">
-      <label className="modal-field-label">{label}</label>
-      {children}
+    <div className="settings-row is-stacked">
+      <div className="settings-row-copy">
+        <div className="settings-row-title">{label}</div>
+      </div>
+      <div className="settings-row-action">{children}</div>
     </div>
   );
 }
@@ -152,10 +156,10 @@ export function Check({ label, checked, onChange }: { label: string; checked: bo
 }
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <div className="modal-section-title">{children}</div>;
+  return <div className="settings-group-title" style={{ margin: 0 }}>{children}</div>;
 }
 
-/** Detail strip: title left, actions right — matches app chrome headers */
+/** Detail strip: title left, actions right — settings group-head grammar */
 export function DetailStrip({
   title,
   actions,
@@ -164,16 +168,9 @@ export function DetailStrip({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="modal-detail-strip">
-      <div className="settings-group-title" style={{ margin: 0 }}>{title}</div>
+    <div className="settings-group-head">
+      <h3 className="settings-group-title">{title}</h3>
       {actions ? <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>{actions}</div> : null}
     </div>
   );
 }
-
-/** Sidebar nav row class — same grammar as session/git lists */
-export function navRowClass(selected: boolean, child = false): string {
-  return `modal-nav-item${selected ? " is-active" : ""}${child ? " is-child" : ""}`;
-}
-
-// ── Provider detail ───────────────────────────────────────────────────────────

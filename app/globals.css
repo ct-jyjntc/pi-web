@@ -2345,38 +2345,6 @@ textarea.input-base:focus-visible {
   text-transform: uppercase;
   color: var(--text-dim);
 }
-.modal-section-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  line-height: 1;
-}
-.modal-detail-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 32px;
-  margin: 0 0 8px;
-  padding: 2px 0 8px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  overflow: visible;
-}
-.modal-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-.modal-field-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-}
 .modal-empty {
   height: 100%;
   min-height: 120px;
@@ -3836,124 +3804,26 @@ textarea.input-base:focus-visible {
 .settings-row.is-active {
   background: var(--bg-selected);
 }
-.models-settings-root {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+/* Padded section inside a settings-card (multi-block bodies like OAuth flows) */
+.settings-card-pad {
+  padding: 14px var(--settings-card-pad-x);
 }
-.models-settings {
-  box-sizing: border-box;
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 20px 24px 16px;
-}
-.models-settings-split {
-  min-height: 0;
-}
-.models-settings-nav,
-.models-settings-detail {
-  min-height: 0;
-  overflow: auto;
-}
-.models-settings-nav {
-  padding-right: 12px;
-  border-right: 1px solid var(--border);
-}
-.models-nav-section {
-  margin-bottom: 18px;
-}
-.models-nav-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.models-nav-section-head .settings-group-title {
-  margin: 0;
-}
-.models-nav-row {
+/* Models drill-in: back strip above a provider/model detail */
+.models-detail-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  min-height: 32px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
+  margin: 0 0 16px;
 }
-.models-nav-row.is-child {
-  padding-left: 28px;
-  color: var(--text-muted);
-}
-.models-nav-row:hover {
-  background: var(--bg-hover);
-}
-.models-nav-row.is-active {
-  background: var(--bg-selected);
-  color: var(--text);
-}
-.models-nav-label {
+.models-detail-head-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-}
-.models-nav-label.is-mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-.models-settings .input-base,
-.models-settings select.input-base {
-  height: 30px;
-  box-sizing: border-box;
-  font-size: 12px;
-}
-.models-settings .btn-primary,
-.models-settings .btn-ghost,
-.models-settings .btn-danger,
-.models-settings .btn-primary.btn-compact,
-.models-settings .btn-ghost.btn-compact,
-.models-settings .btn-danger.btn-compact {
-  height: 30px;
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-.models-enable-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-.models-enable-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.models-enable-toolbar .input-base {
-  flex: 1;
-  min-width: 0;
-}
-@media (max-width: 640px) {
-  .models-settings-split {
-    display: flex !important;
-    flex-direction: column;
-    overflow: auto;
-  }
-  .models-settings-nav {
-    max-height: 36vh;
-  }
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 .settings-perm-head,
 .settings-perm-row {

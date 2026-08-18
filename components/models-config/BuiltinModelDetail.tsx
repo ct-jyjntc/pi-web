@@ -65,81 +65,83 @@ export function BuiltinModelDetail({
 
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div>
       <DetailStrip title={t("models.model")} />
 
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
-        {error && (
-          <div style={{ fontSize: 12, color: "var(--destructive)" }}>{error}</div>
-        )}
+      {error && (
+        <div style={{ fontSize: 12, color: "var(--destructive)", margin: "0 0 8px" }}>{error}</div>
+      )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="settings-group">
+        <div className="settings-card">
           <Field label={t("models.idRequired")}>
             <ReadOnlyValue mono>{model.id}</ReadOnlyValue>
           </Field>
           <Field label={t("shell.name")}>
             <ReadOnlyValue>{model.name || model.id}</ReadOnlyValue>
           </Field>
-        </div>
 
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          {model.reasoningEditable === false ? (
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              {t("models.reasoning")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.reasoning ? "✓" : "—"}</strong>
-            </span>
-          ) : (
-            <Check
-              label={t("models.reasoning")}
-              checked={model.reasoning}
-              onChange={(v) => void savePatch({ reasoning: v })}
-            />
-          )}
-          <span style={{ fontSize: 12, color: "var(--text-muted)", alignSelf: "center" }}>
-            {t("models.imageInput")}: {""}
-            <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.supportsImage ? "✓" : "—"}</strong>
-          </span>
-        </div>
+          <div className="settings-row">
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              {model.reasoningEditable === false ? (
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {t("models.reasoning")}: <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.reasoning ? "✓" : "—"}</strong>
+                </span>
+              ) : (
+                <Check
+                  label={t("models.reasoning")}
+                  checked={model.reasoning}
+                  onChange={(v) => void savePatch({ reasoning: v })}
+                />
+              )}
+              <span style={{ fontSize: 12, color: "var(--text-muted)", alignSelf: "center" }}>
+                {t("models.imageInput")}: {""}
+                <strong style={{ color: "var(--text)", fontWeight: 600 }}>{model.supportsImage ? "✓" : "—"}</strong>
+              </span>
+            </div>
+          </div>
 
-        {model.reasoning && (
-          model.thinkingMapEditable === false ? (
-            <ThinkingMapSummary map={model.thinkingLevelMap} />
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <Check
-                label={t("models.thinkingBudget")}
-                checked={!!localMap && Object.keys(localMap).length > 0}
-                onChange={(on) => {
-                  if (!on) {
-                    onMapChange(undefined);
-                    return;
-                  }
-                  onMapChange(seedThinkingBudgetMap());
-                }}
-              />
-              {localMap && Object.keys(localMap).length > 0 && (
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <SectionTitle>{t("models.thinkingMap")}</SectionTitle>
-                    <button
-                      type="button"
-                      className="btn-ghost btn-compact"
-                      disabled={saving}
-                      onClick={() => onMapChange(undefined)}
-                    >
-                      {t("models.clearAll")}
-                    </button>
-                  </div>
-                  <ThinkingLevelMapEditor
-                    value={localMap}
-                    onChange={onMapChange}
+          {model.reasoning && (
+            <div className="settings-row is-stacked">
+              {model.thinkingMapEditable === false ? (
+                <ThinkingMapSummary map={model.thinkingLevelMap} />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <Check
+                    label={t("models.thinkingBudget")}
+                    checked={!!localMap && Object.keys(localMap).length > 0}
+                    onChange={(on) => {
+                      if (!on) {
+                        onMapChange(undefined);
+                        return;
+                      }
+                      onMapChange(seedThinkingBudgetMap());
+                    }}
                   />
+                  {localMap && Object.keys(localMap).length > 0 && (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <SectionTitle>{t("models.thinkingMap")}</SectionTitle>
+                        <button
+                          type="button"
+                          className="btn-ghost btn-compact"
+                          disabled={saving}
+                          onClick={() => onMapChange(undefined)}
+                        >
+                          {t("models.clearAll")}
+                        </button>
+                      </div>
+                      <ThinkingLevelMapEditor
+                        value={localMap}
+                        onChange={onMapChange}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )
-        )}
+          )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Field label={t("models.contextWindow")}>
             {model.contextWindowEditable !== false ? (
               <NumInput
